@@ -18,7 +18,7 @@ import org.sirix.settings.Fixed;
  *
  * @author Johannes Lichtenberger
  */
-public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlNode {
+public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, ImmutableXmlNode {
 
   /** Mutable {@link XmlDocumentRootNode} instance. */
   private final XmlDocumentRootNode mNode;
@@ -28,7 +28,7 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
    *
    * @param node mutable {@link XmlDocumentRootNode}
    */
-  private ImmutableDocumentNode(final XmlDocumentRootNode node) {
+  private ImmutableXmlDocumentRootNode(final XmlDocumentRootNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -38,8 +38,8 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
    * @param node the mutable {@link XmlDocumentRootNode} to wrap
    * @return immutable document root node instance
    */
-  public static ImmutableDocumentNode of(final XmlDocumentRootNode node) {
-    return new ImmutableDocumentNode(node);
+  public static ImmutableXmlDocumentRootNode of(final XmlDocumentRootNode node) {
+    return new ImmutableXmlDocumentRootNode(node);
   }
 
   @Override

@@ -1,6 +1,7 @@
 package org.sirix.index.path.summary;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.BitSet;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nonnegative;
+
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -32,11 +34,14 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
-import org.sirix.node.immutable.xml.ImmutableDocumentNode;
+import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
+import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
@@ -50,38 +55,50 @@ import com.google.common.base.MoreObjects;
  * Path summary reader organizing the path classes of a resource.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
-  /** Logger. */
-  private final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(PathSummaryReader.class));
-
-  /** Strong reference to currently selected node. */
+  /**
+   * Strong reference to currently selected node.
+   */
   private StructNode mCurrentNode;
 
-  /** Page reader. */
+  /**
+   * Page reader.
+   */
   private final PageReadOnlyTrx mPageReadTrx;
 
-  /** {@link ResourceManager} reference. */
+  /**
+   * {@link ResourceManager} reference.
+   */
   private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
-  /** Determines if path summary is closed or not. */
+  /**
+   * Determines if path summary is closed or not.
+   */
   private boolean mClosed;
 
-  /** Mapping of a path node key to the path node/document root node. */
+  /**
+   * Mapping of a path node key to the path node/document root node.
+   */
   private final Map<Long, StructNode> mPathNodeMapping;
 
-  /** Mapping of a {@link QNm} to a set of path nodes. */
+  /**
+   * Mapping of a {@link QNm} to a set of path nodes.
+   */
   private final Map<QNm, Set<PathNode>> mQNmMapping;
 
-  /** The path cache. */
+  /**
+   * The path cache.
+   */
   private final Map<Path<QNm>, Set<Long>> mPathCache;
+
+  private boolean mInit = true;
 
   /**
    * Private constructor.
    *
-   * @param pageReadTrx page reader
+   * @param pageReadTrx     page reader
    * @param resourceManager {@link ResourceManager} reference
    */
   private PathSummaryReader(final PageReadOnlyTrx pageReadTrx,
@@ -91,16 +108,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     mClosed = false;
     mResourceManager = resourceManager;
 
-    try {
-      final Optional<? extends Record> node =
-          mPageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
-      if (node.isPresent()) {
-        mCurrentNode = (StructNode) node.get();
-      } else {
-        throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
-      }
-    } catch (final SirixIOException e) {
-      LOGWRAPPER.error(e.getMessage(), e.getCause());
+    final Optional<? extends Record> node =
+        mPageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
+    if (node.isPresent()) {
+      mCurrentNode = (StructNode) node.get();
+    } else {
+      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
 
     mPathNodeMapping = new HashMap<>();
@@ -112,13 +125,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       if (first) {
         first = false;
       } else {
-        final Set<PathNode> pathNodes = mQNmMapping.get(this.getName()) == null
-            ? new HashSet<>()
-            : mQNmMapping.get(this.getName());
+        final Set<PathNode> pathNodes =
+            mQNmMapping.get(this.getName()) == null ? new HashSet<>() : mQNmMapping.get(this.getName());
         pathNodes.add(this.getPathNode());
         mQNmMapping.put(this.getName(), pathNodes);
       }
     }
+
+    mInit = false;
   }
 
   @Override
@@ -134,7 +148,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get a new path summary reader instance.
    *
-   * @param pageReadTrx the {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx     the {@link PageReadOnlyTrx} instance
    * @param resourceManager the {@link ResourceManager} instance
    * @return new path summary reader instance
    */
@@ -144,29 +158,28 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void putMapping(final @Nonnegative long pathNodeKey, final StructNode node) {
+  void putMapping(final @Nonnegative
+      long pathNodeKey, final StructNode node) {
     mPathNodeMapping.put(pathNodeKey, node);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  StructNode removeMapping(final @Nonnegative long pathNodeKey) {
+  StructNode removeMapping(final @Nonnegative
+      long pathNodeKey) {
     return mPathNodeMapping.remove(pathNodeKey);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
   void putQNameMapping(final PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null
-        ? new HashSet<>()
-        : mQNmMapping.get(name);
+    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<>() : mQNmMapping.get(name);
     pathNodes.add(node);
     mQNmMapping.put(name, pathNodes);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void removeQNameMapping(final @Nonnegative PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null
-        ? new HashSet<PathNode>()
-        : mQNmMapping.get(name);
+  void removeQNameMapping(final @Nonnegative
+      PathNode node, final QNm name) {
+    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<>() : mQNmMapping.get(name);
     if (pathNodes.size() == 1) {
       mQNmMapping.remove(name);
     } else {
@@ -177,12 +190,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match all descendants of the node denoted by its {@code pathNodeKey} with the given {@code name}.
    *
-   * @param name the QName
+   * @param name        the QName
    * @param pathNodeKey the path node key to start the search from
-   * @param inclSelf
+   * @param includeSelf if current node should be included or not
    * @return a set with bits set for each matching path node (its {@code pathNodeKey})
    */
-  public BitSet matchDescendants(final QNm name, final @Nonnegative long pathNodeKey, final IncludeSelf inclSelf) {
+  public BitSet matchDescendants(final QNm name, final @Nonnegative
+      long pathNodeKey, final IncludeSelf includeSelf) {
     assertNotClosed();
     final Set<PathNode> set = mQNmMapping.get(name);
     if (set == null) {
@@ -190,7 +204,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
     moveTo(pathNodeKey);
     final BitSet matches = new BitSet();
-    for (final long nodeKey : new FilterAxis<PathSummaryReader>(new DescendantAxis(this, inclSelf),
+    for (final long nodeKey : new FilterAxis<>(new DescendantAxis(this, includeSelf),
         new PathNameFilter(this, name.toString()))) {
       matches.set((int) nodeKey);
     }
@@ -200,11 +214,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match a {@link QNm} with a minimum level.
    *
-   * @param name the QName
+   * @param name     the QName
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
-  public BitSet match(final QNm name, final @Nonnegative int minLevel) {
+  public BitSet match(final QNm name, final @Nonnegative
+      int minLevel) {
     assertNotClosed();
     final Set<PathNode> set = mQNmMapping.get(name);
     if (set == null) {
@@ -223,7 +238,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Get a set of PCRs matching the specified collection of paths
    *
    * @param expressions the paths to lookup
-   * @param useCache determines if the cache can be used or not
+   * @param useCache    determines if the cache can be used or not
    * @return a set of PCRs matching the specified collection of paths
    * @throws SirixException if parsing a path fails
    */
@@ -244,11 +259,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param pathNodeKey path node key
    * @return path node corresponding to the provided key
    */
-  public PathNode getPathNodeForPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public PathNode getPathNodeForPathNodeKey(final @Nonnegative
+      long pathNodeKey) {
     assertNotClosed();
 
-    if (pathNodeKey <= 0)
+    if (pathNodeKey < 0) {
       throw new IllegalArgumentException("Key not supported.");
+    } else if (pathNodeKey == 0) {
+      return null;
+    }
     return (PathNode) mPathNodeMapping.get(pathNodeKey);
   }
 
@@ -256,7 +275,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public ImmutableNode getNode() {
     assertNotClosed();
     if (mCurrentNode instanceof XmlDocumentRootNode) {
-      return ImmutableDocumentNode.of((XmlDocumentRootNode) mCurrentNode);
+      return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) mCurrentNode);
+    } else if (mCurrentNode instanceof JsonDocumentRootNode) {
+      return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) mCurrentNode);
     }
     return ImmutablePathNode.of((PathNode) mCurrentNode);
   }
@@ -264,7 +285,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get path class records (PCRs) for the specified path.
    *
-   * @param path the path for which to get a set of PCRs
+   * @param path     the path for which to get a set of PCRs
    * @param useCache determines if the path cache can be used or not
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
@@ -286,7 +307,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     final long nodeKey = mCurrentNode.getNodeKey();
     moveToDocumentRoot();
-    for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
+    for (final Axis axis = new DescendantAxis(this); axis.hasNext(); ) {
       axis.next();
       final PathNode node = this.getPathNode();
 
@@ -307,8 +328,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     moveTo(nodeKey);
-    if (useCache)
+    if (useCache) {
       mPathCache.put(path, pcrSet);
+    }
     return pcrSet;
   }
 
@@ -335,6 +357,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public Move<? extends PathSummaryReader> moveTo(final long nodeKey) {
     assertNotClosed();
+
+    if (!mInit) {
+      final PathNode node = getPathNodeForPathNodeKey(nodeKey);
+
+      if (node != null) {
+        mCurrentNode = node;
+        return Move.moved(this);
+      }
+    }
 
     // Remember old node and fetch new one.
     final StructNode oldNode = mCurrentNode;
@@ -474,13 +505,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           ? ""
           : mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
-      final String prefix = prefixKey == -1
-          ? ""
-          : mPageReadTrx.getName(prefixKey, ((PathNode) mCurrentNode).getPathKind());
+      final String prefix =
+          prefixKey == -1 ? "" : mPageReadTrx.getName(prefixKey, ((PathNode) mCurrentNode).getPathKind());
       final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
-      final String localName = localNameKey == -1
-          ? ""
-          : mPageReadTrx.getName(localNameKey, ((PathNode) mCurrentNode).getPathKind());
+      final String localName =
+          localNameKey == -1 ? "" : mPageReadTrx.getName(localNameKey, ((PathNode) mCurrentNode).getPathKind());
       return new QNm(uri, prefix, localName);
     } else {
       return null;
@@ -537,6 +566,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public Path<QNm> getPath() {
     PathNode node = getPathNode();
+    if (node == null) {
+      moveToFirstChild();
+      node = getPathNode();
+
+      if (node == null) {
+        return null;
+      }
+    }
     final long nodeKey = getNodeKey();
     moveTo(node.getNodeKey());
     final PathNode[] paths = new PathNode[node.getLevel()];
@@ -545,7 +582,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       node = moveToParent().trx().getPathNode();
     }
 
-    final Path<QNm> path = new Path<QNm>();
+    final Path<QNm> path = new Path<>();
     for (final PathNode pathNode : paths) {
       moveTo(pathNode.getNodeKey());
       if (pathNode.getPathKind() == NodeKind.ATTRIBUTE) {
@@ -587,7 +624,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public boolean hasNode(final @Nonnegative long key) {
+  public boolean hasNode(final @Nonnegative
+      long key) {
     assertNotClosed();
     final long currNodeKey = mCurrentNode.getNodeKey();
     final boolean retVal = moveTo(key).hasMoved();
@@ -612,9 +650,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public boolean hasLastChild() {
     assertNotClosed();
     final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() == null
-        ? false
-        : true;
+    final boolean retVal = moveToLastChild() == null ? false : true;
     moveTo(nodeKey);
     return retVal;
   }

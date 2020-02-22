@@ -5,17 +5,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.node.NodeKind;
-import org.sirix.node.immutable.json.ImmutableArrayNode;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableObjectNode;
-import org.sirix.node.immutable.json.ImmutableObjectNullNode;
-import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectStringNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
+import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
 public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
@@ -151,7 +141,7 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
   }
 
   @Override
-  public VisitResult visit(org.sirix.node.immutable.json.ImmutableDocumentNode node) {
+  public VisitResult visit(ImmutableJsonDocumentRootNode node) {
     mFirst = false;
     return VisitResultType.CONTINUE;
   }

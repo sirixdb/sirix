@@ -47,7 +47,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.immutable.xml.ImmutableComment;
-import org.sirix.node.immutable.xml.ImmutableDocumentNode;
+import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
 import org.sirix.node.immutable.xml.ImmutablePI;
@@ -170,7 +170,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       case NAMESPACE:
         return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
       case XML_DOCUMENT:
-        return ImmutableDocumentNode.of((XmlDocumentRootNode) mCurrentNode);
+        return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) mCurrentNode);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");

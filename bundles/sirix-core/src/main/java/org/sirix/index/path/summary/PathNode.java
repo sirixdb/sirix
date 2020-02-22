@@ -22,7 +22,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  *
  */
-public class PathNode extends AbstractStructForwardingNode implements NameNode {
+public final class PathNode extends AbstractStructForwardingNode implements NameNode {
 
   /** {@link NodeDelegate} instance. */
   private final NodeDelegate mNodeDel;
@@ -80,7 +80,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
       node = reader.moveToParent().trx().getPathNode();
     }
 
-    final Path<QNm> p = new Path<QNm>();
+    final Path<QNm> p = new Path<>();
     for (final PathNode n : path) {
       reader.moveTo(n.getNodeKey());
       if (n.getPathKind() == NodeKind.ELEMENT) {

@@ -23,7 +23,7 @@ package org.sirix.api.visitor;
 
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.immutable.xml.ImmutableComment;
-import org.sirix.node.immutable.xml.ImmutableDocumentNode;
+import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
 import org.sirix.node.immutable.xml.ImmutablePI;
@@ -92,11 +92,11 @@ public interface XmlNodeVisitor extends NodeVisitor {
   }
 
   /**
-   * Do something when visiting the {@link ImmutableDocumentNode}.
+   * Do something when visiting the {@link ImmutableXmlDocumentRootNode}.
    *
-   * @param node the {@link ImmutableDocumentNode}
+   * @param node the {@link ImmutableXmlDocumentRootNode}
    */
-  default VisitResult visit(ImmutableDocumentNode node) {
+  default VisitResult visit(ImmutableXmlDocumentRootNode node) {
     return VisitResultType.CONTINUE;
   }
 }
