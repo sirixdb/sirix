@@ -34,7 +34,8 @@ public final class DatabasesInternals {
   /**
    * Remove a resource manager.
    *
-   * @param resource manager to remove
+   * @param file the resource file
+   * @param resourceManager manager to remove
    */
   public static synchronized void removeResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
     final Set<ResourceManager<?, ?>> resourceManagers = Databases.RESOURCE_MANAGERS.get(file);

@@ -105,10 +105,7 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
     if (!mBufferManagers.containsKey(resourceFile))
       mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
-    final XmlResourceManager resourceManager =
-        mResourceStore.openResource(this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
-
-    return resourceManager;
+    return mResourceStore.openResource(this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
   }
 
   @Override
