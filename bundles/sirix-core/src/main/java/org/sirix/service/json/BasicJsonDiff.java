@@ -165,22 +165,23 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
             jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
 
             if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
-              jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
+              jsonUpdateDiff.addProperty("oldName", oldRtx.getName().toString());
+              jsonUpdateDiff.addProperty("newName", newRtx.getName().toString());
             } else if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
               if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
                 jsonUpdateDiff.addProperty("type", "boolean");
-                jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
+                jsonUpdateDiff.addProperty("oldValue", oldRtx.getBooleanValue());
+                jsonUpdateDiff.addProperty("newValue", newRtx.getBooleanValue());
               } else if (newRtx.getKind() == NodeKind.STRING_VALUE
                   || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
                 jsonUpdateDiff.addProperty("type", "string");
-                jsonUpdateDiff.addProperty("value", newRtx.getValue());
-              } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
-                jsonUpdateDiff.addProperty("type", "null");
-                jsonUpdateDiff.add("value", null);
+                jsonUpdateDiff.addProperty("oldValue", oldRtx.getValue());
+                jsonUpdateDiff.addProperty("newValue", newRtx.getValue());
               } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE
                   || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
                 jsonUpdateDiff.addProperty("type", "number");
-                jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
+                jsonUpdateDiff.addProperty("oldValue", oldRtx.getNumberValue());
+                jsonUpdateDiff.addProperty("newValue", newRtx.getNumberValue());
               }
             }
 

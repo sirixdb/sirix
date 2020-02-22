@@ -47,7 +47,7 @@ import org.sirix.page.UnorderedKeyValuePage;
  * <h2>Description</h2>
  *
  * <p>
- * Each resource is bound to a {@code ResourceManager}. Readers/Writers can then be started from
+ * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single read/write transaction can then be started from
  * this instance. There can only be one write transaction at a time. However, multiple read-only
  * transactions can coexist concurrently.
  * </p>

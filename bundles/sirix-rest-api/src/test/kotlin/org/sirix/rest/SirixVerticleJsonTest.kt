@@ -212,12 +212,116 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 testContext.verify {
-                    assertEquals(200, response.statusCode())
+                    assertEquals(200, httpResponse.statusCode())
                     JSONAssert.assertEquals(
                             expectedHistoryJsonString.replace("\n", System.getProperty("line.separator")),
                             httpResponse.bodyAsString().replace("\"revisionTimestamp\":\"(?!\").+?\"".toRegex(), "\"revisionTimestamp\":\"2020-02-12T17:59:59.457Z\""),
                             false
                     )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the retrieval of the diff of a resource")
+    fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectedJson = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                """.trimIndent()
+
+                val json = """
+                 {
+                   "foo": ["bar", null, 2.33],
+                   "bar": { "hello": "world", "helloo": true },
+                   "baz": "hello",
+                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
+                 }
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendBufferAwait(Buffer.buffer(json))
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectedJson.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
+                val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+
+                val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
+
+                httpResponse = client.postAbs(url).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.getAbs("$server$serverPath/diff?first-revision=1&second-revision=2").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                val expectedDiffJsonString = """
+                """.trimIndent()
+
+                testContext.verify {
+                    assertEquals(200, httpResponse.statusCode())
+                    println(httpResponse.bodyAsString())
+//                    JSONAssert.assertEquals(
+//                        expectedHistoryJsonString.replace("\n", System.getProperty("line.separator")),
+//                        httpResponse.bodyAsString().replace("\"revisionTimestamp\":\"(?!\").+?\"".toRegex(), "\"revisionTimestamp\":\"2020-02-12T17:59:59.457Z\""),
+//                        false
+//                    )
                     testContext.completeNow()
                 }
             }
@@ -355,7 +459,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases with resources")
     fun testListDatabasesWithResource(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -677,7 +781,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

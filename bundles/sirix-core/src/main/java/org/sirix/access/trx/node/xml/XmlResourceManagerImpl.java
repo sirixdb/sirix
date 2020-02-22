@@ -50,11 +50,7 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
 /**
- * <h1>XdmResourceManager</h1>
- *
- * <p>
- * Makes sure that there only is a single resource manager instance per thread bound to a resource.
- * </p>
+ * Provides node transactions on different revisions of XML resources.
  */
 public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx>
     implements XmlResourceManager, InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> {
