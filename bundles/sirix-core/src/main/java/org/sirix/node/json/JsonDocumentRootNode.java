@@ -30,7 +30,7 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableDocumentNode;
+import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
@@ -96,7 +96,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
 
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableDocumentNode.of(this));
+    return visitor.visit(ImmutableJsonDocumentRootNode.of(this));
   }
 
   @Override

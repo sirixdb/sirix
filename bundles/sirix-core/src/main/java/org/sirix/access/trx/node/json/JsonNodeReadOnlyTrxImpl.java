@@ -19,7 +19,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableDocumentNode;
+import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.json.ImmutableNullNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
@@ -200,7 +200,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       case OBJECT_NULL_VALUE:
         return ImmutableObjectNullNode.of((ObjectNullNode) mCurrentNode);
       case JSON_DOCUMENT:
-        return ImmutableDocumentNode.of((JsonDocumentRootNode) mCurrentNode);
+        return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) mCurrentNode);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");

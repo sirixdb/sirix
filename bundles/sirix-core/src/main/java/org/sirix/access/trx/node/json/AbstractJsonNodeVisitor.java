@@ -27,7 +27,7 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableDocumentNode;
+import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.json.ImmutableNullNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
@@ -81,7 +81,7 @@ public abstract class AbstractJsonNodeVisitor implements JsonNodeVisitor {
   }
 
   @Override
-  public VisitResult visit(ImmutableDocumentNode node) {
+  public VisitResult visit(ImmutableJsonDocumentRootNode node) {
     return VisitResultType.CONTINUE;
   }
 

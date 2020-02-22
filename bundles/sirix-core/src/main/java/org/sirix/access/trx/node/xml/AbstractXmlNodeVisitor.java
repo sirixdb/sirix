@@ -26,7 +26,7 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.immutable.xml.ImmutableComment;
-import org.sirix.node.immutable.xml.ImmutableDocumentNode;
+import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
 import org.sirix.node.immutable.xml.ImmutablePI;
@@ -89,7 +89,7 @@ public abstract class AbstractXmlNodeVisitor implements XmlNodeVisitor {
   }
 
   @Override
-  public VisitResult visit(final ImmutableDocumentNode node) {
+  public VisitResult visit(final ImmutableXmlDocumentRootNode node) {
     return VisitResultType.CONTINUE;
   }
 

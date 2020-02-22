@@ -13,7 +13,7 @@ import org.sirix.node.json.JsonDocumentRootNode;
  *
  * @author Johannes Lichtenberger
  */
-public final class ImmutableDocumentNode extends AbstractImmutableJsonStructuralNode {
+public final class ImmutableJsonDocumentRootNode extends AbstractImmutableJsonStructuralNode {
 
   /** Mutable {@link JsonDocumentRootNode} instance. */
   private final JsonDocumentRootNode mNode;
@@ -23,7 +23,7 @@ public final class ImmutableDocumentNode extends AbstractImmutableJsonStructural
    *
    * @param node mutable {@link JsonDocumentRootNode}
    */
-  private ImmutableDocumentNode(final JsonDocumentRootNode node) {
+  private ImmutableJsonDocumentRootNode(final JsonDocumentRootNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -33,8 +33,8 @@ public final class ImmutableDocumentNode extends AbstractImmutableJsonStructural
    * @param node the mutable {@link JsonDocumentRootNode} to wrap
    * @return immutable document root node instance
    */
-  public static ImmutableDocumentNode of(final JsonDocumentRootNode node) {
-    return new ImmutableDocumentNode(node);
+  public static ImmutableJsonDocumentRootNode of(final JsonDocumentRootNode node) {
+    return new ImmutableJsonDocumentRootNode(node);
   }
 
   @Override

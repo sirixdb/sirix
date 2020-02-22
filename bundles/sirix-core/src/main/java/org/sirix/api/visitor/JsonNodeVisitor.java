@@ -23,7 +23,7 @@ package org.sirix.api.visitor;
 
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableDocumentNode;
+import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.json.ImmutableNullNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
@@ -142,11 +142,11 @@ public interface JsonNodeVisitor extends NodeVisitor {
   }
 
   /**
-   * Do something when visiting the {@link ImmutableDocumentNode}.
+   * Do something when visiting the {@link ImmutableJsonDocumentRootNode}.
    *
-   * @param node the {@link ImmutableDocumentNode}
+   * @param node the {@link ImmutableJsonDocumentRootNode}
    */
-  default VisitResult visit(ImmutableDocumentNode node) {
+  default VisitResult visit(ImmutableJsonDocumentRootNode node) {
     return VisitResultType.CONTINUE;
   }
 }
