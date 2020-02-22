@@ -289,20 +289,12 @@ class SirixVerticle : CoroutineVerticle() {
             Delete(location).handle(it)
         }
 
-        // "/:database/:resource/history"
-        get("/:database/:resource/history").produces("application/json").coroutineHandler {
+        // "/:database/:resource/:historyOrDiff"
+        get("/:database/:resource/:historyOrDiff").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             Get(location).handle(it)
-        }
-
-        // "/:database/:resource/diff"
-        get("/:database/:resource/diff").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            Diff(location).handle(it)
         }
 
         // Exception with status code

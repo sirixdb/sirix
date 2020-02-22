@@ -24,6 +24,11 @@ import java.util.stream.Collectors
 @Suppress("RedundantLambdaArrow")
 class Get(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
+        when (ctx.pathParam("historyOrDiff")) {
+            "diff" -> return Diff(location).handle(ctx)
+            "history" -> return History(location).handle(ctx)
+        }
+
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
         val resourceName: String? = ctx.pathParam("resource")
@@ -32,15 +37,7 @@ class Get(private val location: Path) {
             jsonBody?.getString("query")
         }
 
-        val history = ctx.pathParam("history")
-
-        if (history != null && databaseName != null && resourceName != null) {
-            context.executeBlockingAwait { _: Promise<Unit> ->
-                History().serialize(ctx, location, databaseName, resourceName)
-            }
-
-            return ctx.currentRoute()
-        }
+        val diff = ctx.pathParam("diff")
 
         val acceptHeader = ctx.request().getHeader(HttpHeaders.ACCEPT)
 
