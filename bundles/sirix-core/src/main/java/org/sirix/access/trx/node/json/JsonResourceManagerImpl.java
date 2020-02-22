@@ -51,11 +51,7 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
 /**
- * <h1>XdmResourceManager</h1>
- *
- * <p>
- * Makes sure that there only is a single resource manager instance per thread bound to a resource.
- * </p>
+ * Provides node transactions on different revisions of JSON resources.
  */
 public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx>
     implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> {

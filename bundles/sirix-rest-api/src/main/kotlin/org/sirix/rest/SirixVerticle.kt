@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.Delete
+import org.sirix.rest.crud.Diff
 import org.sirix.rest.crud.Get
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
@@ -288,12 +289,20 @@ class SirixVerticle : CoroutineVerticle() {
             Delete(location).handle(it)
         }
 
-        // "/:database/:resource/:history"
-        get("/:database/:resource/:history").produces("application/json").coroutineHandler {
+        // "/:database/:resource/history"
+        get("/:database/:resource/history").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             Get(location).handle(it)
+        }
+
+        // "/:database/:resource/diff"
+        get("/:database/:resource/diff").produces("application/json").coroutineHandler {
+            Auth(keycloak, AuthRole.VIEW).handle(it)
+            it.next()
+        }.coroutineHandler {
+            Diff(location).handle(it)
         }
 
         // Exception with status code
