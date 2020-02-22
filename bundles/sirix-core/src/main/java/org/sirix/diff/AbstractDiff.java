@@ -37,6 +37,9 @@ import org.sirix.node.NodeKind;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
@@ -154,6 +157,8 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private final boolean mSkipSubtrees;
 
+  private final Deque<Long> mRightSiblingKeys;
+
   /**
    * Constructor.
    *
@@ -191,6 +196,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     mDepth = new DepthCounter(builder.mNewDepth, builder.mOldDepth);
     mIsGUI = builder.mIsGUI;
     mIsFirst = true;
+    mRightSiblingKeys = new ArrayDeque<>();
   }
 
   /**
@@ -385,6 +391,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
           moved = moveToFollowingNode(rtx, revision);
         }
       } else {
+        mRightSiblingKeys.add(rtx.getNodeKey());
         moved = rtx.moveToFirstChild().hasMoved();
 
         if (moved && rtx.getKind() != NodeKind.OBJECT_KEY) {

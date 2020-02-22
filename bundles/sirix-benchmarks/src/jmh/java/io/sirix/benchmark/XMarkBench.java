@@ -29,6 +29,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -39,8 +40,6 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 @Fork(value = 2, jvmArgs = { "-Xms2G", "-Xmx2G" })
 public class XMarkBench {
-
-  private static final Path XML = Paths.get("src", "jmh", "resources");
 
   public static final String USER_HOME = System.getProperty("user.home");
 
@@ -121,84 +120,84 @@ public class XMarkBench {
 
   @Benchmark
   public void xmark01(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q01.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q01.xq"), StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark02(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q02.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q02.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark03(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q03.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q03.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark04(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q04.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q04.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark05(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q05.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q05.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark06(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q06.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q06.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark07(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q07.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q07.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark08(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q08.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q08.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark09(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q09.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q09.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark10(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q10.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q10.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark11(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q11.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q11.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark12(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q12.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q12.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
@@ -206,7 +205,7 @@ public class XMarkBench {
 
   @Benchmark
   public void xmark13(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q13.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q13.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
@@ -214,7 +213,7 @@ public class XMarkBench {
 
   @Benchmark
   public void xmark14(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q14.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q14.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
@@ -222,7 +221,7 @@ public class XMarkBench {
 
   @Benchmark
   public void xmark15(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q15.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q15.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
@@ -230,35 +229,35 @@ public class XMarkBench {
 
   @Benchmark
   public void xmark16(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q16.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q16.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark17(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q17.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q17.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark18(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q18.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q18.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark19(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q19.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q19.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }
 
   @Benchmark
   public void xmark20(MyState state) throws Exception {
-    final var queryString = String.join("\n", Files.readAllLines(MyState.QUERY_DIR.resolve("q20.xq")));
+    final var queryString = Files.readString(MyState.QUERY_DIR.resolve("q20.xq"),  StandardCharsets.UTF_8);
     final var query = xquery(state, queryString);
     query.serialize(state.ctx, state.buffer);
   }

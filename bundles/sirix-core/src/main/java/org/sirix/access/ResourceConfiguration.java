@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -343,10 +343,9 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[2]).value(config.numberOfRevisionsToRestore);
       jsonWriter.endObject();
       // ByteHandlers.
-      final ByteHandlePipeline byteHandler = config.byteHandlePipeline;
       jsonWriter.name(JSONNAMES[3]);
       jsonWriter.beginArray();
-      for (final ByteHandler handler : byteHandler.getComponents()) {
+      for (final ByteHandler handler : config.byteHandlePipeline.getComponents()) {
         ByteHandlerKind.getKind(handler.getClass()).serialize(handler, jsonWriter);
       }
       jsonWriter.endArray();
@@ -413,7 +412,7 @@ public final class ResourceConfiguration {
       }
       jsonReader.endArray();
       final ByteHandlePipeline pipeline =
-          new ByteHandlePipeline(handlerList.toArray(new ByteHandler[handlerList.size()]));
+          new ByteHandlePipeline(handlerList.toArray(new ByteHandler[0]));
       // Storage type.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[4]);
@@ -429,7 +428,6 @@ public final class ResourceConfiguration {
       final HashFunction hashFunction;
       switch (jsonReader.nextString()) {
         case "Hashing.sha256()":
-          hashFunction = Hashing.sha256();
           break;
         default:
           throw new IllegalStateException("Hashing function not supported.");

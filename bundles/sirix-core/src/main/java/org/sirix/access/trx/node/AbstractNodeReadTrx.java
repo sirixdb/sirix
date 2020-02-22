@@ -22,6 +22,10 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
+/**
+ * A skeletal implementation of a read-only node transaction.
+ * @param <T> the type of node cursor
+ */
 public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
@@ -30,10 +34,17 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   /** State of transaction including all cached stuff. */
   protected PageReadOnlyTrx mPageReadTrx;
 
+  /** The current node. */
   protected ImmutableNode mCurrentNode;
 
+  /**
+   * Constructor.
+   * @param trxId the transaction ID
+   * @param pageReadTransaction the underlying read-only page transaction
+   * @param documentNode the document root node
+   */
   public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
-      final ImmutableNode documentNode) {
+      final @Nonnull ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
     mId = trxId;
     mPageReadTrx = checkNotNull(pageReadTransaction);
@@ -252,9 +263,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   public boolean hasNode(final @Nonnegative long key) {
     assertNotClosed();
     final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveTo(key).equals(Move.notMoved())
-        ? false
-        : true;
+    final boolean retVal = !moveTo(key).equals(Move.notMoved());
     moveTo(nodeKey);
     return retVal;
   }
@@ -342,9 +351,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   public boolean hasLastChild() {
     assertNotClosed();
     final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() == null
-        ? false
-        : true;
+    final boolean retVal = moveToLastChild() != null;
     moveTo(nodeKey);
     return retVal;
   }
