@@ -24,12 +24,6 @@ import java.util.stream.Collectors
 @Suppress("RedundantLambdaArrow")
 class GetHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        when (ctx.pathParam("historyOrDiff")) {
-            "diff" -> return DiffHandler(location).handle(ctx)
-            "history" -> return HistoryHandler(location).handle(ctx)
-            "pathSummary" -> return PathSummaryHandler(location).handle(ctx)
-        }
-
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
         val resourceName: String? = ctx.pathParam("resource")

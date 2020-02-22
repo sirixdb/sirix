@@ -27,9 +27,7 @@ import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
-import org.sirix.rest.crud.CreateMultipleResources
-import org.sirix.rest.crud.Delete
-import org.sirix.rest.crud.GetHandler
+import org.sirix.rest.crud.*
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -288,12 +286,24 @@ class SirixVerticle : CoroutineVerticle() {
             Delete(location).handle(it)
         }
 
-        // "/:database/:resource/:historyOrDiff"
-        get("/:database/:resource/:historyOrDiff").produces("application/json").coroutineHandler {
+        // "/:database/:resource/subroutes"
+        get("/:database/:resource/history").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location).handle(it)
+            HistoryHandler(location).handle(it)
+        }
+        get("/:database/:resource/diff").produces("application/json").coroutineHandler {
+            Auth(keycloak, AuthRole.VIEW).handle(it)
+            it.next()
+        }.coroutineHandler {
+            DiffHandler(location).handle(it)
+        }
+        get("/:database/:resource/pathSummary").produces("application/json").coroutineHandler {
+            Auth(keycloak, AuthRole.VIEW).handle(it)
+            it.next()
+        }.coroutineHandler {
+            PathSummaryHandler(location).handle(it)
         }
 
         // Exception with status code
