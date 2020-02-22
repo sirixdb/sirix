@@ -29,8 +29,7 @@ import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.Delete
-import org.sirix.rest.crud.Diff
-import org.sirix.rest.crud.Get
+import org.sirix.rest.crud.GetHandler
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -168,14 +167,14 @@ class SirixVerticle : CoroutineVerticle() {
                     Auth(keycloak, AuthRole.VIEW).handle(it)
                     it.next()
                 }.handler(BodyHandler.create()).coroutineHandler {
-                    Get(location).handle(it)
+                    GetHandler(location).handle(it)
                 }
 
         get("/").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            GetHandler(location).handle(it)
         }
 
         delete("/").coroutineHandler {
@@ -197,7 +196,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            GetHandler(location).handle(it)
         }
 
         put("/:database").consumes("application/xml").coroutineHandler {
@@ -259,14 +258,14 @@ class SirixVerticle : CoroutineVerticle() {
                     Auth(keycloak, AuthRole.VIEW).handle(it)
                     it.next()
                 }.handler(BodyHandler.create()).coroutineHandler {
-                    Get(location).handle(it)
+                    GetHandler(location).handle(it)
                 }
 
         get("/:database/:resource").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            GetHandler(location).handle(it)
         }
 
         put("/:database/:resource").consumes("application/xml").coroutineHandler {
@@ -294,7 +293,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            GetHandler(location).handle(it)
         }
 
         // Exception with status code
