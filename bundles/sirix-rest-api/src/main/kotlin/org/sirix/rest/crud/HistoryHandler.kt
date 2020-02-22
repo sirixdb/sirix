@@ -12,7 +12,7 @@ import org.sirix.service.json.serialize.StringValue
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
-class History(private val location: Path) {
+class HistoryHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resourceName = ctx.pathParam("resource")

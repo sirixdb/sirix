@@ -12,7 +12,7 @@ import org.sirix.service.json.BasicJsonDiff
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
-class Diff(private val location: Path) {
+class DiffHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")

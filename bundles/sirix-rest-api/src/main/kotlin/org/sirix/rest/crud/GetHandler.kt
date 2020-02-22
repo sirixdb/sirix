@@ -22,11 +22,12 @@ import java.nio.file.Path
 import java.util.stream.Collectors
 
 @Suppress("RedundantLambdaArrow")
-class Get(private val location: Path) {
+class GetHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         when (ctx.pathParam("historyOrDiff")) {
-            "diff" -> return Diff(location).handle(ctx)
-            "history" -> return History(location).handle(ctx)
+            "diff" -> return DiffHandler(location).handle(ctx)
+            "history" -> return HistoryHandler(location).handle(ctx)
+            "pathSummary" -> return PathSummaryHandler(location).handle(ctx)
         }
 
         val context = ctx.vertx().orCreateContext
