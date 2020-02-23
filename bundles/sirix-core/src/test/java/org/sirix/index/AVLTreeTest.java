@@ -71,7 +71,7 @@ public class AVLTreeTest {
     wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
     wtx.moveTo(1);
     wtx.insertElementAsFirstChild(new QNm("bla"));
-    wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
+    final var nodeKey = wtx.insertAttribute(new QNm("foobar"), "bbbb").getNodeKey();
     wtx.commit();
 
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
@@ -88,7 +88,7 @@ public class AVLTreeTest {
     wtx.moveTo(1);
     wtx.insertElementAsFirstChild(new QNm("bla"));
     wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
-    final var nodeKey = wtx.moveToAttributeByName(new QNm("foobar")).trx().getNodeKey();
+    final var secondNodeKey = wtx.moveToAttributeByName(new QNm("foobar")).trx().getNodeKey();
     wtx.commit();
 
     reader =
@@ -98,7 +98,7 @@ public class AVLTreeTest {
 
     check(bazRefs3, ImmutableSet.of(8L, 10L));
 
-    wtx.moveTo(nodeKey);
+    wtx.moveTo(secondNodeKey);
     wtx.remove();
     wtx.commit();
 
@@ -108,6 +108,17 @@ public class AVLTreeTest {
     final Optional<NodeReferences> bazRefs4 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
     check(bazRefs4, ImmutableSet.of(8L));
+
+    wtx.moveTo(nodeKey);
+    wtx.remove();
+    wtx.commit();
+
+    reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+
+    check(bazRefs5, ImmutableSet.of());
   }
 
   @Test
