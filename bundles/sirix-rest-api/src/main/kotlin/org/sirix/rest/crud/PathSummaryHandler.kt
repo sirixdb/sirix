@@ -59,7 +59,7 @@ class PathSummaryHandler(private val location: Path) {
                             }
                         }
 
-                        buffer.append("]")
+                        buffer.append("]}")
                     } else {
                         buffer.append("{\"pathSummary\":[]}")
                     }
