@@ -67,7 +67,7 @@ public final class CASIndexListener {
       final CASValue indexValue = new CASValue(value, mType, pathNodeKey);
       final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(indexValue, SearchMode.EQUAL);
       if (textReferences.isPresent()) {
-        setNodeReferences(node, textReferences.get(), indexValue);
+        setNodeReferences(node, new NodeReferences(textReferences.get().getNodeKeys()), indexValue);
       } else {
         setNodeReferences(node, new NodeReferences(), indexValue);
       }

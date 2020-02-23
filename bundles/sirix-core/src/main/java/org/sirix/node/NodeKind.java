@@ -593,10 +593,8 @@ public enum NodeKind implements NodePersistenter {
       long key = getVarLong(source);
       nodeKeys.add(key);
       for (int i = 1; i < keySize; i++) {
-        if (i + 1 < keySize) {
-          key += getVarLong(source);
-          nodeKeys.add(key);
-        }
+        key += getVarLong(source);
+        nodeKeys.add(key);
       }
       final Type atomicType = resolveType(new String(type, Constants.DEFAULT_ENCODING));
 

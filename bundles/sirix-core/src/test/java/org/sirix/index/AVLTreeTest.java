@@ -55,10 +55,10 @@ public class AVLTreeTest {
   public void testAttributeIndex() throws SirixException, PathException {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    final XmlIndexController indexController =
+    XmlIndexController indexController =
         holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Optional.ofNullable(Type.STR),
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
         Collections.singleton(Path.parse("//bla/@foobar")), 0);
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
@@ -76,7 +76,7 @@ public class AVLTreeTest {
 
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
-    final AVLTreeReader<CASValue, NodeReferences> reader =
+    AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
     final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
     assertTrue(fooRefs.isEmpty());
@@ -84,6 +84,18 @@ public class AVLTreeTest {
     check(bazRefs1, ImmutableSet.of(3L));
     final Optional<NodeReferences> bazRefs2 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
     check(bazRefs2, ImmutableSet.of(8L));
+
+    wtx.moveTo(1);
+    wtx.insertElementAsFirstChild(new QNm("bla"));
+    wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
+    wtx.commit();
+
+    reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    final Optional<NodeReferences> bazRefs3 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+
+    check(bazRefs3, ImmutableSet.of(8L, 10L));
   }
 
   @Test
