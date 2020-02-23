@@ -1506,19 +1506,20 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           moveTo(node.getParentKey());
         }
       } else if (getCurrentNode().getKind() == NodeKind.ATTRIBUTE) {
-        final ImmutableNode node = mNodeReadOnlyTrx.getCurrentNode();
+        final AttributeNode node = (AttributeNode) mNodeReadOnlyTrx.getCurrentNode();
 
+        mIndexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
         final ElementNode parent =
             (ElementNode) mPageWriteTrx.prepareEntryForModification(node.getParentKey(), PageKind.RECORDPAGE, -1);
         parent.removeAttribute(node.getNodeKey());
         adaptHashesWithRemove();
         mPageWriteTrx.removeEntry(node.getNodeKey(), PageKind.RECORDPAGE, -1);
         removeName();
-        mIndexController.notifyChange(ChangeType.DELETE, getNode(), parent.getPathNodeKey());
         moveToParent();
       } else if (getCurrentNode().getKind() == NodeKind.NAMESPACE) {
-        final ImmutableNode node = mNodeReadOnlyTrx.getCurrentNode();
+        final NamespaceNode node = (NamespaceNode) mNodeReadOnlyTrx.getCurrentNode();
 
+        mIndexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
         final ElementNode parent =
             (ElementNode) mPageWriteTrx.prepareEntryForModification(node.getParentKey(), PageKind.RECORDPAGE, -1);
         parent.removeNamespace(node.getNodeKey());
