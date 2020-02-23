@@ -27,15 +27,13 @@ public final class IndexDefs {
    * Create a CAS {@link IndexDef} instance.
    *
    * @param unique determine if it's unique
-   * @param type an optional type
+   * @param optType an optional type
    * @param paths the paths to index
    * @return a new {@link IndexDef} instance
    */
-  public static IndexDef createCASIdxDef(final boolean unique, final Optional<Type> optType, final Set<Path<QNm>> paths,
+  public static IndexDef createCASIdxDef(final boolean unique, final Type optType, final Set<Path<QNm>> paths,
       final int indexDefNo) {
-    final Type type = optType.isPresent()
-        ? optType.get()
-        : Type.STR;
+    final Type type = optType == null ? Type.STR : optType;
     return new IndexDef(type, paths, unique, indexDefNo);
   }
 

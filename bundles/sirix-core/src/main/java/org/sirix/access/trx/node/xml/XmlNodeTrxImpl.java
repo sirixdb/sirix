@@ -161,9 +161,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private final boolean mCompression;
 
   /**
-   * The {@link XmlIndexController} used within the session this {@link XmlNodeTrx} is bound to.
+   * The {@link XmlIndexController} used within the resource manager this {@link XmlNodeTrx} is bound to.
    */
-  private final XmlIndexController mIndexController;
+  private XmlIndexController mIndexController;
 
   /** The resource manager. */
   private final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> mResourceManager;
@@ -1830,6 +1830,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     }
 
     // Recreate index listeners.
+    mIndexController = mResourceManager.getWtxIndexController(mNodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     mIndexController.createIndexListeners(mIndexController.getIndexes().getIndexDefs(), this);
   }
 

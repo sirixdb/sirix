@@ -17,6 +17,7 @@ import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
@@ -120,15 +121,15 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     }
     final RevisionRootPage root = mPageWriteTrx.getActualRevisionRootPage();
     if (mAVLTreeReader.getAVLNode() == null
-        && ((XmlDocumentRootNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        && ((StructNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       // Index is empty.. create root node.
       final long nodeKey = getNewNodeKey(root);
       final AVLNode<K, V> treeRoot = (AVLNode<K, V>) mPageWriteTrx.createEntry(nodeKey,
           new AVLNode<>(key, value,
               new NodeDelegate(nodeKey, Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), null, null, 0, null)),
           mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
-      final XmlDocumentRootNode document =
-          (XmlDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final StructNode document =
+          (StructNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       document.setFirstChildKey(treeRoot.getNodeKey());
       document.incrementChildCount();
@@ -173,8 +174,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
         node.setRightChildKey(child.getNodeKey());
         adjust(child);
       }
-      final XmlDocumentRootNode document =
-          (XmlDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final StructNode document =
+          (StructNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       document.incrementDescendantCount();
       return value;
@@ -288,7 +289,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 
     final long nodeKey = getNodeKey();
     moveToDocumentRoot();
-    if (((XmlDocumentRootNode) getNode()).hasFirstChild()) {
+    if (((StructNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
       setChanged(mAVLTreeReader.getAVLNode(), false);
     }
@@ -382,9 +383,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     right.setParentKey(node.getParentKey());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      final XmlDocumentRootNode parent =
-          (XmlDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-              mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
+      final StructNode parent = (StructNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       parent.setFirstChildKey(right.getNodeKey());
     } else if (moveTo(node.getParentKey()).hasMoved()
         && mAVLTreeReader.getAVLNode().getLeftChildKey() == node.getNodeKey()) {

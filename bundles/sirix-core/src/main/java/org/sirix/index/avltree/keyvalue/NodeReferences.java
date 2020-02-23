@@ -32,7 +32,8 @@ public final class NodeReferences implements References {
    * @param nodeKeys node keys
    */
   public NodeReferences(final Set<Long> nodeKeys) {
-    mNodeKeys = nodeKeys;
+    assert nodeKeys != null;
+    mNodeKeys = new HashSet<>(nodeKeys);
   }
 
   @Override

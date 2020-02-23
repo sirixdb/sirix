@@ -156,7 +156,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    */
   AVLNode<K, V> getAVLNode() {
     assertNotClosed();
-    if (mCurrentNode.getKind() != NodeKind.XML_DOCUMENT) {
+    if (mCurrentNode.getKind() != NodeKind.XML_DOCUMENT && mCurrentNode.getKind() != NodeKind.JSON_DOCUMENT) {
       @SuppressWarnings("unchecked")
       final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
       return node;
@@ -209,7 +209,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<V> get(final K key, final SearchMode mode) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((XmlDocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((StructNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
