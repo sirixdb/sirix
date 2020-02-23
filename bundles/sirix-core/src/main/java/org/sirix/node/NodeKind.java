@@ -590,11 +590,13 @@ public enum NodeKind implements NodePersistenter {
       source.readFully(type, 0, typeSize);
       final int keySize = source.readInt();
       final Set<Long> nodeKeys = new HashSet<>(keySize);
-      long key = getVarLong(source);
-      nodeKeys.add(key);
-      for (int i = 1; i < keySize; i++) {
-        key += getVarLong(source);
+      if (keySize > 0) {
+        long key = getVarLong(source);
         nodeKeys.add(key);
+        for (int i = 1; i < keySize; i++) {
+          key += getVarLong(source);
+          nodeKeys.add(key);
+        }
       }
       final Type atomicType = resolveType(new String(type, Constants.DEFAULT_ENCODING));
 
@@ -635,11 +637,13 @@ public enum NodeKind implements NodePersistenter {
       final List<Long> listNodeKeys = new ArrayList<>(nodeKeys);
       Collections.sort(listNodeKeys);
       sink.writeInt(listNodeKeys.size());
-      putVarLong(sink, listNodeKeys.get(0));
-      for (int i = 0; i < listNodeKeys.size(); i++) {
-        if (i + 1 < listNodeKeys.size()) {
-          final long diff = listNodeKeys.get(i + 1) - listNodeKeys.get(i);
-          putVarLong(sink, diff);
+      if (!listNodeKeys.isEmpty()) {
+        putVarLong(sink, listNodeKeys.get(0));
+        for (int i = 0; i < listNodeKeys.size(); i++) {
+          if (i + 1 < listNodeKeys.size()) {
+            final long diff = listNodeKeys.get(i + 1) - listNodeKeys.get(i);
+            putVarLong(sink, diff);
+          }
         }
       }
       serializeDelegate(node.getNodeDelegate(), sink);
