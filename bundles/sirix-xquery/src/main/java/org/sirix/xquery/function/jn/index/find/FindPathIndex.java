@@ -60,8 +60,6 @@ public final class FindPathIndex extends AbstractFunction {
     final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
     final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(path);
 
-    if (indexDef.isPresent())
-      return new Int32(indexDef.get().getID());
-    return new Int32(-1);
+    return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
   }
 }
