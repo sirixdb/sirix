@@ -1,52 +1,12 @@
 package org.sirix.access.trx.node;
 
-
-
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalXmlDatabase;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.ResourceStore;
-import org.sirix.access.User;
+import org.sirix.access.*;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.access.trx.page.RevisionRootPageReader;
-import org.sirix.api.Database;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.PageTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.RevisionInfo;
+import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
@@ -64,6 +24,28 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
 
@@ -75,9 +57,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   /** Write lock to assure only one exclusive write transaction exists. */
   final Lock mWriteLock;
-
-  /** Read semaphore to control running read transactions. */
-  final Semaphore mReadSemaphore;
 
   /** Strong reference to uber page before the begin of a write transaction. */
   final AtomicReference<UberPage> mLastCommittedUberPage;
@@ -130,8 +109,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public AbstractResourceManager(final Database<? extends ResourceManager<R, W>> database,
       final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
       final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-      final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
-      final @Nonnull Lock writeLock, final @Nullable User user) {
+      final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
     mDatabase = checkNotNull(database);
     mResourceStore = checkNotNull(resourceStore);
     mResourceConfig = checkNotNull(resourceConf);
@@ -146,7 +124,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     mPageTrxIDCounter = new AtomicLong();
     mCommitLock = new ReentrantLock(false);
 
-    mReadSemaphore = checkNotNull(readSemaphore);
     mWriteLock = checkNotNull(writeLock);
 
     mLastCommittedUberPage = new AtomicReference<>(uberPage);
@@ -162,7 +139,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   protected void inititializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
     final Path indexes = getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                         .resolve(String.valueOf(revision) + ".xml");
+                                                         .resolve(revision + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -274,16 +251,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public synchronized R beginNodeReadOnlyTrx(@Nonnegative final int revisionKey) {
     assertAccess(revisionKey);
 
-    // Make sure not to exceed available number of read transactions.
-    try {
-      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No read transactions available, please close at least one read transaction at first!");
-      }
-    } catch (final InterruptedException e) {
-      throw new SirixThreadedException(e);
-    }
-
     final PageReadOnlyTrx pageReadTrx = beginPageReadOnlyTrx(revisionKey);
 
     final Node documentNode = getDocumentNode(pageReadTrx);
@@ -365,16 +332,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixThreadedException(e);
     }
 
-    // Make sure not to exceed available number of read transactions.
-    try {
-      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No read transactions available, please close at least one read transaction at first!");
-      }
-    } catch (final InterruptedException e) {
-      throw new SirixThreadedException(e);
-    }
-
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = mNodeTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
@@ -401,6 +358,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       try {
         mThreadPool.awaitTermination(5, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
+        throw new IllegalStateException(e);
       }
 
       // Close all open node transactions.
@@ -411,17 +369,14 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
           ((JsonNodeTrx) rtx).rollback();
         }
         rtx.close();
-        rtx = null;
       }
       // Close all open node page transactions.
       for (PageReadOnlyTrx rtx : mNodePageTrxMap.values()) {
         rtx.close();
-        rtx = null;
       }
       // Close all open page transactions.
       for (PageReadOnlyTrx rtx : mPageTrxMap.values()) {
         rtx.close();
-        rtx = null;
       }
 
       // Immediately release all ressources.
@@ -450,11 +405,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       throw new IllegalArgumentException("Revision must be at least 0!");
     } else if (revision > mLastCommittedUberPage.get().getRevision()) {
       throw new IllegalArgumentException(
-          new StringBuilder("Revision must not be bigger than ")
-                                                                .append(Long.toString(
-                                                                    mLastCommittedUberPage.get().getRevision()))
-                                                                .append("!")
-                                                                .toString());
+          "Revision must not be bigger than " + Long.toString(mLastCommittedUberPage.get().getRevision()) + "!");
     }
   }
 
@@ -462,12 +413,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     if (mClosed) {
       throw new IllegalStateException("Resource manager is already closed!");
     }
-  }
-
-  @Override
-  public int getAvailableNodeReadTrx() {
-    assertNotClosed();
-    return mReadSemaphore.availablePermits();
   }
 
   @Override
@@ -536,9 +481,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     // Remove from internal map.
     removeFromPageMapping(transactionID);
-
-    // Make new transactions available.
-    mReadSemaphore.release();
   }
 
   /**
@@ -568,9 +510,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     // Remove from internal map.
     mPageTrxMap.remove(transactionID);
-
-    // Make new transactions available.
-    mReadSemaphore.release();
   }
 
   /**
@@ -641,16 +580,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public synchronized PageReadOnlyTrx beginPageReadOnlyTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
-    // Make sure not to exceed available number of read transactions.
-    try {
-      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No read transactions available, please close at least one read transaction at first!");
-      }
-    } catch (final InterruptedException e) {
-      throw new SirixThreadedException(e);
-    }
-
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
     final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID, this, mLastCommittedUberPage.get(),
                                                                 revision, mFac.createReader(), null, null, mBufferManager, new RevisionRootPageReader());
@@ -676,16 +605,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     try {
       if (!mWriteLock.tryLock(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException("No write transaction available, please close the write transaction first.");
-      }
-    } catch (final InterruptedException e) {
-      throw new SirixThreadedException(e);
-    }
-
-    // Make sure not to exceed available number of read transactions.
-    try {
-      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No read transactions available, please close at least one read transaction at first!");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
@@ -734,7 +653,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public R beginNodeReadOnlyTrx(final Instant pointInTime) {
+  public R beginNodeReadOnlyTrx(final @Nonnull Instant pointInTime) {
     checkNotNull(pointInTime);
     assertNotClosed();
 
@@ -788,7 +707,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public int getRevisionNumber(final Instant pointInTime) {
+  public int getRevisionNumber(final @Nonnull Instant pointInTime) {
     checkNotNull(pointInTime);
     assertNotClosed();
 

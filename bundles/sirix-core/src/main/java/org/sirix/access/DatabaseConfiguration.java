@@ -127,9 +127,6 @@ public final class DatabaseConfiguration {
   /** Maximum unique resource ID. */
   private long mMaxResourceID;
 
-  /** Maximum of open resource read transactions. */
-  private int mMaxResourceReadTrx;
-
   /** The database type. */
   private DatabaseType mDatabaseType;
 
@@ -141,21 +138,6 @@ public final class DatabaseConfiguration {
   public DatabaseConfiguration(final Path file) {
     mBinaryVersion = BINARY;
     mFile = file;
-    // For temporal axis (for instance we can have a reading trx in principle on every possible
-    // revision) -- all-time axis.
-    mMaxResourceReadTrx = Integer.MAX_VALUE;
-  }
-
-  /**
-   * Set maximum number of open resource read-only transactions.
-   *
-   * @param max maximum concurrent reading resource transactions.
-   * @return this {@link DatabaseConfiguration} instance
-   */
-  public DatabaseConfiguration setMaxResourceReadTrx(final int max) {
-    checkArgument(max > 0);
-    mMaxResourceReadTrx = max;
-    return this;
   }
 
   /**
@@ -176,15 +158,6 @@ public final class DatabaseConfiguration {
    */
   public DatabaseType getDatabaseType() {
     return mDatabaseType;
-  }
-
-  /**
-   * Get the maximum number of open resource read-only transactions.
-   *
-   * @return The maximum number of open resource read-only transactions.
-   */
-  public int getMaxResourceReadTrx() {
-    return mMaxResourceReadTrx;
   }
 
   /**
@@ -266,7 +239,6 @@ public final class DatabaseConfiguration {
       final String filePath = config.mFile.toAbsolutePath().toString();
       jsonWriter.name("file").value(filePath);
       jsonWriter.name("ID").value(config.mMaxResourceID);
-      jsonWriter.name("max-resource-read-trx").value(config.mMaxResourceReadTrx);
       jsonWriter.name("databaseType").value(config.mDatabaseType.toString());
       jsonWriter.endObject();
     } catch (final IOException e) {
@@ -293,9 +265,6 @@ public final class DatabaseConfiguration {
       final String IDName = jsonReader.nextName();
       assert IDName.equals("ID");
       final int ID = jsonReader.nextInt();
-      final String maxResourceRtxName = jsonReader.nextName();
-      assert maxResourceRtxName.equals("max-resource-read-trx");
-      final int maxResourceRtx = jsonReader.nextInt();
       final String databaseType = jsonReader.nextName();
       assert databaseType.equals("databaseType");
       final String type = jsonReader.nextString();
@@ -303,7 +272,6 @@ public final class DatabaseConfiguration {
       final DatabaseType dbType =
           DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
       return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
-                                              .setMaxResourceReadTrx(maxResourceRtx)
                                               .setDatabaseType(dbType);
     } catch (final IOException e) {
       throw new SirixIOException(e);

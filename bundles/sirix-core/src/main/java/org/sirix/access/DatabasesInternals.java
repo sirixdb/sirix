@@ -1,20 +1,16 @@
 package org.sirix.access;
 
+import org.sirix.api.ResourceManager;
+
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import org.sirix.api.ResourceManager;
 
 public final class DatabasesInternals {
   private DatabasesInternals() {
     throw new AssertionError();
-  }
-
-  public static Semaphore computeReadSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
-    return Databases.RESOURCE_READ_SEMAPHORES.computeIfAbsent(resourcePath, res -> new Semaphore(numberOfPermits));
   }
 
   public static Lock computeWriteLockIfAbsent(Path resourcePath) {
