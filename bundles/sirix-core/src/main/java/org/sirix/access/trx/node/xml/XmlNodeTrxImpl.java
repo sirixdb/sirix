@@ -1034,7 +1034,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       if (getCurrentNode() instanceof StructNode && !value.isEmpty()) {
         checkAccessAndCommit();
 
-        final long pathNodeKey = getCurrentNode().getNodeKey();
+        final long pathNodeKey = ((NameNode) getCurrentNode()).getPathNodeKey();
         final long parentKey = getCurrentNode().getNodeKey();
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         final long rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();

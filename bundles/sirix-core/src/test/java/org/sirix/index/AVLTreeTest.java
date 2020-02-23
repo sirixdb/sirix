@@ -1,10 +1,6 @@
 package org.sirix.index;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.util.Collections;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -19,14 +15,16 @@ import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.index.IndexDef;
-import org.sirix.index.IndexDefs;
-import org.sirix.index.IndexType;
-import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Test the AVLTree implementation.
@@ -40,19 +38,19 @@ public class AVLTreeTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     holder = Holder.openResourceManager();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void testAttributeIndex() throws SirixException, PathException {
+  public void testCASAttributeIndex() throws PathException {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
     XmlIndexController indexController =
@@ -122,15 +120,31 @@ public class AVLTreeTest {
   }
 
   @Test
-  public void testTextIndex() throws SirixException {
-    // final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-    // wtx.insertElementAsFirstChild(new QNm("bla"));
-    // wtx.insertTextAsFirstChild("bla");
-    // wtx.insertElementAsRightSibling(new QNm("blabla"));
-    // wtx.insertTextAsFirstChild("blabla");
-    // wtx.commit();
-    // final AVLTreeReader<CASValue, NodeReferences> textIndex = wtx
-    // .getTextValueIndex();
+  public void testCASTextIndex() throws SirixException {
+    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+
+    XmlIndexController indexController =
+        holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
+        Collections.singleton(Path.parse("//bla/blabla")), 0);
+
+    indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
+
+    wtx.insertElementAsFirstChild(new QNm("bla"));
+    wtx.insertTextAsFirstChild("tadaaaa");
+    wtx.insertElementAsRightSibling(new QNm("blabla"));
+    wtx.insertTextAsFirstChild("törööö");
+    wtx.commit();
+
+    final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
+
+    AVLTreeReader<CASValue, NodeReferences> reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    final Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+
+    check(blablaRefs, ImmutableSet.of(4L));
   }
 
   private void check(final Optional<NodeReferences> barRefs, final Set<Long> keys) {
