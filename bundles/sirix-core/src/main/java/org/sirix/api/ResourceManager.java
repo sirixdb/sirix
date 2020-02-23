@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -273,13 +273,6 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return {@link ResourceConfiguration} instance bound to session
    */
   ResourceConfiguration getResourceConfig();
-
-  /**
-   * Get available number of {@link XmlNodeReadOnlyTrx}s.
-   *
-   * @return available number of {@link XmlNodeReadOnlyTrx}s
-   */
-  int getAvailableNodeReadTrx();
 
   /**
    * Get the index controller.

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,13 +21,6 @@
 
 package org.sirix.access.trx.node.xml;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
@@ -48,6 +41,13 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
 
 /**
  * Provides node transactions on different revisions of XML resources.
@@ -70,17 +70,14 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
    * @param bufferManager the cache of in-memory pages shared amongst all node transactions
    * @param storage the storage itself, used for I/O
    * @param uberPage the UberPage, which is the main entry point into a resource
-   * @param readSemaphore the read semaphore, which is used to determine how many concurrent
-   *        reading-transactions might be opened
    * @param writeLock the write lock, which ensures, that only a single read-write transaction is
    *        opened on a resource
    * @param user a user, which interacts with SirixDB, might be {@code null}
    */
   public XmlResourceManagerImpl(final Database<XmlResourceManager> database,
       final @Nonnull XmlResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
-      final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock, final @Nullable User user) {
-    super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock, user);
+      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
+    super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
 
     mRtxIndexControllers = new ConcurrentHashMap<>();
     mWtxIndexControllers = new ConcurrentHashMap<>();

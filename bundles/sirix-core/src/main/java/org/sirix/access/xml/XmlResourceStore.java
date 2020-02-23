@@ -53,14 +53,11 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
       final Storage storage = StorageType.getStorage(resourceConfig);
       final UberPage uberPage = getUberPage(storage);
 
-      // Get sempahores.
-      final Semaphore readSem = DatabasesInternals.computeReadSempahoreIfAbsent(resourceConfig.getResource(),
-          database.getDatabaseConfig().getMaxResourceReadTrx());
       final Lock writeLock = DatabasesInternals.computeWriteLockIfAbsent(resourceConfig.getResource());
 
       // Create the resource manager instance.
       final XmlResourceManager resourceManager = new XmlResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock, mUser);
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, mUser);
 
       // Put it in the databases cache.
       DatabasesInternals.putResourceManager(resourceFile, resourceManager);
