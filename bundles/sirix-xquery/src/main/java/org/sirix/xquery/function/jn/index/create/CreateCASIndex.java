@@ -97,7 +97,7 @@ public final class CreateCASIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Optional.ofNullable(type), paths,
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), wtx);
