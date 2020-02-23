@@ -88,6 +88,7 @@ public class AVLTreeTest {
     wtx.moveTo(1);
     wtx.insertElementAsFirstChild(new QNm("bla"));
     wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
+    final var nodeKey = wtx.moveToAttributeByName(new QNm("foobar")).trx().getNodeKey();
     wtx.commit();
 
     reader =
@@ -96,6 +97,17 @@ public class AVLTreeTest {
     final Optional<NodeReferences> bazRefs3 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
     check(bazRefs3, ImmutableSet.of(8L, 10L));
+
+    wtx.moveTo(nodeKey);
+    wtx.remove();
+    wtx.commit();
+
+    reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    final Optional<NodeReferences> bazRefs4 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+
+    check(bazRefs4, ImmutableSet.of(8L));
   }
 
   @Test

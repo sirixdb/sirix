@@ -218,12 +218,17 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     boolean removed = false;
     if (searchedValue.isPresent()) {
       final V value = searchedValue.get();
+
       removed = value.removeNodeKey(nodeKey);
+
+      if (removed) {
+        @SuppressWarnings("unchecked")
+        final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(mAVLTreeReader.getNodeKey(), mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
+        node.getValue().removeNodeKey(nodeKey);
+      }
       // final boolean removed = value.removeNodeKey(nodeKey);
       //
-      // @SuppressWarnings("unchecked")
-      // final AVLNode<K, V> node = (AVLNode<K, V>) mAVLTreeReader.mPageWriteTrx
-      // .prepareEntryForModification(mAVLTreeReader.getNodeKey(),
+
       // mAVLTreeReader.mPageKind,
       // Optional.<UnorderedKeyValuePage> empty());
       // node.setValue(value);
