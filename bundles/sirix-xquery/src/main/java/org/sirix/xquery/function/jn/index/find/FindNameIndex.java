@@ -61,8 +61,6 @@ public final class FindNameIndex extends AbstractFunction {
     final QNm qnm = (QNm) Cast.cast(sctx, (Atomic) args[1], Type.QNM, false);
     final Optional<IndexDef> indexDef = controller.getIndexes().findNameIndex(qnm);
 
-    if (indexDef.isPresent())
-      return new Int32(indexDef.get().getID());
-    return new Int32(-1);
+    return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
   }
 }
