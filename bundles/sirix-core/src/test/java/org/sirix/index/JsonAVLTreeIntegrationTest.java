@@ -36,7 +36,7 @@ public final class JsonAVLTreeIntegrationTest {
   }
 
   @Test
-  public void testCreateCASIndex() {
+  public void testCreateCASIndexWhileListeningAndPathIndexOnDemand() {
     test("abc-location-stations.json");
   }
 

@@ -26,8 +26,16 @@ import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.*
 
-class JsonCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
+class JsonCreate(
+    private val location: Path,
+    private val createMultipleResources: Boolean = false
+) {
+    /** Temporary directory path.  */
+    private val TMPDIR = Paths.get(System.getProperty("java.io.tmpdir"))
+
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
@@ -55,7 +63,10 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         return ctx.currentRoute()
     }
 
-    private suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
+    private suspend fun createMultipleResources(
+        databaseName: String,
+        ctx: RoutingContext
+    ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
@@ -71,20 +82,28 @@ class JsonCreate(private val location: Path, private val createMultipleResources
                 val fileName = fileUpload.fileName()
                 val resConfig = ResourceConfiguration.Builder(fileName).build()
 
-                createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
+                createOrRemoveAndCreateResource(
+                    database,
+                    resConfig,
+                    fileName,
+                    dispatcher
+                )
 
                 val manager = database.openResourceManager(fileName)
 
                 manager.use {
-                    insertJsonSubtreeAsFirstChild(manager, fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath())
+                    insertJsonSubtreeAsFirstChild(
+                        manager,
+                        fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
+                    )
                 }
             }
         }
     }
 
     private suspend fun shredder(
-            databaseName: String, resPathName: String = databaseName,
-            ctx: RoutingContext
+        databaseName: String, resPathName: String = databaseName,
+        ctx: RoutingContext
     ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
@@ -97,12 +116,16 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun insertResource(
-            dbFile: Path?, resPathName: String,
-            dispatcher: CoroutineDispatcher,
-            ctx: RoutingContext
+        dbFile: Path?, resPathName: String,
+        dispatcher: CoroutineDispatcher,
+        ctx: RoutingContext
     ) {
         ctx.request().pause()
-        val file = ctx.vertx().fileSystem().openAwait("temp.json", OpenOptions())
+        val fileResolver = FileResolver()
+        val filePath = fileResolver.resolveFile(UUID.randomUUID().toString())
+        val file = ctx.vertx().fileSystem().openAwait(filePath.toString(),
+            OpenOptions()
+        )
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
 
@@ -111,16 +134,25 @@ class JsonCreate(private val location: Path, private val createMultipleResources
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
-                val fileResolver = FileResolver()
-                val resConfig = ResourceConfiguration.Builder(resPathName).build()
-                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+                val resConfig =
+                    ResourceConfiguration.Builder(resPathName).build()
+                createOrRemoveAndCreateResource(
+                    database,
+                    resConfig,
+                    resPathName,
+                    dispatcher
+                )
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
-                    val pathToFile = fileResolver.resolveFile("temp.json").toPath()
-                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
+                    val pathToFile =
+                        filePath.toPath()
+                    val maxNodeKey = insertJsonSubtreeAsFirstChild(
+                        manager,
+                        pathToFile.toAbsolutePath()
+                    )
 
-                    ctx.vertx().fileSystem().deleteAwait("temp.json")
+                    ctx.vertx().fileSystem().deleteAwait(filePath.toString())
 
                     if (maxNodeKey < 5000) {
                         serializeJson(manager, ctx)
@@ -132,19 +164,28 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         }
     }
 
-    private suspend fun serializeJson(manager: JsonResourceManager, routingCtx: RoutingContext) {
+    private suspend fun serializeJson(
+        manager: JsonResourceManager,
+        routingCtx: RoutingContext
+    ) {
         withContext(Dispatchers.IO) {
             val out = StringWriter()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out)
             val serializer = serializerBuilder.build()
 
-            JsonSerializeHelper().serialize(serializer, out, routingCtx, manager, null)
+            JsonSerializeHelper().serialize(
+                serializer,
+                out,
+                routingCtx,
+                manager,
+                null
+            )
         }
     }
 
     private suspend fun createDatabaseIfNotExists(
-            dbFile: Path,
-            context: Context
+        dbFile: Path,
+        context: Context
     ): DatabaseConfiguration? {
         return context.executeBlockingAwait { promise: Promise<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
@@ -164,9 +205,9 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun createOrRemoveAndCreateResource(
-            database: Database<JsonResourceManager>,
-            resConfig: ResourceConfiguration?,
-            resPathName: String, dispatcher: CoroutineDispatcher
+        database: Database<JsonResourceManager>,
+        resConfig: ResourceConfiguration?,
+        resPathName: String, dispatcher: CoroutineDispatcher
     ) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
@@ -177,13 +218,17 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun insertJsonSubtreeAsFirstChild(
-            manager: JsonResourceManager,
-            resFileToStore: Path
+        manager: JsonResourceManager,
+        resFileToStore: Path
     ): Long {
         return withContext(Dispatchers.IO) {
             val wtx = manager.beginNodeTrx()
             return@withContext wtx.use {
-                wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(resFileToStore))
+                wtx.insertSubtreeAsFirstChild(
+                    JsonShredder.createFileReader(
+                        resFileToStore
+                    )
+                )
                 return@use wtx.maxNodeKey
             }
         }

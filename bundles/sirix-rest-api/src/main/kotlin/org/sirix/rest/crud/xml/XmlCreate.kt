@@ -31,8 +31,13 @@ import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.*
 
 class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
+    /** Temporary directory path.  */
+    private val TMPDIR = Paths.get(System.getProperty("java.io.tmpdir"))
+
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
@@ -107,7 +112,11 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             ctx: RoutingContext
     ) {
         ctx.request().pause()
-        val file = ctx.vertx().fileSystem().openAwait("temp.json", OpenOptions())
+        val fileResolver = FileResolver()
+        val filePath = fileResolver.resolveFile(UUID.randomUUID().toString())
+        val file = ctx.vertx().fileSystem().openAwait(filePath.toString(),
+            OpenOptions()
+        )
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
 
@@ -116,16 +125,15 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
             database.use {
-                val fileResolver = FileResolver()
                 val resConfig = ResourceConfiguration.Builder(resPathName).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
-                    val pathToFile = fileResolver.resolveFile("temp.json").toPath()
+                    val pathToFile = filePath.toPath()
                     val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-                    ctx.vertx().fileSystem().deleteAwait("temp.json")
+                    ctx.vertx().fileSystem().deleteAwait(filePath.toString())
 
                     if (maxNodeKey < 5000) {
                         serializeXml(manager, ctx)
