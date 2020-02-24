@@ -19,8 +19,6 @@ import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 
-import java.io.BufferedOutputStream;
-import java.io.PrintStream;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
@@ -34,7 +32,7 @@ import static org.junit.Assert.assertTrue;
  * @author Johannes Lichtenberger
  *
  */
-public class AVLTreeTest {
+public final class XmlAVLTreeIntegrationTest {
 
   /** {@link Holder} reference. */
   private Holder holder;
@@ -132,7 +130,7 @@ public class AVLTreeTest {
   }
 
   @Test
-  public void testCASTextIndex() throws SirixException {
+  public void testCASTextIndex() {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
     XmlIndexController indexController =
@@ -161,10 +159,6 @@ public class AVLTreeTest {
     wtx.moveTo(nodeKey);
     wtx.remove();
 
-    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"), false);
-
-    assertTrue(pathNodeKeys.isEmpty());
-
     reader =
         AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
@@ -184,6 +178,10 @@ public class AVLTreeTest {
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
     check(blablaRefs, ImmutableSet.of());
+
+    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"), false);
+
+    assertTrue(pathNodeKeys.isEmpty());
   }
 
   private void check(final Optional<NodeReferences> barRefs, final Set<Long> keys) {

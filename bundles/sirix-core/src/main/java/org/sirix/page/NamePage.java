@@ -217,10 +217,10 @@ public final class NamePage extends AbstractForwardingPage {
         name = mJSONObjectKeys.getName(key);
         break;
       case ARRAY:
-        name = "$$array$$";
+        name = "__array__";
         break;
       case OBJECT:
-        name = "$$object$$";
+        name = "__object__";
         // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
