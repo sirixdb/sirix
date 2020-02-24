@@ -132,7 +132,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     val pathToFile = filePath.toPath()
                     val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-                    ctx.vertx().fileSystem().deleteAwait(filePath.toString())
+                    ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
 
                     if (maxNodeKey < 5000) {
                         serializeXml(manager, ctx)

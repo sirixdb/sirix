@@ -151,7 +151,7 @@ class JsonCreate(
                         pathToFile.toAbsolutePath()
                     )
 
-                    ctx.vertx().fileSystem().deleteAwait(filePath.toString())
+                    ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
 
                     if (maxNodeKey < 5000) {
                         serializeJson(manager, ctx)
