@@ -35,7 +35,7 @@ public final class CASIndexListener {
   }
 
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
-    mPathSummaryReader.moveTo(pathNodeKey);
+    assert mPathSummaryReader.moveTo(pathNodeKey).hasMoved();
     try {
       switch (type) {
         case INSERT:

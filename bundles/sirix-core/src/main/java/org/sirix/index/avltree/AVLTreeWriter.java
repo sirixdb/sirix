@@ -1,10 +1,5 @@
 package org.sirix.index.avltree;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 import org.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageTrx;
@@ -18,16 +13,17 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
-import org.sirix.page.CASPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Simple AVLTreeWriter (balanced binary search-tree -- based on BaseX(.org) version).
@@ -439,8 +435,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     leftChild.setParentKey(node.getParentKey());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      final XmlDocumentRootNode parent =
-          (XmlDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final StructNode parent =
+          (StructNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       parent.setFirstChildKey(leftChild.getNodeKey());
     } else if (moveTo(node.getParentKey()).hasMoved()

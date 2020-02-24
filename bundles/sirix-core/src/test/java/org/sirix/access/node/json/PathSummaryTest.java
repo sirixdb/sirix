@@ -70,7 +70,7 @@ public class PathSummaryTest {
     assertEquals(11L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("$$array$$"), axis.asPathSummary().getName());
+    assertEquals(new QNm("__array__"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     summary = next(axis);
@@ -81,7 +81,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(10L, summary.getRightSiblingKey());
-    assertEquals(new QNm("$$array$$"), axis.asPathSummary().getName());
+    assertEquals(new QNm("__array__"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
@@ -163,7 +163,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("$$array$$"), axis.asPathSummary().getName());
+    assertEquals(new QNm("__array__"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);

@@ -574,7 +574,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter.getPathNodeKey(new QNm(name), kind) : 0;
 
-    mNodeReadOnlyTrx.moveTo(nodeKey);
+    assert mNodeReadOnlyTrx.moveTo(nodeKey).hasMoved();
 
     return pathNodeKey;
   }
@@ -640,7 +640,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currentNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "__array__", NodeKind.ARRAY);
 
       final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey);
 
@@ -694,7 +694,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      final long pathNodeKey = structNode.getNodeKey();
+      final long pathNodeKey = getPathNodeKey(structNode);
       final long parentKey = structNode.getNodeKey();
 
       final byte[] textValue = getBytes(value);
@@ -717,6 +717,19 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     } finally {
       unLock();
     }
+  }
+
+  private long getPathNodeKey(StructNode structNode) {
+    final long pathNodeKey;
+
+    if (structNode.getKind() == NodeKind.ARRAY) {
+      pathNodeKey = ((ArrayNode) structNode).getPathNodeKey();
+    } else if (structNode.getKind() == NodeKind.OBJECT_KEY) {
+      pathNodeKey = ((ObjectKeyNode) structNode).getPathNodeKey();
+    } else {
+      pathNodeKey = -1;
+    }
+    return pathNodeKey;
   }
 
   private void adaptNodesAndHashesForInsertAsFirstChild(final ImmutableJsonNode node) {
@@ -765,16 +778,16 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
-      final long pathNodeKey = currentNode.getNodeKey();
-      final long parentKey = currentNode.getNodeKey();
+      final StructNode structNode = (StructNode) getCurrentNode();
+      final long pathNodeKey = getPathNodeKey(structNode);
+      final long parentKey = structNode.getNodeKey();
 
       final AbstractBooleanNode node;
       if (kind == NodeKind.OBJECT_KEY) {
         node = mNodeFactory.createJsonObjectBooleanNode(parentKey, value);
       } else {
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        final long rightSibKey = currentNode.getFirstChildKey();
+        final long rightSibKey = structNode.getFirstChildKey();
         node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
       }
 
@@ -827,7 +840,17 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     // Get the path node key.
     moveToParentObjectKeyArrayOrDocumentRoot();
-    final long pathNodeKey = isObjectKey() ? ((ImmutableObjectKeyNode) getNode()).getPathNodeKey() : -1;
+
+    final long pathNodeKey;
+
+    if (isObjectKey()) {
+      pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
+    } else if (isArray()) {
+      pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
+    } else {
+      pathNodeKey = -1;
+    }
+
     moveTo(node.getNodeKey());
 
     mNodeReadOnlyTrx.setCurrentNode(node);
@@ -849,7 +872,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       checkAccessAndCommit();
 
       final StructNode currentNode = (StructNode) getCurrentNode();
-      final long pathNodeKey = currentNode.getNodeKey();
+      final long pathNodeKey = getPathNodeKey(currentNode);
       final long parentKey = currentNode.getNodeKey();
 
       final AbstractNumberNode node;
