@@ -8,6 +8,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.file.closeAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.file.readFileAwait
@@ -116,6 +117,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         )
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
+        file.closeAwait()
 
         withContext(Dispatchers.IO) {
             val sirixDBUser = SirixDBUser.create(ctx)
