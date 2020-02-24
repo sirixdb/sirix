@@ -19,6 +19,8 @@ import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 
+import java.io.BufferedOutputStream;
+import java.io.PrintStream;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
@@ -76,6 +78,11 @@ public class AVLTreeTest {
 
     AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"), false);
+
+    assertEquals(ImmutableSet.of(3L, 8L), pathNodeKeys);
+
     final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
     assertTrue(fooRefs.isEmpty());
     final Optional<NodeReferences> bazRefs1 = reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
@@ -117,6 +124,11 @@ public class AVLTreeTest {
     final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
     check(bazRefs5, ImmutableSet.of());
+
+//    try (final var printStream = new PrintStream(new BufferedOutputStream(System.out))) {
+//      reader.dump(printStream);
+//      printStream.flush();
+//    }
   }
 
   @Test
@@ -131,10 +143,10 @@ public class AVLTreeTest {
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
 
-    wtx.insertElementAsFirstChild(new QNm("bla"));
+    final long blaNodeKey = wtx.insertElementAsFirstChild(new QNm("bla")).getNodeKey();
     wtx.insertTextAsFirstChild("tadaaaa");
-    wtx.insertElementAsRightSibling(new QNm("blabla"));
-    wtx.insertTextAsFirstChild("törööö");
+    final long blablaNodeKey = wtx.insertElementAsRightSibling(new QNm("blabla")).getNodeKey();
+    final long nodeKey = wtx.insertTextAsFirstChild("törööö").getNodeKey();
     wtx.commit();
 
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
@@ -142,9 +154,36 @@ public class AVLTreeTest {
     AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
-    final Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+    Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
     check(blablaRefs, ImmutableSet.of(4L));
+
+    wtx.moveTo(nodeKey);
+    wtx.remove();
+
+    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"), false);
+
+    assertTrue(pathNodeKeys.isEmpty());
+
+    reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+
+    check(blablaRefs, ImmutableSet.of());
+
+    assertTrue(wtx.moveTo(blablaNodeKey).hasMoved());
+    wtx.insertTextAsFirstChild("törööö");
+    wtx.moveTo(blaNodeKey);
+    wtx.remove();
+    wtx.commit();
+
+    reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+
+    blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+
+    check(blablaRefs, ImmutableSet.of());
   }
 
   private void check(final Optional<NodeReferences> barRefs, final Set<Long> keys) {

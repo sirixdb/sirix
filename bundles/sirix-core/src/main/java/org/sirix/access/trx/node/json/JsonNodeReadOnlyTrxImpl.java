@@ -274,12 +274,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     return this;
   }
 
-  public void setCurrentNode(ImmutableNode node) {
-    assertNotClosed();
-    assert node != null : "Node must be given.";
-    mCurrentNode = node;
-  }
-
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();

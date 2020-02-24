@@ -128,7 +128,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
     }
-    if (node.getKind() == NodeKind.XML_DOCUMENT) {
+    if (node.getKind() == NodeKind.XML_DOCUMENT || node.getKind() == NodeKind.JSON_DOCUMENT) {
       return 0;
     }
     return -1;

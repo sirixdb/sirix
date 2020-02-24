@@ -25,6 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Array;
 import java.math.BigInteger;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -66,10 +67,7 @@ import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
-import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.*;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -985,6 +983,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
         axis.next();
 
+        final var currentNode = axis.getCursor().getNode();
+
         // Remove name.
         removeName();
 
@@ -992,7 +992,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         removeValue();
 
         // Then remove node.
-        mPageWriteTrx.removeEntry(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+        mPageWriteTrx.removeEntry(currentNode.getNodeKey(), PageKind.RECORDPAGE, -1);
+      }
+
+      // Remove the name of subtree-root.
+      if (node.getKind() == NodeKind.OBJECT_KEY) {
+        removeName();
+      } else {
+        removeValue();
       }
 
       // Adapt hashes and neighbour nodes as well as the name from the
@@ -1002,11 +1009,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       adaptHashesWithRemove();
       adaptForRemove(node);
       mNodeReadOnlyTrx.setCurrentNode(jsonNode);
-
-      // Remove the name of subtree-root.
-      if (node.getKind() == NodeKind.OBJECT_KEY) {
-        removeName();
-      }
 
       if (node.hasRightSibling()) {
         moveTo(node.getRightSiblingKey());
@@ -1023,7 +1025,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void removeValue() {
-    if (getCurrentNode() instanceof ValueNode) {
+    final var currentNode = getCurrentNode();
+    if (currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
+        || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.BOOLEAN_VALUE) {
       final long nodeKey = getNodeKey();
 
       final long pathNodeKey;
@@ -1051,6 +1056,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void removeName() {
     if (getCurrentNode() instanceof ImmutableNameNode) {
       final ImmutableNameNode node = ((ImmutableNameNode) getCurrentNode());
+      mIndexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
       page.removeName(node.getLocalNameKey(), nodeKind, mPageWriteTrx);

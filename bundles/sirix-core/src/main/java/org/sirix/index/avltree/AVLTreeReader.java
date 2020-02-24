@@ -125,7 +125,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public void dump(final PrintStream out) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (((XmlDocumentRootNode) getNode()).hasFirstChild()) {
+    if (((StructNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
     } else {
       return;
@@ -469,7 +469,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       }
       return moveTo(node.getLeftChildKey());
     }
-    return moveTo(((XmlDocumentRootNode) mCurrentNode).getFirstChildKey());
+    return moveTo(((StructNode) mCurrentNode).getFirstChildKey());
   }
 
   @Override
