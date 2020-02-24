@@ -8,7 +8,6 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.file.closeAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.file.readFileAwait
@@ -117,7 +116,6 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         )
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
-        file.closeAwait()
 
         withContext(Dispatchers.IO) {
             val sirixDBUser = SirixDBUser.create(ctx)
@@ -132,7 +130,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     val pathToFile = filePath.toPath()
                     val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-                    ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
+                    ctx.vertx().fileSystem().deleteAwait(filePath.toString())
 
                     if (maxNodeKey < 5000) {
                         serializeXml(manager, ctx)
@@ -200,7 +198,9 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             return@withContext wtx.use {
                 val inputStream = FileInputStream(resFileToStore.toFile())
                 return@use inputStream.use {
-                    wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(inputStream))
+                    val eventStream = XmlShredder.createFileReader(inputStream)
+                    wtx.insertSubtreeAsFirstChild(eventStream)
+                    eventStream.close()
                     wtx.maxNodeKey
                 }
             }
