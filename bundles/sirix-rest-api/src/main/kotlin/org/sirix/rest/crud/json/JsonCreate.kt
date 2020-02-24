@@ -220,8 +220,9 @@ class JsonCreate(
             val wtx = manager.beginNodeTrx()
             return@withContext wtx.use {
                 val eventReader = JsonShredder.createFileReader(resFileToStore)
-                wtx.insertSubtreeAsFirstChild(eventReader)
-                eventReader.close()
+                eventReader.use {
+                    wtx.insertSubtreeAsFirstChild(eventReader)
+                }
                 return@use wtx.maxNodeKey
             }
         }
