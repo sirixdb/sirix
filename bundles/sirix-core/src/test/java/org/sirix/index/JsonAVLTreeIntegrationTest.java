@@ -36,7 +36,7 @@ public final class JsonAVLTreeIntegrationTest {
   }
 
   @Test
-  public void test() {
+  public void testCreateCASIndex() {
     test("abc-location-stations.json");
   }
 
@@ -48,12 +48,12 @@ public final class JsonAVLTreeIntegrationTest {
       var indexController =
           manager.getWtxIndexController(trx.getRevisionNumber() - 1);
 
-      final var path = parse("/features/__array__/type");
+      final var pathToFeatureType = parse("/features/__array__/type");
 
-      final var idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
-          Collections.singleton(path), 0);
+      final var idxDefOfFeatureType = IndexDefs.createCASIdxDef(false, Type.STR,
+          Collections.singleton(pathToFeatureType), 0);
 
-      indexController.createIndexes(ImmutableSet.of(idxDef), trx);
+      indexController.createIndexes(ImmutableSet.of(idxDefOfFeatureType), trx);
 
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
@@ -64,7 +64,7 @@ public final class JsonAVLTreeIntegrationTest {
       AVLTreeReader<CASValue, NodeReferences> reader =
           AVLTreeReader.getInstance(trx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
-      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(path, false);
+      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType, false);
 
       assertEquals(1, pathNodeKeys.size());
 
@@ -72,6 +72,23 @@ public final class JsonAVLTreeIntegrationTest {
 
       assertTrue(references.isPresent());
       assertEquals(53, references.get().getNodeKeys().size());
+
+      final var pathToName = parse("/features/__array__/properties/name");
+      final var idxDefOfPathToName = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 1);
+
+      indexController.createIndexes(ImmutableSet.of(idxDefOfPathToName), trx);
+
+      final var pathIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.PATH);
+
+      final var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
+
+      index.forEachRemaining(nodeReferences -> {
+        assertEquals(53, nodeReferences.getNodeKeys().size());
+        for (final long nodeKey : nodeReferences.getNodeKeys()) {
+          trx.moveTo(nodeKey);
+          assertEquals("name", trx.getName().getLocalName());
+        }
+      });
     }
   }
 }

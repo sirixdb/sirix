@@ -37,14 +37,13 @@ public final class CASValue implements Comparable<CASValue> {
   /**
    * Constructor.
    *
-   * @param value the String value in bytes
-   * @param nodeKey the unique node-key
+   * @param value the atomic value
+   * @param type the type of the value
    * @param pathNodeKey the path node-key
    */
   public CASValue(final Atomic value, final Type type, final @Nonnegative long pathNodeKey) {
     mValue = checkNotNull(value);
     mType = checkNotNull(type);
-    mType.atomicCode();
     mPathNodeKey = pathNodeKey;
   }
 

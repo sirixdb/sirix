@@ -37,7 +37,6 @@ public final class PathFilter implements Filter {
   /**
    * Constructor. Initializes the internal state.
    *
-   * @param rtx transaction this filter is bound to
    * @param paths paths to match
    * @param pcrCollector path class record collector
    */

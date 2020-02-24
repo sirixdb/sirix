@@ -32,7 +32,7 @@ public interface PathIndex<B, L extends ChangeListener> {
     final AVLTreeReader<Long, NodeReferences> reader =
         AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
 
-    if (filter.getPCRs().size() == 1) {
+    if (filter != null && filter.getPCRs().size() == 1) {
       final Optional<NodeReferences> optionalNodeReferences =
           reader.get(filter.getPCRs().iterator().next(), SearchMode.EQUAL);
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
@@ -43,7 +43,7 @@ public interface PathIndex<B, L extends ChangeListener> {
           ? ImmutableSet.of()
           : ImmutableSet.of(filter);
 
-      return new IndexFilterAxis<Long>(iter, setFilter);
+      return new IndexFilterAxis<>(iter, setFilter);
     }
   }
 }

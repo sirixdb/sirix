@@ -57,14 +57,13 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixIOException if an I/O exception occurs while deserializing the index configuration
    *         for the specified {@code revision}
    */
-  public static boolean containsIndex(final IndexType type, final ResourceManager<?, ?> resourceManager,
-      final int revision) {
+  static boolean containsIndex(final IndexType type, final ResourceManager<?, ?> resourceManager, final int revision) {
     final Indexes indexes = new Indexes();
 
     final java.nio.file.Path indexesFile =
         resourceManager.getResourcePath()
                        .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                       .resolve(String.valueOf(revision) + ".xml");
+                       .resolve(revision + ".xml");
 
     try {
       if (Files.exists(indexesFile) && Files.size(indexesFile) > 0) {
@@ -151,10 +150,10 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Deserialize from an {@link InputStream}.
    *
-   * @param out the {@link InputStream} from which to deserialize the XML fragment
+   * @param in the {@link InputStream} from which to deserialize the XML fragment
    * @throws SirixException if an exception occurs during serialization
    */
-  public static Node<?> deserialize(final InputStream in) throws SirixException {
+  static Node<?> deserialize(final InputStream in) {
     try {
       final DocumentParser parser = new DocumentParser(in);
       final D2NodeBuilder builder = new D2NodeBuilder();

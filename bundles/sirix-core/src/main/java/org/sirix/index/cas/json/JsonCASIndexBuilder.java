@@ -6,6 +6,7 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.cas.CASIndexBuilder;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ObjectKeyNode;
@@ -53,10 +54,10 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
     final long PCR = mRtx.isDocumentRoot()
         ? 0
         : mRtx.isObjectKey()
-            ? ((ObjectKeyNode) mRtx.getNode()).getPathNodeKey()
+            ? ((ImmutableObjectKeyNode) mRtx.getNode()).getPathNodeKey()
             : mRtx.moveToParent().trx().isDocumentRoot()
                 ? 0
-                : ((ObjectKeyNode) mRtx.getNode()).getPathNodeKey();
+                : ((ImmutableObjectKeyNode) mRtx.getNode()).getPathNodeKey();
     return PCR;
   }
 
