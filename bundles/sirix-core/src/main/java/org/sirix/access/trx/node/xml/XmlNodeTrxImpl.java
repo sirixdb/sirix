@@ -1470,6 +1470,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext();) {
           axis.next();
 
+          final var currentNode = axis.getCursor().getNode();
+
           // Remove name.
           removeName();
 
@@ -1480,21 +1482,20 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           removeValue();
 
           // Then remove node.
-          mPageWriteTrx.removeEntry(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          mPageWriteTrx.removeEntry(currentNode.getNodeKey(), PageKind.RECORDPAGE, -1);
         }
+
+        // Remove the name and value of subtree-root if necessary.
+        removeName();
+        removeValue();
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
-        final ImmutableXmlNode xdmNode = (ImmutableXmlNode) node;
-        mNodeReadOnlyTrx.setCurrentNode(xdmNode);
+        final ImmutableXmlNode xmlNode = (ImmutableXmlNode) node;
+        mNodeReadOnlyTrx.setCurrentNode(xmlNode);
         adaptHashesWithRemove();
         adaptForRemove(node);
-        mNodeReadOnlyTrx.setCurrentNode(xdmNode);
-
-        // Remove the name of subtree-root.
-        if (node.getKind() == NodeKind.ELEMENT) {
-          removeName();
-        }
+        mNodeReadOnlyTrx.setCurrentNode(xmlNode);
 
         // Set current node (don't remove the moveTo(long) inside the if-clause which is needed
         // because of text merges.
@@ -1542,7 +1543,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           ? getPathNodeKey()
           : -1;
       moveTo(nodeKey);
-      mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
+      mIndexController.notifyChange(ChangeType.DELETE, getCurrentNode(), pathNodeKey);
     }
   }
 
@@ -1578,6 +1579,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private void removeName() {
     if (getCurrentNode() instanceof ImmutableNameNode) {
       final ImmutableNameNode node = (ImmutableNameNode) getCurrentNode();
+      mIndexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
       page.removeName(node.getPrefixKey(), nodeKind, mPageWriteTrx);
