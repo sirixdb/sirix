@@ -36,11 +36,11 @@ public final class JsonAVLTreeIntegrationTest {
   }
 
   @Test
-  public void test() throws IOException {
+  public void test() {
     test("abc-location-stations.json");
   }
 
-  private void test(String jsonFile) throws IOException {
+  private void test(String jsonFile) {
     final var jsonPath = JSON.resolve(jsonFile);
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
@@ -58,8 +58,6 @@ public final class JsonAVLTreeIntegrationTest {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
-
-      // 53.
 
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
