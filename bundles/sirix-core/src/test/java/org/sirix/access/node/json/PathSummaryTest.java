@@ -6,16 +6,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.NodeKind;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public class PathSummaryTest {
   @Before
@@ -34,16 +29,16 @@ public class PathSummaryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var pathSummary = manager.openPathSummary()) {
-       final var pathSummaryAxis = new DescendantAxis(pathSummary);
-
-       while (pathSummaryAxis.hasNext()) {
-         pathSummaryAxis.next();
-
-         System.out.println("nodeKey: " + pathSummary.getNodeKey());
-         System.out.println("path: " + pathSummary.getPath());
-         System.out.println("references: " + pathSummary.getReferences());
-         System.out.println("level: " + pathSummary.getLevel());
-       }
+//       final var pathSummaryAxis = new DescendantAxis(pathSummary);
+//
+//       while (pathSummaryAxis.hasNext()) {
+//         pathSummaryAxis.next();
+//
+//         System.out.println("nodeKey: " + pathSummary.getNodeKey());
+//         System.out.println("path: " + pathSummary.getPath());
+//         System.out.println("references: " + pathSummary.getReferences());
+//         System.out.println("level: " + pathSummary.getLevel());
+//       }
 
       testInsertHelper(pathSummary);
     }
