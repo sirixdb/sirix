@@ -33,9 +33,6 @@ class JsonCreate(
     private val location: Path,
     private val createMultipleResources: Boolean = false
 ) {
-    /** Temporary directory path.  */
-    private val TMPDIR = Paths.get(System.getProperty("java.io.tmpdir"))
-
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
