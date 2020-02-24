@@ -121,12 +121,12 @@ class JsonCreate(
         ctx.request().pause()
         val fileResolver = FileResolver()
         val filePath = fileResolver.resolveFile(UUID.randomUUID().toString())
-        val file = ctx.vertx().fileSystem().openAwait(filePath.toString(),
+        val file = ctx.vertx().fileSystem().openAwait(
+            filePath.toString(),
             OpenOptions()
         )
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
-        file.closeAwait()
 
         withContext(Dispatchers.IO) {
             val sirixDBUser = SirixDBUser.create(ctx)
@@ -144,12 +144,8 @@ class JsonCreate(
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
-                    val pathToFile =
-                        filePath.toPath()
-                    val maxNodeKey = insertJsonSubtreeAsFirstChild(
-                        manager,
-                        pathToFile.toAbsolutePath()
-                    )
+                    val pathToFile = filePath.toPath()
+                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
                     ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
 
@@ -223,11 +219,9 @@ class JsonCreate(
         return withContext(Dispatchers.IO) {
             val wtx = manager.beginNodeTrx()
             return@withContext wtx.use {
-                wtx.insertSubtreeAsFirstChild(
-                    JsonShredder.createFileReader(
-                        resFileToStore
-                    )
-                )
+                val eventReader = JsonShredder.createFileReader(resFileToStore)
+                wtx.insertSubtreeAsFirstChild(eventReader)
+                eventReader.close()
                 return@use wtx.maxNodeKey
             }
         }
