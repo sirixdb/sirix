@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit;
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @State(Scope.Benchmark)
-@Fork(value = 2, jvmArgs = { "-Xms2G", "-Xmx2G" })
+@Fork(value = 2, jvmArgs = { "-Xms1G", "-Xmx5G" })
 public class XMarkBench {
 
   public static final String USER_HOME = System.getProperty("user.home");
