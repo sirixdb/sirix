@@ -35,9 +35,6 @@ import java.nio.file.Paths
 import java.util.*
 
 class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
-    /** Temporary directory path.  */
-    private val TMPDIR = Paths.get(System.getProperty("java.io.tmpdir"))
-
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
@@ -202,7 +199,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                 val inputStream = FileInputStream(resFileToStore.toFile())
                 return@use inputStream.use {
                     wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(inputStream))
-                    return@use wtx.maxNodeKey
+                    wtx.maxNodeKey
                 }
             }
         }
