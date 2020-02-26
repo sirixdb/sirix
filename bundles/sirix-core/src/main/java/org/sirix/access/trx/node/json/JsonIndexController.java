@@ -1,7 +1,5 @@
 package org.sirix.access.trx.node.json;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -10,7 +8,6 @@ import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
-import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
 import org.sirix.index.Indexes;
@@ -22,6 +19,9 @@ import org.sirix.index.path.json.JsonPathIndexImpl;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Index controller, used to control the handling of indexes.
@@ -62,7 +62,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * Create index builders.
    *
    * @param indexDefs the {@link IndexDef}s
-   * @param nodeWriteTrx the {@link XmlNodeTrx}
+   * @param nodeWriteTrx the {@link JsonNodeTrx}
    *
    * @return the created index builder instances
    */

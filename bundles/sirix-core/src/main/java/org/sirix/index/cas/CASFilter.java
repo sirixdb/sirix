@@ -1,7 +1,5 @@
 package org.sirix.index.cas;
 
-import static java.util.Objects.requireNonNull;
-import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
@@ -12,6 +10,10 @@ import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
+
+import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * CASFilter filter.
@@ -36,7 +38,6 @@ public final class CASFilter implements Filter {
   /**
    * Constructor. Initializes the internal state.
    *
-   * @param rtx transaction this filter is bound to
    * @param paths paths to match
    * @param key the atomic key to filter
    * @param mode the search mode to apply
@@ -46,7 +47,7 @@ public final class CASFilter implements Filter {
       final PCRCollector pcrCollector) {
     mPaths = requireNonNull(paths);
     mPathFilter = new PathFilter(mPaths, pcrCollector);
-    mKey = requireNonNull(key);
+    mKey = key;
     mMode = requireNonNull(mode);
   }
 
@@ -80,7 +81,8 @@ public final class CASFilter implements Filter {
       if (mPathFilter.filter(node) && mMode.compare(mKey, casValue.getAtomicValue()) == 0) {
         return true;
       }
+      return false;
     }
-    return false;
+    return true;
   }
 }
