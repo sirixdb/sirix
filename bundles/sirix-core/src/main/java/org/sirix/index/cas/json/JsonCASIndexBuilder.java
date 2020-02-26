@@ -4,12 +4,8 @@ import org.sirix.access.trx.node.json.AbstractJsonNodeVisitor;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.cas.CASIndexBuilder;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
+import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ObjectKeyNode;
 
 /**
  * Builds a content-and-structure (CAS) index.
@@ -36,6 +32,13 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
   }
 
   @Override
+  public VisitResult visit(ImmutableObjectStringNode node) {
+    final long PCR = getPathClassRecord(node);
+
+    return mIndexBuilderDelegate.process(node, PCR);
+  }
+
+  @Override
   public VisitResult visit(ImmutableBooleanNode node) {
     final long PCR = getPathClassRecord(node);
 
@@ -43,7 +46,21 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
   }
 
   @Override
+  public VisitResult visit(ImmutableObjectBooleanNode node) {
+    final long PCR = getPathClassRecord(node);
+
+    return mIndexBuilderDelegate.process(node, PCR);
+  }
+
+  @Override
   public VisitResult visit(ImmutableNumberNode node) {
+    final long PCR = getPathClassRecord(node);
+
+    return mIndexBuilderDelegate.process(node, PCR);
+  }
+
+  @Override
+  public VisitResult visit(ImmutableObjectNumberNode node) {
     final long PCR = getPathClassRecord(node);
 
     return mIndexBuilderDelegate.process(node, PCR);

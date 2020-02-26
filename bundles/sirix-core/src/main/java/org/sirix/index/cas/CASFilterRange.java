@@ -1,7 +1,5 @@
 package org.sirix.index.cas;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
@@ -11,6 +9,10 @@ import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
+
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * CASFilter filter.
@@ -41,7 +43,6 @@ public final class CASFilterRange implements Filter {
   /**
    * Constructor. Initializes the internal state.
    *
-   * @param rtx transaction this filter is bound to
    * @param paths paths to match
    * @param min the minimum value
    * @param max the maximum value

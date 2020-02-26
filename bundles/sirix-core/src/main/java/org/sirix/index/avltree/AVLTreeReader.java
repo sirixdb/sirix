@@ -1,14 +1,6 @@
 package org.sirix.index.avltree;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.PrintStream;
-import java.util.ArrayDeque;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-
+import com.google.common.collect.AbstractIterator;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadOnlyTrx;
@@ -22,13 +14,21 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.common.collect.AbstractIterator;
+
+import javax.annotation.Nonnegative;
+import java.io.PrintStream;
+import java.util.ArrayDeque;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Simple AVLTreeReader (balanced binary search-tree -- based on BaseX(.org) version).
@@ -68,6 +68,18 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   }
 
   /**
+   * Get a new instance.
+   *
+   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
+   * @param type type of index
+   * @return new tree instance
+   */
+  public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
+      final PageReadOnlyTrx pageReadTrx, final IndexType type, final @Nonnegative int index) {
+    return new AVLTreeReader<K, V>(pageReadTrx, type, index);
+  }
+
+  /**
    * Private constructor.
    *
    * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
@@ -103,18 +115,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     } catch (final SirixIOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
-  }
-
-  /**
-   * Get a new instance.
-   *
-   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
-   * @param type type of index
-   * @return new tree instance
-   */
-  public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
-      final PageReadOnlyTrx pageReadTrx, final IndexType type, final @Nonnegative int index) {
-    return new AVLTreeReader<K, V>(pageReadTrx, type, index);
   }
 
   /**
@@ -274,7 +274,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((XmlDocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((StructNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -306,7 +306,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode, final Comparator<? super K> comp) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((XmlDocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((StructNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -334,7 +334,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @return number of index entries
    */
   public long size() {
-    return ((XmlDocumentRootNode) moveToDocumentRoot().trx().getNode()).getDescendantCount();
+    return ((StructNode) moveToDocumentRoot().trx().getNode()).getDescendantCount();
   }
 
   @Override
@@ -347,7 +347,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    */
   final void assertNotClosed() {
     if (mClosed) {
-      throw new IllegalStateException("Path summary is already closed.");
+      throw new IllegalStateException("AVL tree reader is already closed.");
     }
   }
 
@@ -565,14 +565,10 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public NodeKind getParentKind() {
     assertNotClosed();
     if (hasParent()) {
-      if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        return NodeKind.XML_DOCUMENT;
-      } else {
-        final long nodeKey = mCurrentNode.getNodeKey();
-        final NodeKind parentKind = moveToParent().trx().getKind();
-        moveTo(nodeKey);
-        return parentKind;
-      }
+      final long nodeKey = mCurrentNode.getNodeKey();
+      final NodeKind parentKind = moveToParent().trx().getKind();
+      moveTo(nodeKey);
+      return parentKind;
     }
     return NodeKind.UNKNOWN;
   }

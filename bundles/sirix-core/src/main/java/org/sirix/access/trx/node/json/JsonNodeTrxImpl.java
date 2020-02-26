@@ -21,26 +21,12 @@
 
 package org.sirix.access.trx.node.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.lang.reflect.Array;
-import java.math.BigInteger;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
+import com.google.common.hash.HashFunction;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -67,21 +53,13 @@ import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.interfaces.*;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.AbstractBooleanNode;
-import org.sirix.node.json.AbstractNullNode;
-import org.sirix.node.json.AbstractNumberNode;
-import org.sirix.node.json.AbstractStringNode;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.StringNode;
+import org.sirix.node.json.*;
 import org.sirix.node.xml.ElementNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
@@ -91,12 +69,25 @@ import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
-import com.google.common.hash.HashFunction;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.math.BigInteger;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>JsonNodeTrxImpl</h1>
@@ -524,6 +515,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       mNodeReadOnlyTrx.setCurrentNode(node);
 
+      mIndexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
+
       insertValue(value);
 
       setFirstChildOfObjectKeyNode(node);
@@ -645,6 +638,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
+
+      mIndexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
 
       return this;
     } finally {
@@ -855,7 +850,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     mNodeReadOnlyTrx.setCurrentNode(node);
 
-    // Index text value.
     mIndexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
   }
 
