@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,14 +21,12 @@
 
 package org.sirix.access;
 
-import static org.testng.AssertJUnit.assertEquals;
-import java.io.IOException;
-import java.nio.file.Files;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
+import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
@@ -40,12 +38,19 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
+
+import static org.testng.AssertJUnit.*;
+
 /**
  * Storage test.
  */
 public final class StorageTest {
 
-  /** {@link ResourceConfiguration} reference. */
+  /**
+   * {@link ResourceConfiguration} reference.
+   */
   private ResourceConfiguration mResourceConfig;
 
   @BeforeClass
@@ -56,8 +61,8 @@ public final class StorageTest {
     Files.createDirectories(
         XmlTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
     Files.createFile(XmlTestHelper.PATHS.PATH1.getFile()
-                                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                              .resolve("data.sirix"));
+        .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+        .resolve("data.sirix"));
     mResourceConfig = new ResourceConfiguration.Builder("shredded").build();
   }
 
@@ -65,6 +70,26 @@ public final class StorageTest {
   public void tearDown() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
+  }
+
+  @Test(dataProvider = "instantiateStorages")
+  public void testExists(final Class<Storage> clazz, final Storage[] storages) throws SirixException {
+    for (final Storage handler : storages) {
+      assertFalse("empty storage should not return true on exists", handler.exists());
+
+      try (final Writer writer = handler.createWriter()) {
+        var ref = new PageReference();
+        ref.setPage(new UberPage());
+        writer.writeUberPageReference(ref);
+      }
+
+      assertTrue("writing a single page should mark the Storage as existing", handler.exists());
+      try (final Writer writer = handler.createWriter()) {
+        writer.truncate();
+      }
+
+      assertFalse("truncating the file to length 0 should mark the Storage as non-existing", handler.exists());
+    }
   }
 
   /**
@@ -85,16 +110,16 @@ public final class StorageTest {
         final PageReference pageRef2;
         try (final Writer writer = handler.createWriter()) {
           pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
-          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+          assertEquals("Check for " + handler.getClass() + " failed.",
               ((UberPage) pageRef1.getPage()).getRevisionCount(), ((UberPage) pageRef2.getPage()).getRevisionCount());
         }
 
         // new instance check
         try (final Reader reader = handler.createReader()) {
           final PageReference pageRef3 = reader.readUberPageReference();
-          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+          assertEquals("Check for " + handler.getClass() + " failed.",
               pageRef2.getKey(), pageRef3.getKey());
-          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+          assertEquals("Check for " + handler.getClass() + " failed.",
               ((UberPage) pageRef2.getPage()).getRevisionCount(), ((UberPage) pageRef3.getPage()).getRevisionCount());
         }
       } finally {
@@ -111,10 +136,14 @@ public final class StorageTest {
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
-    Object[][] returnVal =
-        {{Storage.class, new Storage[] {new FileStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
-            new RAMStorage(mResourceConfig.setDatabaseConfiguration(dbConfig))}}};
-    return returnVal;
+    return new Object[][]{
+        {Storage.class,
+            new Storage[]{
+                new FileStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
+                new RAMStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
+            }
+        }
+    };
   }
 
 }
