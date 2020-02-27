@@ -1,10 +1,7 @@
 package org.sirix.access.trx.node.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.zip.Deflater;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import com.google.common.collect.HashBiMap;
+import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageTrx;
 import org.sirix.index.path.summary.PathNode;
@@ -15,20 +12,20 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
+import org.sirix.node.xml.*;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
-import com.google.common.collect.HashBiMap;
-import com.google.common.hash.HashFunction;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.util.ArrayList;
+import java.util.zip.Deflater;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Node factory to create nodes.
@@ -82,7 +79,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
     return (PathNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-        new PathNode(nodeDel, structDel, nameDel, kind, 1, level), PageKind.PATHSUMMARYPAGE, 0);
+        new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), PageKind.PATHSUMMARYPAGE, 0);
   }
 
   @Override

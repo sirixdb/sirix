@@ -80,14 +80,9 @@ public final class CASValue implements Comparable<CASValue> {
   @Override
   public int compareTo(final @Nullable CASValue other) {
     final CASValue otherValue = other;
-    Atomic thisAtomic = null;
-    Atomic otherAtomic = null;
-    try {
-      thisAtomic = mValue != null && mType != null ? mValue.asType(mType) : null;
-      otherAtomic = otherValue.mValue != null && otherValue.mType != null ? otherValue.mValue.asType(otherValue.mType) : null;
-    } catch (final QueryException e) {
-      LOGGER.error(e.getMessage(), e);
-    }
+    Atomic thisAtomic = mValue != null && mType != null ? mValue.asType(mType) : null;
+    Atomic otherAtomic =
+        otherValue.mValue != null && otherValue.mType != null ? otherValue.mValue.asType(otherValue.mType) : null;
 
     return ComparisonChain.start()
                           .compare(mPathNodeKey, otherValue.mPathNodeKey)

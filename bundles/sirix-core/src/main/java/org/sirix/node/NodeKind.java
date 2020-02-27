@@ -547,7 +547,14 @@ public enum NodeKind implements NodePersistenter {
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
-      return new PathNode(nodeDel, structDel, nameDel, NodeKind.getKind(source.readByte()), source.readInt(),
+      final NodeKind kind = NodeKind.getKind(source.readByte());
+      final String uri = kind == NodeKind.OBJECT_STRING_VALUE ? "" : pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
+      final int prefixKey = nameDel.getPrefixKey();
+      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, kind);
+      final int localNameKey = nameDel.getLocalNameKey();
+      final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, kind);
+
+      return new PathNode(new QNm(uri, prefix, localName), nodeDel, structDel, nameDel, kind, source.readInt(),
                           source.readInt());
     }
 

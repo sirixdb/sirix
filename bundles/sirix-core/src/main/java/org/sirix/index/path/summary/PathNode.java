@@ -1,10 +1,7 @@
 package org.sirix.index.path.summary;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.node.NodeKind;
@@ -13,8 +10,13 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Path node in the {@link PathSummaryReader}.
@@ -36,6 +38,9 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /** Kind of node to index. */
   private final NodeKind mKind;
 
+  /** The node name. */
+  private final QNm mName;
+
   /** Number of references to this path node. */
   private int mReferences;
 
@@ -45,6 +50,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * Constructor.
    *
+   * @param name the full qualified name
    * @param nodeDel {@link NodeDelegate} instance
    * @param structNodeDel {@link StructNodeDelegate} instance
    * @param nameNodeDel {@link NameNodeDelegate} instance
@@ -52,9 +58,10 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @param references number of references to this path node
    * @param level level of this path node
    */
-  public PathNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
+  public PathNode(final QNm name, final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
       @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final NodeKind kind, @Nonnegative final int references,
       @Nonnegative final int level) {
+    mName = checkNotNull(name);
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structNodeDel);
     mNameNodeDel = checkNotNull(nameNodeDel);
@@ -239,8 +246,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public QNm getName() {
-    // FIXME (should be implemented!)
-    throw new UnsupportedOperationException();
+    return mName;
   }
 
 }
