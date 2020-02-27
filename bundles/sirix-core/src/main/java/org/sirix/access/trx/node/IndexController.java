@@ -1,12 +1,5 @@
 package org.sirix.access.trx.node;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.util.Iterator;
-import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
@@ -16,11 +9,7 @@ import org.brackit.xquery.xdm.node.Node;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -36,6 +25,14 @@ import org.sirix.index.name.NameFilter;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.util.Iterator;
+import java.util.Set;
 
 
 public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
@@ -129,7 +126,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   IndexController<R, W> createIndexListeners(Set<IndexDef> indexDefs, W nodeWriteTrx);
 
-  NameFilter createNameFilter(String[] queryString);
+  NameFilter createNameFilter(Set<String> queryString);
 
   PathFilter createPathFilter(String[] queryString, R rtx) throws PathException;
 
