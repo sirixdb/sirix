@@ -1,12 +1,12 @@
 package org.sirix.index;
 
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.page.PageConstants;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.Set;
 
 /**
  * {@link IndexDef} factory.
@@ -50,7 +50,7 @@ public final class IndexDefs {
   public enum NameIndexType {
     JSON,
 
-    XML;
+    XML
   }
 
   public static IndexDef createNameIdxDef(final int indexDefNo, final NameIndexType type) {
@@ -83,18 +83,6 @@ public final class IndexDefs {
         return new IndexDef(included, ImmutableSet.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo);
       case XML:
         return new IndexDef(included, ImmutableSet.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo);
-      default:
-        throw new IllegalStateException("Type " + type + " not known.");
-    }
-  }
-
-  public static IndexDef createSelectiveFilteredNameIdxDef(final Set<QNm> included, final Set<QNm> excluded,
-      final int indexDefNo, final NameIndexType type) {
-    switch (type) {
-      case JSON:
-        return new IndexDef(included, excluded, PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo);
-      case XML:
-        return new IndexDef(included, excluded, PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo);
       default:
         throw new IllegalStateException("Type " + type + " not known.");
     }
