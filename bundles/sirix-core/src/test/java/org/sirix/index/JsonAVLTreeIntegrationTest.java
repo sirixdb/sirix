@@ -1,6 +1,7 @@
 package org.sirix.index;
 
 import com.google.common.collect.ImmutableSet;
+import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Type;
 import org.junit.After;
@@ -23,8 +24,7 @@ import java.util.Spliterators;
 import java.util.stream.StreamSupport;
 
 import static org.brackit.xquery.util.path.Path.parse;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public final class JsonAVLTreeIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
@@ -55,20 +55,49 @@ public final class JsonAVLTreeIntegrationTest {
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
-      final var allStreetAddressesAndTwitterAccounts = indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNames, indexController.createNameFilter(
-          Set.of("streetaddress", "twitteraccount")));
+      final var allStreetAddressesAndTwitterAccounts =
+          indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNames,
+              indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
 
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
       final var allStreetAddressesNodeReferences = allStreetAddressesAndTwitterAccounts.next();
 
       assertEquals(53, allStreetAddressesNodeReferences.getNodeKeys().size());
-
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
       final var allTwitterAccountsNodeReferences = allStreetAddressesAndTwitterAccounts.next();
-
       assertEquals(53, allTwitterAccountsNodeReferences.getNodeKeys().size());
+
+      final var allObjectKeyNamesExceptStreetAddress =
+          IndexDefs.createFilteredNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDefs.NameIndexType.JSON);
+
+      indexController.createIndexes(ImmutableSet.of(allObjectKeyNamesExceptStreetAddress), trx);
+
+      final var allTwitterAccounts =
+          indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNamesExceptStreetAddress,
+              indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
+
+      assertTrue(allTwitterAccounts.hasNext());
+      final var allTwitterAccounts2NodeReferences = allTwitterAccounts.next();
+      assertEquals(53, allTwitterAccounts2NodeReferences.getNodeKeys().size());
+
+      assertFalse(allTwitterAccounts.hasNext());
+
+      final var allStreetAddresses =
+          IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDefs.NameIndexType.JSON);
+
+      indexController.createIndexes(ImmutableSet.of(allStreetAddresses), trx);
+
+      final var allStreetAddressesIndex =
+          indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNamesExceptStreetAddress,
+              indexController.createNameFilter(Set.of("streetaddress")));
+
+      assertTrue(allStreetAddressesIndex.hasNext());
+      final var allStreetAddressesIndexNodeReferences = allStreetAddressesIndex.next();
+      assertEquals(53, allStreetAddressesIndexNodeReferences.getNodeKeys().size());
+
+      assertFalse(allStreetAddressesIndex.hasNext());
     }
   }
 
@@ -114,8 +143,8 @@ public final class JsonAVLTreeIntegrationTest {
       final var casIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.CAS);
 
       final var index = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-          indexController.createCASFilter(new String[] { "/features/__array__/properties/name" }, new Str("ABC Radio Adelaide"),
-              SearchMode.EQUAL, new JsonPCRCollector(trx)));
+          indexController.createCASFilter(new String[] { "/features/__array__/properties/name" },
+              new Str("ABC Radio Adelaide"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(index.hasNext());
 
@@ -128,12 +157,12 @@ public final class JsonAVLTreeIntegrationTest {
       });
 
       final var indexWithAllEntries = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-          indexController.createCASFilter(new String[] {}, null,
-              SearchMode.EQUAL, new JsonPCRCollector(trx)));
+          indexController.createCASFilter(new String[] {}, null, SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(indexWithAllEntries.hasNext());
 
-      final var stream = StreamSupport.stream(Spliterators.spliteratorUnknownSize(indexWithAllEntries, Spliterator.ORDERED), false);
+      final var stream =
+          StreamSupport.stream(Spliterators.spliteratorUnknownSize(indexWithAllEntries, Spliterator.ORDERED), false);
 
       assertEquals(53, stream.count());
     }
