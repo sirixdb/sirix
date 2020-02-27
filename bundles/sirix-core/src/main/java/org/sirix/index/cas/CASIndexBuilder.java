@@ -1,7 +1,5 @@
 package org.sirix.index.cas;
 
-import java.util.Optional;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -18,10 +16,17 @@ import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.node.immutable.json.ImmutableBooleanNode;
+import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
+import java.util.Set;
 
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
@@ -45,7 +50,22 @@ public final class CASIndexBuilder {
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths, true).contains(pathNodeKey)) {
-        final Str strValue = new Str(((ImmutableValueNode) node).getValue());
+
+        final Str strValue;
+
+        if (node instanceof ImmutableValueNode) {
+          strValue = new Str(((ImmutableValueNode) node).getValue());
+        } else if (node instanceof ImmutableObjectNumberNode) {
+          strValue = new Str(String.valueOf(((ImmutableObjectNumberNode) node).getValue()));
+        } else if (node instanceof ImmutableNumberNode) {
+          strValue = new Str(String.valueOf(((ImmutableNumberNode) node).getValue()));
+        } else if (node instanceof ImmutableObjectBooleanNode) {
+          strValue = new Str(String.valueOf(((ImmutableObjectBooleanNode) node).getValue()));
+        } else if (node instanceof ImmutableBooleanNode) {
+          strValue = new Str(String.valueOf(((ImmutableBooleanNode) node).getValue()));
+        } else {
+          throw new IllegalStateException("Value not supported.");
+        }
 
         boolean isOfType = false;
         try {

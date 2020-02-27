@@ -1,6 +1,7 @@
 package org.sirix.index;
 
 import com.google.common.collect.ImmutableSet;
+import org.brackit.xquery.atomic.Dbl;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Type;
@@ -165,6 +166,25 @@ public final class JsonAVLTreeIntegrationTest {
           StreamSupport.stream(Spliterators.spliteratorUnknownSize(indexWithAllEntries, Spliterator.ORDERED), false);
 
       assertEquals(53, stream.count());
+
+      final var pathToCoordinates = parse("/features/__array__/geometry/coordinates/__array__");
+      final var idxDefOfPathToCoordinates =
+          IndexDefs.createCASIdxDef(false, Type.DEC, Collections.singleton(pathToCoordinates), 2);
+
+      indexController.createIndexes(ImmutableSet.of(idxDefOfPathToCoordinates), trx);
+
+      final var casIndexDefForCoordinates = indexController.getIndexes().findCASIndex(pathToCoordinates, Type.DEC);
+
+      final var casIndexForCoordinates = indexController.openCASIndex(trx.getPageTrx(), casIndexDefForCoordinates.get(),
+          indexController.createCASFilterRange(new String[] { "/features/__array__/geometry/coordinates/__array__" },
+              new Dbl(0), new Dbl(160), true, true, new JsonPCRCollector(trx)));
+
+      assertTrue(casIndexForCoordinates.hasNext());
+
+      final var streamOfCasIndexForCoordinates =
+          StreamSupport.stream(Spliterators.spliteratorUnknownSize(casIndexForCoordinates, Spliterator.ORDERED), false);
+
+      assertEquals(53, streamOfCasIndexForCoordinates.count());
     }
   }
 

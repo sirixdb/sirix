@@ -3,6 +3,7 @@ package org.sirix.index.cas;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
+import org.sirix.index.AtomicUtil;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
@@ -68,7 +69,7 @@ public final class CASFilterRange implements Filter {
       final boolean filtered = mPathFilter.filter(node);
 
       if (filtered) {
-        return inRange(casValue.getAtomicValue());
+        return inRange(AtomicUtil.toType(casValue.getAtomicValue(), casValue.getType()));
       }
     }
     return false;

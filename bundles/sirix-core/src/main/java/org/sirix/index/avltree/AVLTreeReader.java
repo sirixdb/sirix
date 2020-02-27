@@ -21,6 +21,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import java.io.PrintStream;
 import java.util.ArrayDeque;
 import java.util.Comparator;
@@ -247,6 +248,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     }
     moveToFirstChild();
     AVLNode<K, V> node = getAVLNode();
+    return getTheSearchedNode(key, mode, node);
+  }
+
+  @Nonnull
+  public Optional<AVLNode<K, V>> getTheSearchedNode(K key, SearchMode mode, AVLNode<K, V> node) {
     while (true) {
       final int c = mode.compare(key, node.getKey());
       if (c == 0) {
@@ -279,21 +285,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     }
     moveToFirstChild();
     AVLNode<K, V> node = getAVLNode();
-    while (true) {
-      final int c = mode.compare(key, node.getKey());
-      if (c == 0) {
-        return Optional.ofNullable(node);
-      }
-      final boolean moved = c < 0
-          ? moveToFirstChild().hasMoved()
-          : moveToLastChild().hasMoved();
-      if (moved) {
-        node = getAVLNode();
-      } else {
-        break;
-      }
-    }
-    return Optional.empty();
+    return getTheSearchedNode(key, mode, node);
   }
 
   /**

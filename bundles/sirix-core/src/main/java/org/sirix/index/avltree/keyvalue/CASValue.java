@@ -70,7 +70,7 @@ public final class CASValue implements Comparable<CASValue> {
       return null;
     }
     try {
-      return mValue.asType(mType);
+      return mValue;
     } catch (final QueryException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
