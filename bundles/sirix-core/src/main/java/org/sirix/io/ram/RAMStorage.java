@@ -111,6 +111,7 @@ public final class RAMStorage implements Storage {
     public Writer truncate() {
       mUberPageKey.clear();
       mResourceFileStorage.clear();
+      mExists = false;
       return this;
     }
 
@@ -133,6 +134,7 @@ public final class RAMStorage implements Storage {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
+      mExists = true;
       return this;
     }
 
@@ -142,6 +144,7 @@ public final class RAMStorage implements Storage {
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey, page);
       mUberPageKey.put(-1, mPageKey++);
+      mExists = true;
       return this;
     }
 
