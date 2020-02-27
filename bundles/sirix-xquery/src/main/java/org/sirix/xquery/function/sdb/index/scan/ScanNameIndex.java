@@ -9,11 +9,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.BaseIter;
 import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -27,6 +23,8 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeKeyStream;
+
+import java.util.Set;
 
 /**
  * Scan the name index.
@@ -78,7 +76,7 @@ public final class ScanNameIndex extends AbstractFunction {
 
     final String names = FunUtil.getString(args, 2, "$names", null, null, false);
     final NameFilter filter = (names != null)
-        ? controller.createNameFilter(names.split(";"))
+        ? controller.createNameFilter(Set.of(names.split(";")))
         : null;
 
     final XmlIndexController ic = controller;
