@@ -1,8 +1,5 @@
 package org.sirix.index.path;
 
-import static java.util.Objects.requireNonNull;
-import java.util.Collections;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.index.Filter;
@@ -10,6 +7,11 @@ import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
+
+import java.util.Collections;
+import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Path filter for {@link PathSummaryReader}, filtering specific path types.
@@ -72,7 +74,7 @@ public final class PathFilter implements Filter {
 
     final K key = node.getKey();
 
-    long pcr = 0;
+    long pcr;
     if (key instanceof Long)
       pcr = (Long) key;
     else if (key instanceof CASValue)

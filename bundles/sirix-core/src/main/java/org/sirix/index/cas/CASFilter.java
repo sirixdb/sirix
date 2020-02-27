@@ -78,10 +78,7 @@ public final class CASFilter implements Filter {
     final K key = node.getKey();
     if (key instanceof CASValue) {
       final CASValue casValue = (CASValue) key;
-      if (mPathFilter.filter(node) && mMode.compare(mKey, casValue.getAtomicValue()) == 0) {
-        return true;
-      }
-      return false;
+      return mPathFilter.filter(node) && (mKey == null || mMode.compare(mKey, casValue.getAtomicValue()) == 0);
     }
     return true;
   }

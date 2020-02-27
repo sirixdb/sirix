@@ -17,6 +17,10 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.stream.StreamSupport;
 
 import static org.brackit.xquery.util.path.Path.parse;
 import static org.junit.Assert.assertEquals;
@@ -33,6 +37,39 @@ public final class JsonAVLTreeIntegrationTest {
   @After
   public void tearDown() {
     JsonTestHelper.closeEverything();
+  }
+
+  @Test
+  public void testCreateNameIndexWhileListeningAndNameIndexOnDemand() {
+    final var jsonPath = JSON.resolve("abc-location-stations.json");
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
+
+      final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDefs.NameIndexType.JSON);
+
+      indexController.createIndexes(ImmutableSet.of(allObjectKeyNames), trx);
+
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var allStreetAddressesAndTwitterAccounts = indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNames, indexController.createNameFilter(
+          Set.of("streetaddress", "twitteraccount")));
+
+      assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
+
+      final var allStreetAddressesNodeReferences = allStreetAddressesAndTwitterAccounts.next();
+
+      assertEquals(53, allStreetAddressesNodeReferences.getNodeKeys().size());
+
+      assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
+
+      final var allTwitterAccountsNodeReferences = allStreetAddressesAndTwitterAccounts.next();
+
+      assertEquals(53, allTwitterAccountsNodeReferences.getNodeKeys().size());
+    }
   }
 
   @Test
@@ -90,11 +127,15 @@ public final class JsonAVLTreeIntegrationTest {
         }
       });
 
-//      final var indexWithAllEntries = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-//          indexController.createCASFilter(new String[] { "/features/__array__/properties/name" }, null,
-//              SearchMode.EQUAL, new JsonPCRCollector(trx)));
-//
-//      assertTrue(index.hasNext());
+      final var indexWithAllEntries = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
+          indexController.createCASFilter(new String[] {}, null,
+              SearchMode.EQUAL, new JsonPCRCollector(trx)));
+
+      assertTrue(indexWithAllEntries.hasNext());
+
+      final var stream = StreamSupport.stream(Spliterators.spliteratorUnknownSize(indexWithAllEntries, Spliterator.ORDERED), false);
+
+      assertEquals(53, stream.count());
     }
   }
 

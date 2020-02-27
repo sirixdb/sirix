@@ -48,7 +48,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final Set<Long> pcrsRequested = filter == null ? Collections.emptySet() : filter.getPCRs();
 
     // PCRs available in index.
-    final Set<Long> pcrsAvailable = filter.getPCRCollector().getPCRsForPaths(indexDef.getPaths()).getPCRs();
+    final Set<Long> pcrsAvailable = filter == null
+        ? Collections.emptySet()
+        : filter.getPCRCollector().getPCRsForPaths(indexDef.getPaths()).getPCRs();
 
     // Only one path indexed and requested. All PCRs are the same in each CASValue.
     if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1) {

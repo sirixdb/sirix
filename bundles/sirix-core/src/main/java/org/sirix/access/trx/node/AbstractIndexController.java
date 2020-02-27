@@ -1,13 +1,5 @@
 package org.sirix.access.trx.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Set;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
@@ -15,17 +7,9 @@ import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.PageTrx;
+import org.sirix.api.*;
 import org.sirix.exception.SirixRuntimeException;
-import org.sirix.index.ChangeListener;
-import org.sirix.index.IndexDef;
-import org.sirix.index.IndexType;
-import org.sirix.index.Indexes;
-import org.sirix.index.SearchMode;
+import org.sirix.index.*;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASFilterRange;
@@ -39,6 +23,16 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import javax.annotation.Nonnull;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
@@ -146,8 +140,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public NameFilter createNameFilter(final String[] queryString) {
-    final Set<QNm> includes = new HashSet<>(queryString.length);
+  public NameFilter createNameFilter(final Set<String> queryString) {
+    final Set<QNm> includes = new HashSet<>(queryString.size());
     for (final String name : queryString) {
       // TODO: Prefix/NspURI
       includes.add(new QNm(name));
