@@ -1,12 +1,14 @@
 package org.sirix.index.name;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Collections;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
+
+import java.util.Collections;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class NameFilter implements Filter {
 
@@ -28,7 +30,6 @@ public final class NameFilter implements Filter {
 
   @Override
   public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
-
     if (!(node.getKey() instanceof QNm))
       throw new IllegalStateException("Key is not of type QNm!");
 

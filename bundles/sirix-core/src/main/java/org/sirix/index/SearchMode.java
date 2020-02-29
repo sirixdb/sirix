@@ -1,7 +1,7 @@
 package org.sirix.index;
 
-import java.util.Comparator;
 import javax.annotation.Nonnull;
+import java.util.Comparator;
 
 /**
  * The search mode in a datastructure.
@@ -14,14 +14,13 @@ public enum SearchMode {
   GREATER {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @Nonnull K secondKey) {
-      final int result = firstKey.compareTo(secondKey);
-      return firstKey.compareTo(secondKey) > 0 ? 0 : result;
+      return secondKey.compareTo(firstKey) > 0 ? 0 : -1;
     }
 
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
         Comparator<? super K> comparator) {
-      return comparator.compare(firstKey, secondKey);
+      return comparator.compare(secondKey, firstKey) > 0 ? 0 : -1;
     }
   },
 
@@ -29,14 +28,13 @@ public enum SearchMode {
   LESS {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @Nonnull K secondKey) {
-      final int result = firstKey.compareTo(secondKey);
-      return firstKey.compareTo(secondKey) < 0 ? 0 : result;
+      return secondKey.compareTo(firstKey) < 0 ? 0 : -1;
     }
 
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
         Comparator<? super K> comparator) {
-      return comparator.compare(firstKey, secondKey);
+      return comparator.compare(secondKey, firstKey) < 0 ? 0 : -1;
     }
   },
 
@@ -44,14 +42,13 @@ public enum SearchMode {
   GREATER_OR_EQUAL {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @Nonnull K secondKey) {
-      final int result = firstKey.compareTo(secondKey);
-      return firstKey.compareTo(secondKey) >= 0 ? 0 : result;
+      return secondKey.compareTo(firstKey) >= 0 ? 0 : -1;
     }
 
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
         Comparator<? super K> comparator) {
-      return comparator.compare(firstKey, secondKey);
+      return comparator.compare(secondKey, firstKey) >= 0 ? 0 : -1;
     }
   },
 
@@ -59,14 +56,13 @@ public enum SearchMode {
   LESS_OR_EQUAL {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @Nonnull K secondKey) {
-      final int result = firstKey.compareTo(secondKey);
-      return firstKey.compareTo(secondKey) <= 0 ? 0 : result;
+      return secondKey.compareTo(firstKey) <= 0 ? 0 : -1;
     }
 
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
         Comparator<? super K> comparator) {
-      return comparator.compare(firstKey, secondKey);
+      return comparator.compare(secondKey, firstKey) <= 0 ? 0 : -1;
     }
   },
 
@@ -87,8 +83,8 @@ public enum SearchMode {
   /**
    * Compare two keys.
    *
-   * @param firstKey the potential result key
-   * @param secondKey the search key
+   * @param firstKey the search key
+   * @param secondKey the potential result key
    * @return {@code 0} if it's in the search space, else {@code -1} or {@code +1}
    */
   public abstract <K extends Comparable<? super K>> int compare(final K firstKey,
