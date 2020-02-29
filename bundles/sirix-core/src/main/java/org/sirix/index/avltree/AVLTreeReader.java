@@ -247,7 +247,9 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     while (true) {
       final int c = key.compareTo(node.getKey());
       if (c == 0) {
-        if (mode.compare(key, node.getKey()) == 0) {
+        if (mode == SearchMode.EQUAL) {
+          return Optional.ofNullable(node);
+        } else if (mode.compare(key, node.getKey()) == 0) {
           return Optional.ofNullable(node);
         }
       }
@@ -256,7 +258,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
           : moveToLastChild().hasMoved();
       if (moved) {
         node = getAVLNode();
-        if (mode.compare(key, node.getKey()) == 0) {
+        if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey()) == 0) {
           return Optional.ofNullable(node);
         }
       } else {
@@ -302,7 +304,9 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     while (true) {
       final int c = comp.compare(key, node.getKey());
       if (c == 0) {
-        if (mode.compare(key, node.getKey(), comp) == 0) {
+        if (mode == SearchMode.EQUAL) {
+          return Optional.ofNullable(node);
+        } else if (mode.compare(key, node.getKey(), comp) == 0) {
           return Optional.ofNullable(node);
         }
       }
@@ -311,7 +315,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
           : moveToLastChild().hasMoved();
       if (moved) {
         node = getAVLNode();
-        if (mode.compare(key, node.getKey(), comp) == 0) {
+        if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey(), comp) == 0) {
           return Optional.ofNullable(node);
         }
       } else {
