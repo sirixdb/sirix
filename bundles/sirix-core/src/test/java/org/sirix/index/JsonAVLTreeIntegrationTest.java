@@ -19,10 +19,7 @@ import org.sirix.service.xml.shredder.InsertPosition;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
+import java.util.*;
 import java.util.stream.StreamSupport;
 
 import static org.brackit.xquery.util.path.Path.parse;
@@ -149,6 +146,15 @@ public final class JsonAVLTreeIntegrationTest {
           StreamSupport.stream(Spliterators.spliteratorUnknownSize(avlIterator, Spliterator.ORDERED), false);
 
       assertEquals(18, stream.count());
+
+      final var nodeGreaterWithComp = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER,
+          Comparator.naturalOrder());
+
+      assertEquals("twitteraccount", nodeGreaterWithComp.get().getKey().getLocalName());
+
+      final var nameIndex = indexController.getIndexes().findNameIndex(new QNm("twitteraccount"), new QNm("type"));
+
+      assertTrue(nameIndex.isPresent());
     }
   }
 
@@ -235,6 +241,10 @@ public final class JsonAVLTreeIntegrationTest {
           StreamSupport.stream(Spliterators.spliteratorUnknownSize(casIndexForCoordinates, Spliterator.ORDERED), false);
 
       assertEquals(53, streamOfCasIndexForCoordinates.count());
+
+      final var casIndex = indexController.getIndexes().findCASIndex(pathToFeatureType, Type.STR);
+
+      assertTrue(casIndex.isPresent());
     }
   }
 
@@ -288,6 +298,10 @@ public final class JsonAVLTreeIntegrationTest {
           assertEquals("name", trx.getName().getLocalName());
         }
       });
+
+      final var pathIndex = indexController.getIndexes().findPathIndex(pathToFeatureType);
+
+      assertTrue(pathIndex.isPresent());
     }
   }
 }
