@@ -1,9 +1,6 @@
 package org.sirix.access.trx.node.json;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -17,61 +14,51 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
-import org.sirix.node.immutable.json.ImmutableArrayNode;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
-import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableObjectNode;
-import org.sirix.node.immutable.json.ImmutableObjectNullNode;
-import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectStringNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
+import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.JsonDocumentRootNode;
-import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectBooleanNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.ObjectNullNode;
-import org.sirix.node.json.ObjectNumberNode;
-import org.sirix.node.json.ObjectStringNode;
-import org.sirix.node.json.StringNode;
+import org.sirix.node.json.*;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeReadOnlyTrx>
     implements InternalJsonNodeReadOnlyTrx {
 
-  /** ID of transaction. */
+  /**
+   * ID of transaction.
+   */
   private final long mTrxId;
 
-  /** Resource manager this write transaction is bound to. */
+  /**
+   * Resource manager this write transaction is bound to.
+   */
   protected final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> mResourceManager;
 
-  /** Tracks whether the transaction is closed. */
+  /**
+   * Tracks whether the transaction is closed.
+   */
   private boolean mIsClosed;
 
   /**
    * Constructor.
    *
-   * @param resourceManager the current {@link ResourceManager} the reader is bound to
-   * @param trxId ID of the reader
+   * @param resourceManager     the current {@link ResourceManager} the reader is bound to
+   * @param trxId               ID of the reader
    * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
-   * @param documentNode the document node
+   * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @Nonnegative
+          long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
@@ -228,25 +215,25 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.NUMBER_VALUE;
+    return mCurrentNode.getKind() == NodeKind.NUMBER_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.NULL_VALUE;
+    return mCurrentNode.getKind() == NodeKind.NULL_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.STRING_VALUE;
+    return mCurrentNode.getKind() == NodeKind.STRING_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE;
+    return mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
   @Override
@@ -291,9 +278,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
     if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
-      final String localName = nameKey == -1
-          ? ""
-          : mPageReadTrx.getName(nameKey, mCurrentNode.getKind());
+      final String localName = nameKey == -1 ? "" : mPageReadTrx.getName(nameKey, mCurrentNode.getKind());
       return new QNm(localName);
     }
 
@@ -337,7 +322,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
     if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE || mCurrentNode.getKind() == NodeKind.STRING_VALUE
         || mCurrentNode.getKind() == NodeKind.NUMBER_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || mCurrentNode.getKind() == NodeKind.OBJECT_NULL_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || mCurrentNode.getKind() == NodeKind.OBJECT_NULL_VALUE
+        || mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
         || mCurrentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
       helper.add("Value of Node", getValue());
     }
