@@ -237,7 +237,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     if (!movedToStartNode) {
       return Optional.empty();
     }
-    moveToFirstChild();
     AVLNode<K, V> node = getAVLNode();
     return getTheSearchedNode(key, mode, node);
   }
@@ -246,10 +245,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   private Optional<AVLNode<K, V>> getTheSearchedNode(K key, SearchMode mode, AVLNode<K, V> node) {
     while (true) {
       final int c = key.compareTo(node.getKey());
+      if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey()) == 0) {
+        return Optional.ofNullable(node);
+      }
       if (c == 0) {
         if (mode == SearchMode.EQUAL) {
-          return Optional.ofNullable(node);
-        } else if (mode.compare(key, node.getKey()) == 0) {
           return Optional.ofNullable(node);
         }
       }
@@ -258,9 +258,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
           : moveToLastChild().hasMoved();
       if (moved) {
         node = getAVLNode();
-        if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey()) == 0) {
-          return Optional.ofNullable(node);
-        }
       } else {
         break;
       }
@@ -303,10 +300,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     AVLNode<K, V> node = getAVLNode();
     while (true) {
       final int c = comp.compare(key, node.getKey());
+      if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey(), comp) == 0) {
+        return Optional.ofNullable(node);
+      }
       if (c == 0) {
         if (mode == SearchMode.EQUAL) {
-          return Optional.ofNullable(node);
-        } else if (mode.compare(key, node.getKey(), comp) == 0) {
           return Optional.ofNullable(node);
         }
       }
@@ -315,9 +313,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
           : moveToLastChild().hasMoved();
       if (moved) {
         node = getAVLNode();
-        if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey(), comp) == 0) {
-          return Optional.ofNullable(node);
-        }
       } else {
         break;
       }

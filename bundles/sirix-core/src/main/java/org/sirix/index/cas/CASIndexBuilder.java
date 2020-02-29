@@ -50,7 +50,6 @@ public final class CASIndexBuilder {
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths, true).contains(pathNodeKey)) {
-
         final Str strValue;
 
         if (node instanceof ImmutableValueNode) {

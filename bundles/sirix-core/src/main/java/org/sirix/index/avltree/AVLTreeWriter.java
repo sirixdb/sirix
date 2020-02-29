@@ -97,7 +97,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    */
   public static <K extends Comparable<? super K>, V extends References> AVLTreeWriter<K, V> getInstance(
       final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type, final int index) {
-    return new AVLTreeWriter<K, V>(pageWriteTrx, type, index);
+    return new AVLTreeWriter<>(pageWriteTrx, type, index);
   }
 
   /**
@@ -111,7 +111,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @throws SirixIOException if an I/O error occurs
    */
   @SuppressWarnings("unchecked")
-  public V index(final K key, final V value, final MoveCursor move) throws SirixIOException {
+  public V index(final K key, final V value, final MoveCursor move) {
     if (move == MoveCursor.TO_DOCUMENT_ROOT) {
       moveToDocumentRoot();
     }
@@ -183,9 +183,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    *
    * @param root the current {@link RevisionRootPage}
    * @return maximum node key
-   * @throws SirixIOException
+   * @throws SirixIOException If any I/O operation fails
    */
-  private long getNewNodeKey(final RevisionRootPage root) throws SirixIOException {
+  private long getNewNodeKey(final RevisionRootPage root) {
     switch (mAVLTreeReader.mPageKind) {
       case PATHPAGE:
         return mPageWriteTrx.getPathPage(root).getMaxNodeKey(mAVLTreeReader.mIndex) + 1;
@@ -208,7 +208,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param nodeKey the nodeKey to remove from the value
    * @throws SirixIOException if an I/O error occured
    */
-  public boolean remove(final K key, final @Nonnegative long nodeKey) throws SirixIOException {
+  public boolean remove(final K key, final @Nonnegative long nodeKey) {
     checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
     final Optional<V> searchedValue = mAVLTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
     boolean removed = false;
@@ -244,7 +244,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param node node to be adjusted
    * @throws SirixIOException if an I/O error occurs
    */
-  private void adjust(AVLNode<K, V> node) throws SirixIOException {
+  private void adjust(AVLNode<K, V> node) {
     setChanged(node, true);
 
     while (node != null && node.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty() && parent(node) != null
@@ -304,7 +304,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param changed changed value
    * @throws SirixIOException if an I/O error occurs
    */
-  private void setChanged(final AVLNode<K, V> nodeToChange, final boolean changed) throws SirixIOException {
+  private void setChanged(final AVLNode<K, V> nodeToChange, final boolean changed) {
     @SuppressWarnings("unchecked")
     final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(nodeToChange.getNodeKey(),
         mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
@@ -363,7 +363,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @throws SirixIOException if an I/O error occurs
    */
   @SuppressWarnings({"unchecked"})
-  private void rotateLeft(AVLNode<K, V> node) throws SirixIOException {
+  private void rotateLeft(AVLNode<K, V> node) {
     moveTo(node.getNodeKey());
 
     AVLNode<K, V> right = ((AVLTreeReader<K, V>) moveToLastChild().trx()).getAVLNode();
@@ -416,7 +416,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @throws SirixIOException if an I/O error occurs
    */
   @SuppressWarnings({"unchecked"})
-  private void rotateRight(AVLNode<K, V> node) throws SirixIOException {
+  private void rotateRight(AVLNode<K, V> node) {
     moveTo(node.getNodeKey());
 
     AVLNode<K, V> leftChild = ((AVLTreeReader<K, V>) moveToFirstChild().trx()).getAVLNode();

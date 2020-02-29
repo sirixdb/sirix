@@ -119,10 +119,36 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var name = new QNm("streetaddress");
 
-      final var node = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER);
+      final var nodeGreater = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER);
 
-      assertTrue(node.isPresent());
-      assertEquals("twitteraccount", node.get().getKey().getLocalName());
+      assertTrue(nodeGreater.isPresent());
+      assertEquals("twitteraccount", nodeGreater.get().getKey().getLocalName());
+
+      final var nodeGreaterNotPresent = allObjectKeyNamesIndexReader.getAVLNode(new QNm("type"), SearchMode.GREATER);
+
+      assertFalse(nodeGreaterNotPresent.isPresent());
+
+      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER_OR_EQUAL);
+
+      assertTrue(nodeGreaterOrEqual.isPresent());
+      assertEquals("streetaddress", nodeGreaterOrEqual.get().getKey().getLocalName());
+
+      final var nodeLess = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.LESS);
+
+      assertTrue(nodeLess.isPresent());
+      assertEquals("id", nodeLess.get().getKey().getLocalName());
+
+      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getAVLNode(nodeGreaterOrEqual.get().getNodeKey(), name, SearchMode.LESS_OR_EQUAL);
+
+      assertTrue(nodeLessOrEqual.isPresent());
+      assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
+
+      final var avlIterator = allObjectKeyNamesIndexReader.new AVLNodeIterator(0);
+
+      final var stream =
+          StreamSupport.stream(Spliterators.spliteratorUnknownSize(avlIterator, Spliterator.ORDERED), false);
+
+      assertEquals(18, stream.count());
     }
   }
 
