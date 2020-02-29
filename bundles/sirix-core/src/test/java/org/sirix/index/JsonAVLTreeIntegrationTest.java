@@ -13,6 +13,7 @@ import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.json.JsonPCRCollector;
+import org.sirix.node.NodeKind;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
 
@@ -58,13 +59,13 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var allStreetAddressesAndTwitterAccounts =
           indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNames,
-              indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
+              indexController.createNameFilter(ImmutableSet.of("streetaddress", "twitteraccount")));
 
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
       final var allStreetAddressesNodeReferences = allStreetAddressesAndTwitterAccounts.next();
-
       assertEquals(53, allStreetAddressesNodeReferences.getNodeKeys().size());
+
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
       final var allTwitterAccountsNodeReferences = allStreetAddressesAndTwitterAccounts.next();
@@ -77,7 +78,7 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var allTwitterAccounts =
           indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNamesExceptStreetAddress,
-              indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
+              indexController.createNameFilter(ImmutableSet.of("streetaddress", "twitteraccount")));
 
       assertTrue(allTwitterAccounts.hasNext());
       final var allTwitterAccounts2NodeReferences = allTwitterAccounts.next();
@@ -99,6 +100,29 @@ public final class JsonAVLTreeIntegrationTest {
       assertEquals(53, allStreetAddressesIndexNodeReferences.getNodeKeys().size());
 
       assertFalse(allStreetAddressesIndex.hasNext());
+
+      final var allStreetAddressesIndexReader =
+          AVLTreeReader.getInstance(trx.getPageTrx(), allStreetAddresses.getType(), allStreetAddresses.getID());
+
+      final var firstChildKey = allStreetAddressesIndexReader.getFirstChildKey();
+      final var firstChildKind = allStreetAddressesIndexReader.getFirstChildKind();
+      final var lastChildKey = allStreetAddressesIndexReader.getLastChildKey();
+      final var lastChildKind = allStreetAddressesIndexReader.getLastChildKind();
+
+      assertEquals(3, firstChildKey);
+      assertEquals(NodeKind.NAMEAVL, firstChildKind);
+      assertEquals(-1, lastChildKey);
+      assertEquals(NodeKind.UNKNOWN, lastChildKind);
+
+      final AVLTreeReader<QNm, NodeReferences> allObjectKeyNamesIndexReader =
+          AVLTreeReader.getInstance(trx.getPageTrx(), allObjectKeyNames.getType(), allObjectKeyNames.getID());
+
+      final var name = new QNm("streetaddress");
+
+      final var node = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER);
+
+      assertTrue(node.isPresent());
+      assertEquals("twitteraccount", node.get().getKey().getLocalName());
     }
   }
 
