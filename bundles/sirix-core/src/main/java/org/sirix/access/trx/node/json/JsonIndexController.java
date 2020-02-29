@@ -31,15 +31,6 @@ import java.util.Set;
  */
 public final class JsonIndexController extends AbstractIndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
-  /** Type of change. */
-  public enum ChangeType {
-    /** Insertion. */
-    INSERT,
-
-    /** Deletion. */
-    DELETE
-  }
-
   /**
    * Constructor.
    */
