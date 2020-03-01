@@ -19,8 +19,8 @@ import org.sirix.index.IndexType;
 import org.sirix.index.Indexes;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASFilterRange;
+import org.sirix.index.cas.CASFilter;
 import org.sirix.index.name.NameFilter;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
@@ -126,14 +126,14 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   IndexController<R, W> createIndexListeners(Set<IndexDef> indexDefs, W nodeWriteTrx);
 
-  NameFilter createNameFilter(Set<String> queryString);
+  NameFilter createNameFilter(Set<String> names);
 
-  PathFilter createPathFilter(String[] queryString, R rtx) throws PathException;
+  PathFilter createPathFilter(Set<String> paths, R rtx) throws PathException;
 
-  CASFilter createCASFilter(String[] pathArray, Atomic key, SearchMode mode, PCRCollector pcrCollector)
+  CASFilter createCASFilter(Set<String> paths, Atomic key, SearchMode mode, PCRCollector pcrCollector)
       throws PathException;
 
-  CASFilterRange createCASFilterRange(String[] pathArray, Atomic min, Atomic max, boolean incMin, boolean incMax,
+  CASFilterRange createCASFilterRange(Set<String> paths, Atomic min, Atomic max, boolean incMin, boolean incMax,
       PCRCollector pcrCollector) throws PathException;
 
   Iterator<NodeReferences> openPathIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, PathFilter filter);

@@ -200,7 +200,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var casIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.CAS);
 
       final var index = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-          indexController.createCASFilter(new String[] { "/features/__array__/properties/name" },
+          indexController.createCASFilter(Set.of("/features/__array__/properties/name"),
               new Str("ABC Radio Adelaide"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(index.hasNext());
@@ -214,7 +214,7 @@ public final class JsonAVLTreeIntegrationTest {
       });
 
       final var indexWithAllEntries = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-          indexController.createCASFilter(new String[] {}, null, SearchMode.EQUAL, new JsonPCRCollector(trx)));
+          indexController.createCASFilter(Set.of(), null, SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(indexWithAllEntries.hasNext());
 
@@ -232,7 +232,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var casIndexDefForCoordinates = indexController.getIndexes().findCASIndex(pathToCoordinates, Type.DEC);
 
       final var casIndexForCoordinates = indexController.openCASIndex(trx.getPageTrx(), casIndexDefForCoordinates.get(),
-          indexController.createCASFilterRange(new String[] { "/features/__array__/geometry/coordinates/__array__" },
+          indexController.createCASFilterRange(Set.of("/features/__array__/geometry/coordinates/__array__"),
               new Dbl(0), new Dbl(160), true, true, new JsonPCRCollector(trx)));
 
       assertTrue(casIndexForCoordinates.hasNext());

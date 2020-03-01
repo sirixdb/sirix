@@ -140,9 +140,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public NameFilter createNameFilter(final Set<String> queryString) {
-    final Set<QNm> includes = new HashSet<>(queryString.size());
-    for (final String name : queryString) {
+  public NameFilter createNameFilter(final Set<String> names) {
+    final Set<QNm> includes = new HashSet<>(names.size());
+    for (final String name : names) {
       // TODO: Prefix/NspURI
       includes.add(new QNm(name));
     }
@@ -150,22 +150,22 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public CASFilter createCASFilter(final String[] pathArray, final Atomic key, final SearchMode mode,
+  public CASFilter createCASFilter(final Set<String> stringPaths, final Atomic key, final SearchMode mode,
       final PCRCollector pcrCollector) throws PathException {
-    final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
-    if (pathArray.length > 0) {
-      for (final String path : pathArray)
+    final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
+    if (stringPaths.size() > 0) {
+      for (final String path : stringPaths)
         paths.add(Path.parse(path));
     }
     return new CASFilter(paths, key, mode, pcrCollector);
   }
 
   @Override
-  public CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min, final Atomic max,
+  public CASFilterRange createCASFilterRange(final Set<String> thePaths, final Atomic min, final Atomic max,
       final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) throws PathException {
-    final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
-    if (pathArray.length > 0) {
-      for (final String path : pathArray)
+    final Set<Path<QNm>> paths = new HashSet<>(thePaths.size());
+    if (thePaths.size() > 0) {
+      for (final String path : thePaths)
         paths.add(Path.parse(path));
     }
     return new CASFilterRange(paths, min, max, incMin, incMax, pcrCollector);

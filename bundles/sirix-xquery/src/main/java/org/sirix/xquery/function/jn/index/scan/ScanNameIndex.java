@@ -4,12 +4,10 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.sequence.BaseIter;
-import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.*;
+import org.brackit.xquery.xdm.Sequence;
+import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -23,7 +21,6 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.stream.json.SirixJsonItemKeyStream;
 
 import java.util.Set;
 
@@ -35,7 +32,7 @@ import java.util.Set;
  */
 @FunctionAnnotation(description = "Scans the given name index for matching nodes.",
     parameters = {"$doc", "$idx-no", "$names"})
-public final class ScanNameIndex extends AbstractFunction {
+public final class ScanNameIndex extends AbstractScanIndex {
 
   /** Default function name. */
   public final static QNm DEFAULT_NAME = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "scan-name-index");
@@ -79,32 +76,6 @@ public final class ScanNameIndex extends AbstractFunction {
         ? controller.createNameFilter(Set.of(names.split(";")))
         : null;
 
-    final JsonIndexController ic = controller;
-    final JsonDBItem node = doc;
-
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          Stream<?> s;
-
-          @Override
-          public Item next() {
-            if (s == null) {
-              s = new SirixJsonItemKeyStream(ic.openNameIndex(node.getTrx().getPageTrx(), indexDef, filter),
-                  node.getCollection(), node.getTrx());
-            }
-            return (Item) s.next();
-          }
-
-          @Override
-          public void close() {
-            if (s != null) {
-              s.close();
-            }
-          }
-        };
-      }
-    };
+    return getSequence(doc, controller.openNameIndex(doc.getTrx().getPageTrx(), indexDef, filter));
   }
 }

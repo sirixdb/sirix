@@ -1,10 +1,7 @@
 package org.sirix.access.trx.node.xml;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.AbstractIndexController;
 import org.sirix.api.PageTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -21,6 +18,9 @@ import org.sirix.index.path.xml.XmlPCRCollector;
 import org.sirix.index.path.xml.XmlPathIndexImpl;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Index controller, used to control the handling of indexes.
@@ -89,10 +89,11 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   }
 
   @Override
-  public PathFilter createPathFilter(final String[] queryString, final XmlNodeReadOnlyTrx rtx) throws PathException {
-    final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
-    for (final String path : queryString)
+  public PathFilter createPathFilter(final Set<String> stringPaths, final XmlNodeReadOnlyTrx rtx) {
+    final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
+    for (final String path : stringPaths) {
       paths.add(Path.parse(path));
+    }
     return new PathFilter(paths, new XmlPCRCollector(rtx));
   }
 

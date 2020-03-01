@@ -1,6 +1,5 @@
 package org.sirix.index.cas;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import org.brackit.xquery.atomic.Atomic;
 import org.sirix.api.NodeCursor;
@@ -37,7 +36,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final Iterator<AVLNode<CASValue, NodeReferences>> iter =
         reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
-    return new IndexFilterAxis<>(iter, ImmutableSet.of(filter));
+    return new IndexFilterAxis<>(iter, Set.of(filter));
   }
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageReadTrx, IndexDef indexDef, CASFilter filter) {
@@ -96,7 +95,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       final Iterator<AVLNode<CASValue, NodeReferences>> iter =
           reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
-      return new IndexFilterAxis<>(iter, ImmutableSet.of(filter));
+      return new IndexFilterAxis<>(iter, Set.of(filter));
     }
   }
 
@@ -113,19 +112,20 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(theNode.getNodeKey());
 
         return Iterators.concat(Iterators.forArray(theNode.getValue()),
-            new IndexFilterAxis<>(iter, ImmutableSet.of(filter)));
+            new IndexFilterAxis<>(iter, Set.of(filter)));
       }).orElse(Collections.emptyIterator());
     };
   }
 
-  private Function<AVLNode<CASValue, NodeReferences>, Iterator<NodeReferences>> concatWithFilterAxis(CASFilter filter,
+  private Function<AVLNode<CASValue, NodeReferences>, Iterator<NodeReferences>> concatWithFilterAxis(
+      CASFilter filter,
       AVLTreeReader<CASValue, NodeReferences> reader) {
     return node -> {
       // Iterate over subtree.
       final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(node.getNodeKey());
 
       return Iterators.concat(Iterators.forArray(node.getValue()),
-          new IndexFilterAxis<>(iter, ImmutableSet.of(filter)));
+          new IndexFilterAxis<>(iter, Set.of(filter)));
     };
   }
 }

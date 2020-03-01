@@ -80,10 +80,11 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   @Override
-  public PathFilter createPathFilter(final String[] queryString, final JsonNodeReadOnlyTrx rtx) throws PathException {
-    final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
-    for (final String path : queryString)
+  public PathFilter createPathFilter(final Set<String> queryString, final JsonNodeReadOnlyTrx rtx) throws PathException {
+    final Set<Path<QNm>> paths = new HashSet<>(queryString.size());
+    for (final String path : queryString) {
       paths.add(Path.parse(path));
+    }
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
