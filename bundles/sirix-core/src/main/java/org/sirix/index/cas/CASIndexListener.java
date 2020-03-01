@@ -1,11 +1,8 @@
 package org.sirix.index.cas;
 
-import java.util.Optional;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.exception.SirixIOException;
@@ -18,6 +15,9 @@ import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import java.util.Optional;
+import java.util.Set;
 
 public final class CASIndexListener {
 
@@ -36,22 +36,18 @@ public final class CASIndexListener {
 
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
     assert mPathSummaryReader.moveTo(pathNodeKey).hasMoved();
-    try {
-      switch (type) {
-        case INSERT:
-          if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
-            insert(node, pathNodeKey, value);
-          }
-          break;
-        case DELETE:
-          if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
-            mAVLTreeWriter.remove(new CASValue(value, mType, pathNodeKey), node.getNodeKey());
-          }
-          break;
-        default:
-      }
-    } catch (final PathException e) {
-      throw new SirixIOException(e);
+    switch (type) {
+      case INSERT:
+        if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
+          insert(node, pathNodeKey, value);
+        }
+        break;
+      case DELETE:
+        if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
+          mAVLTreeWriter.remove(new CASValue(value, mType, pathNodeKey), node.getNodeKey());
+        }
+        break;
+      default:
     }
   }
 

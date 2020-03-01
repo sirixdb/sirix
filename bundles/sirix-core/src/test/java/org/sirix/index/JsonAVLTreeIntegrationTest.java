@@ -1,6 +1,5 @@
 package org.sirix.index;
 
-import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.Dbl;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
@@ -48,7 +47,7 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDefs.NameIndexType.JSON);
 
-      indexController.createIndexes(ImmutableSet.of(allObjectKeyNames), trx);
+      indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
@@ -56,7 +55,7 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var allStreetAddressesAndTwitterAccounts =
           indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNames,
-              indexController.createNameFilter(ImmutableSet.of("streetaddress", "twitteraccount")));
+              indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
 
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
@@ -71,11 +70,11 @@ public final class JsonAVLTreeIntegrationTest {
       final var allObjectKeyNamesExceptStreetAddress =
           IndexDefs.createFilteredNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDefs.NameIndexType.JSON);
 
-      indexController.createIndexes(ImmutableSet.of(allObjectKeyNamesExceptStreetAddress), trx);
+      indexController.createIndexes(Set.of(allObjectKeyNamesExceptStreetAddress), trx);
 
       final var allTwitterAccounts =
           indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNamesExceptStreetAddress,
-              indexController.createNameFilter(ImmutableSet.of("streetaddress", "twitteraccount")));
+              indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
 
       assertTrue(allTwitterAccounts.hasNext());
       final var allTwitterAccounts2NodeReferences = allTwitterAccounts.next();
@@ -86,7 +85,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var allStreetAddresses =
           IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDefs.NameIndexType.JSON);
 
-      indexController.createIndexes(ImmutableSet.of(allStreetAddresses), trx);
+      indexController.createIndexes(Set.of(allStreetAddresses), trx);
 
       final var allStreetAddressesIndex =
           indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNamesExceptStreetAddress,
@@ -114,6 +113,13 @@ public final class JsonAVLTreeIntegrationTest {
       final AVLTreeReader<QNm, NodeReferences> allObjectKeyNamesIndexReader =
           AVLTreeReader.getInstance(trx.getPageTrx(), allObjectKeyNames.getType(), allObjectKeyNames.getID());
 
+      final var avlNodeIterator = allObjectKeyNamesIndexReader.new AVLNodeIterator(0);
+
+      avlNodeIterator.forEachRemaining(avlNode -> {
+        System.out.println(avlNode);
+        System.out.println(avlNode.getKey());
+      });
+
       final var name = new QNm("streetaddress");
 
       final var nodeGreater = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER);
@@ -135,7 +141,8 @@ public final class JsonAVLTreeIntegrationTest {
       assertTrue(nodeLess.isPresent());
       assertEquals("id", nodeLess.get().getKey().getLocalName());
 
-      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getAVLNode(nodeGreaterOrEqual.get().getNodeKey(), name, SearchMode.LESS_OR_EQUAL);
+      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getAVLNode(nodeGreaterOrEqual.get().getNodeKey(), name,
+          SearchMode.LESS_OR_EQUAL);
 
       assertTrue(nodeLessOrEqual.isPresent());
       assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
@@ -147,8 +154,8 @@ public final class JsonAVLTreeIntegrationTest {
 
       assertEquals(18, stream.count());
 
-      final var nodeGreaterWithComp = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER,
-          Comparator.naturalOrder());
+      final var nodeGreaterWithComp =
+          allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER, Comparator.naturalOrder());
 
       assertEquals("twitteraccount", nodeGreaterWithComp.get().getKey().getLocalName());
 
@@ -171,7 +178,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var idxDefOfFeatureType =
           IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToFeatureType), 0);
 
-      indexController.createIndexes(ImmutableSet.of(idxDefOfFeatureType), trx);
+      indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
 
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
@@ -195,13 +202,13 @@ public final class JsonAVLTreeIntegrationTest {
       final var pathToName = parse("/features/__array__/properties/name");
       final var idxDefOfPathToName = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 1);
 
-      indexController.createIndexes(ImmutableSet.of(idxDefOfPathToName), trx);
+      indexController.createIndexes(Set.of(idxDefOfPathToName), trx);
 
       final var casIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.CAS);
 
       final var index = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-          indexController.createCASFilter(Set.of("/features/__array__/properties/name"),
-              new Str("ABC Radio Adelaide"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+          indexController.createCASFilter(Set.of("/features/__array__/properties/name"), new Str("ABC Radio Adelaide"),
+              SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(index.hasNext());
 
@@ -227,13 +234,13 @@ public final class JsonAVLTreeIntegrationTest {
       final var idxDefOfPathToCoordinates =
           IndexDefs.createCASIdxDef(false, Type.DEC, Collections.singleton(pathToCoordinates), 2);
 
-      indexController.createIndexes(ImmutableSet.of(idxDefOfPathToCoordinates), trx);
+      indexController.createIndexes(Set.of(idxDefOfPathToCoordinates), trx);
 
       final var casIndexDefForCoordinates = indexController.getIndexes().findCASIndex(pathToCoordinates, Type.DEC);
 
       final var casIndexForCoordinates = indexController.openCASIndex(trx.getPageTrx(), casIndexDefForCoordinates.get(),
-          indexController.createCASFilterRange(Set.of("/features/__array__/geometry/coordinates/__array__"),
-              new Dbl(0), new Dbl(160), true, true, new JsonPCRCollector(trx)));
+          indexController.createCASFilterRange(Set.of("/features/__array__/geometry/coordinates/__array__"), new Dbl(0),
+              new Dbl(160), true, true, new JsonPCRCollector(trx)));
 
       assertTrue(casIndexForCoordinates.hasNext());
 
@@ -245,6 +252,33 @@ public final class JsonAVLTreeIntegrationTest {
       final var casIndex = indexController.getIndexes().findCASIndex(pathToFeatureType, Type.STR);
 
       assertTrue(casIndex.isPresent());
+
+      final var pathToGeometry = parse("/features/__array__/geometry");
+
+      final var idxDefOfThreePaths =
+          IndexDefs.createCASIdxDef(false, Type.STR, Set.of(pathToFeatureType, pathToGeometry, pathToCoordinates), 3);
+
+      indexController.createIndexes(Set.of(idxDefOfThreePaths), trx);
+
+      final var casIndexDefOfGeometryPath = indexController.getIndexes().findCASIndex(pathToGeometry, Type.STR);
+
+      assertTrue(casIndexDefOfGeometryPath.isPresent());
+
+      final var casIndexForGeometry = indexController.openCASIndex(trx.getPageTrx(), casIndexDefOfGeometryPath.get(),
+          indexController.createCASFilter(Set.of("/features/__array__/geometry"), new Str("bla"), SearchMode.EQUAL,
+              new JsonPCRCollector(trx)));
+
+      assertFalse(casIndexForGeometry.hasNext());
+
+      final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getPageTrx(), idxDefOfThreePaths,
+          indexController.createCASFilter(Set.of("/features/__array__/geometry/coordinates/__array__"), new Str("0"),
+              SearchMode.GREATER, new JsonPCRCollector(trx)));
+
+      assertTrue(casIndexForGeometryCoordinates.hasNext());
+
+      assertEquals(53,
+          StreamSupport.stream(Spliterators.spliteratorUnknownSize(casIndexForGeometryCoordinates, Spliterator.ORDERED),
+              false).count());
     }
   }
 
@@ -260,7 +294,7 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var idxDefOfFeatureType = IndexDefs.createPathIdxDef(Collections.singleton(pathToFeatureType), 0);
 
-      indexController.createIndexes(ImmutableSet.of(idxDefOfFeatureType), trx);
+      indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
 
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
@@ -283,7 +317,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var pathToName = parse("/features/__array__/properties/name");
       final var idxDefOfPathToName = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 1);
 
-      indexController.createIndexes(ImmutableSet.of(idxDefOfPathToName), trx);
+      indexController.createIndexes(Set.of(idxDefOfPathToName), trx);
 
       final var pathIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.PATH);
 

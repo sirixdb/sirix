@@ -1,4 +1,4 @@
-package org.sirix.index.cas.xdm;
+package org.sirix.index.cas.xml;
 
 import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
