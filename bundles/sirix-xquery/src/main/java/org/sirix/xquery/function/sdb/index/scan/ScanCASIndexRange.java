@@ -6,16 +6,10 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.expr.Cast;
-import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.sequence.BaseIter;
-import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
@@ -30,7 +24,8 @@ import org.sirix.index.path.xml.XmlPCRCollector;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBNode;
-import org.sirix.xquery.stream.node.SirixNodeKeyStream;
+
+import java.util.Set;
 
 /**
  * Function for scanning for an index range in a CAS index.
@@ -40,7 +35,7 @@ import org.sirix.xquery.stream.node.SirixNodeKeyStream;
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.", parameters = {"$coll", "$document",
     "$idx-no", "$low-key", "$high-key", "$include-low-key", "$include-high-key", "$paths"})
-public final class ScanCASIndexRange extends AbstractFunction {
+public final class ScanCASIndexRange extends AbstractScanIndex {
 
   public final static QNm DEFAULT_NAME = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "scan-cas-index-range");
 
@@ -83,38 +78,12 @@ public final class ScanCASIndexRange extends AbstractFunction {
     final boolean incMin = FunUtil.getBoolean(args, 4, "$include-low-key", true, true);
     final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key", true, true);
     final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);
-    final String[] pathArray = paths == null
-        ? new String[] {}
-        : paths.split(";");
+    final Set<String> setOfPaths = paths == null
+        ? Set.of()
+        : Set.of(paths.split(";"));
     final CASFilterRange filter =
-        controller.createCASFilterRange(pathArray, min, max, incMin, incMax, new XmlPCRCollector(rtx));
+        controller.createCASFilterRange(setOfPaths, min, max, incMin, incMax, new XmlPCRCollector(rtx));
 
-    final XmlIndexController ic = controller;
-    final XmlDBNode node = doc;
-
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          Stream<?> s;
-
-          @Override
-          public Item next() {
-            if (s == null) {
-              s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx().getPageTrx(), indexDef, filter),
-                  node.getCollection(), node.getTrx());
-            }
-            return (Item) s.next();
-          }
-
-          @Override
-          public void close() {
-            if (s != null) {
-              s.close();
-            }
-          }
-        };
-      }
-    };
+    return getSequence(doc, controller.openCASIndex(doc.getTrx().getPageTrx(), indexDef, filter));
   }
 }

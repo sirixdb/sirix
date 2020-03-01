@@ -19,12 +19,8 @@ import io.vertx.kotlin.ext.web.client.sendJsonAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Disabled
-import org.junit.jupiter.api.DisplayName
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.skyscreamer.jsonassert.JSONAssert
 import java.util.concurrent.TimeUnit
@@ -121,7 +117,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the history of a resource")
     fun testResourceHistory(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -225,7 +221,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the diff of a resource")
     fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

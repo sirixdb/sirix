@@ -1,21 +1,16 @@
 package org.sirix.xquery.function.jn.index.scan;
 
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.expr.Cast;
-import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.sequence.BaseIter;
-import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
@@ -32,7 +27,8 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.stream.json.SirixJsonItemKeyStream;
+
+import java.util.Set;
 
 /**
  * Scan the CAS-index for matching nodes.
@@ -43,7 +39,7 @@ import org.sirix.xquery.stream.json.SirixJsonItemKeyStream;
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.",
     parameters = {"$doc", "$idx-no", "$key", "$include-self", "$search-mode", "$paths"})
-public final class ScanCASIndex extends AbstractFunction {
+public final class ScanCASIndex extends AbstractScanIndex {
 
   public final static QNm DEFAULT_NAME = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "scan-cas-index");
 
@@ -111,35 +107,10 @@ public final class ScanCASIndex extends AbstractFunction {
 
     final String paths = FunUtil.getString(args, 5, "$paths", null, null, false);
     final CASFilter filter = (paths != null)
-        ? controller.createCASFilter(paths.split(";"), key, mode, new JsonPCRCollector(rtx))
-        : controller.createCASFilter(new String[] {}, key, mode, new JsonPCRCollector(rtx));
+        ? controller.createCASFilter(Set.of(paths.split(";")), key, mode, new JsonPCRCollector(rtx))
+        : controller.createCASFilter(ImmutableSet.of(), key, mode, new JsonPCRCollector(rtx));
 
-    final JsonIndexController ic = controller;
-    final JsonDBItem node = doc;
-
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          Stream<?> s;
-
-          @Override
-          public Item next() {
-            if (s == null) {
-              s = new SirixJsonItemKeyStream(ic.openCASIndex(node.getTrx().getPageTrx(), indexDef, filter),
-                  node.getCollection(), node.getTrx());
-            }
-            return (Item) s.next();
-          }
-
-          @Override
-          public void close() {
-            if (s != null) {
-              s.close();
-            }
-          }
-        };
-      }
-    };
+    return getSequence(doc, controller.openCASIndex(doc.getTrx().getPageTrx(), indexDef, filter));
   }
+
 }

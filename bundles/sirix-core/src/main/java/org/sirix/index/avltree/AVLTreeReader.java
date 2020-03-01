@@ -344,15 +344,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   }
 
   /**
-   * Set current node.
-   *
-   * @param node the node to set
-   */
-  public void setCurrentNode(final AVLNode<K, V> node) {
-    mCurrentNode = checkNotNull(node);
-  }
-
-  /**
    * Get the structural node of the current node.
    *
    * @return structural node
