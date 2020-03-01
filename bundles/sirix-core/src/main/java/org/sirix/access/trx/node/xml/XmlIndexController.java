@@ -11,7 +11,7 @@ import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
 import org.sirix.index.Indexes;
 import org.sirix.index.cas.xml.XmlCASIndexImpl;
-import org.sirix.index.name.xdm.XmlNameIndexImpl;
+import org.sirix.index.name.xml.XmlNameIndexImpl;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.xml.XmlPCRCollector;
