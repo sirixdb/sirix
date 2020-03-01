@@ -299,14 +299,9 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     moveToFirstChild();
     AVLNode<K, V> node = getAVLNode();
     while (true) {
-      final int c = comp.compare(key, node.getKey());
-      if (mode != SearchMode.EQUAL && mode.compare(key, node.getKey(), comp) == 0) {
+      final int c = key.compareTo(node.getKey());
+      if (mode.compare(key, node.getKey(), comp) == 0) {
         return Optional.ofNullable(node);
-      }
-      if (c == 0) {
-        if (mode == SearchMode.EQUAL) {
-          return Optional.ofNullable(node);
-        }
       }
       final boolean moved = c < 0
           ? moveToFirstChild().hasMoved()

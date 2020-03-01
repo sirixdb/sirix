@@ -1,4 +1,4 @@
-package org.sirix.index.cas.xdm;
+package org.sirix.index.cas.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.cas.CASIndex;
