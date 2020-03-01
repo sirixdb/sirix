@@ -1,4 +1,4 @@
-package org.sirix.index.name.xdm;
+package org.sirix.index.name.xml;
 
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;

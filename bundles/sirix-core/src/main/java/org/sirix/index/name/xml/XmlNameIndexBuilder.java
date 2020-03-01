@@ -1,4 +1,4 @@
-package org.sirix.index.name.xdm;
+package org.sirix.index.name.xml;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;

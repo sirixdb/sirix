@@ -1,4 +1,4 @@
-package org.sirix.index.name.xdm;
+package org.sirix.index.name.xml;
 
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
