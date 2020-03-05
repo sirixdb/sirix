@@ -22,41 +22,54 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Path node in the {@link PathSummaryReader}.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class PathNode extends AbstractStructForwardingNode implements NameNode {
 
-  /** {@link NodeDelegate} instance. */
+  /**
+   * {@link NodeDelegate} instance.
+   */
   private final NodeDelegate mNodeDel;
 
-  /** {@link StructNodeDelegate} instance. */
+  /**
+   * {@link StructNodeDelegate} instance.
+   */
   private final StructNodeDelegate mStructNodeDel;
 
-  /** {@link NameNodeDelegate} instance. */
+  /**
+   * {@link NameNodeDelegate} instance.
+   */
   private final NameNodeDelegate mNameNodeDel;
 
-  /** Kind of node to index. */
+  /**
+   * Kind of node to index.
+   */
   private final NodeKind mKind;
 
-  /** The node name. */
+  /**
+   * The node name.
+   */
   private final QNm mName;
 
-  /** Number of references to this path node. */
+  /**
+   * Number of references to this path node.
+   */
   private int mReferences;
 
-  /** Level of this path node. */
+  /**
+   * Level of this path node.
+   */
   private int mLevel;
 
   /**
    * Constructor.
    *
-   * @param name the full qualified name
-   * @param nodeDel {@link NodeDelegate} instance
+   * @param name          the full qualified name
+   * @param nodeDel       {@link NodeDelegate} instance
    * @param structNodeDel {@link StructNodeDelegate} instance
-   * @param nameNodeDel {@link NameNodeDelegate} instance
-   * @param kind kind of node to index
-   * @param references number of references to this path node
-   * @param level level of this path node
+   * @param nameNodeDel   {@link NameNodeDelegate} instance
+   * @param kind          kind of node to index
+   * @param references    number of references to this path node
+   * @param level         level of this path node
    */
   public PathNode(final QNm name, final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
       @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final NodeKind kind, @Nonnegative final int references,
@@ -93,7 +106,13 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
       if (n.getPathKind() == NodeKind.ATTRIBUTE) {
         p.attribute(reader.getName());
       } else {
-        p.child(reader.getName());
+        final QNm name;
+        if (reader.getPathKind() == NodeKind.OBJECT_KEY) {
+          name = new QNm(null, null, reader.getName().getLocalName().replace("/", "\\/"));
+        } else {
+          name = reader.getName();
+        }
+        p.child(name);
       }
     }
     reader.moveTo(nodeKey);
