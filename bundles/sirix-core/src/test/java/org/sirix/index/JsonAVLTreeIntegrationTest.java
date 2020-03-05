@@ -38,6 +38,42 @@ public final class JsonAVLTreeIntegrationTest {
   }
 
   @Test
+  public void testCreateCASIndexWhileListeningAndCASIndexOnDemandWithInvalidQName() {
+    final var jsonPath = JSON.resolve("business-service-providers.json");
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
+
+      final var pathToGetSummary = parse("/paths/\\/business_service_providers\\/search/get/summary");
+
+      final var idxDefOfFeatureType =
+          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToGetSummary), 0);
+
+      indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
+
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToGetSummary, false);
+
+      assertEquals(1, pathNodeKeys.size());
+
+      final var casIndexForGetSummary = indexController.openCASIndex(trx.getPageTrx(), idxDefOfFeatureType,
+          indexController.createCASFilter(Set.of("/paths/\\/business_service_providers\\/search/get/summary"),
+              new Str("Business Service Providers API"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+
+      assertTrue(casIndexForGetSummary.hasNext());
+
+      final var nodeReferences = casIndexForGetSummary.next();
+
+      assertEquals("nodeKey should match", 29L, (long) nodeReferences.getNodeKeys().iterator().next());
+      assertFalse(casIndexForGetSummary.hasNext());
+    }
+  }
+
+  @Test
   public void testCreateNameIndexWhileListeningAndNameIndexOnDemand() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
