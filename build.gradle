@@ -7,11 +7,11 @@ buildscript {
         }
     }
     dependencies {
-        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.10.0"
+        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.10.1"
         classpath 'net.researchgate:gradle-release:2.8.1'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.27.0"
         classpath "com.github.jengelman.gradle.plugins:shadow:5.2.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:3.27.1"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:3.27.2"
     }
 }
 
