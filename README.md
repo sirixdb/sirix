@@ -63,26 +63,26 @@ Some of the most important core principles and design goals are:
 
 <dl>
   <dt>Minimize Storage Overhead</dt>
-  <dd>SirixDB shares unchanged data pages as well as records between revisions, depending on a chosen versioning algorithm during the initial bootstrapping of a resource. SirixDB aims to balance read and writer performance in its default configuration</dd>
+  <dd>SirixDB shares unchanged data pages as well as records between revisions, depending on a chosen versioning algorithm during the initial bootstrapping of a resource. SirixDB aims to balance read and writer performance in its default configuration.</dd>
   <dt>Concurrent</dt>
-  <dd>SirixDB contains very few locks and aims to be as suitable for multithreaded systems as possible</dd>
+  <dd>SirixDB contains very few locks and aims to be as suitable for multithreaded systems as possible.</dd>
   <dt>Asynchronous</dt>
-  <dd>Operations can happen independently; each transaction is bound to a specific revision and only one read/write-transaction on a resource is permitted concurrently to N read-only-transactions</dd>
+  <dd>Operations can happen independently; each transaction is bound to a specific revision and only one read/write-transaction on a resource is permitted concurrently to N read-only-transactions.</dd>
   <dt>Versioning/Revision history</dt>
-  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead. It uses a huge persistent, durable page-tree for indexing revisions and data</dd>
+  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead. It uses a huge persistent, durable page-tree for indexing revisions and data.</dd>
   <dt>Data integrity</dt>
-  <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future, we aim to partition and replicate databases in the future</dd>
+  <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future, we aim to partition and replicate databases in the future.</dd>
   <dt>Copy-on-write semantics</dt>
-  <dd>Similarly to the file systems Btrfs and ZFS, SirixDB uses CoW semantics, meaning that SirixDB never overwrites data. Instead, database-page fragments are copied/written to a new location</dd>
+  <dd>Similarly to the file systems Btrfs and ZFS, SirixDB uses CoW semantics, meaning that SirixDB never overwrites data. Instead, database-page fragments are copied/written to a new location.</dd>
   <dt>Per revision and per page versioning</dt>
   <dd>SirixDB does not only version on a per revision, but also on a per page-base. Thus, whenever we change a potentially small fraction
-of records in a data-page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning-type we specify is used by SirixDB to version data-pages</dd>
+of records in a data-page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning-type we specify is used by SirixDB to version data-pages.</dd>
   <dt>Guaranteed atomicity and consistency (without a WAL)</dt>
-  <dd>The system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log (<a
+  <dd>The system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log. (<a
 href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
   <dt>Log-structured and SSD friendly</dt>
   <dd>SirixDB batches writes and syncs everything sequentially to a flash drive
-during commits. It never overwrites committed data</dd>
+during commits. It never overwrites committed data.</dd>
 </dl>
 
 ## Revision Histories
@@ -91,7 +91,7 @@ SirixDB.** We're able to revert any revision into an earlier
 version or back up the system automatically without the overhead of
 copying. SirixDB only ever copies changed database-pages and depending
 on the versioning algorithm we chose during the creation of a
-database/resource only page-fragments as well as ancestor index-pages
+database/resource only page-fragments, as well as ancestor index-pages
 to create a new revision.
 
 We can reconstruct every revision in <em>O(n)</em>, where <em>n</em>
@@ -126,7 +126,7 @@ And the Open Source Community.
 
 ## Contributors ✨
 
-As the project was forked from a university project called Treetank, my deepest gratitute to Marc Kramis, who came up with the idea of building a versioned, secure and energy efficient data store, which retains the history of resources for his PhD. Furthermore Sebastian Graf came up with a lot of ideas and greatly improved the implementation for his PhD. Besides, a lot of students worked and improved the project considerably.
+As the project was forked from a university project called Treetank, my deepest gratitute to Marc Kramis, who came up with the idea of building a versioned, secure and energy efficient data store, which retains the history of resources for his PhD. Furthermore, Sebastian Graf came up with a lot of ideas and greatly improved the implementation for his PhD. Besides, a lot of students worked and improved the project considerably.
 
 Thanks goes to these wonderful people, who greatly improved SirixDB lately. SirixDB couldn't exist without the help of the Open Source community:
 
@@ -480,7 +480,7 @@ For instance via a GET-request like this for the database/resource we created ab
 
 `GET https://localhost:9443/?query=sdb%3Adiff%28%27database%27%2C%27resource1%27%2C1%2C2%29`
 
-Note that the query-String has to be URL-encoded, thus it's decoded
+Note that the query-String has to be URL-encoded, thus it's decoded.
 
 `sdb:diff('database','resource1',1,2)`
 
@@ -500,7 +500,7 @@ This means the `resource1` from `database` is opened in the first revision. Then
 https://github.com/sirixdb/sirix/wiki/RESTful-API gives an overview about the API.
 
 ## DOM alike API
-Think of this rather low level API as a persistent (in the sense of storing it to disk/a flash drive) DOM interface for Sirix, whereas nodes can be selected by a transactional cursor API by their unique identifier, which has been created during insertion with a sequence generator. Another DOM like API is available through our XQuery layer, which adds a simple Interface for in-memory node instances. However the low level API, which we are describing below doesn't have to have all nodes in-memory (and it usually doesn't). Nodes are fetched from variable length pages which have been either cached by a buffer manager in memory or reside on the flash drive or a spinning disk and have to be read from a file.
+Think of this rather low level API as a persistent (in the sense of storing it to disk/a flash drive) DOM interface for Sirix, whereas nodes can be selected by a transactional cursor API by their unique identifier, which has been created during insertion with a sequence generator. Another DOM like API is available through our XQuery layer, which adds a simple Interface for in-memory node instances. However the low level API, which we are describing below doesn't have to have all nodes in-memory (and it usually doesn't). Nodes are fetched from variable length pages which have been either cached by a buffer manager in memory, reside on the flash drive, or on a spinning disk that has to be read from a file.
 
 ```java
 // Path to the database.
@@ -674,7 +674,7 @@ FMSEImport.xmlDataImport(resOldRev, resNewRev);
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
 
-In order to invoke a diff you either use with a resource-manager and an immutable set of observers (2 and 1 are the revision numbers to compare):
+In order to invoke a diff you either use with a resource-manager, and an immutable set of observers (2 and 1 are the revision numbers to compare):
 
 ```java
 DiffFactory.invokeFullDiff(
@@ -789,7 +789,7 @@ Many more examples of creating name indexes, content and structure indexes and h
 
 Have a look into the wiki for examples regarding a lower level (really powerful) cursor based API to navigate/and or modify  the tree structure or to navigate in time.
 
-A lot of the ideas still stem from the Ph.D. thesis of Marc Kramis: Evolutionary Tree-Structured Storage: Concepts, Interfaces, and Applications
+A lot of the ideas still stem from the Ph.D. thesis of Marc Kramis: Evolutionary Tree-Structured Storage: Concepts, Interfaces, and Applications.
 
 http://www.uni-konstanz.de/mmsp/pubsys/publishedFiles/Kramis2014.pdf
 
@@ -800,7 +800,7 @@ https://kops.uni-konstanz.de/handle/123456789/27250
 ## Getting Help
 
 ### Community Forum
-Any questions or even consider to contribute or use Sirix? Use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+If you have any questions or are considering to contribute or use Sirix, please use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
