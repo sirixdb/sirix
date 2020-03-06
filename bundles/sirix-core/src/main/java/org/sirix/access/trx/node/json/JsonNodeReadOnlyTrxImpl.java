@@ -57,8 +57,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @Nonnegative
-          long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);

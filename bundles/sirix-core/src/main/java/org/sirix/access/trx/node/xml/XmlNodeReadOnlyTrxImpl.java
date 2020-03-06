@@ -21,15 +21,8 @@
 
 package org.sirix.access.trx.node.xml;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -45,13 +38,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.immutable.xml.ImmutableAttributeNode;
-import org.sirix.node.immutable.xml.ImmutableComment;
-import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
-import org.sirix.node.immutable.xml.ImmutableElement;
-import org.sirix.node.immutable.xml.ImmutableNamespace;
-import org.sirix.node.immutable.xml.ImmutablePI;
-import org.sirix.node.immutable.xml.ImmutableText;
+import org.sirix.node.immutable.xml.*;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
@@ -59,28 +46,27 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
+import org.sirix.node.xml.*;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * <h1>XmlNodeReadOnlyTrxImpl</h1>
- *
- * <p>
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
- * </p>
  */
 public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeReadOnlyTrx>
     implements InternalXmlNodeReadTrx {
