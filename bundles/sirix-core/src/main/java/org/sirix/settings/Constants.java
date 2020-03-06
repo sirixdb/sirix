@@ -25,11 +25,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 /**
- * <h1>Constants</h1>
- *
- * <p>
  * Interface to hold all constants of the node layer.
- * </p>
  */
 public final class Constants {
 
@@ -51,10 +47,10 @@ public final class Constants {
   // ----------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int INP_REFERENCE_COUNT = 512;
+  public static final int INP_REFERENCE_COUNT = 256;
 
   /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
-  public static final int INP_REFERENCE_COUNT_EXPONENT = 9;
+  public static final int INP_REFERENCE_COUNT_EXPONENT = 8;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
@@ -72,10 +68,10 @@ public final class Constants {
   // -------------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int PATHINP_REFERENCE_COUNT = 512;
+  public static final int PATHINP_REFERENCE_COUNT = 256;
 
   /** 2^PATHINP_REFERENCE_COUNT_EXPONENT = PATHINP_REFERENCE_COUNT. */
-  public static final int PATHINP_REFERENCE_COUNT_EXPONENT = 9;
+  public static final int PATHINP_REFERENCE_COUNT_EXPONENT = 8;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
@@ -92,10 +88,10 @@ public final class Constants {
   // -------------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int UBPINP_REFERENCE_COUNT = 512;
+  public static final int UBPINP_REFERENCE_COUNT = 256;
 
   /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
-  public static final int UBPINP_REFERENCE_COUNT_EXPONENT = 9;
+  public static final int UBPINP_REFERENCE_COUNT_EXPONENT = 8;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
@@ -118,10 +114,10 @@ public final class Constants {
   // -------------------------------------------------------------
 
   /** Maximum node count per node page. */
-  public static final int NDP_NODE_COUNT = 512;
+  public static final int NDP_NODE_COUNT = 256;
 
   /** 2^NDP_NODE_COUNT_EXPONENT = NDP_NODE_COUNT. */
-  public static final int NDP_NODE_COUNT_EXPONENT = 9;
+  public static final int NDP_NODE_COUNT_EXPONENT = 8;
 
   // --- Reference Page
   // -------------------------------------------------------------
@@ -129,5 +125,4 @@ public final class Constants {
   public static final long NULL_ID_LONG = -15;
 
   public static final int NULL_ID_INT = -15;
-
 }

@@ -21,13 +21,14 @@
 
 package org.sirix.io;
 
-import javax.annotation.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nullable;
 
 /**
  * Interface for reading the stored pages in every backend.
@@ -51,7 +52,7 @@ public interface Reader extends AutoCloseable {
    *
    * @param key the reference for the page to be determined
    * @param pageReadTrx {@link PageReadOnlyTrx} reference
-   * @return a {@link PageDelegate} as the base for a page
+   * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
    */
   Page read(PageReference key, @Nullable PageReadOnlyTrx pageReadTrx) throws SirixIOException;

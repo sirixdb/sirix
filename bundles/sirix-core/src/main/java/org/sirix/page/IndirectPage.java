@@ -21,30 +21,25 @@
 
 package org.sirix.page;
 
-import java.io.DataInput;
-import java.io.IOException;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
+import java.io.DataInput;
+
 /**
- * <h1>IndirectPage</h1>
- *
- * <p>
- * Indirect page holds a set of references to build a reference tree.
- * </p>
+ * Bitmap based indirect page holds a set of references to build a reference tree.
  */
 public final class IndirectPage extends AbstractForwardingPage {
 
-  /** {@link PageDelegate} reference. */
-  private final PageDelegate mDelegate;
+  /** {@link BitmapReferencesPage} reference. */
+  private final BitmapReferencesPage mDelegate;
 
   /**
    * Create indirect page.
-   *
    */
   public IndirectPage() {
-    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
+    mDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT);
   }
 
   /**
@@ -52,8 +47,8 @@ public final class IndirectPage extends AbstractForwardingPage {
    *
    * @param in input source
    */
-  public IndirectPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in, type);
+  public IndirectPage(final DataInput in, final SerializationType type) {
+    mDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
   }
 
   /**
@@ -62,7 +57,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    * @param page {@link IndirectPage} to clone
    */
   public IndirectPage(final IndirectPage page) {
-    mDelegate = new PageDelegate(page, page.mDelegate.getBitmap());
+    mDelegate = new BitmapReferencesPage(page, page.mDelegate.getBitmap());
   }
 
   @Override

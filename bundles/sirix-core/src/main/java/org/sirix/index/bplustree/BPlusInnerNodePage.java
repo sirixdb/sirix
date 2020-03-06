@@ -1,26 +1,23 @@
 package org.sirix.index.bplustree;
 
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.io.ByteArrayDataInput;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.AbstractForwardingPage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.io.ByteArrayDataInput;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.*;
+import java.util.Map.Entry;
 
 /**
  * Inner node key/value page.
@@ -48,7 +45,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
   /** Optional right page reference (inner node page). */
   private Optional<PageReference> mRightPage;
 
-  private final PageDelegate mDelegate;
+  private final BitmapReferencesPage mDelegate;
 
   private final PageKind mPageKind;
 
@@ -78,7 +75,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
     mRecordPageKey = recordPageKey;
     mRecords = new TreeMap<>();
     mPageReadTrx = pageReadTrx;
-    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
+    mDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT);
     mPageKind = pageKind;
   }
 

@@ -1,7 +1,6 @@
 package org.sirix.rest.crud.json
 
 import io.netty.handler.codec.http.HttpResponseStatus
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
@@ -61,7 +60,9 @@ class JsonHead(private val location: Path) {
 
                     rtx.use {
                         if (nodeId != null) {
-                            rtx.moveTo(nodeId.toLong())
+                            if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
+                                ctx.fail(IllegalStateException("Node with ID ${nodeId} doesn't exist."))
+                            }
                         } else if (rtx.isDocumentRoot) {
                             rtx.moveToFirstChild()
                         }

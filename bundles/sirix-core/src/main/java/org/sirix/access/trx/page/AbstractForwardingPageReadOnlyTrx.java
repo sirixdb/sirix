@@ -7,7 +7,6 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.IndexLogKey;
-import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
