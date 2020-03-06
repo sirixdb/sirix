@@ -61,7 +61,10 @@ class JsonHead(private val location: Path) {
                     rtx.use {
                         if (nodeId != null) {
                             if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
-                                ctx.fail(IllegalStateException("Node with ID ${nodeId} doesn't exist."))
+                                ctx.fail(
+                                    HttpResponseStatus.BAD_REQUEST.code(),
+                                    IllegalStateException("Node with ID ${nodeId} doesn't exist.")
+                                )
                             }
                         } else if (rtx.isDocumentRoot) {
                             rtx.moveToFirstChild()
