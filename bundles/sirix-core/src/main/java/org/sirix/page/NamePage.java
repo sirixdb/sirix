@@ -33,7 +33,7 @@ import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -77,8 +77,8 @@ public final class NamePage extends AbstractForwardingPage {
   /** JSON Object key names. */
   private Names mJSONObjectKeys;
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+  /** {@link BitmapReferencesPage} instance. */
+  private final BitmapReferencesPage mDelegate;
 
   /** The number of arrays stored. */
   private int mNumberOfArrays;
@@ -93,7 +93,7 @@ public final class NamePage extends AbstractForwardingPage {
    * Create name page.
    */
   public NamePage() {
-    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
+    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR);
     mMaxNodeKeys = new HashMap<>();
     mAttributes = Names.getInstance(ATTRIBUTES_REFERENCE_OFFSET);
     mElements = Names.getInstance(ELEMENTS_REFERENCE_OFFSET);
@@ -110,7 +110,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param in input bytes to read from
    */
   protected NamePage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
+    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR, in, type);
     final int size = in.readInt();
     mMaxNodeKeys = new HashMap<>(size);
     for (int i = 0; i < size; i++) {

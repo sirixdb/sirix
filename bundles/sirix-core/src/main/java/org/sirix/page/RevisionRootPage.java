@@ -36,7 +36,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -72,8 +72,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /** Timestamp of revision. */
   private long mRevisionTimestamp;
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+  /** {@link BitmapReferencesPage} instance. */
+  private final BitmapReferencesPage mDelegate;
 
   /** Revision number. */
   private final int mRevision;
@@ -91,7 +91,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Create revision root page.
    */
   public RevisionRootPage() {
-    mDelegate = new PageDelegate(5);
+    mDelegate = new BitmapReferencesPage(5);
     getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
     getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
@@ -107,7 +107,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param in input stream
    */
   protected RevisionRootPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new PageDelegate(5, in, type);
+    mDelegate = new BitmapReferencesPage(5, in, type);
     mRevision = in.readInt();
     mMaxNodeKey = in.readLong();
     mRevisionTimestamp = in.readLong();
@@ -132,7 +132,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param representRev revision number to use
    */
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
-    mDelegate = new PageDelegate(committedRevisionRootPage, committedRevisionRootPage.mDelegate.getBitmap());
+    mDelegate = new BitmapReferencesPage(committedRevisionRootPage, committedRevisionRootPage.mDelegate.getBitmap());
     mRevision = representRev;
     mUser = committedRevisionRootPage.mUser;
     mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;

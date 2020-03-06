@@ -7,7 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -20,8 +20,8 @@ import com.google.common.base.MoreObjects;
  */
 public final class CASPage extends AbstractForwardingPage {
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+  /** {@link BitmapReferencesPage} instance. */
+  private final BitmapReferencesPage mDelegate;
 
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
@@ -33,7 +33,7 @@ public final class CASPage extends AbstractForwardingPage {
    * Constructor.
    */
   public CASPage() {
-    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
+    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR);
     mMaxNodeKeys = new HashMap<>();
     mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
   }
@@ -44,7 +44,7 @@ public final class CASPage extends AbstractForwardingPage {
    * @param in input bytes to read from
    */
   protected CASPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
+    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR, in, type);
     final int maxNodeKeySize = in.readInt();
     mMaxNodeKeys = new HashMap<>(maxNodeKeySize);
     for (int i = 0; i < maxNodeKeySize; i++) {

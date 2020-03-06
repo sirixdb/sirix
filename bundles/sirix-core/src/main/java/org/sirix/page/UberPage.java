@@ -25,13 +25,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.PageReadOnlyTrx;
+
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -57,8 +56,8 @@ public final class UberPage extends AbstractForwardingPage {
    */
   private boolean mIsBootstrap;
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+  /** {@link BitmapReferencesPage} instance. */
+  private final BitmapReferencesPage mDelegate;
 
   /** {@link RevisionRootPage} instance. */
   private RevisionRootPage mRootPage;
@@ -76,7 +75,7 @@ public final class UberPage extends AbstractForwardingPage {
    * Create uber page.
    */
   public UberPage() {
-    mDelegate = new PageDelegate(1);
+    mDelegate = new BitmapReferencesPage(1);
     mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
     mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
     mIsBootstrap = true;
@@ -92,7 +91,7 @@ public final class UberPage extends AbstractForwardingPage {
    * @param type the serialization type
    */
   protected UberPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new PageDelegate(1, in, type);
+    mDelegate = new BitmapReferencesPage(1, in, type);
     mRevisionCount = in.readInt();
     if (in.readBoolean())
       mPreviousUberPageKey = in.readLong();
@@ -111,7 +110,7 @@ public final class UberPage extends AbstractForwardingPage {
    * @param previousUberPageKey the previous uber page key
    */
   public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
-    mDelegate = new PageDelegate(checkNotNull(committedUberPage), committedUberPage.mDelegate.getBitmap());
+    mDelegate = new BitmapReferencesPage(checkNotNull(committedUberPage), committedUberPage.mDelegate.getBitmap());
     mPreviousUberPageKey = previousUberPageKey;
     if (committedUberPage.isBootstrap()) {
       mRevision = committedUberPage.mRevision;

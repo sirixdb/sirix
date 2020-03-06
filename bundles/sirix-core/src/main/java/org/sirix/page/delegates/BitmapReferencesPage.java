@@ -21,13 +21,7 @@
 
 package org.sirix.page.delegates;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.BitSet;
-import java.util.List;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
@@ -37,7 +31,15 @@ import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.BitSet;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * <h1>PageDelegate</h1>
@@ -46,7 +48,7 @@ import com.google.common.base.MoreObjects;
  * Class to provide basic reference handling functionality.
  * </p>
  */
-public final class PageDelegate implements Page {
+public final class BitmapReferencesPage implements Page {
 
   /** Page references. */
   private final List<PageReference> mReferences;
@@ -59,22 +61,23 @@ public final class PageDelegate implements Page {
    *
    * @param referenceCount number of references of page
    */
-  public PageDelegate(final @Nonnegative int referenceCount) {
+  public BitmapReferencesPage(final @Nonnegative int referenceCount) {
     checkArgument(referenceCount >= 0);
 
     final int initialSize;
 
     if (referenceCount == Constants.INP_REFERENCE_COUNT
         || referenceCount == Constants.PATHINP_REFERENCE_COUNT
-        || referenceCount == Constants.NDP_NODE_COUNT)
+        || referenceCount == Constants.NDP_NODE_COUNT) {
       /*
        * Currently backing array has an initial size of 8. Thus for the last layer of indirect pages
        * it has to resize the first time after 8 record pages, that is 512 * 8 records.
        */
       initialSize = referenceCount >> 6;
-    else
+    } else {
       // All pages which have less references are fully set (UberPage, RevisionRootPage...).
       initialSize = referenceCount;
+    }
 
     mReferences = new GapList<>(initialSize);
     mBitmap = new BitSet(referenceCount);
@@ -88,7 +91,7 @@ public final class PageDelegate implements Page {
    * @param type the serialization type
    * @throws IOException if the delegate couldn't be deserialized
    */
-  public PageDelegate(final @Nonnegative int referenceCount, final DataInput in,
+  public BitmapReferencesPage(final @Nonnegative int referenceCount, final DataInput in,
       final SerializationType type) {
     final DeserializedTuple tuple = type.deserialize(referenceCount, in);
     mReferences = tuple.getReferences();
@@ -100,7 +103,7 @@ public final class PageDelegate implements Page {
    *
    * @param commitedPage commited page
    */
-  public PageDelegate(final Page commitedPage, final BitSet bitSet) {
+  public BitmapReferencesPage(final Page commitedPage, final BitSet bitSet) {
     mBitmap = (BitSet) bitSet.clone();
 
     final int length = commitedPage.getReferences().size();
