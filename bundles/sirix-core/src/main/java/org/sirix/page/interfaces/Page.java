@@ -20,16 +20,17 @@
  */
 package org.sirix.page.interfaces;
 
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
 
 /**
  * Page interface all pages have to implement.
@@ -72,5 +73,11 @@ public interface Page {
    */
   PageReference getReference(@Nonnegative int offset);
 
-  void setReference(int offset, PageReference pageReference);
+  /**
+   * Set the reference at the specified offset
+   * @param offset the offset
+   * @param pageReference the page reference
+   * @return {@code true}, if the page is already full, {@code false} otherwise
+   */
+  boolean setReference(int offset, PageReference pageReference);
 }

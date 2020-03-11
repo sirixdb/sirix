@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -25,7 +25,7 @@ import com.google.common.base.MoreObjects;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.DeserializedTuple;
+import org.sirix.page.DeserializedBitmapReferencesPageTuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -33,28 +33,44 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
-import java.io.IOException;
 import java.util.BitSet;
 import java.util.List;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
 /**
- * <h1>PageDelegate</h1>
- *
- * <p>
  * Class to provide basic reference handling functionality.
- * </p>
  */
 public final class BitmapReferencesPage implements Page {
 
   /** Page references. */
-  private final List<PageReference> mReferences;
+  private final List<PageReference> references;
 
   /** The bitmap to use, which indexes are null/not null in the references array. */
-  private final BitSet mBitmap;
+  private final BitSet bitmap;
+
+  /**
+   * Constructor to initialize instance.
+   *
+   * @param numberOfEntriesAtMax number of entries at maximum
+   * @param pageToCopy the page to copy references from
+   */
+  public BitmapReferencesPage(final int numberOfEntriesAtMax, final ReferencesPage4 pageToCopy) {
+    checkArgument(numberOfEntriesAtMax >= 0);
+
+    references = new GapList<>(8);
+    bitmap = new BitSet(numberOfEntriesAtMax);
+
+    final var offsets = pageToCopy.getOffsets();
+    final var pageReferences = pageToCopy.getReferences();
+
+    for (int i = 0, size = offsets.size(); i < size; i++) {
+      setReference(offsets.get(i), pageReferences.get(i));
+    }
+  }
 
   /**
    * Constructor to initialize instance.
@@ -79,8 +95,8 @@ public final class BitmapReferencesPage implements Page {
       initialSize = referenceCount;
     }
 
-    mReferences = new GapList<>(initialSize);
-    mBitmap = new BitSet(referenceCount);
+    references = new GapList<>(initialSize);
+    bitmap = new BitSet(referenceCount);
   }
 
   /**
@@ -89,41 +105,40 @@ public final class BitmapReferencesPage implements Page {
    * @param referenceCount number of references of page
    * @param in input stream to read from
    * @param type the serialization type
-   * @throws IOException if the delegate couldn't be deserialized
    */
   public BitmapReferencesPage(final @Nonnegative int referenceCount, final DataInput in,
       final SerializationType type) {
-    final DeserializedTuple tuple = type.deserialize(referenceCount, in);
-    mReferences = tuple.getReferences();
-    mBitmap = tuple.getBitmap();
+    final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
+    references = tuple.getReferences();
+    bitmap = tuple.getBitmap();
   }
 
   /**
    * Constructor to initialize instance.
    *
-   * @param commitedPage commited page
+   * @param pageToClone commited page
    */
-  public BitmapReferencesPage(final Page commitedPage, final BitSet bitSet) {
-    mBitmap = (BitSet) bitSet.clone();
+  public BitmapReferencesPage(final Page pageToClone, final BitSet bitSet) {
+    bitmap = (BitSet) bitSet.clone();
 
-    final int length = commitedPage.getReferences().size();
+    final int length = pageToClone.getReferences().size();
 
-    mReferences = new GapList<>(length);
+    references = new GapList<>(length);
 
     for (int offset = 0; offset < length; offset++) {
       final PageReference reference = new PageReference();
-      reference.setKey(commitedPage.getReferences().get(offset).getKey());
-      mReferences.add(offset, reference);
+      reference.setKey(pageToClone.getReferences().get(offset).getKey());
+      references.add(offset, reference);
     }
   }
 
   @Override
   public List<PageReference> getReferences() {
-    return mReferences;
+    return references;
   }
 
   public BitSet getBitmap() {
-    return (BitSet) mBitmap.clone();
+    return (BitSet) bitmap.clone();
   }
 
   /**
@@ -134,38 +149,42 @@ public final class BitmapReferencesPage implements Page {
    */
   @Override
   public PageReference getReference(final @Nonnegative int offset) {
-    if (mBitmap.get(offset)) {
+    if (bitmap.get(offset)) {
       final int index = index(offset);
-      return mReferences.get(index);
+      return references.get(index);
     } else {
       return createNewReference(offset);
     }
   }
 
   @Override
-  public void setReference(final int offset, final PageReference pageReference) {
+  public boolean setReference(final int offset, final PageReference pageReference) {
+    if (!bitmap.get(offset)) {
+      createNewReference(offset);
+    }
     final int index = index(offset);
-    mReferences.set(index, pageReference);
-    mBitmap.set(offset, true);
+    references.set(index, pageReference);
+    bitmap.set(index, true);
+    return references.size() == Constants.INP_REFERENCE_COUNT - 1;
   }
 
   private PageReference createNewReference(final int offset) {
     final int index = index(offset);
     final PageReference pageReference = new PageReference();
-    mReferences.add(index, pageReference);
-    mBitmap.set(offset, true);
+    references.add(index, pageReference);
+    bitmap.set(offset, true);
     return pageReference;
   }
 
   private int index(final int offset) {
-    final BitSet offsetBitmap = new BitSet(mBitmap.size());
+    final BitSet offsetBitmap = new BitSet(bitmap.size());
 
     offsetBitmap.set(offset);
 
     // Flip 0 to offset.
     offsetBitmap.flip(0, offset + 1);
 
-    offsetBitmap.and(mBitmap);
+    offsetBitmap.and(bitmap);
 
     return offsetBitmap.cardinality();
   }
@@ -177,8 +196,8 @@ public final class BitmapReferencesPage implements Page {
    */
   @Override
   public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final PageTrx<K, V, S> pageWriteTrx) {
-    for (final PageReference reference : mReferences) {
+      @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
+    for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT
           || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageWriteTrx.commit(reference);
@@ -198,16 +217,16 @@ public final class BitmapReferencesPage implements Page {
     assert out != null;
     assert type != null;
 
-    type.serialize(out, mReferences, mBitmap);
+    type.serializeBitmapReferencesPage(out, references, bitmap);
   }
 
   @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-    for (final PageReference ref : mReferences) {
+    for (final PageReference ref : references) {
       helper.add("reference", ref);
     }
-    helper.add("bitmap", dumpBitmap(mBitmap));
+    helper.add("bitmap", dumpBitmap(bitmap));
     return helper.toString();
   }
 

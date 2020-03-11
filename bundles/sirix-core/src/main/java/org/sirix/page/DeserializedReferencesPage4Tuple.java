@@ -27,7 +27,6 @@
  */
 package org.sirix.page;
 
-import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -36,22 +35,22 @@ import java.util.List;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
-public final class DeserializedTuple {
+public final class DeserializedReferencesPage4Tuple {
   /** The page references. */
-  private final List<PageReference> mReferences;
+  private final List<PageReference> references;
 
-  /** The bitmap. */
-  private final BitSet mBitmap;
+  /** The offsets. */
+  private final List<Short> offsets;
 
   /**
    * Constructor.
    *
    * @param references the references
-   * @param bitmap the bitmap
+   * @param offsets the offsets
    */
-  public DeserializedTuple(final List<PageReference> references, final BitSet bitmap) {
-    mReferences = references;
-    mBitmap = bitmap;
+  public DeserializedReferencesPage4Tuple(final List<PageReference> references, final List<Short> offsets) {
+    this.references = references;
+    this.offsets = offsets;
   }
 
   /**
@@ -59,8 +58,8 @@ public final class DeserializedTuple {
    *
    * @return the bitmap
    */
-  public BitSet getBitmap() {
-    return mBitmap;
+  public List<Short> getOffsets() {
+    return offsets;
   }
 
   /**
@@ -69,6 +68,6 @@ public final class DeserializedTuple {
    * @return the references
    */
   public List<PageReference> getReferences() {
-    return mReferences;
+    return references;
   }
 }

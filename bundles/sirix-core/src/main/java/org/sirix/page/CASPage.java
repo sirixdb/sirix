@@ -1,16 +1,18 @@
 package org.sirix.page;
 
+import com.google.common.base.MoreObjects;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.cache.TransactionIntentLog;
+import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.ReferencesPage4;
+import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.cache.TransactionIntentLog;
-import org.sirix.page.delegates.BitmapReferencesPage;
-import org.sirix.page.interfaces.Page;
-import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
 
 /**
  * Page to hold references to a content and value summary.
@@ -20,8 +22,8 @@ import com.google.common.base.MoreObjects;
  */
 public final class CASPage extends AbstractForwardingPage {
 
-  /** {@link BitmapReferencesPage} instance. */
-  private final BitmapReferencesPage mDelegate;
+  /** The references page instance. */
+  private Page delegate;
 
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
@@ -33,7 +35,7 @@ public final class CASPage extends AbstractForwardingPage {
    * Constructor.
    */
   public CASPage() {
-    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR);
+    delegate = new ReferencesPage4();
     mMaxNodeKeys = new HashMap<>();
     mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
   }
@@ -44,7 +46,7 @@ public final class CASPage extends AbstractForwardingPage {
    * @param in input bytes to read from
    */
   protected CASPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR, in, type);
+    delegate = PageUtils.createDelegate(in, type);
     final int maxNodeKeySize = in.readInt();
     mMaxNodeKeys = new HashMap<>(maxNodeKeySize);
     for (int i = 0; i < maxNodeKeySize; i++) {
@@ -58,8 +60,10 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void setReference(int offset, PageReference pageReference) {
-    delegate().setReference(offset, pageReference);
+  public boolean setReference(int offset, PageReference pageReference) {
+    delegate = PageUtils.setReference(delegate, offset, pageReference);
+
+    return false;
   }
 
   /**
@@ -74,12 +78,12 @@ public final class CASPage extends AbstractForwardingPage {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("mDelegate", mDelegate).toString();
+    return MoreObjects.toStringHelper(this).add("mDelegate", delegate).toString();
   }
 
   @Override
   protected Page delegate() {
-    return mDelegate;
+    return delegate;
   }
 
   /**
@@ -91,27 +95,31 @@ public final class CASPage extends AbstractForwardingPage {
    */
   public void createCASIndexTree(final PageReadOnlyTrx pageReadTrx, final int index,
       final TransactionIntentLog log) {
-    final PageReference reference = getReference(index);
+    PageReference reference = getReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getReference(index);
+    }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
       PageUtils.createTree(reference, PageKind.CASPAGE, index, pageReadTrx, log);
       if (mMaxNodeKeys.get(index) == null) {
-        mMaxNodeKeys.put(index, 0l);
+        mMaxNodeKeys.put(index, 0L);
       } else {
-        mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+        mMaxNodeKeys.put(index, mMaxNodeKeys.get(index) + 1);
       }
-      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
-        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
-      } else {
-        mCurrentMaxLevelsOfIndirectPages.put(
-            index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
-      }
+      mCurrentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
     }
   }
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+    if (delegate instanceof ReferencesPage4) {
+      out.writeByte(0);
+    } else if (delegate instanceof BitmapReferencesPage) {
+      out.writeByte(1);
+    }
     super.serialize(out, type);
     final int maxNodeKeySize = mMaxNodeKeys.size();
     out.writeInt(maxNodeKeySize);
@@ -131,7 +139,7 @@ public final class CASPage extends AbstractForwardingPage {
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
     return mCurrentMaxLevelsOfIndirectPages.merge(
-        index, 1, (previousValue, value) -> previousValue + value);
+        index, 1, Integer::sum);
   }
 
   /**
@@ -145,9 +153,8 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   public long incrementAndGetMaxNodeKey(final int indexNo) {
-    final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
+    final long newMaxNodeKey = mMaxNodeKeys.get(indexNo) + 1;
     mMaxNodeKeys.put(indexNo, newMaxNodeKey);
     return newMaxNodeKey;
   }
-
 }

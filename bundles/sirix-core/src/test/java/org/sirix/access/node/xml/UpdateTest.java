@@ -21,18 +21,8 @@
 
 package org.sirix.access.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Iterator;
-import java.util.Optional;
-import java.util.UUID;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -53,11 +43,21 @@ import org.sirix.exception.SirixUsageException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.XmlShredder;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.XmlDocumentCreator;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
+
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Iterator;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.junit.Assert.*;
 
 /** Test update operations. */
 public class UpdateTest {
@@ -555,7 +555,7 @@ public class UpdateTest {
     // Document root.
     wtx.insertElementAsFirstChild(new QNm(""));
     wtx.insertElementAsFirstChild(new QNm(""));
-    for (int i = 0; i < 512 << 1 + 1; i++) {
+    for (int i = 0; i < Constants.NDP_NODE_COUNT << 1 + 1; i++) {
       wtx.insertElementAsRightSibling(new QNm(""));
     }
 

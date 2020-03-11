@@ -1,6 +1,6 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -20,32 +20,10 @@
  */
 package org.sirix.page;
 
-import static java.util.stream.Collectors.toList;
-import static org.sirix.node.Utils.getVarLong;
-import static org.sirix.node.Utils.putVarLong;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Set;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.collect.Iterators;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
@@ -57,14 +35,19 @@ import org.sirix.node.interfaces.RecordPersister;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.collect.Iterators;
-import com.google.common.collect.PeekingIterator;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.*;
+import java.util.*;
+import java.util.Map.Entry;
+
+import static java.util.stream.Collectors.toList;
+import static org.sirix.node.Utils.getVarLong;
+import static org.sirix.node.Utils.putVarLong;
 
 /**
- * <h1>UnorderedKeyValuePage</h1>
- *
  * <p>
  * An UnorderedKeyValuePage stores a set of records, commonly nodes in an unordered datastructure.
  * </p>
@@ -76,46 +59,66 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   private boolean mAddedReferences;
 
-  /** References to overflow pages. */
-  private final Map<Long, PageReference> mReferences;
+  /**
+   * References to overflow pages.
+   */
+  private final Map<Long, PageReference> references;
 
-  /** Key of record page. This is the base key of all contained nodes. */
+  /**
+   * Key of record page. This is the base key of all contained nodes.
+   */
   private final long mRecordPageKey;
 
-  /** Records (must be a {@link LinkedHashMap} to provide consistent iteration order). */
+  /**
+   * Records (must be a {@link LinkedHashMap} to provide consistent iteration order).
+   */
   private final LinkedHashMap<Long, Record> mRecords;
 
-  /** Slots which have to be serialized. */
-  private final Map<Long, byte[]> mSlots;
+  /**
+   * Slots which have to be serialized.
+   */
+  private final Map<Long, byte[]> slots;
 
-  /** Dewey IDs which have to be serialized. */
-  private final Map<SirixDeweyID, Long> mDeweyIDs;
+  /**
+   * Dewey IDs which have to be serialized.
+   */
+  private final Map<SirixDeweyID, Long> deweyIDs;
 
-  /** Sirix {@link PageReadOnlyTrx}. */
-  private final PageReadOnlyTrx mPageReadTrx;
+  /**
+   * Sirix {@link PageReadOnlyTrx}.
+   */
+  private final PageReadOnlyTrx pageReadTrx;
 
-  /** The kind of page (in which subtree it resides). */
+  /**
+   * The kind of page (in which subtree it resides).
+   */
   private final PageKind mPageKind;
 
-  /** Persistenter. */
-  private final RecordPersister mRecordPersister;
+  /**
+   * Persistenter.
+   */
+  private final RecordPersister recordPersister;
 
-  /** Reference key to the previous page if any. */
+  /**
+   * Reference key to the previous page if any.
+   */
   private long mPreviousPageRefKey;
 
-  /** The resource configuration. */
+  /**
+   * The resource configuration.
+   */
   private final ResourceConfiguration mResourceConfig;
 
   public UnorderedKeyValuePage(final PageReadOnlyTrx pageTrx, final UnorderedKeyValuePage pageToClone) {
     mAddedReferences = pageToClone.mAddedReferences;
-    mReferences = pageToClone.mReferences;
+    references = pageToClone.references;
     mRecordPageKey = pageToClone.mRecordPageKey;
     mRecords = pageToClone.mRecords;
-    mSlots = pageToClone.mSlots;
-    mDeweyIDs = pageToClone.mDeweyIDs;
-    mPageReadTrx = pageTrx;
+    slots = pageToClone.slots;
+    deweyIDs = pageToClone.deweyIDs;
+    pageReadTrx = pageTrx;
     mPageKind = pageToClone.mPageKind;
-    mRecordPersister = pageToClone.mRecordPersister;
+    recordPersister = pageToClone.recordPersister;
     mPreviousPageRefKey = pageToClone.mPreviousPageRefKey;
     mResourceConfig = pageToClone.mResourceConfig;
   }
@@ -124,9 +127,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *
    * @param recordPageKey base key assigned to this node page
-   * @param pageKind the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
-   *        ATTRIBUTEVALUEPAGE)
-   * @param pageReadTrx the page reading transaction
+   * @param pageKind      the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
+   *                      ATTRIBUTEVALUEPAGE)
+   * @param pageReadTrx   the page reading transaction
    */
   public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
       final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
@@ -135,40 +138,40 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     assert recordPageKey >= 0 : "recordPageKey must not be negative!";
     assert pageReadTrx != null : "The page reading trx must not be null!";
 
-    mReferences = new LinkedHashMap<>();
+    references = new LinkedHashMap<>();
     mRecordPageKey = recordPageKey;
     mRecords = new LinkedHashMap<>();
-    mSlots = new LinkedHashMap<>();
-    mPageReadTrx = pageReadTrx;
+    slots = new LinkedHashMap<>();
+    this.pageReadTrx = pageReadTrx;
     mPageKind = pageKind;
     mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
-    mRecordPersister = mResourceConfig.recordPersister;
+    recordPersister = mResourceConfig.recordPersister;
     mPreviousPageRefKey = previousPageRefKey;
 
-    if (mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
-        && mRecordPersister instanceof NodePersistenter) {
-      mDeweyIDs = new LinkedHashMap<>();
+    if (this.pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
+        && recordPersister instanceof NodePersistenter) {
+      deweyIDs = new LinkedHashMap<>();
     } else {
-      mDeweyIDs = Collections.emptyMap();
+      deweyIDs = Collections.emptyMap();
     }
   }
 
   /**
    * Constructor which reads the {@link UnorderedKeyValuePage} from the storage.
    *
-   * @param in input bytes to read page from
+   * @param in          input bytes to read page from
    * @param pageReadTrx {@link PageReadOnlyTrx} implementation
    */
   protected UnorderedKeyValuePage(final DataInput in, final PageReadOnlyTrx pageReadTrx) throws IOException {
     mRecordPageKey = getVarLong(in);
     mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
-    mRecordPersister = mResourceConfig.recordPersister;
-    mPageReadTrx = pageReadTrx;
-    mSlots = new LinkedHashMap<>();
+    recordPersister = mResourceConfig.recordPersister;
+    this.pageReadTrx = pageReadTrx;
+    slots = new LinkedHashMap<>();
 
-    if (mResourceConfig.areDeweyIDsStored && mRecordPersister instanceof NodePersistenter) {
-      mDeweyIDs = new LinkedHashMap<>();
-      final NodePersistenter persistenter = (NodePersistenter) mRecordPersister;
+    if (mResourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter) {
+      deweyIDs = new LinkedHashMap<>();
+      final NodePersistenter persistenter = (NodePersistenter) recordPersister;
       final int deweyIDSize = in.readInt();
 
       mRecords = new LinkedHashMap<>(deweyIDSize);
@@ -177,10 +180,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       for (int index = 0; index < deweyIDSize; index++) {
         optionalDeweyId = persistenter.deserializeDeweyID(in, optionalDeweyId.orElse(null), mResourceConfig);
 
-        deserializeRecordAndPutIntoMap(in, optionalDeweyId);
+        optionalDeweyId.ifPresent(deweyId -> deserializeRecordAndPutIntoMap(in, deweyId));
       }
     } else {
-      mDeweyIDs = Collections.emptyMap();
+      deweyIDs = Collections.emptyMap();
       mRecords = new LinkedHashMap<>();
     }
 
@@ -197,12 +200,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       final byte[] data = new byte[dataSize];
       in.readFully(data);
       final Record record =
-          mRecordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, null, mPageReadTrx);
+          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, null, this.pageReadTrx);
       mRecords.put(key, record);
     }
 
     final int overlongEntrySize = in.readInt();
-    mReferences = new LinkedHashMap<>(overlongEntrySize);
+    references = new LinkedHashMap<>(overlongEntrySize);
     setBit = -1;
     for (int index = 0; index < overlongEntrySize; index++) {
       setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
@@ -210,7 +213,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       final long key = mRecordPageKey * Constants.NDP_NODE_COUNT + setBit;
       final PageReference reference = new PageReference();
       reference.setKey(in.readLong());
-      mReferences.put(key, reference);
+      references.put(key, reference);
     }
     assert pageReadTrx != null : "pageReadTrx must not be null!";
     final boolean hasPreviousReference = in.readBoolean();
@@ -222,20 +225,18 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     mPageKind = PageKind.getKind(in.readByte());
   }
 
-  private void deserializeRecordAndPutIntoMap(DataInput in, Optional<SirixDeweyID> optionalDeweyId) {
-    optionalDeweyId.ifPresent(deweyId -> {
-      try {
-        final long key = getVarLong(in);
-        final int dataSize = in.readInt();
-        final byte[] data = new byte[dataSize];
-        in.readFully(data);
-        final Record record = mRecordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key,
-                                                           deweyId, mPageReadTrx);
-        mRecords.put(key, record);
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
-    });
+  private void deserializeRecordAndPutIntoMap(DataInput in, SirixDeweyID deweyId) {
+    try {
+      final long key = getVarLong(in);
+      final int dataSize = in.readInt();
+      final byte[] data = new byte[dataSize];
+      in.readFully(data);
+      final Record record =
+          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, deweyId, pageReadTrx);
+      mRecords.put(key, record);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
   }
 
   @Override
@@ -248,11 +249,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     assert key != null : "key must not be null!";
     Record record = mRecords.get(key);
     if (record == null) {
-      byte[] data = null;
+      byte[] data;
       try {
-        final PageReference reference = mReferences.get(key);
+        final PageReference reference = references.get(key);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) mPageReadTrx.getReader().read(reference, mPageReadTrx)).getData();
+          data = ((OverflowPage) pageReadTrx.getReader().read(reference, pageReadTrx)).getData();
         } else {
           return null;
         }
@@ -261,7 +262,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       }
       final InputStream in = new ByteArrayInputStream(data);
       try {
-        record = mRecordPersister.deserialize(new DataInputStream(in), key, null, null);
+        record = recordPersister.deserialize(new DataInputStream(in), key, null, null);
       } catch (final IOException e) {
         return null;
       }
@@ -271,7 +272,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   }
 
   @Override
-  public void setEntry(final Long key, final Record value) {
+  public void setEntry(final Long key, @Nonnull final Record value) {
     assert value != null : "record must not be null!";
     mAddedReferences = false;
     mRecords.put(key, value);
@@ -285,13 +286,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     // Write page key.
     putVarLong(out, mRecordPageKey);
     // Write dewey IDs.
-    if (mResourceConfig.areDeweyIDsStored && mRecordPersister instanceof NodePersistenter) {
-      final var persistence = (NodePersistenter) mRecordPersister;
-      out.writeInt(mDeweyIDs.size());
-      final List<SirixDeweyID> ids = new ArrayList<>(mDeweyIDs.keySet());
-      ids.sort((SirixDeweyID first, SirixDeweyID second) -> Integer.valueOf(first.toBytes().length)
-                                                                   .compareTo(second.toBytes().length));
-      final PeekingIterator<SirixDeweyID> iter = Iterators.peekingIterator(ids.iterator());
+    if (mResourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter) {
+      final var persistence = (NodePersistenter) recordPersister;
+      out.writeInt(deweyIDs.size());
+      final List<SirixDeweyID> ids = new ArrayList<>(deweyIDs.keySet());
+      ids.sort(Comparator.comparingInt((SirixDeweyID sirixDeweyID) -> sirixDeweyID.toBytes().length));
+      final var iter = Iterators.peekingIterator(ids.iterator());
       SirixDeweyID id = null;
       if (iter.hasNext()) {
         id = iter.next();
@@ -299,37 +299,33 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
         serializeDeweyRecord(id, out);
       }
       while (iter.hasNext()) {
-        final SirixDeweyID nextDeweyID = iter.next();
+        final var nextDeweyID = iter.next();
         persistence.serializeDeweyID(out, NodeKind.ELEMENT, id, nextDeweyID, mResourceConfig);
         serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }
     }
 
-    // Write hashes.
-    if (mResourceConfig.hashType != HashType.NONE) {
-
-    }
-
     final var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    final var entriesSortedByKey = mSlots.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
+    final var entriesSortedByKey = slots.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
     for (final Entry<Long, byte[]> entry : entriesSortedByKey) {
-      final var pageOffset = mPageReadTrx.recordPageOffset(entry.getKey());
+      final var pageOffset = pageReadTrx.recordPageOffset(entry.getKey());
       entriesBitmap.set(pageOffset);
     }
     SerializationType.serializeBitSet(out, entriesBitmap);
 
     final var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    final var overlongEntriesSortedByKey = mReferences.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
+    final var overlongEntriesSortedByKey =
+        references.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
     for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
-      final var pageOffset = mPageReadTrx.recordPageOffset(entry.getKey());
+      final var pageOffset = pageReadTrx.recordPageOffset(entry.getKey());
       overlongEntriesBitmap.set(pageOffset);
     }
     SerializationType.serializeBitSet(out, overlongEntriesBitmap);
 
     // Write normal entries.
     out.writeInt(entriesSortedByKey.size());
-    for (final Entry<Long, byte[]> entry : entriesSortedByKey) {
+    for (final var entry : entriesSortedByKey) {
       final byte[] data = entry.getValue();
       final int length = data.length;
       out.writeInt(length);
@@ -338,13 +334,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
     // Write overlong entries.
     out.writeInt(overlongEntriesSortedByKey.size());
-    for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
+    for (final var entry : overlongEntriesSortedByKey) {
       // Write key in persistent storage.
       out.writeLong(entry.getValue().getKey());
     }
 
     // Write previous reference if it has any reference.
-    final boolean hasPreviousReference = mPreviousPageRefKey != Constants.NULL_ID_LONG;
+    final var hasPreviousReference = mPreviousPageRefKey != Constants.NULL_ID_LONG;
     out.writeBoolean(hasPreviousReference);
     if (hasPreviousReference) {
       out.writeLong(mPreviousPageRefKey);
@@ -353,13 +349,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   }
 
   private void serializeDeweyRecord(SirixDeweyID id, DataOutput out) throws IOException {
-    final long recordKey = mDeweyIDs.get(id);
+    final long recordKey = deweyIDs.get(id);
     putVarLong(out, recordKey);
-    final byte[] data = mSlots.get(recordKey);
+    final byte[] data = slots.get(recordKey);
     final int length = data.length;
     out.writeInt(length);
     out.write(data);
-    mSlots.remove(recordKey);
+    slots.remove(recordKey);
   }
 
   @Override
@@ -368,7 +364,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     for (final Record record : mRecords.values()) {
       helper.add("record", record);
     }
-    for (final PageReference reference : mReferences.values()) {
+    for (final PageReference reference : references.values()) {
       helper.add("reference", reference);
     }
     return helper.toString();
@@ -381,15 +377,15 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mRecordPageKey, mRecords, mReferences);
+    return Objects.hashCode(mRecordPageKey, mRecords, references);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof UnorderedKeyValuePage) {
       final UnorderedKeyValuePage other = (UnorderedKeyValuePage) obj;
-      return mRecordPageKey == other.mRecordPageKey && Objects.equal(mRecords, other.mRecords)
-          && Objects.equal(mReferences, other.mReferences);
+      return mRecordPageKey == other.mRecordPageKey && Objects.equal(mRecords, other.mRecords) && Objects.equal(
+          references, other.references);
     }
     return false;
   }
@@ -401,7 +397,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      PageTrx<K, V, S> pageWriteTrx) {
+      @Nonnull PageTrx<K, V, S> pageWriteTrx) {
     if (!mAddedReferences) {
       try {
         addReferences();
@@ -410,7 +406,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       }
     }
 
-    for (final PageReference reference : mReferences.values()) {
+    for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
           && reference.getLogKey() == Constants.NULL_ID_LONG)) {
         pageWriteTrx.commit(reference);
@@ -420,30 +416,28 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   // Add references to OverflowPages.
   private void addReferences() throws IOException {
-    final var storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+    final var storeDeweyIDs = pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
 
-    final List<Entry<Long, Record>> entries = sort();
-    final Iterator<Entry<Long, Record>> it = entries.iterator();
-    while (it.hasNext()) {
-      final Entry<Long, Record> entry = it.next();
-      final Record record = entry.getValue();
-      final long recordID = record.getNodeKey();
-      if (mSlots.get(recordID) == null) {
+    final var entries = sort();
+    for (final var entry : entries) {
+      final var record = entry.getValue();
+      final var recordID = record.getNodeKey();
+      if (slots.get(recordID) == null) {
         // Must be either a normal record or one which requires an
         // Overflow page.
-        final ByteArrayOutputStream output = new ByteArrayOutputStream();
-        final DataOutput out = new DataOutputStream(output);
-        mRecordPersister.serialize(out, record, mPageReadTrx);
-        final byte[] data = output.toByteArray();
+        final var output = new ByteArrayOutputStream();
+        final var out = new DataOutputStream(output);
+        recordPersister.serialize(out, record, pageReadTrx);
+        final var data = output.toByteArray();
         if (data.length > PageConstants.MAX_RECORD_SIZE) {
-          final PageReference reference = new PageReference();
+          final var reference = new PageReference();
           reference.setPage(new OverflowPage(data));
-          mReferences.put(recordID, reference);
+          references.put(recordID, reference);
         } else {
-          if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter && record instanceof ImmutableXmlNode
+          if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record instanceof ImmutableXmlNode
               && ((ImmutableXmlNode) record).getDeweyID().isPresent() && record.getNodeKey() != 0)
-            mDeweyIDs.put(((ImmutableXmlNode) record).getDeweyID().get(), record.getNodeKey());
-          mSlots.put(recordID, data);
+            deweyIDs.put(((ImmutableXmlNode) record).getDeweyID().get(), record.getNodeKey());
+          slots.put(recordID, data);
         }
       }
     }
@@ -454,8 +448,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   private List<Entry<Long, Record>> sort() {
     // Sort entries which have deweyIDs according to their byte-length.
     final List<Map.Entry<Long, Record>> entries = new ArrayList<>(mRecords.entrySet());
-    final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
-    if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter) {
+    final boolean storeDeweyIDs = pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+    if (storeDeweyIDs && recordPersister instanceof NodePersistenter) {
       entries.sort((a, b) -> {
         if (a.getValue() instanceof ImmutableXmlNode && b.getValue() instanceof ImmutableXmlNode) {
           final Optional<SirixDeweyID> first = ((ImmutableXmlNode) a.getValue()).getDeweyID();
@@ -468,7 +462,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           if (second.isEmpty() && first.isPresent())
             return -1;
 
-          if (first.isEmpty() && second.isEmpty())
+          if (first.isEmpty())
             return 0;
 
           return first.get().compareTo(second.get());
@@ -492,19 +486,19 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   }
 
   @Override
-  public void setReference(int offset, PageReference pageReference) {
+  public boolean setReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public PageReadOnlyTrx getPageReadTrx() {
-    return mPageReadTrx;
+    return pageReadTrx;
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public <C extends KeyValuePage<Long, Record>> C newInstance(final long recordPageKey, final PageKind pageKind,
-      final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
+  public <C extends KeyValuePage<Long, Record>> C newInstance(final long recordPageKey, @Nonnull final PageKind pageKind,
+      final long previousPageRefKey, @Nonnull final PageReadOnlyTrx pageReadTrx) {
     return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, previousPageRefKey, pageReadTrx);
   }
 
@@ -515,24 +509,24 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   @Override
   public int size() {
-    return mRecords.size() + mReferences.size();
+    return mRecords.size() + references.size();
   }
 
   @Override
-  public void setPageReference(final Long key, final PageReference reference) {
+  public void setPageReference(final Long key, @Nonnull final PageReference reference) {
     assert key != null;
-    mReferences.put(key, reference);
+    references.put(key, reference);
   }
 
   @Override
   public Set<Entry<Long, PageReference>> referenceEntrySet() {
-    return mReferences.entrySet();
+    return references.entrySet();
   }
 
   @Override
   public PageReference getPageReference(final Long key) {
     assert key != null;
-    return mReferences.get(key);
+    return references.get(key);
   }
 
   @Override
