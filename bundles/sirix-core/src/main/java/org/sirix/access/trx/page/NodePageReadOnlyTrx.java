@@ -56,13 +56,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * <h1>NodePageReadOnlyTrx</h1>
- *
- * <p>
  * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
  * Everything else is exclusive to this transaction. It is required that only a single thread has
  * access to this transaction.
- * </p>
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
@@ -275,8 +271,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Override
   public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) {
     checkArgument(revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
-                  "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
-                  mResourceManager.getMostRecentRevisionNumber());
+        "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
+        mResourceManager.getMostRecentRevisionNumber());
     if (mTrxIntentLog == null) {
       final Cache<Integer, RevisionRootPage> cache = mResourceBufferManager.getRevisionRootPageCache();
       RevisionRootPage revisionRootPage = cache.get(revisionKey);
@@ -288,8 +284,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     } else {
       // The indirect page reference either fails horribly or returns a non null
       // instance.
-      final PageReference reference = getReferenceToLeafOfSubtree(mUberPage.getIndirectPageReference(), revisionKey, -1,
-                                                                  PageKind.UBERPAGE);
+      final PageReference reference =
+          getReferenceToLeafOfSubtree(mUberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
 
       RevisionRootPage page = null;
 
@@ -371,8 +367,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       //      }
     }
 
-    final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(
-        checkNotNull(indexLogKey.getRecordPageKey()), indexLogKey.getIndex(), checkNotNull(indexLogKey.getIndexType()));
+    final Optional<PageReference> pageReferenceToRecordPage =
+        getLeafPageReference(checkNotNull(indexLogKey.getRecordPageKey()), indexLogKey.getIndex(),
+            checkNotNull(indexLogKey.getIndexType()));
 
     if (!pageReferenceToRecordPage.isPresent()) {
       return Optional.empty();
@@ -383,17 +380,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final var page = pageReferenceToRecordPage.get().getPage();
 
       if (page != null) {
-        mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-                                                     indexLogKey.getRecordPageKey(), page);
+        mMostRecentlyReadRecordPage =
+            new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
         return Optional.of(page);
       }
 
-      final Page recordPageFromBuffer = mResourceBufferManager.getRecordPageCache().get(
-          pageReferenceToRecordPage.get());
+      final Page recordPageFromBuffer =
+          mResourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
 
       if (recordPageFromBuffer != null) {
-        mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-                                                     indexLogKey.getRecordPageKey(), recordPageFromBuffer);
+        mMostRecentlyReadRecordPage =
+            new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(),
+                recordPageFromBuffer);
         return Optional.of(recordPageFromBuffer);
       }
     }
@@ -415,8 +413,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.get().setPage(completePage);
     }
 
-    mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-                                                 indexLogKey.getRecordPageKey(), completePage);
+    mMostRecentlyReadRecordPage =
+        new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(),
+            completePage);
 
     return Optional.of(completePage);
   }
@@ -486,8 +485,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param pageKind     the page kind to determine the right subtree
    * @param index        the index to use
    */
-  PageReference getPageReference(final RevisionRootPage revisionRoot, final PageKind pageKind, final int index)
-      throws SirixIOException {
+  PageReference getPageReference(final RevisionRootPage revisionRoot, final PageKind pageKind, final int index) {
     assert revisionRoot != null;
     PageReference ref = null;
 
@@ -641,8 +639,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("Session", mResourceManager).add("PageReader", mPageReader).add(
-        "UberPage", mUberPage).add("RevRootPage", mRootPage).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("Session", mResourceManager)
+                      .add("PageReader", mPageReader)
+                      .add("UberPage", mUberPage)
+                      .add("RevRootPage", mRootPage)
+                      .toString();
   }
 
   @Override

@@ -1,13 +1,14 @@
 package org.sirix.page;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
 
 /**
  * OverflowPage used to store records which are longer than a predefined threshold.
@@ -54,7 +55,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public void setReference(int offset, PageReference pageReference) {
+  public boolean setReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
   }
 

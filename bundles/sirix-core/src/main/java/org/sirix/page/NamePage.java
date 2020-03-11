@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,12 +21,7 @@
 
 package org.sirix.page;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import javax.annotation.Nonnull;
+import com.google.common.base.MoreObjects;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -34,16 +29,19 @@ import org.sirix.index.name.Names;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnull;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * <h1>NamePage</h1>
- *
- * <p>
- * Name page holds all names and their keys for a revision.
- * </p>
+ * The name page holds all names and their keys for a revision. Furthermore it has references to name indexes.
  */
 public final class NamePage extends AbstractForwardingPage {
 
@@ -77,14 +75,14 @@ public final class NamePage extends AbstractForwardingPage {
   /** JSON Object key names. */
   private Names mJSONObjectKeys;
 
-  /** {@link BitmapReferencesPage} instance. */
-  private final BitmapReferencesPage mDelegate;
+  /** The references page delegate instance. */
+  private Page delegate;
 
   /** The number of arrays stored. */
   private int mNumberOfArrays;
 
   /** Maximum node keys. */
-  private final Map<Integer, Long> mMaxNodeKeys;
+  private final Map<Integer, Long> maxNodeKeys;
 
   /** Current maximum levels of indirect pages in the tree. */
   private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
@@ -93,8 +91,8 @@ public final class NamePage extends AbstractForwardingPage {
    * Create name page.
    */
   public NamePage() {
-    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR);
-    mMaxNodeKeys = new HashMap<>();
+    delegate = new ReferencesPage4();
+    maxNodeKeys = new HashMap<>();
     mAttributes = Names.getInstance(ATTRIBUTES_REFERENCE_OFFSET);
     mElements = Names.getInstance(ELEMENTS_REFERENCE_OFFSET);
     mNamespaces = Names.getInstance(NAMESPACE_REFERENCE_OFFSET);
@@ -110,11 +108,11 @@ public final class NamePage extends AbstractForwardingPage {
    * @param in input bytes to read from
    */
   protected NamePage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new BitmapReferencesPage(PageConstants.MAX_INDEX_NR, in, type);
+    delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
-    mMaxNodeKeys = new HashMap<>(size);
+    maxNodeKeys = new HashMap<>(size);
     for (int i = 0; i < size; i++) {
-      mMaxNodeKeys.put(i, in.readLong());
+      maxNodeKeys.put(i, in.readLong());
     }
 
     mNumberOfArrays = in.readInt();
@@ -136,34 +134,34 @@ public final class NamePage extends AbstractForwardingPage {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
-          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
         rawName = mElements.getRawName(key);
         break;
       case NAMESPACE:
         if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
         rawName = mNamespaces.getRawName(key);
         break;
       case ATTRIBUTE:
         if (mAttributes == null) {
           mAttributes =
-              Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+              Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
         rawName = mAttributes.getRawName(key);
         break;
       case PROCESSING_INSTRUCTION:
         if (mPIs == null) {
           mPIs = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
         rawName = mPIs.getRawName(key);
         break;
       case OBJECT_KEY:
         if (mJSONObjectKeys == null) {
           mJSONObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
         rawName = mJSONObjectKeys.getRawName(key);
         break;
@@ -185,34 +183,34 @@ public final class NamePage extends AbstractForwardingPage {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
-          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
         name = mElements.getName(key);
         break;
       case NAMESPACE:
         if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
         name = mNamespaces.getName(key);
         break;
       case ATTRIBUTE:
         if (mAttributes == null) {
           mAttributes =
-              Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+              Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
         name = mAttributes.getName(key);
         break;
       case PROCESSING_INSTRUCTION:
         if (mPIs == null) {
           mPIs = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
         name = mPIs.getName(key);
         break;
       case OBJECT_KEY:
         if (mJSONObjectKeys == null) {
           mJSONObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
         name = mJSONObjectKeys.getName(key);
         break;
@@ -221,6 +219,7 @@ public final class NamePage extends AbstractForwardingPage {
         break;
       case OBJECT:
         name = "__object__";
+        break;
         // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -239,34 +238,34 @@ public final class NamePage extends AbstractForwardingPage {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
-          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
         count = mElements.getCount(key);
         break;
       case NAMESPACE:
         if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
         count = mNamespaces.getCount(key);
         break;
       case ATTRIBUTE:
         if (mAttributes == null) {
           mAttributes =
-              Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+              Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
         count = mAttributes.getCount(key);
         break;
       case PROCESSING_INSTRUCTION:
         if (mPIs == null) {
           mPIs = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
         count = mPIs.getCount(key);
         break;
       case OBJECT_KEY:
         if (mJSONObjectKeys == null) {
           mJSONObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
         count = mJSONObjectKeys.getCount(key);
         break;
@@ -292,30 +291,30 @@ public final class NamePage extends AbstractForwardingPage {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
-          mElements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          mElements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
         return mElements.setName(name, pageTrx);
       case NAMESPACE:
         if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          mNamespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
         return mNamespaces.setName(name, pageTrx);
       case ATTRIBUTE:
         if (mAttributes == null) {
           mAttributes =
-              Names.clone(pageTrx, ATTRIBUTES_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+              Names.clone(pageTrx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
         return mAttributes.setName(name, pageTrx);
       case PROCESSING_INSTRUCTION:
         if (mPIs == null) {
           mPIs = Names.clone(pageTrx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
         return mPIs.setName(name, pageTrx);
       case OBJECT_KEY:
         if (mJSONObjectKeys == null) {
           mJSONObjectKeys = Names.clone(pageTrx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
         return mJSONObjectKeys.setName(name, pageTrx);
       // $CASES-OMITTED$
@@ -326,15 +325,20 @@ public final class NamePage extends AbstractForwardingPage {
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+    if (delegate instanceof ReferencesPage4) {
+      out.writeByte(0);
+    } else if (delegate instanceof BitmapReferencesPage) {
+      out.writeByte(1);
+    }
     super.serialize(out, type);
-    final int size = mMaxNodeKeys.size();
+    final int size = maxNodeKeys.size();
     out.writeInt(size);
     for (int i = 0; i < size; i++) {
-      final long keys = mMaxNodeKeys.get(i);
+      final long keys = maxNodeKeys.get(i);
       out.writeLong(keys);
     }
     out.writeInt(mNumberOfArrays);
-    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
       out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
@@ -346,7 +350,7 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.merge(index, 1, (previousValue, value) -> previousValue + value);
+    return mCurrentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
   }
 
   @Override
@@ -369,34 +373,34 @@ public final class NamePage extends AbstractForwardingPage {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
-          mElements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          mElements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
         mElements.removeName(key, pageTrx);
         break;
       case NAMESPACE:
         if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          mNamespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
         mNamespaces.removeName(key, pageTrx);
         break;
       case ATTRIBUTE:
         if (mAttributes == null) {
           mAttributes =
-              Names.clone(pageTrx, ATTRIBUTES_REFERENCE_OFFSET, mMaxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+              Names.clone(pageTrx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
         mAttributes.removeName(key, pageTrx);
         break;
       case PROCESSING_INSTRUCTION:
         if (mPIs == null) {
           mPIs = Names.clone(pageTrx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
         mPIs.removeName(key, pageTrx);
         break;
       case OBJECT_KEY:
         if (mJSONObjectKeys == null) {
           mJSONObjectKeys = Names.clone(pageTrx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              mMaxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
         mJSONObjectKeys.removeName(key, pageTrx);
         break;
@@ -414,21 +418,21 @@ public final class NamePage extends AbstractForwardingPage {
    * @param log the transaction intent log
    */
   public void createNameIndexTree(final PageReadOnlyTrx pageReadTrx, final int index, final TransactionIntentLog log) {
-    final PageReference reference = getReference(index);
+    PageReference reference = getReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getReference(index);
+    }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
       PageUtils.createTree(reference, PageKind.NAMEPAGE, index, pageReadTrx, log);
-      if (mMaxNodeKeys.get(index) == null) {
-        mMaxNodeKeys.put(index, 0L);
+      if (maxNodeKeys.get(index) == null) {
+        maxNodeKeys.put(index, 0L);
       } else {
-        mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
       }
-      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
-        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
-      } else {
-        mCurrentMaxLevelsOfIndirectPages.put(index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
-      }
+      mCurrentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
     }
   }
 
@@ -449,17 +453,24 @@ public final class NamePage extends AbstractForwardingPage {
    * @return the maximum node key stored
    */
   public long getMaxNodeKey(final int indexNumber) {
-    return mMaxNodeKeys.get(indexNumber);
+    return maxNodeKeys.get(indexNumber);
   }
 
   public long incrementAndGetMaxNodeKey(final int indexNumber) {
-    final long newMaxNodeKey = mMaxNodeKeys.getOrDefault(indexNumber, 0L).longValue() + 1;
-    mMaxNodeKeys.put(indexNumber, newMaxNodeKey);
+    final long newMaxNodeKey = maxNodeKeys.getOrDefault(indexNumber, 0L) + 1;
+    maxNodeKeys.put(indexNumber, newMaxNodeKey);
     return newMaxNodeKey;
   }
 
   @Override
   protected Page delegate() {
-    return mDelegate;
+    return delegate;
+  }
+
+  @Override
+  public boolean setReference(int offset, PageReference pageReference) {
+    delegate = PageUtils.setReference(delegate, offset, pageReference);
+
+    return false;
   }
 }

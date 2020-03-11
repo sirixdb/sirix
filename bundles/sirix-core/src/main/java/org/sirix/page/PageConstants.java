@@ -9,8 +9,6 @@ public final class PageConstants {
   // 150 KiB.
   public static final int MAX_RECORD_SIZE = 150_000;
 
-  public static final int MAX_INDEX_NR = 512;
-
   public static final int JSON_NAME_INDEX_OFFSET = 1;
 
   public static final int XML_NAME_INDEX_OFFSET = 4;

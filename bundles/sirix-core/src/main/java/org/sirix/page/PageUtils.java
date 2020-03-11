@@ -1,15 +1,21 @@
 package org.sirix.page;
 
-import javax.annotation.Nonnull;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.SirixDeweyID;
+import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnull;
+import java.io.DataInput;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 
 /**
  * Page utilities.
@@ -24,6 +30,37 @@ public final class PageUtils {
    */
   private PageUtils() {
     throw new AssertionError("May never be instantiated!");
+  }
+
+  public static Page setReference(Page pageDelegate, int offset, PageReference pageReference) {
+    final var hasToGrow = pageDelegate.setReference(offset, pageReference);
+
+    if (hasToGrow) {
+      if (pageDelegate instanceof ReferencesPage4) {
+        pageDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) pageDelegate);
+        pageDelegate.setReference(offset, pageReference);
+      } else {
+        throw new IllegalStateException();
+      }
+    }
+
+    return pageDelegate;
+  }
+
+  public static Page createDelegate(DataInput in, SerializationType type) {
+    try {
+      final byte kind = in.readByte();
+      switch (kind) {
+        case 0:
+          return new ReferencesPage4(in, type);
+        case 1:
+          return new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
+        default:
+          throw new IllegalStateException();
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   /**

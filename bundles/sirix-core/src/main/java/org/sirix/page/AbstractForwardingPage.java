@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -20,16 +20,18 @@
  */
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
-import javax.annotation.Nonnegative;
+import com.google.common.collect.ForwardingObject;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-import com.google.common.collect.ForwardingObject;
+
+import javax.annotation.Nonnegative;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Forwarding the implementation of all methods in the {@link Page} interface to a delegate.
@@ -62,8 +64,8 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
-  public void setReference(int offset, PageReference pageReference) {
-    delegate().setReference(offset, pageReference);
+  public boolean setReference(int offset, PageReference pageReference) {
+    return delegate().setReference(offset, pageReference);
   }
 
   @Override

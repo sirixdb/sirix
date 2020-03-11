@@ -1,19 +1,19 @@
 /**
  * Copyright (c) 2018, Sirix
- *
+ * <p>
  * All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the <organization> nor the
- *       names of its contributors may be used to endorse or promote products
- *       derived from this software without specific prior written permission.
- *
+ * * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ * * Neither the name of the <organization> nor the
+ * names of its contributors may be used to endorse or promote products
+ * derived from this software without specific prior written permission.
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,12 +27,6 @@
  */
 package org.sirix.access.trx.page;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import javax.annotation.Nonnegative;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
@@ -49,14 +43,15 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nonnegative;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Page transaction factory.
@@ -64,7 +59,6 @@ import org.sirix.page.interfaces.Page;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
 public final class PageTrxFactory {
-
 
   /**
    * Create a page write trx.
@@ -108,8 +102,9 @@ public final class PageTrxFactory {
     }
 
     // Page read trx.
-    final NodePageReadOnlyTrx pageRtx = new NodePageReadOnlyTrx(trxId, resourceManager, uberPage, representRevision,
-                                                                writer, log, indexController, null, new RevisionRootPageReader());
+    final NodePageReadOnlyTrx pageRtx =
+        new NodePageReadOnlyTrx(trxId, resourceManager, uberPage, representRevision, writer, log, indexController, null,
+            new RevisionRootPageReader());
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
@@ -164,14 +159,15 @@ public final class PageTrxFactory {
           pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectPageReference());
       log.put(newRevisionRootPage.getIndirectPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
 
-      final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(pageRtx, log,
-          uberPage.getPageCountExp(PageKind.UBERPAGE), uberPage.getIndirectPageReference(),
-          uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, newRevisionRootPage);
+      final PageReference revisionRootPageReference =
+          treeModifier.prepareLeafOfTree(pageRtx, log, uberPage.getPageCountExp(PageKind.UBERPAGE),
+              uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE,
+              newRevisionRootPage);
 
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
     return new NodePageTrx(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController, representRevision,
-                           isBoundToNodeTrx);
+        isBoundToNodeTrx);
   }
 }

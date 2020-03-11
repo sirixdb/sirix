@@ -168,6 +168,8 @@ public final class TreeModifierImpl implements TreeModifier {
   private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx,
       final RevisionRootPage revisionRoot, final PageKind pageKind, final int index) {
     switch (pageKind) {
+      case UBERPAGE:
+        return pageRtx.getUberPage().incrementAndGetCurrentMaxLevelOfIndirectPages();
       case RECORDPAGE:
         return revisionRoot.incrementAndGetCurrentMaxLevelOfIndirectPages();
       case CASPAGE:

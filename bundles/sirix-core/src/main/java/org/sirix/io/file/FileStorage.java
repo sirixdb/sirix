@@ -21,10 +21,6 @@
 
 package org.sirix.io.file;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -34,6 +30,11 @@ import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
+
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Factory to provide File access as a backend.
@@ -50,21 +51,20 @@ public final class FileStorage implements Storage {
   private static final String REVISIONS_FILENAME = "sirix.revisions";
 
   /** Instance to storage. */
-  private final Path mFile;
+  private final Path file;
 
   /** Byte handler pipeline. */
-  private final ByteHandlePipeline mByteHandler;
+  private final ByteHandlePipeline byteHandlerPipeline;
 
   /**
    * Constructor.
    *
-   * @param file the location of the database
-   * @param byteHandler byte handler pipeline
+   * @param resourceConfig the resource configuration
    */
   public FileStorage(final ResourceConfiguration resourceConfig) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    mFile = resourceConfig.resourcePath;
-    mByteHandler = resourceConfig.byteHandlePipeline;
+    file = resourceConfig.resourcePath;
+    byteHandlerPipeline = resourceConfig.byteHandlePipeline;
   }
 
   @Override
@@ -75,7 +75,7 @@ public final class FileStorage implements Storage {
 
       return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
           new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-          new ByteHandlePipeline(mByteHandler), SerializationType.DATA, new PagePersister());
+          new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -100,7 +100,7 @@ public final class FileStorage implements Storage {
 
       return new FileWriter(new RandomAccessFile(dataFilePath.toFile(), "rw"),
           new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw"),
-          new ByteHandlePipeline(mByteHandler), SerializationType.DATA, new PagePersister());
+          new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -117,7 +117,7 @@ public final class FileStorage implements Storage {
    * @return the path for this data file
    */
   private Path getDataFilePath() {
-    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
   }
 
   /**
@@ -126,8 +126,8 @@ public final class FileStorage implements Storage {
    * @return the concrete storage for this database
    */
   private Path getRevisionFilePath() {
-    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                .resolve(REVISIONS_FILENAME);
+    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+               .resolve(REVISIONS_FILENAME);
   }
 
   @Override
@@ -142,6 +142,6 @@ public final class FileStorage implements Storage {
 
   @Override
   public ByteHandler getByteHandler() {
-    return mByteHandler;
+    return byteHandlerPipeline;
   }
 }

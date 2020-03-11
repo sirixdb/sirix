@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,15 +21,7 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.time.Instant;
-import java.util.Optional;
-import java.util.UUID;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import com.google.common.base.MoreObjects;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
@@ -40,14 +32,20 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * <h1>RevisionRootPage</h1>
- *
- * <p>
  * Revision root page holds a reference to the name page as well as the static node page tree.
- * </p>
  */
 public final class RevisionRootPage extends AbstractForwardingPage {
 
@@ -67,38 +65,38 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   private static final int PATH_REFERENCE_OFFSET = 4;
 
   /** Last allocated node key. */
-  private long mMaxNodeKey;
+  private long maxNodeKey;
 
   /** Timestamp of revision. */
-  private long mRevisionTimestamp;
+  private long revisionTimestamp;
 
-  /** {@link BitmapReferencesPage} instance. */
-  private final BitmapReferencesPage mDelegate;
+  /** The references page instance. */
+  private Page delegate;
 
   /** Revision number. */
-  private final int mRevision;
+  private final int revision;
 
   /** Optional commit message. */
-  private String mCommitMessage;
+  private String commitMessage;
 
   /** Current maximum level of indirect pages in the tree. */
-  private int mCurrentMaxLevelOfIndirectPages;
+  private int currentMaxLevelOfIndirectPages;
 
   /** The user, which committed or is probably committing the revision. */
-  private User mUser;
+  private User user;
 
   /**
    * Create revision root page.
    */
   public RevisionRootPage() {
-    mDelegate = new BitmapReferencesPage(5);
+    delegate = new BitmapReferencesPage(5);
     getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
     getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
     getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
-    mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
-    mMaxNodeKey = -1L;
-    mCurrentMaxLevelOfIndirectPages = 1;
+    revision = Constants.UBP_ROOT_REVISION_NUMBER;
+    maxNodeKey = -1L;
+    currentMaxLevelOfIndirectPages = 1;
   }
 
   /**
@@ -107,21 +105,21 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param in input stream
    */
   protected RevisionRootPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new BitmapReferencesPage(5, in, type);
-    mRevision = in.readInt();
-    mMaxNodeKey = in.readLong();
-    mRevisionTimestamp = in.readLong();
+    delegate = new BitmapReferencesPage(5, in, type);
+    revision = in.readInt();
+    maxNodeKey = in.readLong();
+    revisionTimestamp = in.readLong();
     if (in.readBoolean()) {
       final byte[] commitMessage = new byte[in.readInt()];
       in.readFully(commitMessage);
-      mCommitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
+      this.commitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
     }
-    mCurrentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
+    currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
 
     if (in.readBoolean()) {
-      mUser = new User(in.readUTF(), UUID.fromString(in.readUTF()));
+      user = new User(in.readUTF(), UUID.fromString(in.readUTF()));
     } else {
-      mUser = null;
+      user = null;
     }
   }
 
@@ -132,13 +130,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param representRev revision number to use
    */
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
-    mDelegate = new BitmapReferencesPage(committedRevisionRootPage, committedRevisionRootPage.mDelegate.getBitmap());
-    mRevision = representRev;
-    mUser = committedRevisionRootPage.mUser;
-    mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
-    mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
-    mCommitMessage = committedRevisionRootPage.mCommitMessage;
-    mCurrentMaxLevelOfIndirectPages = committedRevisionRootPage.mCurrentMaxLevelOfIndirectPages;
+    final Page pageDelegate = committedRevisionRootPage.delegate();
+    delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+    revision = representRev;
+    user = committedRevisionRootPage.user;
+    maxNodeKey = committedRevisionRootPage.maxNodeKey;
+    revisionTimestamp = committedRevisionRootPage.revisionTimestamp;
+    commitMessage = committedRevisionRootPage.commitMessage;
+    currentMaxLevelOfIndirectPages = committedRevisionRootPage.currentMaxLevelOfIndirectPages;
   }
 
   /**
@@ -192,7 +191,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return Revision timestamp.
    */
   public long getRevisionTimestamp() {
-    return mRevisionTimestamp;
+    return revisionTimestamp;
   }
 
   /**
@@ -201,14 +200,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return Last allocated node key
    */
   public long getMaxNodeKey() {
-    return mMaxNodeKey;
+    return maxNodeKey;
   }
 
   /**
    * Increment number of nodes by one while allocating another key.
    */
   public long incrementAndGetMaxNodeKey() {
-    return ++mMaxNodeKey;
+    return ++maxNodeKey;
   }
 
   /**
@@ -217,7 +216,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param maxNodeKey new maximum node key
    */
   public void setMaxNodeKey(final @Nonnegative long maxNodeKey) {
-    mMaxNodeKey = maxNodeKey;
+    this.maxNodeKey = maxNodeKey;
   }
 
   /**
@@ -228,50 +227,48 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
       @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
-    if (mRevision == pageWriteTrx.getUberPage().getRevision()) {
+    if (revision == pageWriteTrx.getUberPage().getRevision()) {
       super.commit(pageWriteTrx);
     }
   }
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-    mRevisionTimestamp = Instant.now().toEpochMilli();
-    mDelegate.serialize(checkNotNull(out), checkNotNull(type));
-    out.writeInt(mRevision);
-    out.writeLong(mMaxNodeKey);
-    out.writeLong(mRevisionTimestamp);
-    out.writeBoolean(mCommitMessage != null);
-    if (mCommitMessage != null) {
-      final byte[] commitMessage = mCommitMessage.getBytes(Constants.DEFAULT_ENCODING);
+    revisionTimestamp = Instant.now().toEpochMilli();
+    delegate.serialize(checkNotNull(out), checkNotNull(type));
+    out.writeInt(revision);
+    out.writeLong(maxNodeKey);
+    out.writeLong(revisionTimestamp);
+    out.writeBoolean(commitMessage != null);
+    if (commitMessage != null) {
+      final byte[] commitMessage = this.commitMessage.getBytes(Constants.DEFAULT_ENCODING);
       out.writeInt(commitMessage.length);
       out.write(commitMessage);
     }
 
-    out.writeByte(mCurrentMaxLevelOfIndirectPages);
-    final boolean hasUser = mUser != null;
-    out.writeBoolean(hasUser
-        ? true
-        : false);
+    out.writeByte(currentMaxLevelOfIndirectPages);
+    final boolean hasUser = user != null;
+    out.writeBoolean(hasUser);
     if (hasUser) {
-      out.writeUTF(mUser.getName());
-      out.writeUTF(mUser.getId().toString());
+      out.writeUTF(user.getName());
+      out.writeUTF(user.getId().toString());
     }
   }
 
   public int getCurrentMaxLevelOfIndirectPages() {
-    return mCurrentMaxLevelOfIndirectPages;
+    return currentMaxLevelOfIndirectPages;
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages() {
-    return ++mCurrentMaxLevelOfIndirectPages;
+    return ++currentMaxLevelOfIndirectPages;
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("revisionTimestamp", mRevisionTimestamp)
-                      .add("maxNodeKey", mMaxNodeKey)
-                      .add("delegate", mDelegate)
+                      .add("revisionTimestamp", revisionTimestamp)
+                      .add("maxNodeKey", maxNodeKey)
+                      .add("delegate", delegate)
                       .add("namePage", getReference(NAME_REFERENCE_OFFSET))
                       .add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
                       .add("pathPage", getReference(PATH_REFERENCE_OFFSET))
@@ -282,7 +279,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
   @Override
   protected Page delegate() {
-    return mDelegate;
+    return delegate;
   }
 
   /**
@@ -292,7 +289,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param log the transaction intent log
    */
   public void createNodeTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
-    final PageReference reference = getIndirectPageReference();
+    PageReference reference = getIndirectPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
@@ -307,22 +304,22 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return revision number
    */
   public int getRevision() {
-    return mRevision;
+    return revision;
   }
 
   public void setCommitMessage(final String commitMessage) {
-    mCommitMessage = commitMessage;
+    this.commitMessage = commitMessage;
   }
 
   public void setUser(final User user) {
-    mUser = user;
+    this.user = user;
   }
 
   public CommitCredentials getCommitCredentials() {
-    return new CommitCredentials(mUser, mCommitMessage);
+    return new CommitCredentials(user, commitMessage);
   }
 
   public Optional<User> getUser() {
-    return Optional.ofNullable(mUser);
+    return Optional.ofNullable(user);
   }
 }

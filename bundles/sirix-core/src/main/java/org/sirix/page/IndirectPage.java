@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -22,24 +22,27 @@
 package org.sirix.page;
 
 import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
 /**
  * Bitmap based indirect page holds a set of references to build a reference tree.
  */
 public final class IndirectPage extends AbstractForwardingPage {
 
-  /** {@link BitmapReferencesPage} reference. */
-  private final BitmapReferencesPage mDelegate;
+  /** The reference delegate. */
+  private Page delegate;
 
   /**
    * Create indirect page.
    */
   public IndirectPage() {
-    mDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT);
+    delegate = new ReferencesPage4();
   }
 
   /**
@@ -48,7 +51,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    * @param in input source
    */
   public IndirectPage(final DataInput in, final SerializationType type) {
-    mDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
+    delegate = PageUtils.createDelegate(in, type);
   }
 
   /**
@@ -57,11 +60,44 @@ public final class IndirectPage extends AbstractForwardingPage {
    * @param page {@link IndirectPage} to clone
    */
   public IndirectPage(final IndirectPage page) {
-    mDelegate = new BitmapReferencesPage(page, page.mDelegate.getBitmap());
+    final Page pageDelegate = page.delegate();
+
+    if (pageDelegate instanceof ReferencesPage4) {
+      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+    } else if (pageDelegate instanceof BitmapReferencesPage) {
+      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+    }
   }
 
   @Override
   protected Page delegate() {
-    return mDelegate;
+    return delegate;
+  }
+
+  @Override
+  public boolean setReference(int offset, PageReference pageReference) {
+    delegate = PageUtils.setReference(delegate, offset, pageReference);
+
+    return false;
+  }
+
+  @Override
+  public PageReference getReference(int offset) {
+    PageReference reference = super.getReference(offset);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getReference(offset);
+    }
+    return reference;
+  }
+
+  @Override
+  public void serialize(DataOutput out, SerializationType type) throws IOException {
+    if (delegate instanceof ReferencesPage4) {
+      out.writeByte(0);
+    } else if (delegate instanceof BitmapReferencesPage) {
+      out.writeByte(1);
+    }
+    super.serialize(out, type);
   }
 }
