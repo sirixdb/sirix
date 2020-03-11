@@ -81,7 +81,7 @@ of records in a data-page, it does not have to copy the whole page and write it 
   <dd>The system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log. (<a
 href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
   <dt>Log-structured and SSD friendly</dt>
-  <dd>SirixDB batches write and sync everything sequentially to a flash drive
+  <dd>SirixDB batches writes and syncs everything sequentially to a flash drive
 during commits. It never overwrites committed data.</dd>
 </dl>
 
