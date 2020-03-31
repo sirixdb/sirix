@@ -68,54 +68,56 @@ class JsonUpdate(private val location: Path) {
             database.use {
                 val manager = database.openResourceManager(resPathName)
 
-                val wtx = manager.beginNodeTrx()
-                val (maxNodeKey, hash) = wtx.use {
-                    if (nodeId != null)
-                        wtx.moveTo(nodeId)
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+                    val (maxNodeKey, hash) = wtx.use {
+                        if (nodeId != null)
+                            wtx.moveTo(nodeId)
 
-                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
-                        wtx.moveToFirstChild()
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                            wtx.moveToFirstChild()
 
-                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                        val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
+                        if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
+                            val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
 
-                        if (hashCode == null) {
-                            ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                            if (hashCode == null) {
+                                ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                            }
+
+                            if (wtx.hash != BigInteger(hashCode)) {
+                                ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                            }
                         }
 
-                        if (wtx.hash != BigInteger(hashCode)) {
-                            ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
-                        }
+                        val jsonReader = JsonShredder.createStringReader(resFileToStore)
+
+                        if (insertionMode != null)
+                            JsonInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, jsonReader)
+
+                        if (nodeId != null)
+                            wtx.moveTo(nodeId)
+
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                            wtx.moveToFirstChild()
+
+                        Pair(wtx.maxNodeKey, wtx.hash)
                     }
 
-                    val jsonReader = JsonShredder.createStringReader(resFileToStore)
+                    if (maxNodeKey > 5000) {
+                        ctx.response().statusCode = 200
 
-                    if (insertionMode != null)
-                        JsonInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, jsonReader)
-
-                    if (nodeId != null)
-                        wtx.moveTo(nodeId)
-
-                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
-                        wtx.moveToFirstChild()
-
-                    Pair(wtx.maxNodeKey, wtx.hash)
-                }
-
-                if (maxNodeKey > 5000) {
-                    ctx.response().statusCode = 200
-
-                    if (manager.resourceConfig.hashType == HashType.NONE) {
-                        ctx.response().end()
+                        if (manager.resourceConfig.hashType == HashType.NONE) {
+                            ctx.response().end()
+                        } else {
+                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                        }
                     } else {
-                        ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
-                    }
-                } else {
-                    val out = StringWriter()
-                    val serializerBuilder = JsonSerializer.newBuilder(manager, out)
-                    val serializer = serializerBuilder.build()
+                        val out = StringWriter()
+                        val serializerBuilder = JsonSerializer.newBuilder(manager, out)
+                        val serializer = serializerBuilder.build()
 
-                    JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+                        JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+                    }
                 }
             }
 
