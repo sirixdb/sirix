@@ -11,7 +11,7 @@ import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.*;
 import org.sirix.settings.Fixed;
@@ -42,7 +42,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
   private final AVLTreeReader<K, V> mAVLTreeReader;
 
   /** {@link PageTrx} instance. */
-  private final PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> mPageWriteTrx;
 
   /**
    * Private constructor.
@@ -50,7 +50,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param pageWriteTrx {@link PageTrx} for persistent storage
    * @param type type of index
    */
-  private AVLTreeWriter(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type,
+  private AVLTreeWriter(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, final IndexType type,
       final @Nonnegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageWriteTrx.getActualRevisionRootPage();
@@ -96,7 +96,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> AVLTreeWriter<K, V> getInstance(
-      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type, final int index) {
+      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, final IndexType type, final int index) {
     return new AVLTreeWriter<>(pageWriteTrx, type, index);
   }
 

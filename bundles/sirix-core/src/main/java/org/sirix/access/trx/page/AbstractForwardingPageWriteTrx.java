@@ -6,7 +6,7 @@ import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -18,7 +18,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
+public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>>
     extends AbstractForwardingPageReadOnlyTrx implements PageTrx<K, V, S> {
 
   /** Constructor for use by subclasses. */

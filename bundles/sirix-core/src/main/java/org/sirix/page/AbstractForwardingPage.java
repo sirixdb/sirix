@@ -22,7 +22,7 @@ package org.sirix.page;
 
 import com.google.common.collect.ForwardingObject;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
@@ -48,7 +48,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   protected abstract Page delegate();
 
   @Override
-  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       final PageTrx<K, V, S> pageWriteTrx) {
     delegate().commit(checkNotNull(pageWriteTrx));
   }

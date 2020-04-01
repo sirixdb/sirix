@@ -9,7 +9,7 @@ import org.sirix.api.PageTrx;
 import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
@@ -64,7 +64,7 @@ public final class Names {
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1, l = maxNodeKey; i < l; i += 2) {
       final long nodeKeyOfNode = i;
-      final Optional<? extends Record> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, PageKind.NAMEPAGE, indexNumber);
+      final Optional<? extends DataRecord> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, PageKind.NAMEPAGE, indexNumber);
 
       if (nameNode.isPresent() && nameNode.get().getKind() != NodeKind.DELETE) {
         final HashEntryNode hashEntryNode = (HashEntryNode) nameNode.orElseThrow(
@@ -76,7 +76,7 @@ public final class Names {
 
         final long nodeKeyOfCountNode = i + 1;
 
-        final Optional<? extends Record> countNode =
+        final Optional<? extends DataRecord> countNode =
             pageReadTrx.getRecord(nodeKeyOfCountNode, PageKind.NAMEPAGE, indexNumber);
         try {
           final HashCountEntryNode hashKeyToNameCountEntryNode =
@@ -97,7 +97,7 @@ public final class Names {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx) {
+  public void removeName(final int key, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
     final Integer prevValue = mCountNameMapping.get(key);
     if (prevValue != null) {
       final long countNodeKey = mCountNodeMap.get(key);
@@ -135,7 +135,7 @@ public final class Names {
    *
    * @return generated key
    */
-  public int setName(final String name, final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx) {
+  public int setName(final String name, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
     assert name != null;
     assert pageTrx != null;
 

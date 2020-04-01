@@ -22,7 +22,7 @@ package org.sirix.page.interfaces;
 
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 
@@ -62,7 +62,7 @@ public interface Page {
    * @param pageWriteTrx {@link PageTrx} implementation
    * @throws SirixIOException if an I/O exception occured
    */
-  <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+  <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       @Nonnull PageTrx<K, V, S> pageWriteTrx);
 
   /**

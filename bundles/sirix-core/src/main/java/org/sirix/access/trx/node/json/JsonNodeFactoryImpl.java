@@ -9,7 +9,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.json.*;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
@@ -36,7 +36,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private final HashFunction hashFunction;
 
   /** {@link PageTrx} implementation. */
-  private final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
+  private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
 
   /**
    * Constructor.
@@ -45,7 +45,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    * @param pageWriteTrx {@link PageTrx} implementation
    */
   JsonNodeFactoryImpl(final HashFunction hashFunction,
-      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
     this.hashFunction = checkNotNull(hashFunction);
     this.pageWriteTrx = checkNotNull(pageWriteTrx);
   }

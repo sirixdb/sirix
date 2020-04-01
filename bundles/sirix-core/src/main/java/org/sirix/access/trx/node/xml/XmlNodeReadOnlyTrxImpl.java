@@ -40,7 +40,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.xml.*;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
@@ -113,7 +113,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
     // Remember old node and fetch new one.
     final ImmutableXmlNode oldNode = (ImmutableXmlNode) currentNode;
-    Optional<? extends Record> newNode;
+    Optional<? extends DataRecord> newNode;
     try {
       // Immediately return node from item list if node key negative.
       if (nodeKey < 0) {

@@ -7,7 +7,7 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -26,7 +26,7 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertAccess(int revision);
 
-  PageTrx<Long, Record, UnorderedKeyValuePage> createPageTransaction(long trxID, int revision, int i, Abort no,
+  PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTransaction(long trxID, int revision, int i, Abort no,
       boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
@@ -35,7 +35,7 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
 
   void closeWriteTransaction(long transactionID);
 
-  void setNodePageWriteTransaction(long transactionID, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx);
+  void setNodePageWriteTransaction(long transactionID, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx);
 
   void closeNodePageWriteTransaction(long transactionID);
 

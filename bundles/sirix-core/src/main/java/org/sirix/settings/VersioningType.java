@@ -29,7 +29,7 @@ import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 
@@ -47,14 +47,14 @@ public enum VersioningType {
    */
   FULL {
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> T combineRecordPages(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
       return pages.get(0);
     }
 
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
         final PageReference reference) {
       assert pages.size() == 1;
@@ -89,7 +89,7 @@ public enum VersioningType {
    */
   DIFFERENTIAL {
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> T combineRecordPages(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
@@ -135,7 +135,7 @@ public enum VersioningType {
     }
 
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
         final PageReference reference) {
       assert pages.size() <= 2;
@@ -226,7 +226,7 @@ public enum VersioningType {
    */
   INCREMENTAL {
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> T combineRecordPages(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
@@ -269,7 +269,7 @@ public enum VersioningType {
     }
 
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx,
         final PageReference reference) {
       final T firstPage = pages.get(0);
@@ -359,7 +359,7 @@ public enum VersioningType {
    */
   SLIDING_SNAPSHOT {
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> T combineRecordPages(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
@@ -403,7 +403,7 @@ public enum VersioningType {
     }
 
     @Override
-    public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
+    public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx,
         final PageReference reference) {
       final T firstPage = pages.get(0);
@@ -507,7 +507,7 @@ public enum VersioningType {
    * @param revsToRestore the number of revisions needed to build the complete record page
    * @return the complete {@link KeyValuePage}
    */
-  public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+  public abstract <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> T combineRecordPages(
       final List<T> pages, final @Nonnegative int revsToRestore, final PageReadOnlyTrx pageReadTrx);
 
   /**
@@ -519,7 +519,7 @@ public enum VersioningType {
    * @return a {@link PageContainer} holding a complete {@link KeyValuePage} for reading and one for
    *         writing
    */
-  public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
+  public abstract <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
       final List<T> pages, final @Nonnegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
       final PageReference reference);
 

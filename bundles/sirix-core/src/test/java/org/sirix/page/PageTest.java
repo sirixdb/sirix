@@ -25,7 +25,7 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.testng.annotations.AfterClass;
@@ -105,7 +105,7 @@ public class PageTest {
     final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
         PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-      final Record record = XmlTestHelper.generateOne();
+      final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setEntry(record.getNodeKey(), record);
     }
     // NamePage setup.
@@ -123,12 +123,12 @@ public class PageTest {
     return returnVal;
   }
 
-  private PageTrx<Long, Record, UnorderedKeyValuePage> createPageTrxMock(String name) {
+  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTrxMock(String name) {
     final var hashEntryNode = new HashEntryNode(2, 12, name);
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     @SuppressWarnings("unchecked")
-    final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx = mock(PageTrx.class);
+    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx = mock(PageTrx.class);
     when(pageTrx.createEntry(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
         hashEntryNode);
     when(pageTrx.createEntry(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(

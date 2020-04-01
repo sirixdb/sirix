@@ -11,7 +11,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.xml.*;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
@@ -36,7 +36,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
   /** {@link PageTrx} implementation. */
-  private final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
+  private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
 
   /** The hash function used for hashing nodes. */
   private final HashFunction hashFunction;
@@ -47,7 +47,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * @param hashFunction the hash function used for hashing nodes
    * @param pageWriteTrx {@link PageTrx} implementation
    */
-  XmlNodeFactoryImpl(final HashFunction hashFunction, final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+  XmlNodeFactoryImpl(final HashFunction hashFunction, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
     this.pageWriteTrx = checkNotNull(pageWriteTrx);
     this.pageWriteTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
     this.pageWriteTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);

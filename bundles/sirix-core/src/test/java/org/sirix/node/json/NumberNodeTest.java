@@ -33,11 +33,8 @@ import java.io.IOException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.Holder;
 import org.sirix.JsonTestHelper;
-import org.sirix.XmlTestHelper;
 import org.sirix.api.Database;
-import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
@@ -45,7 +42,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
@@ -55,7 +52,7 @@ import com.google.common.hash.Hashing;
  */
 public class NumberNodeTest {
 
-  private PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
 
   private Database<JsonResourceManager> database;
 

@@ -6,7 +6,7 @@ package org.sirix.node.interfaces;
  * @author Johannes Lichtenberger
  * 
  */
-public interface Record {
+public interface DataRecord {
   /**
    * Get unique node key.
    * 

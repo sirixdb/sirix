@@ -2,7 +2,7 @@ package org.sirix.index.bplustree;
 
 import com.google.common.io.ByteArrayDataInput;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.AbstractForwardingPage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -27,7 +27,7 @@ import java.util.Map.Entry;
  * @param <K> the key
  * @param <V> the value
  */
-public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V extends Record>
+public class BPlusInnerNodePage<K extends Comparable<? super K> & DataRecord, V extends DataRecord>
     extends AbstractForwardingPage implements KeyValuePage<K, V> {
 
   /** Key of record page. This is the base key of all contained nodes. */

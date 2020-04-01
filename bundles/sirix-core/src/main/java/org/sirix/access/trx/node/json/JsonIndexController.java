@@ -17,7 +17,7 @@ import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.index.path.json.JsonPathIndexImpl;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 import java.util.HashSet;
@@ -88,18 +88,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
-  private JsonNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private JsonNodeVisitor createPathIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (JsonNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx,
-      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private JsonNodeVisitor createNameIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return (JsonNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }

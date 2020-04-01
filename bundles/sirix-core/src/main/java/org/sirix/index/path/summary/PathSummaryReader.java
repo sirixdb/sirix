@@ -37,18 +37,15 @@ import org.sirix.node.NullNode;
 import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.LogWrapper;
 import org.sirix.utils.NamePageHash;
-import org.slf4j.LoggerFactory;
 import com.google.common.base.MoreObjects;
 
 /**
@@ -108,7 +105,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     mClosed = false;
     mResourceManager = resourceManager;
 
-    final Optional<? extends Record> node =
+    final Optional<? extends DataRecord> node =
         mPageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
     if (node.isPresent()) {
       mCurrentNode = (StructNode) node.get();

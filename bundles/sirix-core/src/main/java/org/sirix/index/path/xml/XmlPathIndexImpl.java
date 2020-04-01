@@ -5,7 +5,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.path.PathIndexBuilderFactory;
 import org.sirix.index.path.PathIndexListenerFactory;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public final class XmlPathIndexImpl implements XmlPathIndex {
@@ -20,14 +20,14 @@ public final class XmlPathIndexImpl implements XmlPathIndex {
   }
 
   @Override
-  public XmlPathIndexBuilder createBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XmlPathIndexBuilder createBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var builderDelegate = mPathIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new XmlPathIndexBuilder(builderDelegate);
   }
 
   @Override
-  public XmlPathIndexListener createListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XmlPathIndexListener createListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var listenerDelegate = mPathIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new XmlPathIndexListener(listenerDelegate);

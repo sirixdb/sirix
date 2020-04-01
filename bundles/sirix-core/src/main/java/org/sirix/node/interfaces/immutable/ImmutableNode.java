@@ -4,7 +4,7 @@ import java.math.BigInteger;
 import javax.annotation.Nullable;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 
 /**
  * An immutable node.
@@ -12,7 +12,7 @@ import org.sirix.node.interfaces.Record;
  * @author Johannes Lichtenberger
  *
  */
-public interface ImmutableNode extends Record {
+public interface ImmutableNode extends DataRecord {
 
   @Override
   NodeKind getKind();

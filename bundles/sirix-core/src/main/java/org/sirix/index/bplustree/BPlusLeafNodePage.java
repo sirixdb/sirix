@@ -3,7 +3,7 @@ package org.sirix.index.bplustree;
 import com.google.common.io.ByteArrayDataInput;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
@@ -24,7 +24,7 @@ import java.util.Map.Entry;
  * @param <K> the key
  * @param <V> the value
  */
-public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V extends Record>
+public class BPlusLeafNodePage<K extends Comparable<? super K> & DataRecord, V extends DataRecord>
     implements KeyValuePage<K, V> {
 
   /** Key of record page. This is the base key of all contained nodes. */
@@ -134,7 +134,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
   }
 
   @Override
-  public <KE extends Comparable<? super KE>, VA extends Record, S extends KeyValuePage<KE, VA>> void commit(
+  public <KE extends Comparable<? super KE>, VA extends DataRecord, S extends KeyValuePage<KE, VA>> void commit(
       PageTrx<KE, VA, S> pageWriteTrx) {}
 
   @Override

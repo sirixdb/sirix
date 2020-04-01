@@ -16,7 +16,7 @@ import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.xml.XmlPCRCollector;
 import org.sirix.index.path.xml.XmlPathIndexImpl;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 import java.util.HashSet;
@@ -97,18 +97,18 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return new PathFilter(paths, new XmlPCRCollector(rtx));
   }
 
-  private XmlNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XmlNodeVisitor createPathIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (XmlNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx,
-      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XmlNodeVisitor createNameIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return (XmlNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }

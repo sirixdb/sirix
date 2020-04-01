@@ -22,12 +22,12 @@ public interface RecordPersister {
    * @param recordID the unique recordID
    * @param deweyID optional deweyID of the record
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @return a {@link Record} instance
+   * @return a {@link DataRecord} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    * @throws IOException if an I/O error occurs during deserialization
    */
   @Nonnull
-  Record deserialize(DataInput source, @Nonnegative long recordID, SirixDeweyID deweyID, PageReadOnlyTrx pageReadTrx)
+  DataRecord deserialize(DataInput source, @Nonnegative long recordID, SirixDeweyID deweyID, PageReadOnlyTrx pageReadTrx)
       throws IOException;
 
   /**
@@ -39,5 +39,5 @@ public interface RecordPersister {
    * @throws NullPointerException if one of the parameters is {@code null}
    * @throws IOException if an I/O error occurs during serialization
    */
-  void serialize(DataOutput sink, Record record, PageReadOnlyTrx pageReadTrx) throws IOException;
+  void serialize(DataOutput sink, DataRecord record, PageReadOnlyTrx pageReadTrx) throws IOException;
 }

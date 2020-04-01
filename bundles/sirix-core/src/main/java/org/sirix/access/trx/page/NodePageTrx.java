@@ -36,7 +36,7 @@ import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -69,7 +69,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
-    implements PageTrx<Long, Record, UnorderedKeyValuePage> {
+    implements PageTrx<Long, DataRecord, UnorderedKeyValuePage> {
 
   /**
    * Page writer to serialize.
@@ -163,7 +163,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public Record prepareEntryForModification(final @Nonnegative Long recordKey, final PageKind pageKind,
+  public DataRecord prepareEntryForModification(final @Nonnegative Long recordKey, final PageKind pageKind,
       final int index) {
     mPageRtx.assertNotClosed();
     checkNotNull(recordKey);
@@ -173,9 +173,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     final long recordPageKey = mPageRtx.pageKey(recordKey);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, pageKind);
 
-    Record record = ((UnorderedKeyValuePage) cont.getModified()).getValue(recordKey);
+    DataRecord record = ((UnorderedKeyValuePage) cont.getModified()).getValue(recordKey);
     if (record == null) {
-      final Record oldRecord = ((UnorderedKeyValuePage) cont.getComplete()).getValue(recordKey);
+      final DataRecord oldRecord = ((UnorderedKeyValuePage) cont.getComplete()).getValue(recordKey);
       if (oldRecord == null) {
         throw new SirixIOException("Cannot retrieve record from cache!");
       }
@@ -186,7 +186,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public Record createEntry(final Long key, final Record record, final PageKind pageKind, final int index) {
+  public DataRecord createEntry(final Long key, final DataRecord record, final PageKind pageKind, final int index) {
     mPageRtx.assertNotClosed();
     // Allocate record key and increment record count.
     long recordKey;
@@ -218,7 +218,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     final long recordPageKey = mPageRtx.pageKey(recordKey);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, pageKind);
     @SuppressWarnings("unchecked")
-    final KeyValuePage<Long, Record> modified = (KeyValuePage<Long, Record>) cont.getModified();
+    final KeyValuePage<Long, DataRecord> modified = (KeyValuePage<Long, DataRecord>) cont.getModified();
     modified.setEntry(key, record);
     return record;
   }
@@ -228,9 +228,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     mPageRtx.assertNotClosed();
     final long nodePageKey = mPageRtx.pageKey(recordKey);
     final PageContainer cont = prepareRecordPage(nodePageKey, index, pageKind);
-    final Optional<Record> node = getRecord(recordKey, pageKind, index);
+    final Optional<DataRecord> node = getRecord(recordKey, pageKind, index);
     if (node.isPresent()) {
-      final Record nodeToDel = node.get();
+      final DataRecord nodeToDel = node.get();
       final Node delNode = new DeletedNode(
           new NodeDelegate(nodeToDel.getNodeKey(), -1, null, null, mPageRtx.getRevisionNumber(), null));
       ((UnorderedKeyValuePage) cont.getModified()).setEntry(delNode.getNodeKey(), delNode);
@@ -241,7 +241,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public Optional<Record> getRecord(final @Nonnegative long recordKey, final PageKind pageKind,
+  public Optional<DataRecord> getRecord(final @Nonnegative long recordKey, final PageKind pageKind,
       final @Nonnegative int index) {
     mPageRtx.assertNotClosed();
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -253,7 +253,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     if (pageCont.equals(PageContainer.emptyInstance())) {
       return mPageRtx.getRecord(recordKey, pageKind, index);
     } else {
-      Record node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(recordKey);
+      DataRecord node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(recordKey);
       if (node == null) {
         node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(recordKey);
       }
@@ -487,7 +487,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public PageTrx<Long, Record, UnorderedKeyValuePage> appendLogRecord(final PageReference reference,
+  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> appendLogRecord(final PageReference reference,
       final PageContainer pageContainer) {
     checkNotNull(pageContainer);
     mLog.put(reference, pageContainer);
@@ -501,7 +501,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public PageTrx<Long, Record, UnorderedKeyValuePage> truncateTo(final int revision) {
+  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> truncateTo(final int revision) {
     mPageWriter.truncateTo(revision);
     return this;
   }

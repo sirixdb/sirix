@@ -14,16 +14,16 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 public interface NameIndex<B, L extends ChangeListener> {
-  B createBuilder(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+  B createBuilder(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
 
-  L createListener(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+  L createListener(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
     final AVLTreeReader<QNm, NodeReferences> reader =

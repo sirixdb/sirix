@@ -5,7 +5,7 @@ import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -59,7 +59,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  Optional<? extends Record> getRecord(final @Nonnegative long key, final PageKind pageKind, final int index);
+  Optional<? extends DataRecord> getRecord(final @Nonnegative long key, final PageKind pageKind, final int index);
 
   /**
    * Current reference to actual revision-root page.
@@ -117,7 +117,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws NullPointerException if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
+  <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
       @Nonnull IndexLogKey indexLogKey);
 
   /** Determines if transaction is closed or not. */

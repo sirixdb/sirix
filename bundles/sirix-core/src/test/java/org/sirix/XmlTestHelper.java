@@ -46,7 +46,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.node.NodeKind.DumbNode;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.XmlDocumentCreator;
 
@@ -296,7 +296,7 @@ public final class XmlTestHelper {
    *
    * @return a {@link DumbNode} with random values
    */
-  public static final Record generateOne() {
+  public static final DataRecord generateOne() {
     return new DumbNode(XmlTestHelper.random.nextInt(Integer.MAX_VALUE));
   }
 }
