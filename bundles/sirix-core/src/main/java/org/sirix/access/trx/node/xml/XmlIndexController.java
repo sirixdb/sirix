@@ -69,7 +69,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     // Index builders for all index definitions.
     final var indexBuilders = new HashSet<XmlNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
-      mIndexes.add(indexDef);
+      indexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH:
           indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
@@ -99,17 +99,17 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
 
   private XmlNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return (XmlNodeVisitor) mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
+    return (XmlNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx,
       final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
-    return (XmlNodeVisitor) mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
+    return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private XmlNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
-    return (XmlNodeVisitor) mNameIndex.createBuilder(pageWriteTrx, indexDef);
+    return (XmlNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 }

@@ -20,8 +20,23 @@
  */
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.sirix.access.trx.node.HashType;
+import org.sirix.exception.SirixIOException;
+import org.sirix.io.StorageType;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.bytepipe.ByteHandlerKind;
+import org.sirix.io.bytepipe.SnappyCompressor;
+import org.sirix.node.NodePersistenterImpl;
+import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.settings.VersioningType;
+
+import javax.annotation.Nonnegative;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -33,22 +48,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.HashType;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.StorageType;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.io.bytepipe.ByteHandlerKind;
-import org.sirix.io.bytepipe.SnappyCompressor;
-import org.sirix.node.NodePersistenterImpl;
-import org.sirix.node.interfaces.RecordPersister;
-import org.sirix.settings.VersioningType;
-import com.google.common.base.MoreObjects;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Holds the settings for a resource which acts as a base for session that can not change. This
@@ -81,10 +83,10 @@ public final class ResourceConfiguration {
     ENCRYPTION_KEY(Paths.get("encryption"), true);
 
     /** Location of the file. */
-    private final Path mPath;
+    private final Path path;
 
     /** Is the location a folder or no? */
-    private final boolean mIsFolder;
+    private final boolean isFolder;
 
     /**
      * Constructor.
@@ -93,8 +95,8 @@ public final class ResourceConfiguration {
      * @param isFolder determines if the path denotes a filer or not
      */
     ResourcePaths(final Path path, final boolean isFolder) {
-      mPath = path;
-      mIsFolder = isFolder;
+      this.path = path;
+      this.isFolder = isFolder;
     }
 
     /**
@@ -103,7 +105,7 @@ public final class ResourceConfiguration {
      * @return the path
      */
     public Path getPath() {
-      return mPath;
+      return path;
     }
 
     /**
@@ -112,7 +114,7 @@ public final class ResourceConfiguration {
      * @return {@code true} if file is a folder, {@code false} otherwise
      */
     public boolean isFolder() {
-      return mIsFolder;
+      return isFolder;
     }
 
     /**

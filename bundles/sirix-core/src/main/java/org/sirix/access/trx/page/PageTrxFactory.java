@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2018, Sirix
  * <p>
  * All rights reserved.
@@ -103,7 +103,7 @@ public final class PageTrxFactory {
 
     // Page read trx.
     final NodePageReadOnlyTrx pageRtx =
-        new NodePageReadOnlyTrx(trxId, resourceManager, uberPage, representRevision, writer, log, indexController, null,
+        new NodePageReadOnlyTrx(trxId, resourceManager, uberPage, representRevision, writer, log, null,
             new RevisionRootPageReader());
 
     // Create new revision root page.

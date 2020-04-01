@@ -1,7 +1,20 @@
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.Maps;
+import com.google.crypto.tink.CleartextKeysetHandle;
+import com.google.crypto.tink.JsonKeysetWriter;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+import org.sirix.access.trx.TransactionManagerImpl;
+import org.sirix.api.*;
+import org.sirix.cache.BufferManager;
+import org.sirix.exception.SirixIOException;
+import org.sirix.io.bytepipe.Encryptor;
+import org.sirix.utils.SirixFiles;
+
+import javax.annotation.Nonnegative;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,46 +25,30 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.annotation.Nonnegative;
-import org.sirix.access.trx.TransactionManagerImpl;
-import org.sirix.api.Database;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.Transaction;
-import org.sirix.api.TransactionManager;
-import org.sirix.cache.BufferManager;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.bytepipe.Encryptor;
-import org.sirix.utils.SirixFiles;
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-import com.google.common.collect.Maps;
-import com.google.crypto.tink.CleartextKeysetHandle;
-import com.google.crypto.tink.JsonKeysetWriter;
-import com.google.crypto.tink.KeysetHandle;
-import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements Database<T> {
 
   /** Unique ID of a resource. */
-  private final AtomicLong mResourceID = new AtomicLong();
+  private final AtomicLong resourceID = new AtomicLong();
 
   /** The transaction manager. */
-  protected final TransactionManager mTransactionManager;
+  protected final TransactionManager transactionManager;
 
   /** Determines if the database instance is in the closed state or not. */
-  protected boolean mClosed;
+  protected boolean isClosed;
 
   /** Buffers / page cache for each resource. */
-  protected final ConcurrentMap<Path, BufferManager> mBufferManagers;
+  protected final ConcurrentMap<Path, BufferManager> bufferManagers;
 
   /** Central repository of all resource-ID/resource-name tuples. */
-  protected final BiMap<Long, String> mResources;
+  protected final BiMap<Long, String> resourceIDsToResourceNames;
 
   /** DatabaseConfiguration with fixed settings. */
-  protected final DatabaseConfiguration mDBConfig;
+  protected final DatabaseConfiguration dbConfig;
 
   /**
    * Constructor.
@@ -59,15 +56,15 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
    */
   public AbstractLocalDatabase(final DatabaseConfiguration dbConfig) {
-    mDBConfig = checkNotNull(dbConfig);
-    mResources = Maps.synchronizedBiMap(HashBiMap.create());
-    mBufferManagers = new ConcurrentHashMap<>();
-    mTransactionManager = new TransactionManagerImpl();
+    this.dbConfig = checkNotNull(dbConfig);
+    resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
+    bufferManagers = new ConcurrentHashMap<>();
+    transactionManager = new TransactionManagerImpl();
   }
 
   @Override
   public String getName() {
-    return mDBConfig.getDatabaseName();
+    return dbConfig.getDatabaseName();
   }
 
   @Override
@@ -75,9 +72,9 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     assertNotClosed();
 
     boolean returnVal = true;
-    resConfig.setDatabaseConfiguration(mDBConfig);
+    resConfig.setDatabaseConfiguration(dbConfig);
     final Path path =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
+        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;
@@ -116,10 +113,10 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
       // If everything was correct so far, initialize storage.
 
       // Serialization of the config.
-      mResourceID.set(mDBConfig.getMaxResourceID());
-      ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
-      mDBConfig.setMaximumResourceID(mResourceID.get());
-      mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
+      resourceID.set(dbConfig.getMaxResourceID());
+      ResourceConfiguration.serialize(resConfig.setID(resourceID.getAndIncrement()));
+      dbConfig.setMaximumResourceID(resourceID.get());
+      resourceIDsToResourceNames.forcePut(resourceID.get(), resConfig.getResource().getFileName().toString());
 
       returnVal = bootstrapResource(resConfig);
     }
@@ -152,7 +149,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     assertNotClosed();
 
     final Path resourceFile =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
+        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
     // Check that no running resource managers / sessions are opened.
     if (Databases.hasOpenResourceManagers(resourceFile)) {
       throw new IllegalStateException("Opened resource managers found, must be closed first.");
@@ -165,7 +162,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
       // mReadSemaphores.remove(resourceFile);
       // mWriteSemaphores.remove(resourceFile);
-      mBufferManagers.remove(resourceFile);
+      bufferManagers.remove(resourceFile);
     }
 
     return this;
@@ -175,17 +172,17 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   public synchronized String getResourceName(final @Nonnegative long id) {
     assertNotClosed();
     checkArgument(id >= 0, "The ID must be >= 0!");
-    return mResources.get(id);
+    return resourceIDsToResourceNames.get(id);
   }
 
   @Override
   public synchronized long getResourceID(final String name) {
     assertNotClosed();
-    return mResources.inverse().get(checkNotNull(name));
+    return resourceIDsToResourceNames.inverse().get(checkNotNull(name));
   }
 
   protected void assertNotClosed() {
-    if (mClosed) {
+    if (isClosed) {
       throw new IllegalStateException("Database is already closed.");
     }
   }
@@ -193,14 +190,14 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   @Override
   public DatabaseConfiguration getDatabaseConfig() {
     assertNotClosed();
-    return mDBConfig;
+    return dbConfig;
   }
 
   @Override
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
     final Path resourceFile =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 
@@ -208,7 +205,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   public List<Path> listResources() {
     assertNotClosed();
     try (final Stream<Path> stream =
-        Files.list(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
+        Files.list(dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.collect(Collectors.toList());
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -216,7 +213,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   }
 
   BufferManager getPageCache(final Path resourceFile) {
-    return mBufferManagers.get(resourceFile);
+    return bufferManagers.get(resourceFile);
   }
 
   @Override

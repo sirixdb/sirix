@@ -37,19 +37,19 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
   /** The index types. */
-  protected final Indexes mIndexes;
+  protected final Indexes indexes;
 
   /** Set of {@link ChangeListener}. */
-  private final Set<ChangeListener> mListeners;
+  private final Set<ChangeListener> listeners;
 
   /** Used to provide path indexes. */
-  protected final PathIndex<?, ?> mPathIndex;
+  protected final PathIndex<?, ?> pathIndex;
 
   /** Used to provide CAS indexes. */
-  protected final CASIndex<?, ?, R> mCASIndex;
+  protected final CASIndex<?, ?, R> casIndex;
 
   /** Used to provide name indexes. */
-  protected final NameIndex<?, ?> mNameIndex;
+  protected final NameIndex<?, ?> nameIndex;
 
   /**
    * Constructor.
@@ -61,16 +61,16 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    */
   public AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
       final PathIndex<?, ?> pathIndex, final CASIndex<?, ?, R> casIndex, final NameIndex<?, ?> nameIndex) {
-    mIndexes = indexes;
-    mListeners = listeners;
-    mPathIndex = pathIndex;
-    mCASIndex = casIndex;
-    mNameIndex = nameIndex;
+    this.indexes = indexes;
+    this.listeners = listeners;
+    this.pathIndex = pathIndex;
+    this.casIndex = casIndex;
+    this.nameIndex = nameIndex;
   }
 
   @Override
   public boolean containsIndex(final IndexType type) {
-    for (final IndexDef indexDef : mIndexes.getIndexDefs()) {
+    for (final IndexDef indexDef : indexes.getIndexDefs()) {
       if (indexDef.getType() == type)
         return true;
     }
@@ -79,14 +79,14 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public Indexes getIndexes() {
-    return mIndexes;
+    return indexes;
   }
 
   @Override
   public void serialize(final OutputStream out) {
     try {
       final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(checkNotNull(out)));
-      serializer.print(mIndexes.materialize());
+      serializer.print(indexes.materialize());
       serializer.end();
     } catch (final DocumentException e) {
       throw new SirixRuntimeException(e);
@@ -95,7 +95,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node, final long pathNodeKey) {
-    for (final ChangeListener listener : mListeners) {
+    for (final ChangeListener listener : listeners) {
       listener.listen(type, node, pathNodeKey);
     }
   }
@@ -105,16 +105,16 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     checkNotNull(nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {
-      mIndexes.add(indexDef);
+      indexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH:
-          mListeners.add(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+          listeners.add(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          mListeners.add(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+          listeners.add(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
-          mListeners.add(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
+          listeners.add(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
           break;
         default:
           break;
@@ -126,17 +126,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   private ChangeListener createPathIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return mPathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
+    return pathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private ChangeListener createCASIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return mCASIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
+    return casIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private ChangeListener createNameIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
-    return mNameIndex.createListener(pageWriteTrx, indexDef);
+    return nameIndex.createListener(pageWriteTrx, indexDef);
   }
 
   @Override
@@ -174,40 +174,40 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public Iterator<NodeReferences> openPathIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
-    if (mPathIndex == null) {
+    if (pathIndex == null) {
       throw new IllegalStateException("This document does not support path indexes.");
     }
 
-    return mPathIndex.openIndex(pageRtx, indexDef, filter);
+    return pathIndex.openIndex(pageRtx, indexDef, filter);
   }
 
   @Override
   public Iterator<NodeReferences> openNameIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final NameFilter filter) {
-    if (mNameIndex == null) {
+    if (nameIndex == null) {
       throw new IllegalStateException("This document does not support name indexes.");
     }
 
-    return mNameIndex.openIndex(pageRtx, indexDef, filter);
+    return nameIndex.openIndex(pageRtx, indexDef, filter);
   }
 
   @Override
   public Iterator<NodeReferences> openCASIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final CASFilter filter) {
-    if (mCASIndex == null) {
+    if (casIndex == null) {
       throw new IllegalStateException("This document does not support CAS indexes.");
     }
 
-    return mCASIndex.openIndex(pageRtx, indexDef, filter);
+    return casIndex.openIndex(pageRtx, indexDef, filter);
   }
 
   @Override
   public Iterator<NodeReferences> openCASIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final CASFilterRange filter) {
-    if (mCASIndex == null) {
+    if (casIndex == null) {
       throw new IllegalStateException("This document does not support path indexes.");
     }
 
-    return mCASIndex.openIndex(pageRtx, indexDef, filter);
+    return casIndex.openIndex(pageRtx, indexDef, filter);
   }
 }

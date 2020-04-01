@@ -57,10 +57,10 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
     implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /** {@link XmlIndexController}s used for this session. */
-  private final ConcurrentMap<Integer, JsonIndexController> mRtxIndexControllers;
+  private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
 
   /** {@link XmlIndexController}s used for this session. */
-  private final ConcurrentMap<Integer, JsonIndexController> mWtxIndexControllers;
+  private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
 
   /**
    * Constructor.
@@ -80,8 +80,8 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
 
-    mRtxIndexControllers = new ConcurrentHashMap<>();
-    mWtxIndexControllers = new ConcurrentHashMap<>();
+    rtxIndexControllers = new ConcurrentHashMap<>();
+    wtxIndexControllers = new ConcurrentHashMap<>();
   }
 
   @Override
@@ -114,12 +114,12 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
 
   @Override
   public synchronized JsonIndexController getRtxIndexController(final int revision) {
-    return mRtxIndexControllers.computeIfAbsent(revision, unused -> new JsonIndexController());
+    return rtxIndexControllers.computeIfAbsent(revision, unused -> new JsonIndexController());
   }
 
   @Override
   public synchronized JsonIndexController getWtxIndexController(final int revision) {
-    return mWtxIndexControllers.computeIfAbsent(revision, unused -> {
+    return wtxIndexControllers.computeIfAbsent(revision, unused -> {
       final var controller = new JsonIndexController();
       inititializeIndexController(revision, controller);
       return controller;
