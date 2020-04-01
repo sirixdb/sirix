@@ -25,40 +25,47 @@ class DiffHandler(private val location: Path) {
 
         val database = openDatabase(databaseName)
 
-        val resourceManager = database.openResourceManager(resourceName)
+        database.use {
+            val resourceManager = database.openResourceManager(resourceName)
 
-        if (resourceManager is JsonResourceManager) {
-            val diff = context.executeBlockingAwait<String> {
-                val firstRevision: String? = ctx.queryParam("first-revision").getOrNull(0)
-                val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
+            resourceManager.use {
+                if (resourceManager is JsonResourceManager) {
+                    val diff = context.executeBlockingAwait<String> {
+                        val firstRevision: String? = ctx.queryParam("first-revision").getOrNull(0)
+                        val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
 
-                if (firstRevision == null || secondRevision == null) {
-                    ctx.fail(IllegalArgumentException("First and second revision must be specified."))
-                    return@executeBlockingAwait
+                        if (firstRevision == null || secondRevision == null) {
+                            ctx.fail(IllegalArgumentException("First and second revision must be specified."))
+                            return@executeBlockingAwait
+                        }
+
+                        val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)
+                        val maxDepth: String? = ctx.queryParam("maxDepth").getOrNull(0)
+
+                        val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
+                        val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: 0
+
+                        it.complete(
+                            BasicJsonDiff().generateDiff(
+                                resourceManager,
+                                firstRevision.toInt(),
+                                secondRevision.toInt(),
+                                startNodeKeyAsLong,
+                                maxDepthAsLong
+                            )
+                        )
+                    }
+
+                    ctx.response().setStatusCode(200)
+                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                        .putHeader(
+                            HttpHeaders.CONTENT_LENGTH,
+                            diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
+                        )
+                        .write(diff)
+                        .end()
                 }
-
-                val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)
-                val maxDepth: String? = ctx.queryParam("maxDepth").getOrNull(0)
-
-                val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
-                val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: 0
-
-                it.complete(
-                    BasicJsonDiff().generateDiff(
-                        resourceManager,
-                        firstRevision.toInt(),
-                        secondRevision.toInt(),
-                        startNodeKeyAsLong,
-                        maxDepthAsLong
-                    )
-                )
             }
-
-            ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, diff!!.toByteArray(StandardCharsets.UTF_8).size.toString())
-                .write(diff)
-                .end()
         }
 
         return ctx.currentRoute()
