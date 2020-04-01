@@ -1,11 +1,13 @@
 package org.sirix.rest.crud.json
 
+import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
@@ -58,6 +60,14 @@ class JsonDelete(private val location: Path) {
         val dispatcher = ctx.vertx().dispatcher()
 
         if (resPathName == null) {
+            if (!Files.exists(dbFile)) {
+                ctx.fail(
+                    HttpStatusException(
+                        HttpResponseStatus.NOT_FOUND.code(),
+                        IllegalStateException("Database not found.")
+                    )
+                )
+            }
             removeDatabase(dbFile, dispatcher)
             ctx.response().setStatusCode(204).end()
             return
@@ -68,6 +78,15 @@ class JsonDelete(private val location: Path) {
         val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
         database.use {
+            if (!database.existsResource(resPathName)) {
+                ctx.fail(
+                    HttpStatusException(
+                        HttpResponseStatus.NOT_FOUND.code(),
+                        IllegalStateException("Resource not found.")
+                    )
+                )
+            }
+
             if (nodeId == null) {
                 removeResource(dispatcher, database, resPathName, ctx)
             } else {
@@ -77,8 +96,9 @@ class JsonDelete(private val location: Path) {
             }
         }
 
-        if (!ctx.failed())
+        if (!ctx.failed()) {
             ctx.response().setStatusCode(204).end()
+        }
     }
 
     private suspend fun removeDatabase(dbFile: Path?, dispatcher: CoroutineDispatcher) {
