@@ -21,20 +21,22 @@
 
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.sirix.exception.SirixIOException;
+
+import javax.annotation.Nullable;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.annotation.Nullable;
-import org.sirix.exception.SirixIOException;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Represents a configuration of a database. Includes all settings which have to be made during the
@@ -119,16 +121,16 @@ public final class DatabaseConfiguration {
   public static final String BINARY = "0.1.0";
 
   /** Binary version of storage. */
-  private final String mBinaryVersion;
+  private final String binaryVersion;
 
   /** Path to file. */
-  private final Path mFile;
+  private final Path file;
 
   /** Maximum unique resource ID. */
-  private long mMaxResourceID;
+  private long maxResourceID;
 
   /** The database type. */
-  private DatabaseType mDatabaseType;
+  private DatabaseType databaseType;
 
   /**
    * Constructor with the path to be set.
@@ -136,8 +138,8 @@ public final class DatabaseConfiguration {
    * @param file file to be set
    */
   public DatabaseConfiguration(final Path file) {
-    mBinaryVersion = BINARY;
-    mFile = file;
+    binaryVersion = BINARY;
+    this.file = file;
   }
 
   /**
@@ -147,7 +149,7 @@ public final class DatabaseConfiguration {
    * @return this {@link DatabaseConfiguration} instance
    */
   public DatabaseConfiguration setDatabaseType(final DatabaseType type) {
-    mDatabaseType = checkNotNull(type);
+    databaseType = checkNotNull(type);
     return this;
   }
 
@@ -157,7 +159,7 @@ public final class DatabaseConfiguration {
    * @return the database type
    */
   public DatabaseType getDatabaseType() {
-    return mDatabaseType;
+    return databaseType;
   }
 
   /**
@@ -168,7 +170,7 @@ public final class DatabaseConfiguration {
    */
   public DatabaseConfiguration setMaximumResourceID(final long id) {
     checkArgument(id >= 0, "ID must be >= 0!");
-    mMaxResourceID = id;
+    maxResourceID = id;
     return this;
   }
 
@@ -178,7 +180,7 @@ public final class DatabaseConfiguration {
    * @return maximum resource ID
    */
   public long getMaxResourceID() {
-    return mMaxResourceID;
+    return maxResourceID;
   }
 
   /**
@@ -187,12 +189,12 @@ public final class DatabaseConfiguration {
    * @return the database file
    */
   public Path getFile() {
-    return mFile;
+    return file;
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("File", mFile).add("Binary Version", mBinaryVersion).toString();
+    return MoreObjects.toStringHelper(this).add("File", file).add("Binary Version", binaryVersion).toString();
   }
 
   @Override
@@ -201,12 +203,12 @@ public final class DatabaseConfiguration {
       return false;
 
     final DatabaseConfiguration other = (DatabaseConfiguration) obj;
-    return Objects.equal(mFile, other.mFile) && Objects.equal(mBinaryVersion, other.mBinaryVersion);
+    return Objects.equal(file, other.file) && Objects.equal(binaryVersion, other.binaryVersion);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mFile, mBinaryVersion);
+    return Objects.hashCode(file, binaryVersion);
   }
 
   /**
@@ -215,7 +217,7 @@ public final class DatabaseConfiguration {
    * @return configuration file
    */
   public Path getConfigFile() {
-    return mFile.resolve(DatabasePaths.CONFIGBINARY.getFile());
+    return file.resolve(DatabasePaths.CONFIGBINARY.getFile());
   }
 
   /**
@@ -223,7 +225,7 @@ public final class DatabaseConfiguration {
    * @return the database name
    */
   public String getDatabaseName() {
-    return mFile.getFileName().toString();
+    return file.getFileName().toString();
   }
 
   /**
@@ -236,10 +238,10 @@ public final class DatabaseConfiguration {
     try (final FileWriter fileWriter = new FileWriter(config.getConfigFile().toFile());
         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
-      final String filePath = config.mFile.toAbsolutePath().toString();
+      final String filePath = config.file.toAbsolutePath().toString();
       jsonWriter.name("file").value(filePath);
-      jsonWriter.name("ID").value(config.mMaxResourceID);
-      jsonWriter.name("databaseType").value(config.mDatabaseType.toString());
+      jsonWriter.name("ID").value(config.maxResourceID);
+      jsonWriter.name("databaseType").value(config.databaseType.toString());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);

@@ -21,20 +21,21 @@
 
 package org.sirix.access;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import com.google.common.base.MoreObjects;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.MoreObjects;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * This class represents one concrete database for enabling several {@link ResourceManager}
@@ -50,7 +51,7 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalXmlDatabase.class));
 
   /** The resource store to open/close resource-managers. */
-  private final XmlResourceStore mResourceStore;
+  private final XmlResourceStore resourceStore;
 
   /**
    * Package private constructor.
@@ -60,23 +61,23 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
    */
   LocalXmlDatabase(final DatabaseConfiguration dbConfig, final XmlResourceStore store) {
     super(dbConfig);
-    mResourceStore = store;
+    resourceStore = store;
   }
 
   @Override
   public synchronized void close() throws SirixException {
-    if (mClosed)
+    if (isClosed)
       return;
 
-    mClosed = true;
-    mResourceStore.close();
-    mTransactionManager.close();
+    isClosed = true;
+    resourceStore.close();
+    transactionManager.close();
 
     // Remove from database mapping.
-    Databases.removeDatabase(mDBConfig.getFile(), this);
+    Databases.removeDatabase(dbConfig.getFile(), this);
 
     // Remove lock file.
-    SirixFiles.recursiveRemove(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+    SirixFiles.recursiveRemove(dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
   }
 
   @Override
@@ -84,33 +85,33 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
     assertNotClosed();
 
     final Path resourceFile =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resource);
+        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resource);
 
     if (!Files.exists(resourceFile)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
           resourceFile.toString());
     }
 
-    if (mResourceStore.hasOpenResourceManager(resourceFile))
-      return mResourceStore.getOpenResourceManager(resourceFile);
+    if (resourceStore.hasOpenResourceManager(resourceFile))
+      return resourceStore.getOpenResourceManager(resourceFile);
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
     // Resource of must be associated to this database.
-    assert resourceConfig.resourcePath.getParent().getParent().equals(mDBConfig.getFile());
+    assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getFile());
 
     // Keep track of the resource-ID.
-    mResources.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+    resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    if (!mBufferManagers.containsKey(resourceFile))
-      mBufferManagers.put(resourceFile, new BufferManagerImpl());
+    if (!bufferManagers.containsKey(resourceFile))
+      bufferManagers.put(resourceFile, new BufferManagerImpl());
 
-    return mResourceStore.openResource(this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
+    return resourceStore.openResource(this, resourceConfig, bufferManagers.get(resourceFile), resourceFile);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
+    return MoreObjects.toStringHelper(this).add("dbConfig", dbConfig).toString();
   }
 
   @Override

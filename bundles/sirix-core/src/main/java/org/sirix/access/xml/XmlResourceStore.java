@@ -4,7 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
@@ -49,7 +48,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
     checkNotNull(bufferManager);
     checkNotNull(resourceFile);
 
-    return mResourceManagers.computeIfAbsent(resourceFile, k -> {
+    return resourceManagers.computeIfAbsent(resourceFile, k -> {
       final Storage storage = StorageType.getStorage(resourceConfig);
       final UberPage uberPage = getUberPage(storage);
 
@@ -57,7 +56,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
 
       // Create the resource manager instance.
       final XmlResourceManager resourceManager = new XmlResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, mUser);
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, user);
 
       // Put it in the databases cache.
       DatabasesInternals.putResourceManager(resourceFile, resourceManager);

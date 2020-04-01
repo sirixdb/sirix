@@ -1,7 +1,6 @@
 package org.sirix.access.trx.page;
 
 import org.junit.Test;
-import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.TransactionIntentLog;
@@ -17,7 +16,7 @@ public final class NodePageReadOnlyTrxTest {
   @Test
   public void testPageKey() {
     final var trx = new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0, mock(Reader.class), mock(
-        TransactionIntentLog.class), mock(IndexController.class), mock(BufferManager.class), mock(RevisionRootPageReader.class));
+        TransactionIntentLog.class), mock(BufferManager.class), mock(RevisionRootPageReader.class));
 
     assertEquals(0, trx.pageKey(1));
     assertEquals(1023 / Constants.NDP_NODE_COUNT, trx.pageKey(1023));
@@ -27,7 +26,7 @@ public final class NodePageReadOnlyTrxTest {
   @Test
   public void testRecordPageOffset() {
     final var trx = new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0, mock(Reader.class), mock(
-        TransactionIntentLog.class), mock(IndexController.class), mock(BufferManager.class), mock(RevisionRootPageReader.class));
+        TransactionIntentLog.class), mock(BufferManager.class), mock(RevisionRootPageReader.class));
 
     assertEquals(1, trx.recordPageOffset(1));
     assertEquals(Constants.NDP_NODE_COUNT - 1, trx.recordPageOffset(1023));

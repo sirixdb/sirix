@@ -36,10 +36,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
   /** {@link PageTrx} implementation. */
-  private final PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  private final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
 
   /** The hash function used for hashing nodes. */
-  private final HashFunction mHashFunction;
+  private final HashFunction hashFunction;
 
   /**
    * Constructor.
@@ -48,12 +48,12 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * @param pageWriteTrx {@link PageTrx} implementation
    */
   XmlNodeFactoryImpl(final HashFunction hashFunction, final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
-    mPageWriteTrx = checkNotNull(pageWriteTrx);
-    mPageWriteTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
-    mPageWriteTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);
-    mPageWriteTrx.createNameKey("xs:untyped", NodeKind.ELEMENT);
-    mPageWriteTrx.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
-    mHashFunction = checkNotNull(hashFunction);
+    this.pageWriteTrx = checkNotNull(pageWriteTrx);
+    this.pageWriteTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
+    this.pageWriteTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);
+    this.pageWriteTrx.createNameKey("xs:untyped", NodeKind.ELEMENT);
+    this.pageWriteTrx.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
+    this.hashFunction = checkNotNull(hashFunction);
   }
 
   @Override
@@ -67,18 +67,18 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         ? NamePageHash.generateHashForString(name.getLocalName())
         : -1;
 
-    final long revision = mPageWriteTrx.getRevisionNumber();
+    final long revision = pageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(
-        ((PathSummaryPage) mPageWriteTrx.getActualRevisionRootPage()
-                                        .getPathSummaryPageReference()
-                                        .getPage()).getMaxNodeKey(0)
+        ((PathSummaryPage) pageWriteTrx.getActualRevisionRootPage()
+                                       .getPathSummaryPageReference()
+                                       .getPage()).getMaxNodeKey(0)
             + 1,
-        parentKey, mHashFunction, null, revision, null);
+        parentKey, hashFunction, null, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return (PathNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
+    return (PathNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(),
         new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), PageKind.PATHSUMMARYPAGE, 0);
   }
 
@@ -87,21 +87,21 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
       final @Nonnegative long rightSibKey, @Nonnull final QNm name, final @Nonnegative long pathNodeKey,
       final SirixDeweyID id) {
     final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
-        ? mPageWriteTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
+        ? pageWriteTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
         : -1;
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? mPageWriteTrx.createNameKey(name.getPrefix(), NodeKind.ELEMENT)
+        ? pageWriteTrx.createNameKey(name.getPrefix(), NodeKind.ELEMENT)
         : -1;
-    final int localNameKey = mPageWriteTrx.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
+    final int localNameKey = pageWriteTrx.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
 
-    final long revision = mPageWriteTrx.getRevisionNumber();
-    final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
-        parentKey, mHashFunction, null, revision, id);
+    final long revision = pageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
+        parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
 
-    return (ElementNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
+    return (ElementNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(),
         new ElementNode(structDel, nameDel, new ArrayList<>(), HashBiMap.create(), new ArrayList<>(), name),
         PageKind.RECORDPAGE, -1);
   }
@@ -110,9 +110,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public TextNode createTextNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
       final @Nonnegative long rightSibKey, @Nonnull final byte[] value, final boolean isCompressed,
       final SirixDeweyID id) {
-    final long revision = mPageWriteTrx.getRevisionNumber();
-    final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
-        parentKey, mHashFunction, null, revision, id);
+    final long revision = pageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
+        parentKey, hashFunction, null, revision, id);
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression
         ? Compression.compress(value, Deflater.HUFFMAN_ONLY)
@@ -120,44 +120,44 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (TextNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new TextNode(valDel, structDel),
+    return (TextNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new TextNode(valDel, structDel),
         PageKind.RECORDPAGE, -1);
   }
 
   @Override
   public AttributeNode createAttributeNode(final @Nonnegative long parentKey, @Nonnull final QNm name,
       @Nonnull final byte[] value, final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
-    final long revision = mPageWriteTrx.getRevisionNumber();
-    final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
+    final long revision = pageWriteTrx.getRevisionNumber();
+    final int uriKey = pageWriteTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? mPageWriteTrx.createNameKey(name.getPrefix(), NodeKind.ATTRIBUTE)
+        ? pageWriteTrx.createNameKey(name.getPrefix(), NodeKind.ATTRIBUTE)
         : -1;
-    final int localNameKey = mPageWriteTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
+    final int localNameKey = pageWriteTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
 
-    final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
-        parentKey, mHashFunction, null, revision, id);
+    final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
+        parentKey, hashFunction, null, revision, id);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, value, false);
 
-    return (AttributeNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
+    return (AttributeNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(),
         new AttributeNode(nodeDel, nameDel, valDel, name), PageKind.RECORDPAGE, -1);
   }
 
   @Override
   public NamespaceNode createNamespaceNode(final @Nonnegative long parentKey, final QNm name,
       final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
-    final long revision = mPageWriteTrx.getRevisionNumber();
-    final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
-        parentKey, mHashFunction, null, revision, id);
+    final long revision = pageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
+        parentKey, hashFunction, null, revision, id);
 
-    final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
+    final int uriKey = pageWriteTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? mPageWriteTrx.createNameKey(name.getPrefix(), NodeKind.NAMESPACE)
+        ? pageWriteTrx.createNameKey(name.getPrefix(), NodeKind.NAMESPACE)
         : -1;
 
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, -1, pathNodeKey);
 
-    return (NamespaceNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new NamespaceNode(nodeDel, nameDel, name),
+    return (NamespaceNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new NamespaceNode(nodeDel, nameDel, name),
         PageKind.RECORDPAGE, -1);
   }
 
@@ -165,30 +165,30 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public PINode createPINode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
       final @Nonnegative long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
       final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
-    final long revision = mPageWriteTrx.getRevisionNumber();
+    final long revision = pageWriteTrx.getRevisionNumber();
 
     final int prefixKey = target.getPrefix() != null && !target.getPrefix().isEmpty()
-        ? mPageWriteTrx.createNameKey(target.getPrefix(), NodeKind.PROCESSING_INSTRUCTION)
+        ? pageWriteTrx.createNameKey(target.getPrefix(), NodeKind.PROCESSING_INSTRUCTION)
         : -1;
-    final int localNameKey = mPageWriteTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
-    final int uriKey = mPageWriteTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
-    final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
-        parentKey, mHashFunction, null, revision, id);
+    final int localNameKey = pageWriteTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
+    final int uriKey = pageWriteTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
+    final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
+        parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, content, false);
 
-    return (PINode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-        new PINode(structDel, nameDel, valDel, mPageWriteTrx), PageKind.RECORDPAGE, -1);
+    return (PINode) pageWriteTrx.createEntry(nodeDel.getNodeKey(),
+        new PINode(structDel, nameDel, valDel, pageWriteTrx), PageKind.RECORDPAGE, -1);
   }
 
   @Override
   public CommentNode createCommentNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
       final @Nonnegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
-    final long revision = mPageWriteTrx.getRevisionNumber();
-    final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
-        parentKey, mHashFunction, null, revision, id);
+    final long revision = pageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
+        parentKey, hashFunction, null, revision, id);
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression
         ? Compression.compress(value, Deflater.HUFFMAN_ONLY)
@@ -196,7 +196,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (CommentNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new CommentNode(valDel, structDel),
+    return (CommentNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new CommentNode(valDel, structDel),
         PageKind.RECORDPAGE, -1);
   }
 }

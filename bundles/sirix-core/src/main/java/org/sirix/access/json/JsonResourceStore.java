@@ -1,12 +1,5 @@
 package org.sirix.access.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.nio.file.Path;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
-import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.DatabasesInternals;
 import org.sirix.access.ResourceConfiguration;
@@ -18,6 +11,14 @@ import org.sirix.cache.BufferManager;
 import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
 import org.sirix.page.UberPage;
+
+import javax.annotation.Nonnull;
+import java.nio.file.Path;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Manages all resource stuff.
@@ -49,7 +50,7 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
     checkNotNull(bufferManager);
     checkNotNull(resourceFile);
 
-    return mResourceManagers.computeIfAbsent(resourceFile, k -> {
+    return resourceManagers.computeIfAbsent(resourceFile, k -> {
       final Storage storage = StorageType.getStorage(resourceConfig);
       final UberPage uberPage = getUberPage(storage);
 
@@ -57,7 +58,7 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
 
       // Create the resource manager instance.
       final JsonResourceManager resourceManager = new JsonResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, mUser);
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, user);
 
       // Put it in the databases cache.
       DatabasesInternals.putResourceManager(resourceFile, resourceManager);

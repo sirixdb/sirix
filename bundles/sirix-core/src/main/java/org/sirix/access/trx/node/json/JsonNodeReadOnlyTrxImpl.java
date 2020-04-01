@@ -70,24 +70,24 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     assertNotClosed();
 
     // Remember old node and fetch new one.
-    final ImmutableNode oldNode = mCurrentNode;
+    final ImmutableNode oldNode = currentNode;
     Optional<? extends Record> newNode;
     try {
       // Immediately return node from item list if node key negative.
       if (nodeKey < 0) {
         newNode = Optional.empty();
       } else {
-        newNode = mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        newNode = pageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
       }
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
     }
 
     if (newNode.isPresent()) {
-      mCurrentNode = (Node) newNode.get();
+      currentNode = (Node) newNode.get();
       return Move.moved(this);
     } else {
-      mCurrentNode = oldNode;
+      currentNode = oldNode;
       return Move.notMoved();
     }
   }
@@ -96,26 +96,26 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public String getValue() {
     assertNotClosed();
     final String returnVal;
-    switch (mCurrentNode.getKind()) {
+    switch (currentNode.getKind()) {
       case OBJECT_STRING_VALUE:
       case STRING_VALUE:
-        returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+        returnVal = new String(((ValueNode) currentNode).getRawValue(), Constants.DEFAULT_ENCODING);
         break;
       case OBJECT_BOOLEAN_VALUE:
-        returnVal = String.valueOf(((ObjectBooleanNode) mCurrentNode).getValue());
+        returnVal = String.valueOf(((ObjectBooleanNode) currentNode).getValue());
         break;
       case BOOLEAN_VALUE:
-        returnVal = String.valueOf(((BooleanNode) mCurrentNode).getValue());
+        returnVal = String.valueOf(((BooleanNode) currentNode).getValue());
         break;
       case OBJECT_NULL_VALUE:
       case NULL_VALUE:
         returnVal = "null";
         break;
       case OBJECT_NUMBER_VALUE:
-        returnVal = String.valueOf(((ObjectNumberNode) mCurrentNode).getValue());
+        returnVal = String.valueOf(((ObjectNumberNode) currentNode).getValue());
         break;
       case NUMBER_VALUE:
-        returnVal = String.valueOf(((NumberNode) mCurrentNode).getValue());
+        returnVal = String.valueOf(((NumberNode) currentNode).getValue());
         break;
       // $CASES-OMITTED$
       default:
@@ -128,20 +128,20 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean getBooleanValue() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE)
-      return ((BooleanNode) mCurrentNode).getValue();
-    else if (mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
-      return ((ObjectBooleanNode) mCurrentNode).getValue();
+    if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE)
+      return ((BooleanNode) currentNode).getValue();
+    else if (currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
+      return ((ObjectBooleanNode) currentNode).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
 
   @Override
   public Number getNumberValue() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.NUMBER_VALUE)
-      return ((NumberNode) mCurrentNode).getValue();
-    else if (mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
-      return ((ObjectNumberNode) mCurrentNode).getValue();
+    if (currentNode.getKind() == NodeKind.NUMBER_VALUE)
+      return ((NumberNode) currentNode).getValue();
+    else if (currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
+      return ((ObjectNumberNode) currentNode).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
 
@@ -162,31 +162,31 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public ImmutableNode getNode() {
     assertNotClosed();
 
-    switch (mCurrentNode.getKind()) {
+    switch (currentNode.getKind()) {
       case OBJECT:
-        return ImmutableObjectNode.of((ObjectNode) mCurrentNode);
+        return ImmutableObjectNode.of((ObjectNode) currentNode);
       case OBJECT_KEY:
-        return ImmutableObjectKeyNode.of((ObjectKeyNode) mCurrentNode);
+        return ImmutableObjectKeyNode.of((ObjectKeyNode) currentNode);
       case ARRAY:
-        return ImmutableArrayNode.of((ArrayNode) mCurrentNode);
+        return ImmutableArrayNode.of((ArrayNode) currentNode);
       case BOOLEAN_VALUE:
-        return ImmutableBooleanNode.of((BooleanNode) mCurrentNode);
+        return ImmutableBooleanNode.of((BooleanNode) currentNode);
       case NUMBER_VALUE:
-        return ImmutableNumberNode.of((NumberNode) mCurrentNode);
+        return ImmutableNumberNode.of((NumberNode) currentNode);
       case STRING_VALUE:
-        return ImmutableStringNode.of((StringNode) mCurrentNode);
+        return ImmutableStringNode.of((StringNode) currentNode);
       case NULL_VALUE:
-        return ImmutableNullNode.of((NullNode) mCurrentNode);
+        return ImmutableNullNode.of((NullNode) currentNode);
       case OBJECT_BOOLEAN_VALUE:
-        return ImmutableObjectBooleanNode.of((ObjectBooleanNode) mCurrentNode);
+        return ImmutableObjectBooleanNode.of((ObjectBooleanNode) currentNode);
       case OBJECT_NUMBER_VALUE:
-        return ImmutableObjectNumberNode.of((ObjectNumberNode) mCurrentNode);
+        return ImmutableObjectNumberNode.of((ObjectNumberNode) currentNode);
       case OBJECT_STRING_VALUE:
-        return ImmutableObjectStringNode.of((ObjectStringNode) mCurrentNode);
+        return ImmutableObjectStringNode.of((ObjectStringNode) currentNode);
       case OBJECT_NULL_VALUE:
-        return ImmutableObjectNullNode.of((ObjectNullNode) mCurrentNode);
+        return ImmutableObjectNullNode.of((ObjectNullNode) currentNode);
       case JSON_DOCUMENT:
-        return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) mCurrentNode);
+        return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) currentNode);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");
@@ -196,50 +196,50 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.ARRAY;
+    return currentNode.getKind() == NodeKind.ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.OBJECT;
+    return currentNode.getKind() == NodeKind.OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.OBJECT_KEY;
+    return currentNode.getKind() == NodeKind.OBJECT_KEY;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.NUMBER_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
+    return currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.NULL_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
+    return currentNode.getKind() == NodeKind.NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.STRING_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
+    return currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
+    return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
   @Override
   public void close() {
     if (!isClosed) {
       // Close own state.
-      mPageReadTrx.close();
+      pageReadTrx.close();
 
       // Callback on session to make sure everything is cleaned up.
       resourceManager.closeReadTransaction(trxId);
@@ -247,8 +247,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       setPageReadTransaction(null);
 
       // Immediately release all references.
-      mPageReadTrx = null;
-      mCurrentNode = null;
+      pageReadTrx = null;
+      currentNode = null;
 
       // Close state.
       isClosed = true;
@@ -263,7 +263,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.JSON_DOCUMENT;
+    return currentNode.getKind() == NodeKind.JSON_DOCUMENT;
   }
 
   @Override
@@ -275,9 +275,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public QNm getName() {
     assertNotClosed();
 
-    if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
-      final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
-      final String localName = nameKey == -1 ? "" : mPageReadTrx.getName(nameKey, mCurrentNode.getKind());
+    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
+      final int nameKey = ((ObjectKeyNode) currentNode).getNameKey();
+      final String localName = nameKey == -1 ? "" : pageReadTrx.getName(nameKey, currentNode.getKind());
       return new QNm(localName);
     }
 
@@ -287,25 +287,25 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableJsonNode) mCurrentNode).acceptVisitor(visitor);
+    return ((ImmutableJsonNode) currentNode).acceptVisitor(visitor);
   }
 
   @Override
   public ImmutableJsonNode getCurrentNode() {
-    return (ImmutableJsonNode) mCurrentNode;
+    return (ImmutableJsonNode) currentNode;
   }
 
   @Override
   public void setCurrentNode(ImmutableJsonNode node) {
     assertNotClosed();
-    mCurrentNode = node;
+    currentNode = node;
   }
 
   @Override
   public int getNameKey() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
-      return ((ObjectKeyNode) mCurrentNode).getNameKey();
+    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
+      return ((ObjectKeyNode) currentNode).getNameKey();
     }
     return -1;
   }
@@ -315,23 +315,23 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
-    if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
+    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
 
-    if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE || mCurrentNode.getKind() == NodeKind.STRING_VALUE
-        || mCurrentNode.getKind() == NodeKind.NUMBER_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || mCurrentNode.getKind() == NodeKind.OBJECT_NULL_VALUE
-        || mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || mCurrentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
+    if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
+        || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
+        || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE
+        || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
       helper.add("Value of Node", getValue());
     }
 
-    if (mCurrentNode.getKind() == NodeKind.JSON_DOCUMENT) {
+    if (currentNode.getKind() == NodeKind.JSON_DOCUMENT) {
       helper.addValue("Node is DocumentRoot");
     }
 
-    helper.add("node", mCurrentNode.toString());
+    helper.add("node", currentNode.toString());
 
     return helper.toString();
   }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,20 +21,6 @@
 
 package org.sirix.access.trx.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -51,24 +37,28 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.CASPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
- * <h1>PageWriteTrx</h1>
- *
  * <p>
  * Implements the {@link PageTrx} interface to provide write capabilities to the persistent storage
  * layer.
@@ -323,9 +313,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   public UberPage commit(final String commitMessage) {
     mPageRtx.assertNotClosed();
 
-    mPageRtx.mResourceManager.getCommitLock().lock();
+    mPageRtx.resourceManager.getCommitLock().lock();
 
-    final Path commitFile = mPageRtx.mResourceManager.getCommitFile();
+    final Path commitFile = mPageRtx.resourceManager.getCommitFile();
     commitFile.toFile().deleteOnExit();
     // Issues with windows that it's not created in the first time?
     while (!Files.exists(commitFile)) {
@@ -341,7 +331,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     uberPageReference.setPage(uberPage);
     final int revision = uberPage.getRevisionNumber();
 
-    mPageRtx.mResourceManager.getUser().ifPresent(user -> getActualRevisionRootPage().setUser(user));
+    mPageRtx.resourceManager.getUser().ifPresent(user -> getActualRevisionRootPage().setUser(user));
 
     if (commitMessage != null)
       getActualRevisionRootPage().setCommitMessage(commitMessage);
@@ -380,7 +370,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     }
 
     final UberPage commitedUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
-    mPageRtx.mResourceManager.getCommitLock().unlock();
+    mPageRtx.resourceManager.getCommitLock().unlock();
     return commitedUberPage;
   }
 
@@ -403,10 +393,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
 
       final UberPage lastUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
-      mPageRtx.mResourceManager.setLastCommittedUberPage(lastUberPage);
+      mPageRtx.resourceManager.setLastCommittedUberPage(lastUberPage);
 
       if (!mIsBoundToNodeTrx)
-        mPageRtx.mResourceManager.closePageWriteTransaction(mPageRtx.getTrxId());
+        mPageRtx.resourceManager.closePageWriteTransaction(mPageRtx.getTrxId());
 
       mLog.close();
       mPageRtx.close();
@@ -476,8 +466,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(reference);
-    final VersioningType revisioning = mPageRtx.mResourceManager.getResourceConfig().revisioningType;
-    final int mileStoneRevision = mPageRtx.mResourceManager.getResourceConfig().numberOfRevisionsToRestore;
+    final VersioningType revisioning = mPageRtx.resourceManager.getResourceConfig().revisioningType;
+    final int mileStoneRevision = mPageRtx.resourceManager.getResourceConfig().numberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(revs, mileStoneRevision, mPageRtx, reference);
   }
 

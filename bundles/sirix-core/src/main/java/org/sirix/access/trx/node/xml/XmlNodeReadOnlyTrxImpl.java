@@ -69,19 +69,19 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * revision.
  */
 public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeReadOnlyTrx>
-    implements InternalXmlNodeReadTrx {
+    implements InternalXmlNodeReadOnlyTrx {
 
   /** Resource manager this write transaction is bound to. */
-  protected final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> mResourceManager;
+  protected final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager;
 
   /** Tracks whether the transaction is closed. */
-  private boolean mClosed;
+  private boolean isClosed;
 
   /** Read-transaction-exclusive item list. */
-  private final ItemList<AtomicValue> mItemList;
+  private final ItemList<AtomicValue> itemList;
 
   /** The transaction-ID. */
-  private final long mTrxId;
+  private final long trxId;
 
   /**
    * Constructor.
@@ -94,17 +94,17 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
-    mResourceManager = checkNotNull(resourceManager);
+    this.resourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
-    mTrxId = trxId;
-    mClosed = false;
-    mItemList = new ItemListImpl();
+    this.trxId = trxId;
+    isClosed = false;
+    itemList = new ItemListImpl();
   }
 
   @Override
   public void setCurrentNode(final @Nullable ImmutableXmlNode currentNode) {
     assertNotClosed();
-    mCurrentNode = currentNode;
+    this.currentNode = currentNode;
   }
 
   @Override
@@ -112,13 +112,13 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     assertNotClosed();
 
     // Remember old node and fetch new one.
-    final ImmutableXmlNode oldNode = (ImmutableXmlNode) mCurrentNode;
+    final ImmutableXmlNode oldNode = (ImmutableXmlNode) currentNode;
     Optional<? extends Record> newNode;
     try {
       // Immediately return node from item list if node key negative.
       if (nodeKey < 0) {
-        if (mItemList.size() > 0) {
-          newNode = mItemList.getItem(nodeKey);
+        if (itemList.size() > 0) {
+          newNode = itemList.getItem(nodeKey);
         } else {
           newNode = Optional.empty();
         }
@@ -130,10 +130,10 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     }
 
     if (newNode.isPresent()) {
-      mCurrentNode = (ImmutableXmlNode) newNode.get();
+      currentNode = (ImmutableXmlNode) newNode.get();
       return Move.moved(this);
     } else {
-      mCurrentNode = oldNode;
+      currentNode = oldNode;
       return Move.notMoved();
     }
   }
@@ -142,21 +142,21 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public ImmutableXmlNode getNode() {
     assertNotClosed();
 
-    switch (mCurrentNode.getKind()) {
+    switch (currentNode.getKind()) {
       case ELEMENT:
-        return ImmutableElement.of((ElementNode) mCurrentNode);
+        return ImmutableElement.of((ElementNode) currentNode);
       case TEXT:
-        return ImmutableText.of((TextNode) mCurrentNode);
+        return ImmutableText.of((TextNode) currentNode);
       case COMMENT:
-        return ImmutableComment.of((CommentNode) mCurrentNode);
+        return ImmutableComment.of((CommentNode) currentNode);
       case PROCESSING_INSTRUCTION:
-        return ImmutablePI.of((PINode) mCurrentNode);
+        return ImmutablePI.of((PINode) currentNode);
       case ATTRIBUTE:
-        return ImmutableAttributeNode.of((AttributeNode) mCurrentNode);
+        return ImmutableAttributeNode.of((AttributeNode) currentNode);
       case NAMESPACE:
-        return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
+        return ImmutableNamespace.of((NamespaceNode) currentNode);
       case XML_DOCUMENT:
-        return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) mCurrentNode);
+        return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) currentNode);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");
@@ -166,20 +166,20 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public ImmutableNameNode getNameNode() {
     assertNotClosed();
-    return (ImmutableNameNode) mCurrentNode;
+    return (ImmutableNameNode) currentNode;
   }
 
   @Override
   public ImmutableValueNode getValueNode() {
     assertNotClosed();
-    return (ImmutableValueNode) mCurrentNode;
+    return (ImmutableValueNode) currentNode;
   }
 
   @Override
   public Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final int index) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      final ElementNode element = ((ElementNode) mCurrentNode);
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      final ElementNode element = ((ElementNode) currentNode);
       if (element.getAttributeCount() > index) {
         return moveTo(element.getAttributeKey(index));
       } else {
@@ -193,8 +193,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(final int index) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      final ElementNode element = ((ElementNode) mCurrentNode);
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      final ElementNode element = ((ElementNode) currentNode);
       if (element.getNamespaceCount() > index) {
         return moveTo(element.getNamespaceKey(index));
       } else {
@@ -208,16 +208,16 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public QNm getName() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      final String uri = mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
+    if (currentNode instanceof NameNode) {
+      final String uri = pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
+      final int prefixKey = ((NameNode) currentNode).getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
-          : mPageReadTrx.getName(prefixKey, mCurrentNode.getKind());
-      final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
+          : pageReadTrx.getName(prefixKey, currentNode.getKind());
+      final int localNameKey = ((NameNode) currentNode).getLocalNameKey();
       final String localName = localNameKey == -1
           ? ""
-          : mPageReadTrx.getName(localNameKey, mCurrentNode.getKind());
+          : pageReadTrx.getName(localNameKey, currentNode.getKind());
       return new QNm(uri, prefix, localName);
     }
 
@@ -227,19 +227,19 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public String getType() {
     assertNotClosed();
-    return mPageReadTrx.getName(((ImmutableXmlNode) mCurrentNode).getTypeKey(), mCurrentNode.getKind());
+    return pageReadTrx.getName(((ImmutableXmlNode) currentNode).getTypeKey(), currentNode.getKind());
   }
 
   @Override
   public byte[] rawNameForKey(final int key) {
     assertNotClosed();
-    return mPageReadTrx.getRawName(key, mCurrentNode.getKind());
+    return pageReadTrx.getRawName(key, currentNode.getKind());
   }
 
   @Override
   public ItemList<AtomicValue> getItemList() {
     assertNotClosed();
-    return mItemList;
+    return itemList;
   }
 
   @Override
@@ -247,18 +247,18 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
-    if (mCurrentNode.getKind() == NodeKind.ATTRIBUTE || mCurrentNode.getKind() == NodeKind.ELEMENT) {
+    if (currentNode.getKind() == NodeKind.ATTRIBUTE || currentNode.getKind() == NodeKind.ELEMENT) {
       helper.add("Name of Node", getName().toString());
     }
 
-    if (mCurrentNode.getKind() == NodeKind.ATTRIBUTE || mCurrentNode.getKind() == NodeKind.TEXT) {
+    if (currentNode.getKind() == NodeKind.ATTRIBUTE || currentNode.getKind() == NodeKind.TEXT) {
       helper.add("Value of Node", getValue());
     }
 
-    if (mCurrentNode.getKind() == NodeKind.XML_DOCUMENT) {
+    if (currentNode.getKind() == NodeKind.XML_DOCUMENT) {
       helper.addValue("Node is DocumentRoot");
     }
-    helper.add("node", mCurrentNode.toString());
+    helper.add("node", currentNode.toString());
 
     return helper.toString();
   }
@@ -266,8 +266,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      final ElementNode element = ((ElementNode) mCurrentNode);
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      final ElementNode element = ((ElementNode) currentNode);
       final Optional<Long> attrKey = element.getAttributeKeyByName(name);
       if (attrKey.isPresent()) {
         return moveTo(attrKey.get());
@@ -280,15 +280,15 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof XmlNodeReadOnlyTrxImpl) {
       final XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) obj;
-      return mCurrentNode.getNodeKey() == rtx.mCurrentNode.getNodeKey()
-          && mPageReadTrx.getRevisionNumber() == rtx.mPageReadTrx.getRevisionNumber();
+      return currentNode.getNodeKey() == rtx.currentNode.getNodeKey()
+          && pageReadTrx.getRevisionNumber() == rtx.pageReadTrx.getRevisionNumber();
     }
     return false;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mCurrentNode.getNodeKey(), mPageReadTrx.getRevisionNumber());
+    return Objects.hashCode(currentNode.getNodeKey(), pageReadTrx.getRevisionNumber());
   }
 
   @Override
@@ -299,8 +299,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public int getAttributeCount() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      final ElementNode node = (ElementNode) mCurrentNode;
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      final ElementNode node = (ElementNode) currentNode;
       return node.getAttributeCount();
     }
     return 0;
@@ -309,8 +309,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public int getNamespaceCount() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      final ElementNode node = (ElementNode) mCurrentNode;
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      final ElementNode node = (ElementNode) currentNode;
       return node.getNamespaceCount();
     }
     return 0;
@@ -319,14 +319,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public boolean isNameNode() {
     assertNotClosed();
-    return mCurrentNode instanceof NameNode;
+    return currentNode instanceof NameNode;
   }
 
   @Override
   public int getPrefixKey() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getPrefixKey();
+    if (currentNode instanceof NameNode) {
+      return ((NameNode) currentNode).getPrefixKey();
     }
     return -1;
   }
@@ -334,8 +334,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public int getLocalNameKey() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getLocalNameKey();
+    if (currentNode instanceof NameNode) {
+      return ((NameNode) currentNode).getLocalNameKey();
     }
     return -1;
   }
@@ -343,20 +343,20 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public int getTypeKey() {
     assertNotClosed();
-    return ((ImmutableXmlNode) mCurrentNode).getTypeKey();
+    return ((ImmutableXmlNode) currentNode).getTypeKey();
   }
 
   @Override
   public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableXmlNode) mCurrentNode).acceptVisitor(visitor);
+    return ((ImmutableXmlNode) currentNode).acceptVisitor(visitor);
   }
 
   @Override
   public long getAttributeKey(final @Nonnegative int index) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      return ((ElementNode) mCurrentNode).getAttributeKey(index);
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      return ((ElementNode) currentNode).getAttributeKey(index);
     }
     return -1;
   }
@@ -364,14 +364,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public boolean isStructuralNode() {
     assertNotClosed();
-    return mCurrentNode instanceof StructNode;
+    return currentNode instanceof StructNode;
   }
 
   @Override
   public int getURIKey() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getURIKey();
+    if (currentNode instanceof NameNode) {
+      return ((NameNode) currentNode).getURIKey();
     }
     return -1;
   }
@@ -379,8 +379,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public List<Long> getAttributeKeys() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      return ((ElementNode) mCurrentNode).getAttributeKeys();
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      return ((ElementNode) currentNode).getAttributeKeys();
     }
     return Collections.emptyList();
   }
@@ -388,8 +388,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public List<Long> getNamespaceKeys() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
-      return ((ElementNode) mCurrentNode).getNamespaceKeys();
+    if (currentNode.getKind() == NodeKind.ELEMENT) {
+      return ((ElementNode) currentNode).getNamespaceKeys();
     }
     return Collections.emptyList();
   }
@@ -397,8 +397,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public String getNamespaceURI() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
+    if (currentNode instanceof NameNode) {
+      return pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
     }
     return null;
   }
@@ -406,67 +406,67 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public boolean isElement() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.ELEMENT;
+    return currentNode.getKind() == NodeKind.ELEMENT;
   }
 
   @Override
   public boolean isText() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.TEXT;
+    return currentNode.getKind() == NodeKind.TEXT;
   }
 
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.XML_DOCUMENT;
+    return currentNode.getKind() == NodeKind.XML_DOCUMENT;
   }
 
   @Override
   public boolean isComment() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.COMMENT;
+    return currentNode.getKind() == NodeKind.COMMENT;
   }
 
   @Override
   public boolean isAttribute() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.ATTRIBUTE;
+    return currentNode.getKind() == NodeKind.ATTRIBUTE;
   }
 
   @Override
   public boolean isNamespace() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.NAMESPACE;
+    return currentNode.getKind() == NodeKind.NAMESPACE;
   }
 
   @Override
   public boolean isPI() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.PROCESSING_INSTRUCTION;
+    return currentNode.getKind() == NodeKind.PROCESSING_INSTRUCTION;
   }
 
   @Override
   public boolean hasAttributes() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.ELEMENT && ((ElementNode) mCurrentNode).getAttributeCount() > 0;
+    return currentNode.getKind() == NodeKind.ELEMENT && ((ElementNode) currentNode).getAttributeCount() > 0;
   }
 
   @Override
   public boolean hasNamespaces() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.ELEMENT && ((ElementNode) mCurrentNode).getNamespaceCount() > 0;
+    return currentNode.getKind() == NodeKind.ELEMENT && ((ElementNode) currentNode).getNamespaceCount() > 0;
   }
 
   @Override
   public Optional<SirixDeweyID> getDeweyID() {
     assertNotClosed();
-    return ((ImmutableXmlNode) mCurrentNode).getDeweyID();
+    return ((ImmutableXmlNode) currentNode).getDeweyID();
   }
 
   @Override
   public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
     assertNotClosed();
-    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.empty();
@@ -482,7 +482,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public Optional<SirixDeweyID> getRightSiblingDeweyID() {
-    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.empty();
@@ -498,12 +498,12 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public Optional<SirixDeweyID> getParentDeweyID() {
-    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
-      final long nodeKey = mCurrentNode.getNodeKey();
+    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+      final long nodeKey = currentNode.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.empty();
-      if (mCurrentNode.hasParent()) {
+      if (currentNode.hasParent()) {
         // Parent node.
-        deweyID = moveTo(mCurrentNode.getParentKey()).trx().getDeweyID();
+        deweyID = moveTo(currentNode.getParentKey()).trx().getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -513,7 +513,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public Optional<SirixDeweyID> getFirstChildDeweyID() {
-    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.empty();
@@ -529,20 +529,20 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public void close() {
-    if (!mClosed) {
+    if (!isClosed) {
       // Close own state.
-      mPageReadTrx.close();
+      pageReadTrx.close();
       setPageReadTransaction(null);
 
       // Callback on session to make sure everything is cleaned up.
-      mResourceManager.closeReadTransaction(mTrxId);
+      resourceManager.closeReadTransaction(trxId);
 
       // Immediately release all references.
-      mPageReadTrx = null;
-      mCurrentNode = null;
+      pageReadTrx = null;
+      currentNode = null;
 
       // Close state.
-      mClosed = true;
+      isClosed = true;
     }
   }
 
@@ -552,10 +552,10 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
     final String returnVal;
 
-    if (mCurrentNode instanceof ValueNode) {
-      returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
-    } else if (mCurrentNode.getKind() == NodeKind.NAMESPACE) {
-      returnVal = mPageReadTrx.getName(((NamespaceNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
+    if (currentNode instanceof ValueNode) {
+      returnVal = new String(((ValueNode) currentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+    } else if (currentNode.getKind() == NodeKind.NAMESPACE) {
+      returnVal = pageReadTrx.getName(((NamespaceNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
     } else {
       returnVal = "";
     }
@@ -565,14 +565,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public boolean isClosed() {
-    return mClosed;
+    return isClosed;
   }
 
   @Override
   public int getNameCount(String name, @Nonnull NodeKind kind) {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
+    if (currentNode instanceof NameNode) {
+      return pageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
     }
     return 0;
   }
@@ -580,20 +580,20 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public boolean isValueNode() {
     assertNotClosed();
-    return mCurrentNode instanceof ValueNode;
+    return currentNode instanceof ValueNode;
   }
 
   @Override
   public BigInteger getHash() {
     assertNotClosed();
-    return mCurrentNode.getHash();
+    return currentNode.getHash();
   }
 
   @Override
   public byte[] getRawValue() {
     assertNotClosed();
-    if (mCurrentNode instanceof ValueNode) {
-      return ((ValueNode) mCurrentNode).getRawValue();
+    if (currentNode instanceof ValueNode) {
+      return ((ValueNode) currentNode).getRawValue();
     }
     return null;
   }
@@ -601,18 +601,18 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public XmlResourceManager getResourceManager() {
     assertNotClosed();
-    return (XmlResourceManager) mResourceManager;
+    return (XmlResourceManager) resourceManager;
   }
 
   @Override
   public void assertNotClosed() {
-    if (mClosed) {
+    if (isClosed) {
       throw new IllegalStateException("Transaction is already closed.");
     }
   }
 
   @Override
   public ImmutableXmlNode getCurrentNode() {
-    return (ImmutableXmlNode) mCurrentNode;
+    return (ImmutableXmlNode) currentNode;
   }
 }

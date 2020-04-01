@@ -56,10 +56,10 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
     implements XmlResourceManager, InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /** {@link XmlIndexController}s used for this session. */
-  private final ConcurrentMap<Integer, XmlIndexController> mRtxIndexControllers;
+  private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
 
   /** {@link XmlIndexController}s used for this session. */
-  private final ConcurrentMap<Integer, XmlIndexController> mWtxIndexControllers;
+  private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
 
   /**
    * Package private constructor.
@@ -79,8 +79,8 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
       final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
 
-    mRtxIndexControllers = new ConcurrentHashMap<>();
-    mWtxIndexControllers = new ConcurrentHashMap<>();
+    rtxIndexControllers = new ConcurrentHashMap<>();
+    wtxIndexControllers = new ConcurrentHashMap<>();
   }
 
   @Override
@@ -92,7 +92,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode) {
     // The node read-only transaction.
-    final InternalXmlNodeReadTrx nodeReadTrx =
+    final InternalXmlNodeReadOnlyTrx nodeReadTrx =
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);
 
     // Node factory.
@@ -113,12 +113,12 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
 
   @Override
   public synchronized XmlIndexController getRtxIndexController(final int revision) {
-    return mRtxIndexControllers.computeIfAbsent(revision, (unused) -> new XmlIndexController());
+    return rtxIndexControllers.computeIfAbsent(revision, (unused) -> new XmlIndexController());
   }
 
   @Override
   public synchronized XmlIndexController getWtxIndexController(final int revision) {
-    return mWtxIndexControllers.computeIfAbsent(revision, unused -> {
+    return wtxIndexControllers.computeIfAbsent(revision, unused -> {
       final var controller = new XmlIndexController();
       inititializeIndexController(revision, controller);
       return controller;

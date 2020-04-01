@@ -1,13 +1,5 @@
 package org.sirix.access.trx.node;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.sirix.access.User;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.api.Move;
@@ -22,6 +14,16 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * A skeletal implementation of a read-only node transaction.
  * @param <T> the type of node cursor
@@ -29,13 +31,13 @@ import org.sirix.utils.NamePageHash;
 public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
-  private final long mId;
+  private final long id;
 
   /** State of transaction including all cached stuff. */
-  protected PageReadOnlyTrx mPageReadTrx;
+  protected PageReadOnlyTrx pageReadTrx;
 
   /** The current node. */
-  protected ImmutableNode mCurrentNode;
+  protected ImmutableNode currentNode;
 
   /**
    * Constructor.
@@ -46,14 +48,14 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
       final @Nonnull ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
-    mId = trxId;
-    mPageReadTrx = checkNotNull(pageReadTransaction);
-    mCurrentNode = checkNotNull(documentNode);
+    id = trxId;
+    pageReadTrx = checkNotNull(pageReadTransaction);
+    currentNode = checkNotNull(documentNode);
   }
 
   @Override
   public Optional<User> getUser() {
-    return mPageReadTrx.getActualRevisionRootPage().getUser();
+    return pageReadTrx.getActualRevisionRootPage().getUser();
   }
 
   @SuppressWarnings("unchecked")
@@ -77,10 +79,10 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public NodeKind getLeftSiblingKind() {
     assertNotClosed();
-    if (mCurrentNode instanceof StructNode && hasLeftSibling()) {
-      final long nodeKey = mCurrentNode.getNodeKey();
+    if (currentNode instanceof StructNode && hasLeftSibling()) {
+      final long nodeKey = currentNode.getNodeKey();
       moveToLeftSibling();
-      final NodeKind leftSiblKind = mCurrentNode.getKind();
+      final NodeKind leftSiblKind = currentNode.getKind();
       moveTo(nodeKey);
       return leftSiblKind;
     }
@@ -118,13 +120,13 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    return mPageReadTrx.getName(key, mCurrentNode.getKind());
+    return pageReadTrx.getName(key, currentNode.getKind());
   }
 
   @Override
   public long getPathNodeKey() {
     assertNotClosed();
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
     }
@@ -137,19 +139,19 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public long getId() {
     assertNotClosed();
-    return mId;
+    return id;
   }
 
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return mPageReadTrx.getActualRevisionRootPage().getRevision();
+    return pageReadTrx.getActualRevisionRootPage().getRevision();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
+    return Instant.ofEpochMilli(pageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override
@@ -161,7 +163,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public Move<T> moveToParent() {
     assertNotClosed();
-    return moveTo(mCurrentNode.getParentKey());
+    return moveTo(currentNode.getParentKey());
   }
 
   @Override
@@ -190,19 +192,19 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public long getNodeKey() {
     assertNotClosed();
-    return mCurrentNode.getNodeKey();
+    return currentNode.getNodeKey();
   }
 
   @Override
   public BigInteger getHash() {
     assertNotClosed();
-    return mCurrentNode.getHash();
+    return currentNode.getHash();
   }
 
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    return mCurrentNode.getKind();
+    return currentNode.getKind();
   }
 
   /**
@@ -217,7 +219,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    */
   public PageReadOnlyTrx getPageTransaction() {
     assertNotClosed();
-    return mPageReadTrx;
+    return pageReadTrx;
   }
 
   /**
@@ -227,13 +229,13 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    */
   public final void setPageReadTransaction(@Nullable final PageReadOnlyTrx pageReadTransaction) {
     assertNotClosed();
-    mPageReadTrx = pageReadTransaction;
+    pageReadTrx = pageReadTransaction;
   }
 
   @Override
   public final long getMaxNodeKey() {
     assertNotClosed();
-    return mPageReadTrx.getActualRevisionRootPage().getMaxNodeKey();
+    return pageReadTrx.getActualRevisionRootPage().getMaxNodeKey();
   }
 
   /**
@@ -242,7 +244,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node instanceof StructNode) {
       return (StructNode) node;
     } else {
@@ -253,7 +255,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public Move<T> moveToNextFollowing() {
     assertNotClosed();
-    while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
+    while (!getStructuralNode().hasRightSibling() && currentNode.hasParent()) {
       moveToParent();
     }
     return moveToRightSibling();
@@ -262,7 +264,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public boolean hasNode(final @Nonnegative long key) {
     assertNotClosed();
-    final long nodeKey = mCurrentNode.getNodeKey();
+    final long nodeKey = currentNode.getNodeKey();
     final boolean retVal = !moveTo(key).equals(Move.notMoved());
     moveTo(nodeKey);
     return retVal;
@@ -271,7 +273,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public boolean hasParent() {
     assertNotClosed();
-    return mCurrentNode.hasParent();
+    return currentNode.hasParent();
   }
 
   @Override
@@ -301,19 +303,19 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public long getParentKey() {
     assertNotClosed();
-    return mCurrentNode.getParentKey();
+    return currentNode.getParentKey();
   }
 
   @Override
   public NodeKind getParentKind() {
     assertNotClosed();
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
     final long nodeKey = node.getNodeKey();
     moveToParent();
-    final NodeKind parentKind = mCurrentNode.getKind();
+    final NodeKind parentKind = currentNode.getKind();
     moveTo(nodeKey);
     return parentKind;
   }
@@ -350,7 +352,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    final long nodeKey = mCurrentNode.getNodeKey();
+    final long nodeKey = currentNode.getNodeKey();
     final boolean retVal = moveToLastChild() != null;
     moveTo(nodeKey);
     return retVal;
@@ -359,11 +361,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public NodeKind getLastChildKind() {
     assertNotClosed();
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node instanceof StructNode && hasLastChild()) {
       final long nodeKey = node.getNodeKey();
       moveToLastChild();
-      final NodeKind lastChildKind = mCurrentNode.getKind();
+      final NodeKind lastChildKind = currentNode.getKind();
       moveTo(nodeKey);
       return lastChildKind;
     }
@@ -373,11 +375,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public NodeKind getFirstChildKind() {
     assertNotClosed();
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node instanceof StructNode && hasFirstChild()) {
       final long nodeKey = node.getNodeKey();
       moveToFirstChild();
-      final NodeKind firstChildKind = mCurrentNode.getKind();
+      final NodeKind firstChildKind = currentNode.getKind();
       moveTo(nodeKey);
       return firstChildKind;
     }
@@ -387,11 +389,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public long getLastChildKey() {
     assertNotClosed();
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node instanceof StructNode && hasLastChild()) {
       final long nodeKey = node.getNodeKey();
       moveToLastChild();
-      final long lastChildNodeKey = mCurrentNode.getNodeKey();
+      final long lastChildNodeKey = currentNode.getNodeKey();
       moveTo(nodeKey);
       return lastChildNodeKey;
     }
@@ -425,11 +427,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public NodeKind getRightSiblingKind() {
     assertNotClosed();
-    final ImmutableNode node = mCurrentNode;
+    final ImmutableNode node = currentNode;
     if (node instanceof StructNode && hasRightSibling()) {
       final long nodeKey = node.getNodeKey();
       moveToRightSibling();
-      final NodeKind rightSiblKind = mCurrentNode.getKind();
+      final NodeKind rightSiblKind = currentNode.getKind();
       moveTo(nodeKey);
       return rightSiblKind;
     }
@@ -438,12 +440,12 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
 
   @Override
   public PageReadOnlyTrx getPageTrx() {
-    return mPageReadTrx;
+    return pageReadTrx;
   }
 
   @Override
   public CommitCredentials getCommitCredentials() {
-    return mPageReadTrx.getCommitCredentials();
+    return pageReadTrx.getCommitCredentials();
   }
 
 }
