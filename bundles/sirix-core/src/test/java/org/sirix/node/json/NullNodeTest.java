@@ -31,7 +31,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
@@ -50,7 +50,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class NullNodeTest {
 
-  private PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
 
   @Before
   public void setUp() throws SirixException {

@@ -16,7 +16,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -71,7 +71,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
     // Remember old node and fetch new one.
     final ImmutableNode oldNode = currentNode;
-    Optional<? extends Record> newNode;
+    Optional<? extends DataRecord> newNode;
     try {
       // Immediately return node from item list if node key negative.
       if (nodeKey < 0) {

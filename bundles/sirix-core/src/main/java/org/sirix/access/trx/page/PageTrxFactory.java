@@ -42,7 +42,7 @@ import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
@@ -72,7 +72,7 @@ public final class PageTrxFactory {
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
-  public PageTrx<Long, Record, UnorderedKeyValuePage> createPageTrx(
+  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTrx(
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @Nonnegative long trxId,
       final @Nonnegative int representRevision, final @Nonnegative int lastStoredRevision,

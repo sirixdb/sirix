@@ -31,7 +31,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnegative;
@@ -127,7 +127,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx();
+  PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx();
 
   /**
    * Begin a new {@link PageTrx}.
@@ -137,7 +137,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixException if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(@Nonnegative int revision);
+  PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.

@@ -38,7 +38,7 @@ import org.sirix.cache.BufferManager;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -90,7 +90,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadTrx =

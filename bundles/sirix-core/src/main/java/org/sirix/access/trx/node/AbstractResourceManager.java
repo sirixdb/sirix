@@ -18,7 +18,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.io.Storage;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -82,7 +82,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Remember the write seperately because of the concurrent writes.
    */
-  final ConcurrentMap<Long, PageTrx<Long, Record, UnorderedKeyValuePage>> nodePageTrxMap;
+  final ConcurrentMap<Long, PageTrx<Long, DataRecord, UnorderedKeyValuePage>> nodePageTrxMap;
 
   /**
    * Lock for blocking the commit.
@@ -192,7 +192,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link PageTrx} instance
    */
   @Override
-  public PageTrx<Long, Record, UnorderedKeyValuePage> createPageTransaction(final @Nonnegative long id,
+  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTransaction(final @Nonnegative long id,
       final @Nonnegative int representRevision, final @Nonnegative int storedRevision, final Abort abort,
       boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
@@ -299,7 +299,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, Record, UnorderedKeyValuePage> pageReadTrx,
+  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageReadTrx,
       int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
@@ -366,7 +366,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
+    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx =
         createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
@@ -465,7 +465,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void setNodePageWriteTransaction(final @Nonnegative long transactionID,
-      @Nonnull final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+      @Nonnull final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
     assertNotClosed();
     nodePageTrxMap.put(transactionID, pageWriteTrx);
   }
@@ -625,12 +625,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx() {
+  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx() {
     return beginPageTrx(lastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
-  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision) {
+  public synchronized PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -644,7 +644,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
+    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx =
         createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.

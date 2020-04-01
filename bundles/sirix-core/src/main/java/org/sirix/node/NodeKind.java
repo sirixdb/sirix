@@ -40,7 +40,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.NodePersistenter;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.JsonDocumentRootNode;
@@ -97,7 +97,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is element. */
   ELEMENT((byte) 1, ElementNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -139,7 +139,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ElementNode node = (ElementNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -164,7 +164,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is attribute. */
   ATTRIBUTE((byte) 2, AttributeNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -193,7 +193,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final AttributeNode node = (AttributeNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -207,7 +207,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is namespace. */
   NAMESPACE((byte) 13, NamespaceNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -229,7 +229,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final NamespaceNode node = (NamespaceNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -242,7 +242,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is text. */
   TEXT((byte) 3, TextNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -266,7 +266,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final TextNode node = (TextNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -283,7 +283,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is processing instruction. */
   PROCESSING_INSTRUCTION((byte) 7, PINode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -308,7 +308,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final PINode node = (PINode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -324,7 +324,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is comment. */
   COMMENT((byte) 8, CommentNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -348,7 +348,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final CommentNode node = (CommentNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -366,7 +366,7 @@ public enum NodeKind implements NodePersistenter {
   // Virtualize document root node?
   XML_DOCUMENT((byte) 9, XmlDocumentRootNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
 
@@ -382,7 +382,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final XmlDocumentRootNode node = (XmlDocumentRootNode) record;
       // writeHash(sink, node.getHash());
@@ -407,13 +407,13 @@ public enum NodeKind implements NodePersistenter {
   /** Whitespace text. */
   WHITESPACE((byte) 4, null) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -432,7 +432,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is deleted node. */
   DELETE((byte) 5, DeletedNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) {
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
       final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, null, 0, null);
@@ -440,7 +440,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     }
 
     @Override
@@ -458,13 +458,13 @@ public enum NodeKind implements NodePersistenter {
   /** NullNode to support the Null Object pattern. */
   NULL((byte) 6, NullNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final DataOutput ink, final Record record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final DataOutput ink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -483,13 +483,13 @@ public enum NodeKind implements NodePersistenter {
   /** Dumb node for testing. */
   DUMB((byte) 20, DumbNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) {
       return new DumbNode(recordID);
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -509,13 +509,13 @@ public enum NodeKind implements NodePersistenter {
   /** AtomicKind. */
   ATOMIC((byte) 15, AtomicValue.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -535,7 +535,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is path node. */
   PATH((byte) 16, PathNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
@@ -559,7 +559,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final PathNode node = (PathNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
@@ -587,7 +587,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is a CAS-AVL node. */
   CASAVL((byte) 17, AVLNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final int valueSize = source.readInt();
       final byte[] value = new byte[valueSize];
@@ -626,7 +626,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       @SuppressWarnings("unchecked")
       final AVLNode<CASValue, NodeReferences> node = (AVLNode<CASValue, NodeReferences>) record;
@@ -687,7 +687,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is a PATH-AVL node. */
   PATHAVL((byte) 18, AVLNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final long key = getVarLong(source);
       final int keySize = source.readInt();
@@ -708,7 +708,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       @SuppressWarnings("unchecked")
       final AVLNode<Long, NodeReferences> node = (AVLNode<Long, NodeReferences>) record;
@@ -741,7 +741,7 @@ public enum NodeKind implements NodePersistenter {
   /** Node kind is a PATH-AVL node. */
   NAMEAVL((byte) 19, AVLNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final byte[] nspBytes = new byte[source.readInt()];
       source.readFully(nspBytes);
@@ -770,7 +770,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       @SuppressWarnings("unchecked")
       final AVLNode<QNm, NodeReferences> node = (AVLNode<QNm, NodeReferences>) record;
@@ -811,13 +811,13 @@ public enum NodeKind implements NodePersistenter {
   /** Node includes a deweyID <=> nodeKey mapping. */
   DEWEYIDMAPPING((byte) 23, DeweyIDMappingNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -837,7 +837,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON object node. */
   OBJECT((byte) 24, ObjectNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -853,7 +853,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ObjectNode node = (ObjectNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -879,7 +879,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON array node. */
   ARRAY((byte) 25, ArrayNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -897,7 +897,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ArrayNode node = (ArrayNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -924,7 +924,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON array node. */
   OBJECT_KEY((byte) 26, ObjectKeyNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -947,7 +947,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ObjectKeyNode node = (ObjectKeyNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -975,7 +975,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON string value node. */
   OBJECT_STRING_VALUE((byte) 40, ObjectStringNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -999,7 +999,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ObjectStringNode node = (ObjectStringNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1024,7 +1024,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON boolean value node. */
   OBJECT_BOOLEAN_VALUE((byte) 41, ObjectBooleanNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -1043,7 +1043,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ObjectBooleanNode node = (ObjectBooleanNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1068,7 +1068,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON number value node. */
   OBJECT_NUMBER_VALUE((byte) 42, ObjectNumberNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
       final byte valueType = source.readByte();
@@ -1119,7 +1119,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ObjectNumberNode node = (ObjectNumberNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1176,7 +1176,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON null node. */
   OBJECT_NULL_VALUE((byte) 43, ObjectNullNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -1194,7 +1194,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final ObjectNullNode node = (ObjectNullNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1218,7 +1218,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON string value node. */
   STRING_VALUE((byte) 30, StringNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -1240,7 +1240,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final StringNode node = (StringNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1267,7 +1267,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON boolean value node. */
   BOOLEAN_VALUE((byte) 27, BooleanNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -1284,7 +1284,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final BooleanNode node = (BooleanNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1311,7 +1311,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON number value node. */
   NUMBER_VALUE((byte) 28, NumberNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
       final byte valueType = source.readByte();
@@ -1360,7 +1360,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final NumberNode node = (NumberNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1419,7 +1419,7 @@ public enum NodeKind implements NodePersistenter {
   /** JSON null node. */
   NULL_VALUE((byte) 29, NullNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
@@ -1435,7 +1435,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final NullNode node = (NullNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -1461,7 +1461,7 @@ public enum NodeKind implements NodePersistenter {
   // Virtualize document root node?
   JSON_DOCUMENT((byte) 31, JsonDocumentRootNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
 
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
@@ -1478,7 +1478,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
 
@@ -1502,13 +1502,13 @@ public enum NodeKind implements NodePersistenter {
 
   HASH_ENTRY((byte) 32, HashEntryNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       return new HashEntryNode(recordID, source.readInt(), source.readUTF());
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final HashEntryNode node = (HashEntryNode) record;
       sink.writeInt(node.getKey());
@@ -1529,13 +1529,13 @@ public enum NodeKind implements NodePersistenter {
 
   HASH_NAME_COUNT_TO_NAME_ENTRY((byte) 33, HashCountEntryNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       return new HashCountEntryNode(recordID, source.readInt());
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final HashCountEntryNode node = (HashCountEntryNode) record;
       sink.writeInt(node.getValue());
@@ -1556,13 +1556,13 @@ public enum NodeKind implements NodePersistenter {
   /** Node type not known. */
   UNKNOWN((byte) 22, null) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1584,13 +1584,13 @@ public enum NodeKind implements NodePersistenter {
   private final byte mId;
 
   /** Class. */
-  private final Class<? extends Record> mClass;
+  private final Class<? extends DataRecord> mClass;
 
   /** Mapping of keys -> nodes. */
   private static final Map<Byte, NodeKind> INSTANCEFORID = new HashMap<>();
 
   /** Mapping of class -> nodes. */
-  private static final Map<Class<? extends Record>, NodeKind> INSTANCEFORCLASS = new HashMap<>();
+  private static final Map<Class<? extends DataRecord>, NodeKind> INSTANCEFORCLASS = new HashMap<>();
 
   static {
     for (final NodeKind node : values()) {
@@ -1605,7 +1605,7 @@ public enum NodeKind implements NodePersistenter {
    * @param id unique identifier
    * @param clazz class
    */
-  NodeKind(final byte id, final Class<? extends Record> clazz) {
+  NodeKind(final byte id, final Class<? extends DataRecord> clazz) {
     mId = id;
     mClass = clazz;
   }
@@ -1624,7 +1624,7 @@ public enum NodeKind implements NodePersistenter {
    *
    * @return class of node
    */
-  public Class<? extends Record> getNodeClass() {
+  public Class<? extends DataRecord> getNodeClass() {
     return mClass;
   }
 
@@ -1644,7 +1644,7 @@ public enum NodeKind implements NodePersistenter {
    * @param clazz the class for the node
    * @return the related node
    */
-  public static NodeKind getKind(final Class<? extends Record> clazz) {
+  public static NodeKind getKind(final Class<? extends DataRecord> clazz) {
     return INSTANCEFORCLASS.get(clazz);
   }
 
@@ -1861,7 +1861,7 @@ public enum NodeKind implements NodePersistenter {
    * @author Johannes Lichtenberger
    *
    */
-  public static class DumbNode implements Record {
+  public static class DumbNode implements DataRecord {
 
     /** Node key. */
     private final long mNodeKey;

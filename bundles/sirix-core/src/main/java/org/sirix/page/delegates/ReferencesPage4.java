@@ -23,7 +23,7 @@ package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.DeserializedReferencesPage4Tuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
@@ -136,7 +136,7 @@ public final class ReferencesPage4 implements Page {
    * @param pageWriteTrx the page write transaction
    */
   @Override
-  public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+  public final <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {

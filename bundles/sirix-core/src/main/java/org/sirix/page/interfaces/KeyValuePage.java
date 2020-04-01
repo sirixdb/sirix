@@ -6,7 +6,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 
@@ -16,7 +16,7 @@ import org.sirix.page.PageReference;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<K extends Comparable<? super K>, V extends Record> extends Page {
+public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRecord> extends Page {
   /**
    * Entry set of all nodes in the page. Changes to the set are reflected in the internal data
    * structure

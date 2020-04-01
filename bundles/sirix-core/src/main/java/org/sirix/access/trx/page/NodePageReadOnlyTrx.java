@@ -35,7 +35,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -209,7 +209,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public Optional<Record> getRecord(final long nodeKey, final PageKind pageKind, final @Nonnegative int index) {
+  public Optional<DataRecord> getRecord(final long nodeKey, final PageKind pageKind, final @Nonnegative int index) {
     checkNotNull(pageKind);
     assertNotClosed();
 
@@ -238,12 +238,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   /**
-   * Method to check if an {@link Record} is deleted.
+   * Method to check if an {@link DataRecord} is deleted.
    *
    * @param toCheck node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  final Optional<Record> checkItemIfDeleted(final @Nullable Record toCheck) {
+  final Optional<DataRecord> checkItemIfDeleted(final @Nullable DataRecord toCheck) {
     if (toCheck instanceof DeletedNode) {
       return Optional.empty();
     } else {
@@ -355,7 +355,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
+  public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
       final IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
@@ -443,7 +443,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  final <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> List<T> getSnapshotPages(
+  final <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getSnapshotPages(
       final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();

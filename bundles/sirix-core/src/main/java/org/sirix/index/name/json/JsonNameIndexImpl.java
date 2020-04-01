@@ -4,7 +4,7 @@ import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.name.NameIndexBuilderFactory;
 import org.sirix.index.name.NameIndexListenerFactory;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public final class JsonNameIndexImpl implements JsonNameIndex {
@@ -19,14 +19,14 @@ public final class JsonNameIndexImpl implements JsonNameIndex {
   }
 
   @Override
-  public JsonNameIndexBuilder createBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonNameIndexBuilder createBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexBuilderDelegate = mNameIndexBuilderFactory.create(pageWriteTrx, indexDef);
     return new JsonNameIndexBuilder(nameIndexBuilderDelegate);
   }
 
   @Override
-  public JsonNameIndexListener createListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonNameIndexListener createListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexListenerDelegate = mNameIndexListenerFactory.create(pageWriteTrx, indexDef);
     return new JsonNameIndexListener(nameIndexListenerDelegate);

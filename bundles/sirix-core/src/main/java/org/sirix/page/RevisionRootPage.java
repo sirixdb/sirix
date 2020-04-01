@@ -27,7 +27,7 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -225,7 +225,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * {@inheritDoc}
    */
   @Override
-  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
     if (revision == pageWriteTrx.getUberPage().getRevision()) {
       super.commit(pageWriteTrx);

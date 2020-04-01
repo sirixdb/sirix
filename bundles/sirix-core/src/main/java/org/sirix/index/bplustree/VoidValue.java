@@ -1,6 +1,6 @@
 package org.sirix.index.bplustree;
 
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.RecordPersister;
 
 /**
@@ -9,7 +9,7 @@ import org.sirix.node.interfaces.RecordPersister;
  * @author Johannes Lichtenberger
  * 
  */
-public class VoidValue implements Record {
+public class VoidValue implements DataRecord {
   @Override
   public long getNodeKey() {
     return 0;

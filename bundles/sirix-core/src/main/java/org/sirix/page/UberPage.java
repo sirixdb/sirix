@@ -25,7 +25,7 @@ import com.google.common.base.MoreObjects;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -278,7 +278,7 @@ public final class UberPage extends AbstractForwardingPage {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       final PageTrx<K, V, S> pageWriteTrx) {
     delegate.commit(pageWriteTrx);
   }

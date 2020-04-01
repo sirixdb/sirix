@@ -6,7 +6,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.cas.CASIndexBuilderFactory;
 import org.sirix.index.cas.CASIndexListenerFactory;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public final class JsonCASIndexImpl implements JsonCASIndex {
@@ -22,14 +22,14 @@ public final class JsonCASIndexImpl implements JsonCASIndex {
 
   @Override
   public JsonCASIndexBuilder createBuilder(JsonNodeReadOnlyTrx rtx,
-      PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+      PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef) {
     final var indexBuilderDelegate = mCASIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new JsonCASIndexBuilder(indexBuilderDelegate, rtx);
   }
 
   @Override
-  public JsonCASIndexListener createListener(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonCASIndexListener createListener(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
     final var indexListenerDelegate = mCASIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new JsonCASIndexListener(indexListenerDelegate);

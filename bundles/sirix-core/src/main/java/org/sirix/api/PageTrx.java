@@ -8,7 +8,7 @@ import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -20,7 +20,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
+public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>>
     extends PageReadOnlyTrx {
 
   /**
@@ -62,7 +62,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends Record, S ex
    * @param key key of the entry to be modified
    * @param pageKind the kind of subtree (for instance regular data pages or the kind of index pages)
    * @param index the index number
-   * @return instance of the class implementing the {@link Record} instance
+   * @return instance of the class implementing the {@link DataRecord} instance
    * @throws SirixIOException if an I/O-error occurs
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException if {@code page} is {@code null}

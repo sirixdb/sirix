@@ -1,7 +1,7 @@
 package org.sirix.page;
 
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
@@ -46,7 +46,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       PageTrx<K, V, S> pageWriteTrx) {}
 
   @Override

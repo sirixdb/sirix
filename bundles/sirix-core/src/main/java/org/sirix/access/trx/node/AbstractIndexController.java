@@ -20,7 +20,7 @@ import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -124,17 +124,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return this;
   }
 
-  private ChangeListener createPathIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createPathIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return pathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createCASIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return casIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createNameIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return nameIndex.createListener(pageWriteTrx, indexDef);
   }

@@ -27,7 +27,7 @@ import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
@@ -287,7 +287,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @return the created key
    */
   public int setName(final String name, final NodeKind nodeKind,
-      final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx) {
+      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
@@ -369,7 +369,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key the key to remove
    */
   public void removeName(final int key, final NodeKind nodeKind,
-      final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx) {
+      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
     switch (nodeKind) {
       case ELEMENT:
         if (mElements == null) {
