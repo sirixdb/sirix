@@ -777,7 +777,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -835,13 +835,9 @@ class SirixVerticleJsonTest {
 
                 val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
-                val expectUpdatedString = """
-                        {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
-                    """.trimIndent()
+                val updateURLInsertAsRightSibling = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
-                val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
-
-                httpResponse = client.postAbs(url).putHeader(
+                httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -850,11 +846,197 @@ class SirixVerticleJsonTest {
                     .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                 testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
                     assertEquals(200, response.statusCode())
                     JSONAssert.assertEquals(
                         expectUpdatedString.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
                             false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("null"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("44"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                    testContext.completeNow()
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("foobar"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("false"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                val updateURLInsertAsFirstChild = "$server$serverPath?nodeId=3&insert=asFirstChild"
+
+                httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("0"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":[0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("test"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":["test",0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("null"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":[null,"test",0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("false"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":[false,null,"test",0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                }
+
+                httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("{\"tadaa:\":3}"))
+
+                testContext.verify {
+                    val expectUpdatedString = """
+                        {"foo":[false,null,"test",0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
                     )
                     testContext.completeNow()
                 }
