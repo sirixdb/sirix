@@ -215,9 +215,6 @@ class JsonUpdate(private val location: Path) {
                         if (nodeId != null)
                             wtx.moveTo(nodeId)
 
-                        if (insertionModeByName == JsonInsertionMode.ASRIGHTSIBLING)
-                            wtx.moveToRightSibling()
-
                         if (wtx.isDocumentRoot && wtx.hasFirstChild())
                             wtx.moveToFirstChild()
 
