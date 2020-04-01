@@ -21,13 +21,6 @@
 
 package org.sirix.api;
 
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.IndexController;
@@ -41,10 +34,16 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+
 /**
  * <h1>ResourceManager</h1>
- *
- * <h2>Description</h2>
  *
  * <p>
  * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single read/write transaction can then be started from

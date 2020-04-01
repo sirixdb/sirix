@@ -32,8 +32,6 @@ class GetHandler(private val location: Path) {
             jsonBody?.getString("query")
         }
 
-        val diff = ctx.pathParam("diff")
-
         val acceptHeader = ctx.request().getHeader(HttpHeaders.ACCEPT)
 
         if (databaseName == null && resourceName == null) {
