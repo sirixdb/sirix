@@ -80,57 +80,60 @@ class XmlUpdate(private val location: Path) {
             database.use {
                 val manager = database.openResourceManager(resPathName)
 
-                val wtx = manager.beginNodeTrx()
-                val (maxNodeKey, hash) = wtx.use {
-                    if (nodeId != null)
-                        wtx.moveTo(nodeId)
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+                    val (maxNodeKey, hash) = wtx.use {
+                        if (nodeId != null)
+                            wtx.moveTo(nodeId)
 
-                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
-                        wtx.moveToFirstChild()
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                            wtx.moveToFirstChild()
 
-                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                        val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
+                        if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
+                            val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
 
-                        if (hashCode == null) {
-                            ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                            if (hashCode == null) {
+                                ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                            }
+
+                            if (wtx.hash != BigInteger(hashCode)) {
+                                ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                            }
                         }
 
-                        if (wtx.hash != BigInteger(hashCode)) {
-                            ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
-                        }
+                        val xmlReader = XmlShredder.createStringReader(resFileToStore)
+
+                        if (insertionMode != null)
+                            XmlInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
+                        else
+                            wtx.replaceNode(xmlReader)
+
+                        if (nodeId != null)
+                            wtx.moveTo(nodeId)
+
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                            wtx.moveToFirstChild()
+
+                        Pair(wtx.maxNodeKey, wtx.hash)
                     }
 
-                    val xmlReader = XmlShredder.createStringReader(resFileToStore)
+                    if (maxNodeKey > 5000) {
+                        ctx.response().statusCode = 200
 
-                    if (insertionMode != null)
-                        XmlInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
-                    else
-                        wtx.replaceNode(xmlReader)
-
-                    if (nodeId != null)
-                        wtx.moveTo(nodeId)
-
-                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
-                        wtx.moveToFirstChild()
-
-                    Pair(wtx.maxNodeKey, wtx.hash)
-                }
-
-                if (maxNodeKey > 5000) {
-                    ctx.response().statusCode = 200
-
-                    if (manager.resourceConfig.hashType == HashType.NONE) {
-                        ctx.response().end()
+                        if (manager.resourceConfig.hashType == HashType.NONE) {
+                            ctx.response().end()
+                        } else {
+                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                        }
                     } else {
-                        ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                        val out = ByteArrayOutputStream()
+                        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
+
+                        val serializer =
+                            serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
+
+                        XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
                     }
-                } else {
-                    val out = ByteArrayOutputStream()
-                    val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
-
-                    val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
-
-                    XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
                 }
             }
 
