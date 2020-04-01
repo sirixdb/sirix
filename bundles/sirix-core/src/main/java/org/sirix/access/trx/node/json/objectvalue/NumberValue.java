@@ -25,15 +25,15 @@ import org.sirix.node.NodeKind;
 
 public final class NumberValue implements ObjectRecordValue<Number> {
 
-  private final Number mNumber;
+  private final Number number;
 
   public NumberValue(final Number number) {
-    mNumber = number;
+    this.number = number;
   }
 
   @Override
   public Number getValue() {
-    return mNumber;
+    return number;
   }
 
   @Override

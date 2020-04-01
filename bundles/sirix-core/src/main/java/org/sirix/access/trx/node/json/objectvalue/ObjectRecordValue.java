@@ -9,7 +9,6 @@ import org.sirix.node.NodeKind;
  *
  */
 public interface ObjectRecordValue<T> {
-
   NodeKind getKind();
 
   T getValue();

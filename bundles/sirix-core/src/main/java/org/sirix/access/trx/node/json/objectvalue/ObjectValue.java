@@ -33,8 +33,6 @@ import org.sirix.node.NodeKind;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
 public final class ObjectValue implements ObjectRecordValue<Void> {
-
-
   @Override
   public NodeKind getKind() {
     return NodeKind.OBJECT;
