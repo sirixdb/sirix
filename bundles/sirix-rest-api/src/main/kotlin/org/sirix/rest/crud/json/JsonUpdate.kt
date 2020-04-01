@@ -207,6 +207,7 @@ class JsonUpdate(private val location: Path) {
                                 JsonToken.NUMBER -> insertionModeByName.insertNumber(wtx, jsonReader)
                                 JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(wtx, jsonReader)
                                 JsonToken.NAME -> insertionModeByName.insertObjectRecord(wtx, jsonReader)
+                                else -> throw IllegalStateException()
                             }
                         } else {
                             insertionModeByName.insertSubtree(wtx, jsonReader)
