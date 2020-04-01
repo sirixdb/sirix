@@ -11,7 +11,7 @@ import org.sirix.rest.crud.xml.XmlDelete
 import java.nio.file.Files
 import java.nio.file.Path
 
-class Delete(private val location: Path) {
+class DeleteHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         if (ctx.pathParam("database") == null && ctx.pathParam("resource") == null) {
             ctx.vertx().executeBlockingAwait { _: Promise<Unit> ->

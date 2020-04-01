@@ -179,7 +179,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location).handle(it)
+            DeleteHandler(location).handle(it)
         }
 
         // "/:database"
@@ -214,7 +214,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location).handle(it)
+            DeleteHandler(location).handle(it)
         }
 
         // "/:database/:resource"
@@ -283,7 +283,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location).handle(it)
+            DeleteHandler(location).handle(it)
         }
 
         // "/:database/:resource/subroutes"
