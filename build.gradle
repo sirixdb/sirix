@@ -71,14 +71,26 @@ subprojects {
     apply plugin: "com.diffplug.gradle.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_13
-        targetCompatibility = JavaVersion.VERSION_13
+        sourceCompatibility = JavaVersion.VERSION_14
+        targetCompatibility = JavaVersion.VERSION_14
         withSourcesJar()
         withJavadocJar()
     }
 
     javadoc {
         failOnError = false
+    }
+
+    compileJava {
+        options.compilerArgs += ["--enable-preview"]
+    }
+
+    compileTestJava {
+        options.compilerArgs += ["--enable-preview"]
+    }
+
+    tasks.withType(JavaCompile).each {
+        it.options.compilerArgs.add('--enable-preview')
     }
 
     spotless {
@@ -188,6 +200,7 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
+        jvmArgs(['--enable-preview'])
 
 //        minHeapSize = '2g'
 //        maxHeapSize = '15g'
