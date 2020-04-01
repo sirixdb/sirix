@@ -21,20 +21,20 @@
 
 package org.sirix.access.trx.node.json.objectvalue;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.NodeKind;
 
-public final class StringValue implements ObjectRecordValue<String> {
+import static com.google.common.base.Preconditions.checkNotNull;
 
-  private final String mValue;
+public final class StringValue implements ObjectRecordValue<String> {
+  private final String value;
 
   public StringValue(final String value) {
-    mValue = checkNotNull(value);
+    this.value = checkNotNull(value);
   }
 
   @Override
   public String getValue() {
-    return mValue;
+    return value;
   }
 
   @Override
