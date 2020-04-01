@@ -21,31 +21,12 @@
 
 package org.sirix.service.json.shredder;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.StringReader;
-import java.io.UncheckedIOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.concurrent.Callable;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.json.objectvalue.ArrayValue;
-import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
-import org.sirix.access.trx.node.json.objectvalue.NullValue;
-import org.sirix.access.trx.node.json.objectvalue.NumberValue;
-import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
-import org.sirix.access.trx.node.json.objectvalue.ObjectValue;
-import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import org.sirix.access.trx.node.json.objectvalue.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -56,8 +37,17 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
+
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import java.io.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.concurrent.Callable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * This class appends a given {@link JsonReader} to a {@link JsonNodeTrx} . The content of the
@@ -440,6 +430,32 @@ public final class JsonShredder implements Callable<Long> {
   private void addObjectRecord(final String name) throws IOException {
     assert name != null;
 
+    final ObjectRecordValue<?> value = getObjectRecordValue();
+
+    final long key;
+
+    if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      key = mWtx.insertObjectRecordAsFirstChild(name, value).getNodeKey();
+    } else {
+      key = mWtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
+    }
+
+    mParents.pop();
+    mParents.push(mWtx.getParentKey());
+    mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+
+    if (mWtx.getKind() == NodeKind.OBJECT || mWtx.getKind() == NodeKind.ARRAY) {
+      mParents.pop();
+      mParents.push(key);
+      mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+    } else {
+      final boolean isNextTokenParentToken = mReader.peek() == JsonToken.NAME || mReader.peek() == JsonToken.END_OBJECT;
+
+      adaptTrxPosAndStack(isNextTokenParentToken, key);
+    }
+  }
+
+  public ObjectRecordValue<?> getObjectRecordValue() throws IOException {
     final var nextToken = mReader.peek();
     final ObjectRecordValue<?> value;
 
@@ -487,41 +503,19 @@ public final class JsonShredder implements Callable<Long> {
       default:
         throw new AssertionError();
     }
-
-    final long key;
-
-    if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = mWtx.insertObjectRecordAsFirstChild(name, value).getNodeKey();
-    } else {
-      key = mWtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
-    }
-
-    mParents.pop();
-    mParents.push(mWtx.getParentKey());
-    mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
-
-    if (mWtx.getKind() == NodeKind.OBJECT || mWtx.getKind() == NodeKind.ARRAY) {
-      mParents.pop();
-      mParents.push(key);
-      mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
-    } else {
-      final boolean isNextTokenParentToken = mReader.peek() == JsonToken.NAME || mReader.peek() == JsonToken.END_OBJECT;
-
-      adaptTrxPosAndStack(isNextTokenParentToken, key);
-    }
+    return value;
   }
 
   /**
    * Main method.
    *
    * @param args input and output files
-   * @throws XMLStreamException if the XML stream isn't valid
    * @throws IOException if an I/O error occurs
    * @throws SirixException if a Sirix error occurs
    */
   public static void main(final String... args) throws SirixException, IOException, XMLStreamException {
     if (args.length != 2 && args.length != 3) {
-      throw new IllegalArgumentException("Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
+      throw new IllegalArgumentException("Usage: JsonShredder JSONFile Database");
     }
     LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
     final long time = System.nanoTime();
