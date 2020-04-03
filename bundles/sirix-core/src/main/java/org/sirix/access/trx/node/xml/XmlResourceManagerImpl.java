@@ -108,7 +108,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
     }
 
     return new XmlNodeTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
-        documentNode, nodeFactory);
+        new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageWriteTrx), nodeFactory);
   }
 
   @Override
