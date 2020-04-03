@@ -37,8 +37,8 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -108,15 +108,17 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       pathSummaryWriter = null;
     }
 
-    return new JsonNodeTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
-        documentNode, nodeFactory);
+    return new JsonNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
+        new JsonNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageWriteTrx), nodeFactory);
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public synchronized JsonIndexController getRtxIndexController(final int revision) {
     return rtxIndexControllers.computeIfAbsent(revision, unused -> new JsonIndexController());
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public synchronized JsonIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, unused -> {

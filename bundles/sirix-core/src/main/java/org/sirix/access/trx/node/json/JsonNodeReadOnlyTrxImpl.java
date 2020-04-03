@@ -95,34 +95,17 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public String getValue() {
     assertNotClosed();
-    final String returnVal;
-    switch (currentNode.getKind()) {
-      case OBJECT_STRING_VALUE:
-      case STRING_VALUE:
-        returnVal = new String(((ValueNode) currentNode).getRawValue(), Constants.DEFAULT_ENCODING);
-        break;
-      case OBJECT_BOOLEAN_VALUE:
-        returnVal = String.valueOf(((ObjectBooleanNode) currentNode).getValue());
-        break;
-      case BOOLEAN_VALUE:
-        returnVal = String.valueOf(((BooleanNode) currentNode).getValue());
-        break;
-      case OBJECT_NULL_VALUE:
-      case NULL_VALUE:
-        returnVal = "null";
-        break;
-      case OBJECT_NUMBER_VALUE:
-        returnVal = String.valueOf(((ObjectNumberNode) currentNode).getValue());
-        break;
-      case NUMBER_VALUE:
-        returnVal = String.valueOf(((NumberNode) currentNode).getValue());
-        break;
-      // $CASES-OMITTED$
-      default:
-        returnVal = "";
-        break;
-    }
-    return returnVal;
+    // $CASES-OMITTED$
+    return switch (currentNode.getKind()) {
+      case OBJECT_STRING_VALUE, STRING_VALUE -> new String(((ValueNode) currentNode).getRawValue(),
+          Constants.DEFAULT_ENCODING);
+      case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) currentNode).getValue());
+      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) currentNode).getValue());
+      case OBJECT_NULL_VALUE, NULL_VALUE -> "null";
+      case OBJECT_NUMBER_VALUE -> String.valueOf(((ObjectNumberNode) currentNode).getValue());
+      case NUMBER_VALUE -> String.valueOf(((NumberNode) currentNode).getValue());
+      default -> "";
+    };
   }
 
   @Override
@@ -162,35 +145,22 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public ImmutableNode getNode() {
     assertNotClosed();
 
-    switch (currentNode.getKind()) {
-      case OBJECT:
-        return ImmutableObjectNode.of((ObjectNode) currentNode);
-      case OBJECT_KEY:
-        return ImmutableObjectKeyNode.of((ObjectKeyNode) currentNode);
-      case ARRAY:
-        return ImmutableArrayNode.of((ArrayNode) currentNode);
-      case BOOLEAN_VALUE:
-        return ImmutableBooleanNode.of((BooleanNode) currentNode);
-      case NUMBER_VALUE:
-        return ImmutableNumberNode.of((NumberNode) currentNode);
-      case STRING_VALUE:
-        return ImmutableStringNode.of((StringNode) currentNode);
-      case NULL_VALUE:
-        return ImmutableNullNode.of((NullNode) currentNode);
-      case OBJECT_BOOLEAN_VALUE:
-        return ImmutableObjectBooleanNode.of((ObjectBooleanNode) currentNode);
-      case OBJECT_NUMBER_VALUE:
-        return ImmutableObjectNumberNode.of((ObjectNumberNode) currentNode);
-      case OBJECT_STRING_VALUE:
-        return ImmutableObjectStringNode.of((ObjectStringNode) currentNode);
-      case OBJECT_NULL_VALUE:
-        return ImmutableObjectNullNode.of((ObjectNullNode) currentNode);
-      case JSON_DOCUMENT:
-        return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) currentNode);
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException("Node kind not known!");
-    }
+    // $CASES-OMITTED$
+    return switch (currentNode.getKind()) {
+      case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);
+      case OBJECT_KEY -> ImmutableObjectKeyNode.of((ObjectKeyNode) currentNode);
+      case ARRAY -> ImmutableArrayNode.of((ArrayNode) currentNode);
+      case BOOLEAN_VALUE -> ImmutableBooleanNode.of((BooleanNode) currentNode);
+      case NUMBER_VALUE -> ImmutableNumberNode.of((NumberNode) currentNode);
+      case STRING_VALUE -> ImmutableStringNode.of((StringNode) currentNode);
+      case NULL_VALUE -> ImmutableNullNode.of((NullNode) currentNode);
+      case OBJECT_BOOLEAN_VALUE -> ImmutableObjectBooleanNode.of((ObjectBooleanNode) currentNode);
+      case OBJECT_NUMBER_VALUE -> ImmutableObjectNumberNode.of((ObjectNumberNode) currentNode);
+      case OBJECT_STRING_VALUE -> ImmutableObjectStringNode.of((ObjectStringNode) currentNode);
+      case OBJECT_NULL_VALUE -> ImmutableObjectNullNode.of((ObjectNullNode) currentNode);
+      case JSON_DOCUMENT -> ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) currentNode);
+      default -> throw new IllegalStateException("Node kind not known!");
+    };
   }
 
   @Override
@@ -296,7 +266,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
-  public void setCurrentNode(ImmutableJsonNode node) {
+  public void setCurrentNode(ImmutableNode node) {
     assertNotClosed();
     currentNode = node;
   }
