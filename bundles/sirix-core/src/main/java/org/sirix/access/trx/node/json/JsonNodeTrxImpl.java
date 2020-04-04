@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
