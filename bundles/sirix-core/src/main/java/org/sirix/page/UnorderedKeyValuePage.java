@@ -175,12 +175,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int deweyIDSize = in.readInt();
 
       mRecords = new LinkedHashMap<>(deweyIDSize);
-      var optionalDeweyId = Optional.<SirixDeweyID>empty();
+      SirixDeweyID optionalDeweyId = null;
 
       for (int index = 0; index < deweyIDSize; index++) {
-        optionalDeweyId = persistenter.deserializeDeweyID(in, optionalDeweyId.orElse(null), mResourceConfig);
+        optionalDeweyId = persistenter.deserializeDeweyID(in, optionalDeweyId, mResourceConfig);
 
-        optionalDeweyId.ifPresent(deweyId -> deserializeRecordAndPutIntoMap(in, deweyId));
+        if (optionalDeweyId != null) {
+          deserializeRecordAndPutIntoMap(in, optionalDeweyId);
+        }
       }
     } else {
       deweyIDs = Collections.emptyMap();
@@ -435,8 +437,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
           references.put(recordID, reference);
         } else {
           if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record instanceof ImmutableXmlNode
-              && ((ImmutableXmlNode) record).getDeweyID().isPresent() && record.getNodeKey() != 0)
-            deweyIDs.put(((ImmutableXmlNode) record).getDeweyID().get(), record.getNodeKey());
+              && ((ImmutableXmlNode) record).getDeweyID() != null && record.getNodeKey() != 0)
+            deweyIDs.put(((ImmutableXmlNode) record).getDeweyID(), record.getNodeKey());
           slots.put(recordID, data);
         }
       }
@@ -452,20 +454,20 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     if (storeDeweyIDs && recordPersister instanceof NodePersistenter) {
       entries.sort((a, b) -> {
         if (a.getValue() instanceof ImmutableXmlNode && b.getValue() instanceof ImmutableXmlNode) {
-          final Optional<SirixDeweyID> first = ((ImmutableXmlNode) a.getValue()).getDeweyID();
-          final Optional<SirixDeweyID> second = ((ImmutableXmlNode) b.getValue()).getDeweyID();
+          final SirixDeweyID first = ((ImmutableXmlNode) a.getValue()).getDeweyID();
+          final SirixDeweyID second = ((ImmutableXmlNode) b.getValue()).getDeweyID();
 
           // Document node has no DeweyID.
-          if (first.isEmpty() && second.isPresent())
+          if (first == null && second != null)
             return 1;
 
-          if (second.isEmpty() && first.isPresent())
+          if (second == null && first != null)
             return -1;
 
-          if (first.isEmpty())
+          if (first == null)
             return 0;
 
-          return first.get().compareTo(second.get());
+          return first.compareTo(second);
         }
 
         return -1;

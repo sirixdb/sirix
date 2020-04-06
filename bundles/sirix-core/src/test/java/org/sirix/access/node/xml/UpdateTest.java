@@ -877,7 +877,7 @@ public class UpdateTest {
     while (ids.hasNext()) {
       assertTrue(axis.hasNext());
       axis.next();
-      assertEquals(ids.next(), axis.asXdmNodeReadTrx().getDeweyID().get());
+      assertEquals(ids.next(), axis.asXdmNodeReadTrx().getDeweyID());
     }
   }
 

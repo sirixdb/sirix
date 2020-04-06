@@ -21,13 +21,8 @@
 
 package org.sirix.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
+import com.google.common.collect.HashBiMap;
+import com.google.common.hash.Hashing;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -41,10 +36,12 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.xml.ElementNode;
 import org.sirix.utils.NamePageHash;
-import com.google.common.collect.HashBiMap;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+import java.util.ArrayList;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Element node test.
@@ -93,7 +90,7 @@ public class ElementNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID().orElse(null), mPageReadTrx);
+        node.getDeweyID(), mPageReadTrx);
     check(node2);
   }
 

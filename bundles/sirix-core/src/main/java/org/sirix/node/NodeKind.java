@@ -39,27 +39,11 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.JsonDocumentRootNode;
+import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectBooleanNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.ObjectNullNode;
-import org.sirix.node.json.ObjectNumberNode;
-import org.sirix.node.json.ObjectStringNode;
-import org.sirix.node.json.StringNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
+import org.sirix.node.json.*;
+import org.sirix.node.xml.*;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
@@ -72,15 +56,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
@@ -393,7 +369,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       return null;
     }
@@ -418,9 +394,9 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
-      return Optional.empty();
+      return null;
     }
 
     @Override
@@ -444,9 +420,9 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
-      return Optional.empty();
+      return null;
     }
 
     @Override
@@ -469,7 +445,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
       return null;
     }
@@ -494,7 +470,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -520,7 +496,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -572,7 +548,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -661,7 +637,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -726,7 +702,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -796,7 +772,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -822,7 +798,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -864,7 +840,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -909,7 +885,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -960,7 +936,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1009,7 +985,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1053,7 +1029,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1162,7 +1138,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1203,7 +1179,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1252,7 +1228,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1296,7 +1272,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1405,7 +1381,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1446,7 +1422,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1489,7 +1465,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       return null;
     }
@@ -1516,7 +1492,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       return null;
     }
@@ -1542,7 +1518,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) {
       return null;
     }
@@ -1568,7 +1544,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
@@ -1649,7 +1625,7 @@ public enum NodeKind implements NodePersistenter {
   }
 
   @Override
-  public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+  public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
       ResourceConfiguration resourceConfig) throws IOException {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
@@ -1664,16 +1640,16 @@ public enum NodeKind implements NodePersistenter {
         target.put(Arrays.copyOfRange(previousDeweyIDBytes, 0, cutOffSize));
         target.put(deweyIDBytes);
 
-        return Optional.of(new SirixDeweyID(bytes));
+        return new SirixDeweyID(bytes);
       } else {
         final byte deweyIDLength = source.readByte();
         final byte[] deweyIDBytes = new byte[deweyIDLength];
         source.readFully(deweyIDBytes, 0, deweyIDLength);
-        return Optional.of(new SirixDeweyID(deweyIDBytes));
+        return new SirixDeweyID(deweyIDBytes);
       }
-    } else {
-      return Optional.empty();
     }
+    
+    return null;
   }
 
   @Override
