@@ -109,6 +109,11 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
+  public boolean storeDeweyIDs() {
+    return false;
+  }
+
+  @Override
   public boolean getBooleanValue() {
     assertNotClosed();
     if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE)

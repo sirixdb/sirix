@@ -128,7 +128,7 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNode.getDeweyID();
   }
 

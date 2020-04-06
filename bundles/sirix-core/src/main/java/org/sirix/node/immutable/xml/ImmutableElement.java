@@ -151,7 +151,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNode.getDeweyID();
   }
 

@@ -1,14 +1,15 @@
 package org.sirix.api;
 
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.Optional;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.Optional;
 
 
 public interface NodeReadOnlyTrx extends AutoCloseable {
@@ -180,4 +181,6 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    * @return the user who committed the revision, if available
    */
   Optional<User> getUser();
+
+  boolean storeDeweyIDs();
 }

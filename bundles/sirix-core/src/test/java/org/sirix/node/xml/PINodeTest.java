@@ -21,13 +21,7 @@
 
 package org.sirix.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.Optional;
+import com.google.common.hash.Hashing;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,9 +35,11 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.xml.PINode;
 import org.sirix.utils.NamePageHash;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Processing instruction node test.
@@ -90,7 +86,7 @@ public class PINodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID().orElse(null), mPageReadTrx);
+        node.getDeweyID(), mPageReadTrx);
     check(node2);
   }
 
@@ -113,7 +109,7 @@ public class PINodeTest {
     assertEquals(2, node.getRawValue().length);
     assertEquals(NodeKind.PROCESSING_INSTRUCTION, node.getKind());
     assertEquals(true, node.hasParent());
-    assertEquals(Optional.of(SirixDeweyID.newRootID()), node.getDeweyID());
+    assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
   }
 
 }

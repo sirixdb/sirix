@@ -110,7 +110,7 @@ public class ImmutableNamespace implements ImmutableNameNode, ImmutableXmlNode {
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNode.getDeweyID();
   }
 

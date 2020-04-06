@@ -118,7 +118,7 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNode.getDeweyID();
   }
 
