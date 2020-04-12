@@ -122,9 +122,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /** {@link InternalXmlNodeReadOnlyTrx} reference. */
   final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
 
-  /** Determines if a bulk insert operation is done. */
-  private boolean mBulkInsert;
-
   /** {@link PathSummaryWriter} instance. */
   private PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
 
@@ -168,7 +165,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /**
    * Constructor.
    *
-   * @param transactionID ID of transaction
    * @param resourceManager the resource manager this transaction is bound to
    * @param nodeReadOnlyTrx {@link PageTrx} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
@@ -181,8 +177,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   @SuppressWarnings("unchecked")
-  XmlNodeTrxImpl(final @Nonnegative long transactionID,
-      final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
       final @Nonnull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory) {
@@ -228,6 +223,11 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     // throw new IllegalStateException(e);
     // }
     // }
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return getNode().getDeweyID();
   }
 
   @Override
@@ -793,28 +793,27 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         InsertPos pos = InsertPos.ASFIRSTCHILD;
         SirixDeweyID id;
         switch (insert) {
-          case AS_FIRST_CHILD:
+          case AS_FIRST_CHILD -> {
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
             id = deweyIDManager.newFirstChildID();
-            break;
-          case AS_RIGHT_SIBLING:
+          }
+          case AS_RIGHT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = getCurrentNode().getNodeKey();
             rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
             pos = InsertPos.ASRIGHTSIBLING;
             id = deweyIDManager.newRightSiblingID();
-            break;
-          case AS_LEFT_SIBLING:
+          }
+          case AS_LEFT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
             rightSibKey = getCurrentNode().getNodeKey();
             pos = InsertPos.ASLEFTSIBLING;
             id = deweyIDManager.newLeftSiblingID();
-            break;
-          default:
-            throw new IllegalStateException("Insert location not known!");
+          }
+          default -> throw new IllegalStateException("Insert location not known!");
         }
 
         final QNm targetName = new QNm(target);
@@ -884,29 +883,28 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final SirixDeweyID id;
 
         switch (insert) {
-          case AS_FIRST_CHILD:
+          case AS_FIRST_CHILD -> {
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
             pos = InsertPos.ASFIRSTCHILD;
             id = deweyIDManager.newFirstChildID();
-            break;
-          case AS_RIGHT_SIBLING:
+          }
+          case AS_RIGHT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = getCurrentNode().getNodeKey();
             rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
             pos = InsertPos.ASRIGHTSIBLING;
             id = deweyIDManager.newRightSiblingID();
-            break;
-          case AS_LEFT_SIBLING:
+          }
+          case AS_LEFT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
             rightSibKey = getCurrentNode().getNodeKey();
             pos = InsertPos.ASLEFTSIBLING;
             id = deweyIDManager.newLeftSiblingID();
-            break;
-          default:
-            throw new IllegalStateException("Insert location not known!");
+          }
+          default -> throw new IllegalStateException("Insert location not known!");
         }
 
         final CommentNode node =
@@ -1107,56 +1105,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     } finally {
       unLock();
     }
-  }
-
-  /**
-   * Get an optional namespace {@link SirixDeweyID} reference.
-   *
-   * @return optional namespace {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newNamespaceID() {
-    return deweyIDManager.newNamespaceID();
-  }
-
-  /**
-   * Get an optional attribute {@link SirixDeweyID} reference.
-   *
-   * @return optional attribute {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newAttributeID() {
-    return deweyIDManager.newAttributeID();
-  }
-
-  /**
-   * Get an optional first child {@link SirixDeweyID} reference.
-   *
-   * @return optional first child {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newFirstChildID() {
-    return deweyIDManager.newFirstChildID();
-  }
-
-  /**
-   * Get an optional left sibling {@link SirixDeweyID} reference.
-   *
-   * @return optional left sibling {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newLeftSiblingID() {
-    return deweyIDManager.newLeftSiblingID();
-  }
-
-  /**
-   * Get an optional right sibling {@link SirixDeweyID} reference.
-   *
-   * @return optional right sibling {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newRightSiblingID() {
-    return deweyIDManager.newRightSiblingID();
   }
 
   /**

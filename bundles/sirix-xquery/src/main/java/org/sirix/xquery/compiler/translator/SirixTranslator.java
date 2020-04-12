@@ -1,12 +1,7 @@
 package org.sirix.xquery.compiler.translator;
 
-import java.util.ArrayDeque;
-import java.util.BitSet;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import javax.annotation.Nonnegative;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
@@ -23,44 +18,19 @@ import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.axis.AncestorAxis;
-import org.sirix.axis.AttributeAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FollowingAxis;
-import org.sirix.axis.FollowingSiblingAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.NestedAxis;
-import org.sirix.axis.ParentAxis;
-import org.sirix.axis.PrecedingAxis;
-import org.sirix.axis.PrecedingSiblingAxis;
-import org.sirix.axis.SelfAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xml.AttributeFilter;
-import org.sirix.axis.filter.xml.CommentFilter;
-import org.sirix.axis.filter.xml.DocumentRootNodeFilter;
-import org.sirix.axis.filter.xml.ElementFilter;
-import org.sirix.axis.filter.xml.NamespaceFilter;
-import org.sirix.axis.filter.xml.PIFilter;
-import org.sirix.axis.filter.xml.TemporalXmlNodeReadFilterAxis;
-import org.sirix.axis.filter.xml.TextFilter;
-import org.sirix.axis.filter.xml.XmlNameFilter;
-import org.sirix.axis.temporal.AllTimeAxis;
-import org.sirix.axis.temporal.FirstAxis;
-import org.sirix.axis.temporal.FutureAxis;
-import org.sirix.axis.temporal.LastAxis;
-import org.sirix.axis.temporal.NextAxis;
-import org.sirix.axis.temporal.PastAxis;
-import org.sirix.axis.temporal.PreviousAxis;
+import org.sirix.axis.filter.xml.*;
+import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
+
+import javax.annotation.Nonnegative;
+import java.util.*;
 
 /**
  * Translates queries (optimizes currently path-expressions if {@code OPTIMIZE} is set to true).
@@ -92,50 +62,29 @@ public final class SirixTranslator extends TopDownTranslator {
     if (!OPTIMIZE) {
       return super.axis(node);
     }
-    switch (node.getType()) {
-      case XQ.DESCENDANT:
-        return new DescOrSelf(Axis.DESCENDANT);
-      case XQ.DESCENDANT_OR_SELF:
-        return new DescOrSelf(Axis.DESCENDANT_OR_SELF);
-      case XQ.CHILD:
-        return new Child(Axis.CHILD);
-      case XQ.ATTRIBUTE:
-        return new Attribute(Axis.ATTRIBUTE);
-      case XQ.PARENT:
-        return new Parent(Axis.PARENT);
-      case XQ.ANCESTOR:
-        return new AncestorOrSelf(Axis.ANCESTOR);
-      case XQ.ANCESTOR_OR_SELF:
-        return new AncestorOrSelf(Axis.ANCESTOR_OR_SELF);
-      case XQ.FOLLOWING:
-        return new Following(Axis.FOLLOWING);
-      case XQ.FOLLOWING_SIBLING:
-        return new FollowingSibling(Axis.FOLLOWING_SIBLING);
-      case XQ.PRECEDING:
-        return new Preceding(Axis.PRECEDING);
-      case XQ.PRECEDING_SIBLING:
-        return new PrecedingSibling(Axis.PRECEDING_SIBLING);
-      case XQ.FUTURE:
-        return new Future(Axis.FUTURE);
-      case XQ.FUTURE_OR_SELF:
-        return new Future(Axis.FUTURE_OR_SELF);
-      case XQ.PAST:
-        return new Past(Axis.PAST);
-      case XQ.PAST_OR_SELF:
-        return new Past(Axis.PAST_OR_SELF);
-      case XQ.PREVIOUS:
-        return new Previous(Axis.PREVIOUS);
-      case XQ.NEXT:
-        return new Next(Axis.NEXT);
-      case XQ.ALL_TIMES:
-        return new AllTime(Axis.ALL_TIME);
-      case XQ.FIRST:
-        return new First(Axis.FIRST);
-      case XQ.LAST:
-        return new Last(Axis.LAST);
-      default:
-        return super.axis(node);
-    }
+    return switch (node.getType()) {
+      case XQ.DESCENDANT -> new DescOrSelf(Axis.DESCENDANT);
+      case XQ.DESCENDANT_OR_SELF -> new DescOrSelf(Axis.DESCENDANT_OR_SELF);
+      case XQ.CHILD -> new Child(Axis.CHILD);
+      case XQ.ATTRIBUTE -> new Attribute(Axis.ATTRIBUTE);
+      case XQ.PARENT -> new Parent(Axis.PARENT);
+      case XQ.ANCESTOR -> new AncestorOrSelf(Axis.ANCESTOR);
+      case XQ.ANCESTOR_OR_SELF -> new AncestorOrSelf(Axis.ANCESTOR_OR_SELF);
+      case XQ.FOLLOWING -> new Following(Axis.FOLLOWING);
+      case XQ.FOLLOWING_SIBLING -> new FollowingSibling(Axis.FOLLOWING_SIBLING);
+      case XQ.PRECEDING -> new Preceding(Axis.PRECEDING);
+      case XQ.PRECEDING_SIBLING -> new PrecedingSibling(Axis.PRECEDING_SIBLING);
+      case XQ.FUTURE -> new Future(Axis.FUTURE);
+      case XQ.FUTURE_OR_SELF -> new Future(Axis.FUTURE_OR_SELF);
+      case XQ.PAST -> new Past(Axis.PAST);
+      case XQ.PAST_OR_SELF -> new Past(Axis.PAST_OR_SELF);
+      case XQ.PREVIOUS -> new Previous(Axis.PREVIOUS);
+      case XQ.NEXT -> new Next(Axis.NEXT);
+      case XQ.ALL_TIMES -> new AllTime(Axis.ALL_TIME);
+      case XQ.FIRST -> new First(Axis.FIRST);
+      case XQ.LAST -> new Last(Axis.LAST);
+      default -> super.axis(node);
+    };
   }
 
   /**
@@ -730,9 +679,10 @@ public final class SirixTranslator extends TopDownTranslator {
           }
           // One match.
           if (matches.cardinality() == 1) {
-            final int level = dbNode.getDeweyID().get().getLevel();
+            final int level = dbNode.getDeweyID().getLevel();
             final long pcr2 = matches.nextSetBit(0);
             reader.moveTo(pcr2);
+            assert reader.getPathNode() != null;
             final int matchLevel = reader.getPathNode().getLevel();
             // Match at the same level.
             if (mSelf == IncludeSelf.YES && matchLevel == level) {
@@ -767,7 +717,7 @@ public final class SirixTranslator extends TopDownTranslator {
           // Matches on same level.
           if (onSameLevel) {
             final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
-            for (int j = level, nodeLevel = dbNode.getDeweyID().get().getLevel(); j > nodeLevel; j--) {
+            for (int j = level, nodeLevel = dbNode.getDeweyID().getLevel(); j > nodeLevel; j--) {
               // Build an immutable set and turn it into a list for sorting.
               final Builder<QNm> pathNodeQNmBuilder = ImmutableSet.builder();
               for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
@@ -802,7 +752,7 @@ public final class SirixTranslator extends TopDownTranslator {
             // Matches on different levels.
             // TODO: Use ConcurrentUnionAxis.
             final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
-            level = dbNode.getDeweyID().get().getLevel();
+            level = dbNode.getDeweyID().getLevel();
             for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
               reader.moveTo(i);
               final int matchLevel = reader.getPathNode().getLevel();

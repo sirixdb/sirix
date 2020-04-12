@@ -20,14 +20,16 @@
  */
 package org.sirix.axis;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Iterates over a subtree in levelorder / in a breath first traversal.
