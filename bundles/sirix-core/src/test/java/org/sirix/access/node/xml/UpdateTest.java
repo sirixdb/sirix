@@ -33,6 +33,7 @@ import org.sirix.access.Databases;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlNodeReadOnlyTrxImpl;
 import org.sirix.api.Axis;
+import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -877,6 +878,7 @@ public class UpdateTest {
     while (ids.hasNext()) {
       assertTrue(axis.hasNext());
       axis.next();
+//      System.out.println(axis.asXdmNodeReadTrx().getDeweyID());
       assertEquals(ids.next(), axis.asXdmNodeReadTrx().getDeweyID());
     }
   }
@@ -1025,8 +1027,74 @@ public class UpdateTest {
     assertEquals(1L, rtx.getDescendantCount());
   }
 
-  @Test(expected = SirixUsageException.class)
+  @Test
   public void testFourthMoveToFirstChild() {
+    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlDocumentCreator.create(wtx);
+    wtx.moveTo(9);
+    wtx.insertAttribute(new QNm("ns", "p", "hiphip"), "hurray");
+    wtx.moveTo(11);
+    wtx.insertAttribute(new QNm("ns", "p", "yes"), "yo", Movement.TOPARENT);
+    wtx.insertTextAsFirstChild("foobarbazbaba");
+    wtx.moveTo(7);
+    wtx.moveSubtreeToFirstChild(9);
+    testFourthMoveToFirstChild(wtx);
+    wtx.commit();
+    testFourthMoveToFirstChild(wtx);
+    wtx.close();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    testFourthMoveToFirstChild(rtx);
+    rtx.moveToDocumentRoot();
+    final Builder<SirixDeweyID> builder = ImmutableSet.builder();
+    final ImmutableSet<SirixDeweyID> ids = builder.add(new SirixDeweyID("1"))
+                                                  .add(new SirixDeweyID("1.3"))
+                                                  .add(new SirixDeweyID("1.3.0.3"))
+                                                  .add(new SirixDeweyID("1.3.1.3"))
+                                                  .add(new SirixDeweyID("1.3.3"))
+                                                  .add(new SirixDeweyID("1.3.5"))
+                                                  .add(new SirixDeweyID("1.3.5.3"))
+                                                  .add(new SirixDeweyID("1.3.5.5"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3.1.3"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3.1.5"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3.3"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3.3.1.3"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3.3.3"))
+                                                  .add(new SirixDeweyID("1.3.5.5.3.5"))
+                                                  .add(new SirixDeweyID("1.3.7"))
+                                                  .build();
+    test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)));
+    rtx.close();
+  }
+
+  /**
+   * Testmethod for {@link UpdateTest#testThirdMoveToFirstChild()} for having different rtx.
+   *
+   * @param rtx to test with
+   * @throws SirixException
+   */
+  private static void testFourthMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
+    assertTrue(rtx.moveTo(0).hasMoved());
+    assertEquals(10L, rtx.getDescendantCount()); // due to text node merge
+    assertTrue(rtx.moveTo(1).hasMoved());
+    assertEquals(9L, rtx.getDescendantCount());
+    assertTrue(rtx.moveTo(7).hasMoved());
+    assertEquals(9L, rtx.getFirstChildKey());
+    assertEquals(1L, rtx.getChildCount());
+    assertEquals(4L, rtx.getDescendantCount());
+    assertTrue(rtx.moveTo(9L).hasMoved());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
+    assertEquals(7L, rtx.getParentKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
+    assertTrue(rtx.moveTo(10L).hasMoved());
+    assertTrue(rtx.isAttribute());
+    assertTrue(rtx.moveTo(14L).hasMoved());
+    assertTrue(rtx.isAttribute());
+  }
+
+
+  @Test(expected = SirixUsageException.class)
+  public void testFifthMoveToFirstChild() {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(4);

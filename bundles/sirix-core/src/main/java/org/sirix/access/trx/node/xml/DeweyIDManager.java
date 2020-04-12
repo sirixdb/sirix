@@ -7,15 +7,16 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.xml.ElementNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public class DeweyIDManager {
-  private final XmlNodeTrxImpl nodeTrx;
+  private final InternalXmlNodeTrx nodeTrx;
 
   private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx;
 
-  public DeweyIDManager(XmlNodeTrxImpl nodeTrx) {
+  public DeweyIDManager(InternalXmlNodeTrx nodeTrx) {
     this.nodeTrx = nodeTrx;
     this.pageTrx = nodeTrx.getPageWtx();
   }
@@ -39,20 +40,28 @@ public class DeweyIDManager {
 
     final long nodeKey = nodeTrx.getNodeKey();
 
-    final StructNode root = (StructNode) nodeTrx.getPageWtx().prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1);
+    final StructNode root = (StructNode) nodeTrx.getPageWtx()
+                                                .prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1);
     root.setDeweyID(id);
 
-    if (root.hasFirstChild()) {
-      final Node firstChild =
-          (Node) pageTrx.prepareEntryForModification(root.getFirstChildKey(), PageKind.RECORDPAGE, -1);
-      firstChild.setDeweyID(id.getNewChildID());
+    adaptNonStructuralNodes(root);
 
-      int previousLevel = nodeTrx.getDeweyID().getLevel();
-      nodeTrx.moveTo(firstChild.getNodeKey());
+    if (root.hasFirstChild()) {
+//      final Node firstChild = (Node) pageTrx.prepareEntryForModification(root.getFirstChildKey(), PageKind.RECORDPAGE,
+//          -1);
+//      firstChild.setDeweyID(id.getNewChildID());
+
+      nodeTrx.moveTo(root.getFirstChildKey());
+
+//      adaptNonStructuralNodes(firstChild);
+
       int attributeNr = 0;
       int nspNr = 0;
-      for (@SuppressWarnings("unused")
-      final long key : LevelOrderAxis.newBuilder(nodeTrx).includeNonStructuralNodes().build()) {
+      var previousNodeKey = nodeTrx.getNodeKey();
+      for (@SuppressWarnings("unused") final long key : LevelOrderAxis.newBuilder(nodeTrx)
+                                                   .includeNonStructuralNodes()
+                                                   .includeSelf()
+                                                   .build()) {
         SirixDeweyID deweyID;
         if (nodeTrx.isAttribute()) {
           final long attNodeKey = nodeTrx.getNodeKey();
@@ -69,7 +78,7 @@ public class DeweyIDManager {
           if (nspNr == 0) {
             deweyID = nodeTrx.getParentDeweyID().getNewNamespaceID();
           } else {
-            nodeTrx.moveTo(nspNr - 1);
+            nodeTrx.moveTo(attributeNr - 1);
             deweyID = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
           }
           nodeTrx.moveTo(nspNodeKey);
@@ -77,25 +86,60 @@ public class DeweyIDManager {
         } else {
           attributeNr = 0;
           nspNr = 0;
-          if (previousLevel + 1 == nodeTrx.getDeweyID().getLevel()) {
-            if (nodeTrx.hasLeftSibling()) {
-              deweyID = SirixDeweyID.newBetween(nodeTrx.getLeftSiblingDeweyID(), null);
-            } else {
-              deweyID = nodeTrx.getParentDeweyID().getNewChildID();
-            }
+          if (previousNodeKey == nodeTrx.getLeftSiblingKey()) {
+            deweyID = SirixDeweyID.newBetween(nodeTrx.getLeftSiblingDeweyID(), null);
           } else {
-            previousLevel++;
             deweyID = nodeTrx.getParentDeweyID().getNewChildID();
           }
         }
 
-        final Node node =
-            (Node) pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(),
-                PageKind.RECORDPAGE, -1);
+        final Node node = (Node) pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setDeweyID(deweyID);
+
+        previousNodeKey = node.getNodeKey();
       }
 
       nodeTrx.moveTo(nodeKey);
+    }
+  }
+
+  public void adaptNonStructuralNodes(DataRecord root) {
+    if (nodeTrx.isElement()) {
+      final ElementNode element = (ElementNode) root;
+      for (int i = 0, attLength = element.getAttributeCount(); i < attLength; i++) {
+        SirixDeweyID deweyID;
+        if (i == 0) {
+          nodeTrx.moveToAttribute(i);
+          deweyID = nodeTrx.getParentDeweyID().getNewAttributeID();
+        } else {
+          nodeTrx.moveToAttribute(i - 1);
+          deweyID = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
+        }
+        nodeTrx.moveToParent();
+        nodeTrx.moveToAttribute(i);
+
+        final Node node = (Node) pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        node.setDeweyID(deweyID);
+
+        nodeTrx.moveToParent();
+      }
+
+      for (int i = 0, nspLength = element.getNamespaceCount(); i < nspLength; i++) {
+        SirixDeweyID deweyID;
+        if (i == 0) {
+          nodeTrx.moveToNamespace(i);
+          deweyID = nodeTrx.getParentDeweyID().getNewNamespaceID();
+        } else {
+          nodeTrx.moveToNamespace(i - 1);
+          deweyID = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
+        }
+        nodeTrx.moveToNamespace(i);
+
+        final Node node = (Node) pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        node.setDeweyID(deweyID);
+
+        nodeTrx.moveToParent();
+      }
     }
   }
 
