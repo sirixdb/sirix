@@ -1,12 +1,14 @@
 package org.sirix.node.immutable.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.NumberNode;
+
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable NumberNode wrapper.
@@ -16,7 +18,7 @@ import org.sirix.node.json.NumberNode;
  */
 public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNode {
   /** Mutable {@link NumberNode}. */
-  private final NumberNode mNode;
+  private final NumberNode node;
 
   /**
    * Private constructor.
@@ -24,7 +26,7 @@ public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNo
    * @param node {@link NumberNode} to wrap
    */
   private ImmutableNumberNode(final NumberNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -44,11 +46,11 @@ public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNo
 
   @Override
   public StructNode structDelegate() {
-    return mNode.getStructNodeDelegate();
+    return node.getStructNodeDelegate();
   }
 
   public Number getValue() {
-    return mNode.getValue();
+    return node.getValue();
   }
 
   @Override
@@ -58,6 +60,6 @@ public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNo
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
   }
 }

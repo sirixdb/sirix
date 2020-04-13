@@ -107,7 +107,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private final int maxNodeCount;
 
   /** The deweyID manager. */
-  private final DeweyIDManager deweyIDManager;
+  private final XmlDeweyIDManager deweyIDManager;
 
   /** Modification counter. */
   long modificationCount;
@@ -213,7 +213,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     storeDeweyIDs = resourceManager.getResourceConfig().areDeweyIDsStored;
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
 
-    deweyIDManager = new DeweyIDManager(this);
+    deweyIDManager = new XmlDeweyIDManager(this);
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
@@ -1611,9 +1611,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
   @Override
   public void adaptHashesInPostorderTraversal() {
-    long nodeKey;
     if (hashType != HashType.NONE) {
-      nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = getCurrentNode().getNodeKey();
       postOrderTraversalHashes();
       final ImmutableNode startNode = getCurrentNode();
       moveToParent();

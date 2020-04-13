@@ -1,13 +1,15 @@
 package org.sirix.index.path.summary;
 
-import java.math.BigInteger;
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * Wraps a {@link PathNode} to provide immutability.
@@ -18,7 +20,7 @@ import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode {
 
   /** {@link PathNode} instance. */
-  private final PathNode mNode;
+  private final PathNode node;
 
   /**
    * Private constructor.
@@ -26,7 +28,7 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
    * @param node the mutable path node
    */
   public ImmutablePathNode(final PathNode node) {
-    mNode = node;
+    this.node = node;
   }
 
   /**
@@ -41,106 +43,111 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
 
   @Override
   public NodeKind getKind() {
-    return mNode.getKind();
+    return node.getKind();
   }
 
   @Override
   public boolean isSameItem(@Nullable Node other) {
-    return mNode.isSameItem(other);
+    return node.isSameItem(other);
   }
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
   }
 
   @Override
   public BigInteger getHash() {
-    return mNode.getHash();
+    return node.getHash();
   }
 
   @Override
   public long getParentKey() {
-    return mNode.getParentKey();
+    return node.getParentKey();
   }
 
   @Override
   public boolean hasParent() {
-    return mNode.hasParent();
+    return node.hasParent();
   }
 
   @Override
   public long getNodeKey() {
-    return mNode.getNodeKey();
+    return node.getNodeKey();
   }
 
   @Override
   public long getRevision() {
-    return mNode.getRevision();
+    return node.getRevision();
   }
 
   @Override
   public int getLocalNameKey() {
-    return mNode.getLocalNameKey();
+    return node.getLocalNameKey();
   }
 
   @Override
   public int getPrefixKey() {
-    return mNode.getPrefixKey();
+    return node.getPrefixKey();
   }
 
   @Override
   public int getURIKey() {
-    return mNode.getURIKey();
+    return node.getURIKey();
   }
 
   @Override
   public long getPathNodeKey() {
-    return mNode.getPathNodeKey();
+    return node.getPathNodeKey();
   }
 
   @Override
   public boolean hasFirstChild() {
-    return mNode.hasFirstChild();
+    return node.hasFirstChild();
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return mNode.hasLeftSibling();
+    return node.hasLeftSibling();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return mNode.hasRightSibling();
+    return node.hasRightSibling();
   }
 
   @Override
   public long getChildCount() {
-    return mNode.getChildCount();
+    return node.getChildCount();
   }
 
   @Override
   public long getDescendantCount() {
-    return mNode.getDescendantCount();
+    return node.getDescendantCount();
   }
 
   @Override
   public long getFirstChildKey() {
-    return mNode.getFirstChildKey();
+    return node.getFirstChildKey();
   }
 
   @Override
   public long getLeftSiblingKey() {
-    return mNode.getLeftSiblingKey();
+    return node.getLeftSiblingKey();
   }
 
   @Override
   public long getRightSiblingKey() {
-    return mNode.getRightSiblingKey();
+    return node.getRightSiblingKey();
   }
 
   @Override
   public QNm getName() {
-    return mNode.getName();
+    return node.getName();
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return node.getDeweyID();
   }
 }

@@ -1840,7 +1840,7 @@ public enum NodeKind implements NodePersistenter {
   public static class DumbNode implements DataRecord {
 
     /** Node key. */
-    private final long mNodeKey;
+    private final long nodeKey;
 
     /**
      * Simple constructor.
@@ -1848,12 +1848,12 @@ public enum NodeKind implements NodePersistenter {
      * @param nodeKey to be set
      */
     public DumbNode(final long nodeKey) {
-      mNodeKey = nodeKey;
+      this.nodeKey = nodeKey;
     }
 
     @Override
     public long getNodeKey() {
-      return mNodeKey;
+      return nodeKey;
     }
 
     @Override
@@ -1864,6 +1864,11 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public long getRevision() {
       return 0;
+    }
+
+    @Override
+    public SirixDeweyID getDeweyID() {
+      return null;
     }
   }
 }

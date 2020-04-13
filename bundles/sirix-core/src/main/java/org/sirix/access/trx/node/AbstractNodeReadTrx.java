@@ -8,6 +8,7 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -448,4 +449,8 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     return pageReadTrx.getCommitCredentials();
   }
 
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return currentNode.getDeweyID();
+  }
 }

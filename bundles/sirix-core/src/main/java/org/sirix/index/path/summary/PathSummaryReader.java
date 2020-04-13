@@ -16,6 +16,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.interfaces.DataRecord;
@@ -858,6 +859,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public String getValue() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
     throw new UnsupportedOperationException();
   }
 }

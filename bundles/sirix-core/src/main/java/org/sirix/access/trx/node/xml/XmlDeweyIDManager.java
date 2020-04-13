@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node.xml;
 
+import org.sirix.access.trx.node.AbstractDeweyIDManager;
 import org.sirix.api.PageTrx;
 import org.sirix.axis.LevelOrderAxis;
 import org.sirix.exception.SirixException;
@@ -11,12 +12,13 @@ import org.sirix.node.xml.ElementNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public class DeweyIDManager {
+final class XmlDeweyIDManager extends AbstractDeweyIDManager {
   private final InternalXmlNodeTrx nodeTrx;
 
   private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx;
 
-  public DeweyIDManager(InternalXmlNodeTrx nodeTrx) {
+  public XmlDeweyIDManager(InternalXmlNodeTrx nodeTrx) {
+    super(nodeTrx);
     this.nodeTrx = nodeTrx;
     this.pageTrx = nodeTrx.getPageWtx();
   }
@@ -47,21 +49,16 @@ public class DeweyIDManager {
     adaptNonStructuralNodes(root);
 
     if (root.hasFirstChild()) {
-//      final Node firstChild = (Node) pageTrx.prepareEntryForModification(root.getFirstChildKey(), PageKind.RECORDPAGE,
-//          -1);
-//      firstChild.setDeweyID(id.getNewChildID());
-
       nodeTrx.moveTo(root.getFirstChildKey());
-
-//      adaptNonStructuralNodes(firstChild);
 
       int attributeNr = 0;
       int nspNr = 0;
       var previousNodeKey = nodeTrx.getNodeKey();
+
       for (@SuppressWarnings("unused") final long key : LevelOrderAxis.newBuilder(nodeTrx)
-                                                   .includeNonStructuralNodes()
-                                                   .includeSelf()
-                                                   .build()) {
+                                                                      .includeNonStructuralNodes()
+                                                                      .includeSelf()
+                                                                      .build()) {
         SirixDeweyID deweyID;
         if (nodeTrx.isAttribute()) {
           final long attNodeKey = nodeTrx.getNodeKey();
@@ -183,64 +180,4 @@ public class DeweyIDManager {
     return id;
   }
 
-  /**
-   * Get an optional first child {@link SirixDeweyID} reference.
-   *
-   * @return optional first child {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  SirixDeweyID newFirstChildID() {
-    SirixDeweyID id = null;
-    if (nodeTrx.storeDeweyIDs()) {
-      if (nodeTrx.hasFirstChild()) {
-        nodeTrx.moveToFirstChild();
-        id = SirixDeweyID.newBetween(null, nodeTrx.getDeweyID());
-      } else {
-        id = nodeTrx.getDeweyID().getNewChildID();
-      }
-    }
-    return id;
-  }
-
-  /**
-   * Get an optional left sibling {@link SirixDeweyID} reference.
-   *
-   * @return optional left sibling {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  SirixDeweyID newLeftSiblingID() {
-    SirixDeweyID id = null;
-    if (nodeTrx.storeDeweyIDs()) {
-      final SirixDeweyID currID = nodeTrx.getDeweyID();
-      if (nodeTrx.hasLeftSibling()) {
-        nodeTrx.moveToLeftSibling();
-        id = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), currID);
-        nodeTrx.moveToRightSibling();
-      } else {
-        id = SirixDeweyID.newBetween(null, currID);
-      }
-    }
-    return id;
-  }
-
-  /**
-   * Get an optional right sibling {@link SirixDeweyID} reference.
-   *
-   * @return optional right sibling {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  SirixDeweyID newRightSiblingID() {
-    SirixDeweyID id = null;
-    if (nodeTrx.storeDeweyIDs()) {
-      final SirixDeweyID currID = nodeTrx.getDeweyID();
-      if (nodeTrx.hasRightSibling()) {
-        nodeTrx.moveToRightSibling();
-        id = SirixDeweyID.newBetween(currID, nodeTrx.getDeweyID());
-        nodeTrx.moveToLeftSibling();
-      } else {
-        id = SirixDeweyID.newBetween(currID, null);
-      }
-    }
-    return id;
-  }
 }

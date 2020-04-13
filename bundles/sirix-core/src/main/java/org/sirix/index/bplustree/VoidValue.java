@@ -1,5 +1,6 @@
 package org.sirix.index.bplustree;
 
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.RecordPersister;
 
@@ -23,5 +24,10 @@ public class VoidValue implements DataRecord {
   @Override
   public long getRevision() {
     return 0;
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return null;
   }
 }

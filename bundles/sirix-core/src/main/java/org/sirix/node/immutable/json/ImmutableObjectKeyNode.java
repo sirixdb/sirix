@@ -1,8 +1,5 @@
 package org.sirix.node.immutable.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -11,6 +8,10 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
+
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable JSONObject wrapper.
@@ -21,7 +22,7 @@ import org.sirix.node.json.ObjectNode;
 public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructuralNode implements ImmutableNameNode {
 
   /** Mutable {@link ObjectNode}. */
-  private final ObjectKeyNode mNode;
+  private final ObjectKeyNode node;
 
   /**
    * Private constructor.
@@ -29,7 +30,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
    * @param node mutable {@link ObjectNode}
    */
   private ImmutableObjectKeyNode(final ObjectKeyNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -44,17 +45,17 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
 
   @Override
   public int getLocalNameKey() {
-    return mNode.getLocalNameKey();
+    return node.getLocalNameKey();
   }
 
   @Override
   public int getPrefixKey() {
-    return mNode.getPrefixKey();
+    return node.getPrefixKey();
   }
 
   @Override
   public int getURIKey() {
-    return mNode.getURIKey();
+    return node.getURIKey();
   }
 
   /**
@@ -63,7 +64,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
    * @return path node key
    */
   public long getPathNodeKey() {
-    return mNode.getPathNodeKey();
+    return node.getPathNodeKey();
   }
 
   @Override
@@ -73,7 +74,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
 
   @Override
   public StructNode structDelegate() {
-    return mNode;
+    return node;
   }
 
   @Override
@@ -82,16 +83,16 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
   }
 
   public int getNameKey() {
-    return mNode.getNameKey();
+    return node.getNameKey();
   }
 
   @Override
   public QNm getName() {
-    return mNode.getName();
+    return node.getName();
   }
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
   }
 }

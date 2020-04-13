@@ -6,6 +6,7 @@ import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.*;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 import java.math.BigInteger;
@@ -26,6 +27,11 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
 
   @Override
   protected abstract PathSummaryReader delegate();
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return delegate().getDeweyID();
+  }
 
   @Override
   public boolean storeDeweyIDs() {
