@@ -6,11 +6,11 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.Optional;
-
 
 public interface NodeReadOnlyTrx extends AutoCloseable {
 
@@ -44,7 +44,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
 
   /**
    * Close shared read transaction and immediately release all resources.
-   *
+   * <p>
    * This is an idempotent operation and does nothing if the transaction is already closed.
    *
    * @throws SirixException if can't close {@link XmlNodeReadOnlyTrx}
@@ -58,7 +58,6 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    * @return node key of the currently selected node
    */
   long getNodeKey();
-
 
   /**
    * Get the {@link ResourceManager} this instance is bound to.
@@ -182,5 +181,17 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    */
   Optional<User> getUser();
 
+  /**
+   * Determines if DeweyIDs should be store or not.
+   *
+   * @return {@code true}, if DeweyIDs should be stored, {@code false} if not
+   */
   boolean storeDeweyIDs();
+
+  /**
+   * Get the DeweyID of the node, the transactional cursor currently points to.
+   *
+   * @return the DeweyID of the current node
+   */
+  SirixDeweyID getDeweyID();
 }

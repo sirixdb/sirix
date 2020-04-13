@@ -196,6 +196,7 @@ public class NodeDelegate implements Node {
     sirixDeweyID = id;
   }
 
+  @Override
   public SirixDeweyID getDeweyID() {
     return sirixDeweyID;
   }

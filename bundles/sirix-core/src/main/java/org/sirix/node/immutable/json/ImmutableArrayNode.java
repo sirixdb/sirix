@@ -1,13 +1,15 @@
 package org.sirix.node.immutable.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.xml.ElementNode;
+
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable array node wrapper.
@@ -18,7 +20,7 @@ import org.sirix.node.xml.ElementNode;
 public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNode {
 
   /** Mutable {@link ArrayNode}. */
-  private final ArrayNode mNode;
+  private final ArrayNode node;
 
   /**
    * Private constructor.
@@ -26,7 +28,7 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
    * @param node mutable {@link ElementNode}
    */
   private ImmutableArrayNode(final ArrayNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -35,7 +37,7 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
    * @return path node key
    */
   public long getPathNodeKey() {
-    return mNode.getPathNodeKey();
+    return node.getPathNodeKey();
   }
 
   @Override
@@ -55,7 +57,7 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
 
   @Override
   public StructNode structDelegate() {
-    return mNode;
+    return node;
   }
 
   @Override
@@ -65,6 +67,6 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
   }
 }
