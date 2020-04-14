@@ -207,9 +207,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Collects update operations in pre-order, thus it must be an order-preserving sorted map.
    */
-  private final SortedMap<SirixDeweyID, DiffTuple> updateOperationsMap;
+  private final SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered;
 
-  private final Set<DiffTuple> updateOperationsSet;
+  /**
+   * Collects update operations in no particular order (if DeweyIDs used for sorting are not stored).
+   */
+  private final Map<Long, DiffTuple> updateOperationsUnordered;
 
   /**
    * Constructor.
@@ -259,8 +262,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     deweyIDManager = new JsonDeweyIDManager(this);
 
-    updateOperationsMap = new TreeMap<>();
-    updateOperationsSet = new HashSet<>();
+    updateOperationsOrdered = new TreeMap<>();
+    updateOperationsUnordered = new HashMap<>();
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
@@ -541,9 +544,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, oldNodeKey,
         id == null ? null : new DiffDepth(id.getLevel(), getDeweyID().getLevel()));
     if (id == null) {
-      updateOperationsSet.add(diffTuple);
+      updateOperationsUnordered.put(newNodeKey, diffTuple);
     } else {
-      updateOperationsMap.put(id, diffTuple);
+      updateOperationsOrdered.put(id, diffTuple);
     }
     moveTo(currentNodeKey);
   }
@@ -984,7 +987,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = structNode.getNodeKey();
       final long rightSibKey = structNode.getRightSiblingKey();
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
+      final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final NumberNode node = nodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value, id);
 
@@ -1098,12 +1101,15 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         throw new SirixUsageException("Document root can not be removed.");
       }
 
+      adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
+
       final var parentNodeKind = getParentKind();
 
       if (parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-          && parentNodeKind != NodeKind.ARRAY)
+          && parentNodeKind != NodeKind.ARRAY) {
         throw new SirixUsageException(
             "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
+      }
 
       // Remove subtree.
       for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
@@ -1135,8 +1141,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       adaptForRemove(node);
       nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
-      adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
-
       if (node.hasRightSibling()) {
         moveTo(node.getRightSiblingKey());
       } else if (node.hasLeftSibling()) {
@@ -1156,9 +1160,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.DELETED, getNodeKey(), nodeKey,
         id == null ? null : new DiffDepth(getDeweyID().getLevel(), id.getLevel()));
     if (id == null) {
-      updateOperationsSet.add(diffTuple);
+      updateOperationsUnordered.values().removeIf(currDiffTuple -> currDiffTuple.getNewNodeKey() == nodeKey);
+      updateOperationsUnordered.put(nodeKey, diffTuple);
     } else {
-      updateOperationsMap.put(id, diffTuple);
+      updateOperationsOrdered.values().removeIf(currDiffTuple -> currDiffTuple.getNewNodeKey() == nodeKey);
+      updateOperationsOrdered.put(id, diffTuple);
     }
     moveTo(nodeKey);
   }
@@ -1254,11 +1260,19 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
         id == null ? null : new DiffDepth(id.getLevel(), id.getLevel()));
-    if (id == null) {
-      updateOperationsSet.add(diffTuple);
-    } else {
-      updateOperationsMap.put(id, diffTuple);
+    if (id == null && updateOperationsUnordered.get(nodeKey) == null) {
+      updateOperationsUnordered.put(nodeKey, diffTuple);
+    } else if (hasNoUpdatingNodeWithGivenNodeKey(nodeKey)) {
+      updateOperationsOrdered.put(id, diffTuple);
     }
+  }
+
+  private boolean hasNoUpdatingNodeWithGivenNodeKey(long nodeKey) {
+    return updateOperationsOrdered.values()
+                                  .stream()
+                                  .filter(currDiffTuple -> currDiffTuple.getNewNodeKey() == nodeKey)
+                                  .findAny()
+                                  .isEmpty();
   }
 
   @Override
@@ -1520,6 +1534,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     nodeFactory = new JsonNodeFactoryImpl(hashFunction, pageWriteTrx);
     nodeHashing = new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageWriteTrx);
 
+    updateOperationsUnordered.clear();
+    updateOperationsOrdered.clear();
+
     reInstantiateIndexes();
   }
 
@@ -1770,7 +1787,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     final int revisionNumber = getRevisionNumber();
     if (revisionNumber - 1 > 0) {
       final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager, revisionNumber - 1,
-          revisionNumber, storeDeweyIDs() ? updateOperationsMap.values() : updateOperationsSet);
+          revisionNumber, storeDeweyIDs() ? updateOperationsOrdered.values() : updateOperationsUnordered.values());
       final var jsonDiff = diffSerializer.serialize();
 
       // Deserialize index definitions.
