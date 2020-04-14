@@ -120,7 +120,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   public synchronized XmlIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, unused -> {
       final var controller = new XmlIndexController();
-      inititializeIndexController(revision, controller);
+      initializeIndexController(revision, controller);
       return controller;
     });
   }

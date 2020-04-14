@@ -1,9 +1,5 @@
 package org.sirix.access;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
@@ -17,6 +13,11 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public enum DatabaseType {
   XML("xml") {
@@ -49,7 +50,7 @@ public enum DatabaseType {
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), null, null, 0, null);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), null, null, 0, id);
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 

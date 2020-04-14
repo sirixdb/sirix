@@ -154,8 +154,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
     if (stringPaths.size() > 0) {
-      for (final String path : stringPaths)
+      for (final String path : stringPaths) {
         paths.add(Path.parse(path));
+      }
     }
     return new CASFilter(paths, key, mode, pcrCollector);
   }
@@ -165,8 +166,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(thePaths.size());
     if (thePaths.size() > 0) {
-      for (final String path : thePaths)
+      for (final String path : thePaths) {
         paths.add(Path.parse(path));
+      }
     }
     return new CASFilterRange(paths, min, max, incMin, incMax, pcrCollector);
   }

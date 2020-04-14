@@ -169,10 +169,11 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return Math.abs(lhs - rhs);
   }
 
-  protected void inititializeIndexController(final int revision, IndexController<?, ?> controller) {
+  protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
-    final Path indexes = getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                         .resolve(revision + ".xml");
+    final Path indexes = getResourceConfig().getResource()
+                                            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                            .resolve(revision + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -239,8 +240,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final int lastCommittedRevision = lastCommittedUberPage.get().getRevisionNumber();
     final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
 
-    for (int revision = lastCommittedRevision;
-         revision > 0 && revision > lastCommittedRevision - revisions; revision--) {
+    for (int revision = lastCommittedRevision; revision > 0 && revision > lastCommittedRevision - revisions;
+        revision--) {
       revisionInfos.add(threadPool.submit(new RevisionInfoRunnable(this, revision)));
     }
 
@@ -306,9 +307,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final Node documentNode;
 
     @SuppressWarnings("unchecked")
-    final Optional<? extends Node> node =
-        (Optional<? extends Node>) pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-            PageKind.RECORDPAGE, -1);
+    final Optional<? extends Node> node = (Optional<? extends Node>) pageReadTrx.getRecord(
+        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
     if (node.isPresent()) {
       documentNode = node.get();
     } else {
@@ -366,8 +366,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx =
-        createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev,
+        Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -612,9 +612,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx =
-        new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(), revision, storage.createReader(),
-            null, bufferManager, new RevisionRootPageReader());
+    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(),
+        revision, storage.createReader(), null, bufferManager, new RevisionRootPageReader());
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -644,8 +643,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx =
-        createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx = createPageTransaction(currentPageTrxID, lastRev,
+        lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageWtx) != null) {
