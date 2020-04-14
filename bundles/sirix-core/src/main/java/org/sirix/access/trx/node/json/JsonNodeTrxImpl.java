@@ -535,8 +535,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   public void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey, long oldNodeKey, long currentNodeKey) {
     moveTo(oldNodeKey);
-    updateOperations.put(id, new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, oldNodeKey,
-        new DiffDepth(id.getLevel(), getDeweyID().getLevel())));
+
+    updateOperations.put(id == null ? SirixDeweyID.newRootID() : id,
+        new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, oldNodeKey,
+            new DiffDepth(id.getLevel(), getDeweyID().getLevel())));
     moveTo(currentNodeKey);
   }
 
@@ -1145,8 +1147,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private void adaptUpdateOperationsForRemove(SirixDeweyID deweyID, long nodeKey) {
     moveToNext();
-    updateOperations.put(deweyID, new DiffTuple(DiffFactory.DiffType.DELETED, getNodeKey(), nodeKey,
-        new DiffDepth(getDeweyID().getLevel(), deweyID.getLevel())));
+    updateOperations.put(deweyID == null ? SirixDeweyID.newRootID() : deweyID,
+        new DiffTuple(DiffFactory.DiffType.DELETED, getNodeKey(), nodeKey,
+            new DiffDepth(getDeweyID().getLevel(), deweyID.getLevel())));
     moveTo(nodeKey);
   }
 
@@ -1239,8 +1242,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void adaptUpdateOperationsForUpdate(SirixDeweyID deweyID, long nodeKey) {
-    updateOperations.put(deweyID, new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
-        new DiffDepth(deweyID.getLevel(), deweyID.getLevel())));
+    updateOperations.put(deweyID == null ? SirixDeweyID.newRootID() : deweyID,
+        new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
+            new DiffDepth(deweyID.getLevel(), deweyID.getLevel())));
   }
 
   @Override
@@ -1732,24 +1736,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Remember succesfully committed uber page in resource manager.
       resourceManager.setLastCommittedUberPage(uberPage);
 
-      final int revisionNumber = getRevisionNumber();
-      if (revisionNumber - 1 > 0) {
-        final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager, revisionNumber - 1,
-            revisionNumber, updateOperations.values());
-        final var jsonDiff = diffSerializer.serialize();
-
-        // Deserialize index definitions.
-        final Path diff = resourceManager.getResourceConfig()
-                                         .getResource()
-                                         .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                         .resolve("diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
-        try {
-          Files.createFile(diff);
-          Files.writeString(diff, jsonDiff);
-        } catch (final IOException e) {
-          throw new UncheckedIOException(e);
-        }
-      }
+      serializeUpdateDiffs();
 
       // Reinstantiate everything.
       reInstantiate(getId(), getRevisionNumber());
@@ -1763,6 +1750,28 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
 
     return this;
+  }
+
+  public void serializeUpdateDiffs() {
+    final int revisionNumber = getRevisionNumber();
+    if (revisionNumber - 1 > 0) {
+      final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager, revisionNumber - 1,
+          revisionNumber, updateOperations.values());
+      final var jsonDiff = diffSerializer.serialize();
+
+      // Deserialize index definitions.
+      final Path diff = resourceManager.getResourceConfig()
+                                       .getResource()
+                                       .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                       .resolve(
+                                           "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+      try {
+        Files.createFile(diff);
+        Files.writeString(diff, jsonDiff);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
   }
 
   @SuppressWarnings("unchecked")
