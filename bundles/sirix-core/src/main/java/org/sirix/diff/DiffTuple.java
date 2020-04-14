@@ -21,13 +21,15 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import org.sirix.diff.DiffFactory.DiffType;
+
+import javax.annotation.Nonnegative;
 import java.io.Serializable;
 import java.util.Map;
-import javax.annotation.Nonnegative;
-import org.sirix.diff.DiffFactory.DiffType;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Container for diffs.
@@ -42,19 +44,19 @@ public final class DiffTuple implements Serializable {
   private static final long serialVersionUID = -8805161170968505227L;
 
   /** {@link DiffType} which specifies the kind of diff between two nodes. */
-  private DiffType mDiff;
+  private DiffType diff;
 
   /** Node key of node in new revision. */
-  private final long mNewNodeKey;
+  private final long newNodeKey;
 
   /** Node key of node in old revision. */
-  private final long mOldNodeKey;
+  private final long oldNodeKey;
 
   /** {@link DiffDepth} instance. */
-  private final DiffDepth mDepth;
+  private final DiffDepth depth;
 
   /** Key of index in a Map (used for move-detection). */
-  private int mIndex;
+  private int index;
 
   /**
    * Constructor.
@@ -69,10 +71,10 @@ public final class DiffTuple implements Serializable {
     checkArgument(newNodeKey >= 0);
     checkArgument(oldNodeKey >= 0);
 
-    mDiff = checkNotNull(diff);
-    mNewNodeKey = newNodeKey;
-    mOldNodeKey = oldNodeKey;
-    mDepth = checkNotNull(depth);
+    this.diff = checkNotNull(diff);
+    this.newNodeKey = newNodeKey;
+    this.oldNodeKey = oldNodeKey;
+    this.depth = depth;
   }
 
   /**
@@ -81,7 +83,7 @@ public final class DiffTuple implements Serializable {
    * @return the kind of diff
    */
   public DiffType getDiff() {
-    return mDiff;
+    return diff;
   }
 
   /**
@@ -90,7 +92,7 @@ public final class DiffTuple implements Serializable {
    * @param diffType kind of diff
    */
   public DiffTuple setDiff(final DiffType diffType) {
-    mDiff = checkNotNull(diffType);
+    diff = checkNotNull(diffType);
     return this;
   }
 
@@ -101,7 +103,7 @@ public final class DiffTuple implements Serializable {
    */
   public DiffTuple setIndex(final @Nonnegative int index) {
     checkArgument(index >= 0);
-    mIndex = index;
+    this.index = index;
     return this;
   }
 
@@ -111,7 +113,7 @@ public final class DiffTuple implements Serializable {
    * @return the new node key
    */
   public long getNewNodeKey() {
-    return mNewNodeKey;
+    return newNodeKey;
   }
 
   /**
@@ -120,7 +122,7 @@ public final class DiffTuple implements Serializable {
    * @return the old node key
    */
   public long getOldNodeKey() {
-    return mOldNodeKey;
+    return oldNodeKey;
   }
 
   /**
@@ -129,15 +131,15 @@ public final class DiffTuple implements Serializable {
    * @return the depth
    */
   public DiffDepth getDepth() {
-    return mDepth;
+    return depth;
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("diff", mDiff)
-                      .add("new nodeKey", mNewNodeKey)
-                      .add("old nodeKey", mOldNodeKey)
+                      .add("diff", diff)
+                      .add("new nodeKey", newNodeKey)
+                      .add("old nodeKey", oldNodeKey)
                       .toString();
   }
 
@@ -147,6 +149,6 @@ public final class DiffTuple implements Serializable {
    * @return index
    */
   public int getIndex() {
-    return mIndex;
+    return index;
   }
 }

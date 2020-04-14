@@ -539,7 +539,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey, long oldNodeKey, long currentNodeKey) {
     moveTo(oldNodeKey);
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, oldNodeKey,
-        new DiffDepth(id.getLevel(), getDeweyID().getLevel()));
+        id == null ? null : new DiffDepth(id.getLevel(), getDeweyID().getLevel()));
     if (id == null) {
       updateOperationsSet.add(diffTuple);
     } else {
@@ -1151,14 +1151,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private void adaptUpdateOperationsForRemove(SirixDeweyID deweyID, long nodeKey) {
+  private void adaptUpdateOperationsForRemove(SirixDeweyID id, long nodeKey) {
     moveToNext();
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.DELETED, getNodeKey(), nodeKey,
-        new DiffDepth(getDeweyID().getLevel(), deweyID.getLevel()));
-    if (deweyID == null) {
+        id == null ? null : new DiffDepth(getDeweyID().getLevel(), id.getLevel()));
+    if (id == null) {
       updateOperationsSet.add(diffTuple);
     } else {
-      updateOperationsMap.put(deweyID, diffTuple);
+      updateOperationsMap.put(id, diffTuple);
     }
     moveTo(nodeKey);
   }
@@ -1251,13 +1251,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private void adaptUpdateOperationsForUpdate(SirixDeweyID deweyID, long nodeKey) {
+  private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
-        new DiffDepth(deweyID.getLevel(), deweyID.getLevel()));
-    if (deweyID == null) {
+        id == null ? null : new DiffDepth(id.getLevel(), id.getLevel()));
+    if (id == null) {
       updateOperationsSet.add(diffTuple);
     } else {
-      updateOperationsMap.put(deweyID, diffTuple);
+      updateOperationsMap.put(id, diffTuple);
     }
   }
 
