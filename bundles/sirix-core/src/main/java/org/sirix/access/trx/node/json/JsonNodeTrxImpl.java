@@ -207,7 +207,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Collects update operations in pre-order, thus it must be an order-preserving sorted map.
    */
-  private final SortedMap<SirixDeweyID, DiffTuple> updateOperations;
+  private final SortedMap<SirixDeweyID, DiffTuple> updateOperationsMap;
+
+  private final Set<DiffTuple> updateOperationsSet;
 
   /**
    * Constructor.
@@ -257,7 +259,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     deweyIDManager = new JsonDeweyIDManager(this);
 
-    updateOperations = new TreeMap<>();
+    updateOperationsMap = new TreeMap<>();
+    updateOperationsSet = new HashSet<>();
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
@@ -535,10 +538,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   public void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey, long oldNodeKey, long currentNodeKey) {
     moveTo(oldNodeKey);
-
-    updateOperations.put(id == null ? SirixDeweyID.newRootID() : id,
-        new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, oldNodeKey,
-            new DiffDepth(id.getLevel(), getDeweyID().getLevel())));
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, oldNodeKey,
+        new DiffDepth(id.getLevel(), getDeweyID().getLevel()));
+    if (id == null) {
+      updateOperationsSet.add(diffTuple);
+    } else {
+      updateOperationsMap.put(id, diffTuple);
+    }
     moveTo(currentNodeKey);
   }
 
@@ -1147,9 +1153,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private void adaptUpdateOperationsForRemove(SirixDeweyID deweyID, long nodeKey) {
     moveToNext();
-    updateOperations.put(deweyID == null ? SirixDeweyID.newRootID() : deweyID,
-        new DiffTuple(DiffFactory.DiffType.DELETED, getNodeKey(), nodeKey,
-            new DiffDepth(getDeweyID().getLevel(), deweyID.getLevel())));
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.DELETED, getNodeKey(), nodeKey,
+        new DiffDepth(getDeweyID().getLevel(), deweyID.getLevel()));
+    if (deweyID == null) {
+      updateOperationsSet.add(diffTuple);
+    } else {
+      updateOperationsMap.put(deweyID, diffTuple);
+    }
     moveTo(nodeKey);
   }
 
@@ -1242,9 +1252,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void adaptUpdateOperationsForUpdate(SirixDeweyID deweyID, long nodeKey) {
-    updateOperations.put(deweyID == null ? SirixDeweyID.newRootID() : deweyID,
-        new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
-            new DiffDepth(deweyID.getLevel(), deweyID.getLevel())));
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
+        new DiffDepth(deweyID.getLevel(), deweyID.getLevel()));
+    if (deweyID == null) {
+      updateOperationsSet.add(diffTuple);
+    } else {
+      updateOperationsMap.put(deweyID, diffTuple);
+    }
   }
 
   @Override
@@ -1756,7 +1770,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     final int revisionNumber = getRevisionNumber();
     if (revisionNumber - 1 > 0) {
       final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager, revisionNumber - 1,
-          revisionNumber, updateOperations.values());
+          revisionNumber, storeDeweyIDs() ? updateOperationsMap.values() : updateOperationsSet);
       final var jsonDiff = diffSerializer.serialize();
 
       // Deserialize index definitions.
