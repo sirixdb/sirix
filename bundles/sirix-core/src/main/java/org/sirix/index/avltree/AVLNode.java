@@ -166,6 +166,6 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
 
   @Override
   public SirixDeweyID getDeweyID() {
-    throw new UnsupportedOperationException();
+    return null;
   }
 }

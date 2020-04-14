@@ -393,4 +393,8 @@ public abstract class AbstractNodeHashing {
       node.setDescendantCount(oldDescendantCount + descendantCount);
     }
   }
+
+  public boolean isBulkInsert() {
+    return bulkInsert;
+  }
 }

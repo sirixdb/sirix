@@ -123,7 +123,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   public synchronized JsonIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, unused -> {
       final var controller = new JsonIndexController();
-      inititializeIndexController(revision, controller);
+      initializeIndexController(revision, controller);
       return controller;
     });
   }

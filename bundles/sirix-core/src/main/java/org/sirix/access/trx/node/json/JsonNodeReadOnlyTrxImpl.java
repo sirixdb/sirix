@@ -110,7 +110,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   @Override
   public boolean storeDeweyIDs() {
-    return false;
+    return resourceManager.getResourceConfig().areDeweyIDsStored;
   }
 
   @Override
