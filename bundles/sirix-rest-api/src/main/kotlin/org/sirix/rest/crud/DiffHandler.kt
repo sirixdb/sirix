@@ -6,10 +6,12 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
+import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.BasicJsonDiff
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 
 class DiffHandler(private val location: Path) {
@@ -45,15 +47,24 @@ class DiffHandler(private val location: Path) {
                         val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
                         val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: 0
 
-                        it.complete(
-                            BasicJsonDiff().generateDiff(
-                                resourceManager,
-                                firstRevision.toInt(),
-                                secondRevision.toInt(),
-                                startNodeKeyAsLong,
-                                maxDepthAsLong
+                        val diffPath: Path = resourceManager.getResourceConfig()
+                            .resource
+                            .resolve(ResourceConfiguration.ResourcePaths.DATA.path)
+                            .resolve("diffFromRev1toRev2.json")
+
+                        if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
+                            it.complete(Files.readString(diffPath))
+                        } else {
+                            it.complete(
+                                BasicJsonDiff().generateDiff(
+                                    resourceManager,
+                                    firstRevision.toInt(),
+                                    secondRevision.toInt(),
+                                    startNodeKeyAsLong,
+                                    maxDepthAsLong
+                                )
                             )
-                        )
+                        }
                     }
 
                     ctx.response().setStatusCode(200)
