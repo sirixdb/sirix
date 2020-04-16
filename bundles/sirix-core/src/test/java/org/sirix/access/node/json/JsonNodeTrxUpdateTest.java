@@ -5,13 +5,24 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.service.json.shredder.JsonShredder;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class JsonNodeTrxUpdateTest {
+
+  private static final Path JSON = Paths.get("src", "test", "resources", "json");
+
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
@@ -27,8 +38,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
 
       assertEquals(new QNm("foo"), wtx.getName());
@@ -57,8 +68,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
 
       assertEquals("bar", wtx.getValue());
@@ -87,8 +98,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(6);
 
       assertEquals(2.33, wtx.getNumberValue());
@@ -117,8 +128,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(12);
 
       assertTrue(wtx.getBooleanValue());
@@ -140,5 +151,43 @@ public class JsonNodeTrxUpdateTest {
     rtx.moveTo(12);
 
     assertFalse(rtx.getBooleanValue());
+  }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenDiff() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.moveToDocumentRoot().trx().moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
+      wtx.moveTo(5);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), false);
+      wtx.moveTo(5);
+      wtx.remove();
+      wtx.moveTo(4);
+      wtx.insertBooleanValueAsRightSibling(true);
+      wtx.setBooleanValue(false);
+      wtx.moveTo(6);
+      wtx.setNumberValue(1.2);
+      wtx.moveTo(9);
+      wtx.remove();
+      wtx.moveTo(13);
+      wtx.remove();
+      wtx.moveTo(15);
+      wtx.setObjectKeyName("tadaa");
+      wtx.moveTo(22);
+      wtx.setBooleanValue(true);
+      wtx.commit();
+
+      final var diffPath = manager.getResourceConfig()
+                                  .getResource()
+                                  .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                  .resolve("diffFromRev1toRev2.json");
+
+      assertEquals(Files.readString(JSON.resolve("diffFromRev1toRev2.json")), Files.readString(diffPath));
+    }
   }
 }

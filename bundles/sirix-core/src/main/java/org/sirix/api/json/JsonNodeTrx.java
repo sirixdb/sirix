@@ -46,4 +46,8 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader);
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, boolean doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, boolean doImplicitCommit);
 }

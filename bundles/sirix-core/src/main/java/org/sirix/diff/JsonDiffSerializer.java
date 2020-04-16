@@ -28,7 +28,7 @@ public final class JsonDiffSerializer {
     this.diffs = diffs;
   }
 
-  public String serialize() {
+  public String serialize(boolean emitFromDiffAlgorithm) {
     final var databaseName = resourceManager.getDatabase().getName();
     final var resourceName = resourceManager.getResourceConfig().getName();
 
@@ -45,22 +45,9 @@ public final class JsonDiffSerializer {
 
     try (final var oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevisionNumber);
          final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
-      final Iterator<DiffTuple> iter = diffs.iterator();
-      while (iter.hasNext()) {
-        final var diffTuple = iter.next();
-
-        final var diffType = diffTuple.getDiff();
-
-        if (diffType == DiffFactory.DiffType.SAME || diffType == DiffFactory.DiffType.SAMEHASH
-            || diffType == DiffFactory.DiffType.REPLACEDOLD) {
-          iter.remove();
-        } else if (diffType == DiffFactory.DiffType.INSERTED || diffType == DiffFactory.DiffType.REPLACEDNEW) {
-          newRtx.moveTo(diffTuple.getNewNodeKey());
-        }
-
-        if (diffType == DiffFactory.DiffType.DELETED) {
-          oldRtx.moveTo(diffTuple.getOldNodeKey());
-        }
+      if (emitFromDiffAlgorithm) {
+        diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
+            || diffTuple.getDiff() == DiffFactory.DiffType.REPLACEDOLD);
       }
 
       if (diffs.isEmpty()) {
@@ -69,8 +56,15 @@ public final class JsonDiffSerializer {
 
       for (final var diffTuple : diffs) {
         final var diffType = diffTuple.getDiff();
-        newRtx.moveTo(diffTuple.getNewNodeKey());
-        oldRtx.moveTo(diffTuple.getOldNodeKey());
+
+        if (diffTuple.getDiff() == DiffFactory.DiffType.INSERTED) {
+          newRtx.moveTo(diffTuple.getNewNodeKey());
+        } else if (diffTuple.getDiff() == DiffFactory.DiffType.DELETED) {
+          oldRtx.moveTo(diffTuple.getOldNodeKey());
+        } else {
+          newRtx.moveTo(diffTuple.getNewNodeKey());
+          oldRtx.moveTo(diffTuple.getOldNodeKey());
+        }
 
         switch (diffType) {
           case INSERTED:
@@ -79,8 +73,6 @@ public final class JsonDiffSerializer {
 
             final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
 
-            jsonInsertDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
-            jsonInsertDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
             jsonInsertDiff.addProperty("insertPositionNodeKey",
                 newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
             jsonInsertDiff.addProperty("insertPosition", insertPosition);

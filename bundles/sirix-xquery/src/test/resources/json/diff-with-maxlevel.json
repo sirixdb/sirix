@@ -1,1 +1,1 @@
-{"database":"json-path1","resource":"shredded","old-revision":1,"new-revision":3,"diffs":[{"insert":{"oldNodeKey":2,"newNodeKey":26,"insertPositionNodeKey":1,"insertPosition":"asFirstChild","type":"jsonFragment","data":"{\"tadaaa\":\"todooo\"}"}},{"delete":13},{"update":{"nodeKey":15,"name":"tadaa"}}]}
+{"database":"json-path1","resource":"shredded","old-revision":1,"new-revision":3,"diffs":[{"insert":{"insertPositionNodeKey":1,"insertPosition":"asFirstChild","type":"jsonFragment","data":"{\"tadaaa\":\"todooo\"}"}},{"delete":13},{"update":{"nodeKey":15,"name":"tadaa"}}]}
