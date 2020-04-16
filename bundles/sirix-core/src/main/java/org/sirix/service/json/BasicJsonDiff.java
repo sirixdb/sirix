@@ -62,7 +62,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
                                                                       .oldStartKey(startNodeKey)
                                                                       .oldMaxDepth(maxDepth));
 
-    return new JsonDiffSerializer(resourceManager, oldRevisionNumber, newRevisionNumber, diffs).serialize();
+    return new JsonDiffSerializer(resourceManager, oldRevisionNumber, newRevisionNumber, diffs).serialize(true);
   }
 
   @Override
