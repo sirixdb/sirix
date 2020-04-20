@@ -1,4 +1,4 @@
-package org.sirix.axis.coroutine;
+package org.sirix.axis.concurrent;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -6,7 +6,6 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.axis.*;
-import org.sirix.axis.concurrent.CoroutineAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
