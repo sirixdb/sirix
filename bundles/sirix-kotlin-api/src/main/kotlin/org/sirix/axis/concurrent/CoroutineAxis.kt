@@ -19,16 +19,16 @@ import kotlin.coroutines.CoroutineContext
  * <h1>CoroutineAxis</h1>
  * <p>
  * Realizes in combination with the <code>CoroutineAxisHelper</code> the concurrent evaluation of
- * pipeline steps. The given axis is uncoupled from the main thread by embedding it in a Coroutine
- * that uses its one transaction and stores all the results in channel. The CoroutineAxis gets the
- * computed results from that channel one by one on every hasNext() call and sets the main-transaction
- * to it. As soon as the end of the computed result sequence is reached (marked by the
+ * pipeline steps. The given axis is embedded in a Coroutine that uses its own transaction and stores all
+ * the results in channel. The CoroutineAxis gets the computed results from that channel
+ * one by one on every hasNext() call and sets the main-transaction to it.
+ * As soon as the end of the computed result sequence is reached (marked by the
  * NULL_NODE_KEY), the CoroutineAxis returns <code>false</code>.
  * </p>
  * <p>
  * This framework is working according to the producer-consumer-principle, where the
- * CoroutineAxisHelper and its encapsulated axis is the producer and the CoroutineAxis with its
- * callees is the consumer. This can be used by any class that implements the IAxis interface. Note:
+ * CoroutineAxisHelper and its encapsulated axis is the producer and the CoroutineAxis
+ * is the consumer. This can be used by any class that implements the IAxis interface. Note:
  * Make sure that the used class is thread-safe.
  * </p>
  */
@@ -52,8 +52,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
     private var mResults: Channel<Long>
 
     /**
-     * Channel that stores result keys already computed by the producer. End of the result sequence is
-     * marked by the NULL_NODE_KEY.
+     * Producing task which put results in the channel
      */
     private var mProducingTask: Job? = null
 
@@ -113,7 +112,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
     }
 
     /**
-     * Runs producer task in new coroutine and holds task reference
+     * Runs producer task in new coroutine and holds task
      */
     @InternalCoroutinesApi
     private fun runProducer() {

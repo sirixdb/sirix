@@ -29,9 +29,8 @@ class CoroutineAxisHelper(axis: Axis, channel: Channel<Long>) {
         while (NonCancellable.isActive && mAxis.hasNext()) {
             val nodeKey = mAxis.next()
             try {
-                // Add result to channel
+                // Send result to consumer
                 mChannel.send(nodeKey)
-                // Wait until next thread arrives
             } catch (e: InterruptedException) {
                 LOGGER.error(e.message, e)
             }
