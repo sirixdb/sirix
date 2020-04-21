@@ -36,7 +36,7 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.index.path.summary.PathSummaryWriter;
-import org.sirix.io.Storage;
+import org.sirix.io.IOStorage;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
@@ -77,7 +77,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
    */
   public JsonResourceManagerImpl(final Database<JsonResourceManager> database,
       final @Nonnull JsonResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
+      final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
 
     rtxIndexControllers = new ConcurrentHashMap<>();

@@ -58,22 +58,22 @@ public final class FileReader implements Reader {
   final static int OTHER_BEACON = 4;
 
   /** Inflater to decompress. */
-  final ByteHandler mByteHandler;
+  final ByteHandler byteHandler;
 
   /** The hash function used to hash pages/page fragments. */
-  final HashFunction mHashFunction;
+  final HashFunction hashFunction;
 
   /** Data file. */
-  private final RandomAccessFile mDataFile;
+  private final RandomAccessFile dataFile;
 
   /** Revisions offset file. */
-  private final RandomAccessFile mRevisionsOffsetFile;
+  private final RandomAccessFile revisionsOffsetFile;
 
   /** The type of data to serialize. */
-  private final SerializationType mType;
+  private final SerializationType type;
 
   /** Used to serialize/deserialze pages. */
-  private final PagePersister mPagePersiter;
+  private final PagePersister pagePersiter;
 
   /**
    * Constructor.
@@ -86,14 +86,14 @@ public final class FileReader implements Reader {
   public FileReader(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
       final ByteHandler handler, final SerializationType type,
       final PagePersister pagePersistenter) {
-    mHashFunction = Hashing.sha256();
-    mDataFile = checkNotNull(dataFile);
-    mRevisionsOffsetFile = type == SerializationType.DATA
+    hashFunction = Hashing.sha256();
+    this.dataFile = checkNotNull(dataFile);
+    this.revisionsOffsetFile = type == SerializationType.DATA
         ? checkNotNull(revisionsOffsetFile)
         : null;
-    mByteHandler = checkNotNull(handler);
-    mType = checkNotNull(type);
-    mPagePersiter = checkNotNull(pagePersistenter);
+    byteHandler = checkNotNull(handler);
+    this.type = checkNotNull(type);
+    pagePersiter = checkNotNull(pagePersistenter);
   }
 
   @Override
@@ -101,28 +101,28 @@ public final class FileReader implements Reader {
       final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
-      switch (mType) {
+      switch (type) {
         case DATA:
-          mDataFile.seek(reference.getKey());
+          dataFile.seek(reference.getKey());
           break;
         case TRANSACTION_INTENT_LOG:
-          mDataFile.seek(reference.getPersistentLogKey());
+          dataFile.seek(reference.getPersistentLogKey());
           break;
         default:
           // Must not happen.
       }
 
-      final int dataLength = mDataFile.readInt();
+      final int dataLength = dataFile.readInt();
       reference.setLength(dataLength + FileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
-      mDataFile.read(page);
+      dataFile.read(page);
 
       // Perform byte operations.
       final DataInputStream input =
-          new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
+          new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
 
       // Return reader required to instantiate and deserialize page.
-      return mPagePersiter.deserializePage(input, pageReadTrx, mType);
+      return pagePersiter.deserializePage(input, pageReadTrx, type);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -133,8 +133,8 @@ public final class FileReader implements Reader {
     final PageReference uberPageReference = new PageReference();
     try {
       // Read primary beacon.
-      mDataFile.seek(0);
-      uberPageReference.setKey(mDataFile.readLong());
+      dataFile.seek(0);
+      uberPageReference.setKey(dataFile.readLong());
 
       final UberPage page = (UberPage) read(uberPageReference, null);
       uberPageReference.setPage(page);
@@ -147,19 +147,19 @@ public final class FileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      mRevisionsOffsetFile.seek(revision * 8);
-      mDataFile.seek(mRevisionsOffsetFile.readLong());
+      revisionsOffsetFile.seek(revision * 8);
+      dataFile.seek(revisionsOffsetFile.readLong());
 
-      final int dataLength = mDataFile.readInt();
+      final int dataLength = dataFile.readInt();
       final byte[] page = new byte[dataLength];
-      mDataFile.read(page);
+      dataFile.read(page);
 
       // Perform byte operations.
       final DataInputStream input =
-          new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
+          new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
 
       // Return reader required to instantiate and deserialize page.
-      return (RevisionRootPage) mPagePersiter.deserializePage(input, pageReadTrx, mType);
+      return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, type);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
@@ -168,10 +168,10 @@ public final class FileReader implements Reader {
   @Override
   public void close() throws SirixIOException {
     try {
-      if (mRevisionsOffsetFile != null) {
-        mRevisionsOffsetFile.close();
+      if (revisionsOffsetFile != null) {
+        revisionsOffsetFile.close();
       }
-      mDataFile.close();
+      dataFile.close();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

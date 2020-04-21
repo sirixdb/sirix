@@ -77,6 +77,12 @@ public final class JsonDiffSerializer {
                 newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
             jsonInsertDiff.addProperty("insertPosition", insertPosition);
 
+            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+              final var deweyId = newRtx.getDeweyID();
+              jsonInsertDiff.addProperty("deweyID", deweyId.toString());
+              jsonInsertDiff.addProperty("depth", deweyId.getLevel());
+            }
+
             addTypeAndDataProperties(newRevisionNumber, resourceManager, newRtx, jsonInsertDiff);
 
             insertedJson.add("insert", jsonInsertDiff);
@@ -86,7 +92,19 @@ public final class JsonDiffSerializer {
           case DELETED:
             final var deletedJson = new JsonObject();
 
-            deletedJson.addProperty("delete", diffTuple.getOldNodeKey());
+            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+              final var jsonDeletedDiff = new JsonObject();
+
+              jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
+
+              final var deweyId = oldRtx.getDeweyID();
+              jsonDeletedDiff.addProperty("deweyID", deweyId.toString());
+              jsonDeletedDiff.addProperty("depth", deweyId.getLevel());
+
+              deletedJson.add("delete", jsonDeletedDiff);
+            } else {
+              deletedJson.addProperty("delete", diffTuple.getOldNodeKey());
+            }
 
             jsonDiffs.add(deletedJson);
             break;
@@ -99,6 +117,12 @@ public final class JsonDiffSerializer {
             jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
             jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
 
+            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+              final var deweyId = newRtx.getDeweyID();
+              jsonReplaceDiff.addProperty("deweyID", deweyId.toString());
+              jsonReplaceDiff.addProperty("depth", deweyId.getLevel());
+            }
+
             addTypeAndDataProperties(newRevisionNumber, resourceManager, newRtx, jsonReplaceDiff);
 
             jsonDiffs.add(replaceJson);
@@ -108,6 +132,12 @@ public final class JsonDiffSerializer {
             final var jsonUpdateDiff = new JsonObject();
 
             jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
+
+            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+              final var deweyId = newRtx.getDeweyID();
+              jsonUpdateDiff.addProperty("deweyID", deweyId.toString());
+              jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
+            }
 
             if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
               jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
@@ -187,4 +217,3 @@ public final class JsonDiffSerializer {
     }
   }
 }
-

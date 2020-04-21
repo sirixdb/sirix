@@ -41,6 +41,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;

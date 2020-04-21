@@ -31,7 +31,7 @@ import org.sirix.io.bytepipe.ByteHandler;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public interface Storage {
+public interface IOStorage {
 
   /**
    * Getting a writer.

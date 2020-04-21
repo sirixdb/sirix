@@ -78,16 +78,13 @@ public final class Names {
 
         final Optional<? extends DataRecord> countNode =
             pageReadTrx.getRecord(nodeKeyOfCountNode, PageKind.NAMEPAGE, indexNumber);
-        try {
-          final HashCountEntryNode hashKeyToNameCountEntryNode =
-              (HashCountEntryNode) countNode.orElseThrow(() -> new IllegalStateException(
-                  "Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode));
 
-          mCountNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
-          mCountNodeMap.put(key, nodeKeyOfCountNode);
-        } catch (final Exception e) {
-          System.out.println();
-        }
+        final HashCountEntryNode hashKeyToNameCountEntryNode =
+            (HashCountEntryNode) countNode.orElseThrow(() -> new IllegalStateException(
+                "Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode));
+
+        mCountNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
+        mCountNodeMap.put(key, nodeKeyOfCountNode);
       }
     }
   }

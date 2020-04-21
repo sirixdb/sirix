@@ -16,6 +16,7 @@ import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.List;
 
 /**
  * Page utilities.
@@ -77,7 +78,7 @@ public final class PageUtils {
 
     // Create new record page.
     final UnorderedKeyValuePage recordPage = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-        Constants.NULL_ID_LONG, pageReadTrx);
+        List.of(), pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
 

@@ -7,7 +7,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.io.Storage;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PageReference;
@@ -21,7 +21,7 @@ import org.sirix.page.interfaces.Page;
  * @author Johannes Lichtenberger
  *
  */
-public final class RAMStorage implements Storage {
+public final class RAMStorage implements IOStorage {
 
   /** Storage, mapping a resource to the pageKey/page mapping. */
   private final ConcurrentMap<String, ConcurrentMap<Long, Page>> mDataStorage;

@@ -1,6 +1,3 @@
-/**
- *
- */
 package org.sirix.page;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -15,6 +12,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.List;
+
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
@@ -63,14 +62,6 @@ public class PageTest {
     mHolder.close();
   }
 
-  /**
-   * Test method for {@link org.Page.page.IPage#IPage(long)} and
-   * {@link org.Page.page.IPage#getByteRepresentation()}.
-   *
-   * @param clazz page as class
-   * @param handlers different pages
-   * @throws IOException
-   */
   @Test(dataProvider = "instantiatePages")
   public void testByteRepresentation(final Class<Page> clazz, final Page[] handlers) throws IOException {
     for (final Page handler : handlers) {
@@ -103,7 +94,7 @@ public class PageTest {
 
     // NodePage setup.
     final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
-        PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
+        PageKind.RECORDPAGE, List.of(), mPageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setEntry(record.getNodeKey(), record);

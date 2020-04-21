@@ -15,7 +15,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.io.Storage;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;
@@ -97,7 +97,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Factory for all interactions with the storage.
    */
-  final Storage storage;
+  final IOStorage storage;
 
   /**
    * Atomic counter for concurrent generation of node transaction id.
@@ -141,7 +141,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public AbstractResourceManager(final Database<? extends ResourceManager<R, W>> database,
       final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
       final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-      final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock,
+      final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock,
       final @Nullable User user) {
     this.database = checkNotNull(database);
     this.resourceStore = checkNotNull(resourceStore);

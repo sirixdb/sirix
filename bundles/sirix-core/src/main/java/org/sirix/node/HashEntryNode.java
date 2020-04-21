@@ -98,6 +98,6 @@ public final class HashEntryNode implements DataRecord {
 
   @Override
   public SirixDeweyID getDeweyID() {
-    throw new UnsupportedOperationException();
+    return null;
   }
 }
