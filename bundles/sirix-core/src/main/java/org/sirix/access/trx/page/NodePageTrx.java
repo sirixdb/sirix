@@ -186,7 +186,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public DataRecord createEntry(final Long key, @Nonnull final DataRecord record, final PageKind pageKind, final int index) {
+  public DataRecord createEntry(final Long key, @Nonnull final DataRecord record, final PageKind pageKind,
+      final int index) {
     pageRtx.assertNotClosed();
     // Allocate record key and increment record count.
     long recordKey;
@@ -281,7 +282,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     if (reference == null)
       return;
 
-//    mLog.setEvict(false);
+    //    mLog.setEvict(false);
 
     final PageContainer container = log.get(reference, this);
 
@@ -422,16 +423,15 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
 
     // Get the reference to the unordered key/value page storing the records.
     final PageReference reference = treeModifier.prepareLeafOfTree(pageRtx, log,
-                                                                    getUberPage().getPageCountExp(pageKind),
-                                                                    pageReference, recordPageKey, indexNumber, pageKind,
+        getUberPage().getPageCountExp(pageKind), pageReference, recordPageKey, indexNumber, pageKind,
         newRevisionRootPage);
 
     PageContainer pageContainer = log.get(reference, this);
 
     if (pageContainer.equals(PageContainer.emptyInstance())) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, pageKind,
-                                                                             Constants.NULL_ID_LONG, pageRtx);
+        final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, pageKind, List.of(),
+            pageRtx);
         final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(pageRtx, completePage);
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
@@ -457,7 +457,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
    * @return dereferenced page
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
-    final List<UnorderedKeyValuePage> revs = pageRtx.getSnapshotPages(reference);
+    final List<UnorderedKeyValuePage> revs = pageRtx.getPageFragments(reference);
     final VersioningType revisioning = pageRtx.resourceManager.getResourceConfig().revisioningType;
     final int mileStoneRevision = pageRtx.resourceManager.getResourceConfig().numberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(revs, mileStoneRevision, pageRtx, reference);

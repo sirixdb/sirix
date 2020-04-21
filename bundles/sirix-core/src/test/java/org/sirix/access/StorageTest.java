@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -25,8 +25,7 @@ import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.io.Storage;
-import org.sirix.io.StorageType;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
@@ -73,8 +72,8 @@ public final class StorageTest {
   }
 
   @Test(dataProvider = "instantiateStorages")
-  public void testExists(final Class<Storage> clazz, final Storage[] storages) throws SirixException {
-    for (final Storage handler : storages) {
+  public void testExists(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
+    for (final IOStorage handler : storages) {
       assertFalse("empty storage should not return true on exists", handler.exists());
 
       try (final Writer writer = handler.createWriter()) {
@@ -92,15 +91,9 @@ public final class StorageTest {
     }
   }
 
-  /**
-   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
-   *
-   * @throws SirixIOException
-   */
   @Test(dataProvider = "instantiateStorages")
-  public void testFirstRef(final Class<Storage> clazz, final Storage[] storages) throws SirixException {
-    for (final Storage handler : storages) {
+  public void testFirstRef(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
+    for (final IOStorage handler : storages) {
       try {
         final PageReference pageRef1 = new PageReference();
         final UberPage page1 = new UberPage();
@@ -137,8 +130,8 @@ public final class StorageTest {
   public Object[][] instantiateStorages() {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
     return new Object[][]{
-        {Storage.class,
-            new Storage[]{
+        { IOStorage.class,
+            new IOStorage[]{
                 new FileStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
                 new RAMStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
             }

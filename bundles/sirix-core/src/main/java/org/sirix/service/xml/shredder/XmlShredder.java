@@ -142,7 +142,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     /**
      * Include processing instructions or not (default: yes).
      *
-     * @param nclude processing instructions
+     * @param include processing instructions
      * @return this builder instance
      */
     public Builder includePIs(final boolean include) {
@@ -269,8 +269,6 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   /**
    * Add a new element node.
    *
-   * @param pLeftSiblingKeyStack stack used to determine if the new element has to be inserted as a
-   *        right sibling or as a new child (in the latter case is NULL on top of the stack)
    * @param event the current event from the StAX parser
    * @return the modified stack
    * @throws SirixException if adding {@link ElementNode} fails

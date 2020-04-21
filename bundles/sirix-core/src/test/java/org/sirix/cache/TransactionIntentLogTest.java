@@ -15,6 +15,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 
@@ -44,11 +45,11 @@ public class TransactionIntentLogTest {
       final var persistentCache = new PersistentFileCache(fileWriter);
       final var trxIntentLog = new TransactionIntentLog(persistentCache, 1);
 
-      final var firstCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, -1, pageReadOnlyTrx);
-      final var firstDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, -1, pageReadOnlyTrx);
+      final var firstCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
+      final var firstDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
 
-      final var secondCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, -1, pageReadOnlyTrx);
-      final var secondDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, -1, pageReadOnlyTrx);
+      final var secondCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
+      final var secondDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
 
       final var firstPageReference = new PageReference();
       final var secondPageReference = new PageReference();

@@ -1,6 +1,6 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -27,18 +27,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
+
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.page.PageFragmentKeyImpl;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.page.interfaces.PageFragmentKey;
 
 /**
  * Different versioning algorithms.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public enum VersioningType {
 
@@ -61,12 +63,8 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
-      returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), List.of(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), List.of(), pageReadTrx));
 
       for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
         returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
@@ -77,9 +75,8 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(@Nonnegative int previousRevision,
-        @Nonnegative int revsToRestore) {
-      return new int[] {previousRevision};
+    public int[] getRevisionRoots(@Nonnegative int previousRevision, @Nonnegative int revsToRestore) {
+      return new int[] { previousRevision };
     }
   },
 
@@ -94,13 +91,11 @@ public enum VersioningType {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(
-          recordPageKey, firstPage.getPageKind(), firstPage.getPreviousReferenceKey(), pageReadTrx);
+      final T returnVal = firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
+          firstPage.getPreviousReferenceKeys(), pageReadTrx);
 
       final T latest = pages.get(0);
-      T fullDump = pages.size() == 1
-          ? pages.get(0)
-          : pages.get(1);
+      T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
 
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
@@ -143,17 +138,13 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevision();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
-      returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
+          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
+          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())), pageReadTrx));
 
       final T latest = firstPage;
-      T fullDump = pages.size() == 1
-          ? firstPage
-          : pages.get(1);
+      T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
       final boolean isFullDump = revision % revToRestore == 0;
 
       // Iterate through all nodes of the latest revision.
@@ -208,14 +199,13 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(@Nonnegative int previousRevision,
-        @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(@Nonnegative int previousRevision, @Nonnegative int revsToRestore) {
       final int revisionsToRestore = previousRevision % revsToRestore;
       final int lastFullDump = previousRevision - revisionsToRestore;
       if (lastFullDump == previousRevision) {
-        return new int[] {lastFullDump};
+        return new int[] { lastFullDump };
       } else {
-        return new int[] {previousRevision, lastFullDump};
+        return new int[] { previousRevision, lastFullDump };
       }
     }
   },
@@ -231,9 +221,8 @@ public enum VersioningType {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(
-          firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPreviousReferenceKey(),
-          firstPage.getPageReadTrx());
+      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(),
+          firstPage.getPreviousReferenceKeys(), firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -270,17 +259,21 @@ public enum VersioningType {
 
     @Override
     public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx,
-        final PageReference reference) {
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
+      final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(
+          firstPage.getPreviousReferenceKeys().size() + 1);
+      previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
+      for (int i = 0, previousRefKeysSize = firstPage.getPreviousReferenceKeys().size();
+          i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
+        previousPageFragmentKeys.add(firstPage.getPreviousReferenceKeys().get(i));
+      }
       returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
       returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
       final boolean isFullDump = pages.size() == revToRestore;
 
       boolean filledPage = false;
@@ -332,11 +325,9 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(final @Nonnegative int previousRevision,
-        final @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(final @Nonnegative int previousRevision, final @Nonnegative int revsToRestore) {
       final List<Integer> retVal = new ArrayList<>(revsToRestore);
-      for (int i = previousRevision, until = previousRevision - revsToRestore; i > until
-          && i >= 0; i--) {
+      for (int i = previousRevision, until = previousRevision - revsToRestore; i > until && i >= 0; i--) {
         retVal.add(i);
       }
       assert retVal.size() <= revsToRestore;
@@ -364,9 +355,8 @@ public enum VersioningType {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(
-          firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPreviousReferenceKey(),
-          firstPage.getPageReadTrx());
+      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(),
+          firstPage.getPreviousReferenceKeys(), firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size(); i++) {
@@ -404,20 +394,24 @@ public enum VersioningType {
 
     @Override
     public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx,
-        final PageReference reference) {
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
+      final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(
+          firstPage.getPreviousReferenceKeys().size() + 1);
+      previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
+      for (int i = 0, previousRefKeysSize = firstPage.getPreviousReferenceKeys().size();
+          i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
+        previousPageFragmentKeys.add(firstPage.getPreviousReferenceKeys().get(i));
+      }
       returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
       returnVal.add(
-          firstPage.<T>newInstance(
-              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
 
-      final T reconstructed = firstPage.<T>newInstance(
-          recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx);
+      final T reconstructed = firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
+          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())), pageReadTrx);
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size() && !filledPage; i++) {
@@ -477,11 +471,9 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(final @Nonnegative int previousRevision,
-        final @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(final @Nonnegative int previousRevision, final @Nonnegative int revsToRestore) {
       final List<Integer> retVal = new ArrayList<>(revsToRestore);
-      for (int i = previousRevision, until = previousRevision - revsToRestore; i > until
-          && i >= 0; i--) {
+      for (int i = previousRevision, until = previousRevision - revsToRestore; i > until && i >= 0; i--) {
         retVal.add(i);
       }
       assert retVal.size() <= revsToRestore;
@@ -503,7 +495,7 @@ public enum VersioningType {
    * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus
    * a revision-delta which determines the necessary steps back.
    *
-   * @param pages the base of the complete {@link KeyValuePage}
+   * @param pages         the base of the complete {@link KeyValuePage}
    * @param revsToRestore the number of revisions needed to build the complete record page
    * @return the complete {@link KeyValuePage}
    */
@@ -514,10 +506,10 @@ public enum VersioningType {
    * Method to reconstruct a complete {@link KeyValuePage} for reading as well as a
    * {@link KeyValuePage} for serializing with the nodes to write.
    *
-   * @param pages the base of the complete {@link KeyValuePage}
+   * @param pages         the base of the complete {@link KeyValuePage}
    * @param revsToRestore the revisions needed to build the complete record page
    * @return a {@link PageContainer} holding a complete {@link KeyValuePage} for reading and one for
-   *         writing
+   * writing
    */
   public abstract <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
       final List<T> pages, final @Nonnegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
@@ -527,9 +519,8 @@ public enum VersioningType {
    * Get all revision root page numbers which are needed to restore a {@link KeyValuePage}.
    *
    * @param previousRevision the previous revision
-   * @param revsToRestore number of revisions to restore
+   * @param revsToRestore    number of revisions to restore
    * @return revision root page numbers needed to restore a {@link KeyValuePage}
    */
-  public abstract int[] getRevisionRoots(final @Nonnegative int previousRevision,
-      final @Nonnegative int revsToRestore);
+  public abstract int[] getRevisionRoots(final @Nonnegative int previousRevision, final @Nonnegative int revsToRestore);
 }

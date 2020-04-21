@@ -37,7 +37,7 @@ public enum StorageType {
   /** In memory backend. */
   IN_MEMORY {
     @Override
-    public Storage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
       return new RAMStorage(resourceConf);
     }
   },
@@ -45,7 +45,7 @@ public enum StorageType {
   /** {@link RandomAccessFile} backend. */
   FILE {
     @Override
-    public Storage getInstance(final ResourceConfiguration resourceConf) {
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       return new FileStorage(resourceConf);
     }
   };
@@ -57,18 +57,18 @@ public enum StorageType {
    * @return instance of a storage backend specified within the {@link ResourceConfiguration}
    * @throws SirixIOException if an IO-error occured
    */
-  public abstract Storage getInstance(final ResourceConfiguration resourceConf);
+  public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
 
   /**
-   * Factory method to retrieve suitable {@link Storage} instances based upon the suitable
+   * Factory method to retrieve suitable {@link IOStorage} instances based upon the suitable
    * {@link ResourceConfiguration}.
    *
    * @param resourceConf determining the storage
-   * @return an implementation of the {@link Storage} interface
+   * @return an implementation of the {@link IOStorage} interface
    * @throws SirixIOException if an IO-exception occurs
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
-  public static final Storage getStorage(final ResourceConfiguration resourceConf) {
+  public static final IOStorage getStorage(final ResourceConfiguration resourceConf) {
     return resourceConf.storageType.getInstance(resourceConf);
   }
 }

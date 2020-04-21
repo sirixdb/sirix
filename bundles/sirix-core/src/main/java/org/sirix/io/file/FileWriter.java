@@ -50,16 +50,16 @@ import org.sirix.page.interfaces.Page;
 public final class FileWriter extends AbstractForwardingReader implements Writer {
 
   /** Random access to work on. */
-  private final RandomAccessFile mDataFile;
+  private final RandomAccessFile dataFile;
 
   /** {@link FileReader} reference for this writer. */
-  private final FileReader mReader;
+  private final FileReader reader;
 
-  private final SerializationType mType;
+  private final SerializationType type;
 
-  private final RandomAccessFile mRevisionsOffsetFile;
+  private final RandomAccessFile revisionsOffsetFile;
 
-  private final PagePersister mPagePersister;
+  private final PagePersister pagePersister;
 
   /**
    * Constructor.
@@ -73,26 +73,26 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   public FileWriter(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
       final ByteHandler handler, final SerializationType serializationType,
       final PagePersister pagePersister) {
-    mDataFile = checkNotNull(dataFile);
-    mType = checkNotNull(serializationType);
-    mRevisionsOffsetFile = mType == SerializationType.DATA
+    this.dataFile = checkNotNull(dataFile);
+    type = checkNotNull(serializationType);
+    this.revisionsOffsetFile = type == SerializationType.DATA
         ? checkNotNull(revisionsOffsetFile)
         : null;
-    mPagePersister = checkNotNull(pagePersister);
-    mReader =
+    this.pagePersister = checkNotNull(pagePersister);
+    reader =
         new FileReader(dataFile, revisionsOffsetFile, handler, serializationType, pagePersister);
   }
 
   @Override
   public Writer truncateTo(final int revision) {
-    UberPage uberPage = (UberPage) mReader.readUberPageReference().getPage();
+    UberPage uberPage = (UberPage) reader.readUberPageReference().getPage();
 
     while (uberPage.getRevisionNumber() != revision) {
-      uberPage = (UberPage) mReader.read(
+      uberPage = (UberPage) reader.read(
           new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
       if (uberPage.getRevisionNumber() == revision) {
         try {
-          mDataFile.setLength(uberPage.getPreviousUberPageKey());
+          dataFile.setLength(uberPage.getPreviousUberPageKey());
         } catch (final IOException e) {
           throw new UncheckedIOException(e);
         }
@@ -121,8 +121,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream();
           final DataOutputStream dataOutput =
-              new DataOutputStream(mReader.mByteHandler.serialize(output))) {
-        mPagePersister.serializePage(dataOutput, page, mType);
+              new DataOutputStream(reader.byteHandler.serialize(output))) {
+        pagePersister.serializePage(dataOutput, page, type);
         dataOutput.flush();
         serializedPage = output.toByteArray();
       }
@@ -135,15 +135,15 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       buffer.get(writtenPage, 0, writtenPage.length);
 
       // Getting actual offset and appending to the end of the current file.
-      final long fileSize = mDataFile.length();
+      final long fileSize = dataFile.length();
       final long offset = fileSize == 0
           ? FileReader.FIRST_BEACON
           : fileSize;
-      mDataFile.seek(offset);
-      mDataFile.write(writtenPage);
+      dataFile.seek(offset);
+      dataFile.write(writtenPage);
 
       // Remember page coordinates.
-      switch (mType) {
+      switch (type) {
         case DATA:
           pageReference.setKey(offset);
           break;
@@ -155,11 +155,11 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       }
 
       pageReference.setLength(writtenPage.length);
-      pageReference.setHash(mReader.mHashFunction.hashBytes(writtenPage).asBytes());
+      pageReference.setHash(reader.hashFunction.hashBytes(writtenPage).asBytes());
 
-      if (mType == SerializationType.DATA && page instanceof RevisionRootPage) {
-        mRevisionsOffsetFile.seek(mRevisionsOffsetFile.length());
-        mRevisionsOffsetFile.writeLong(offset);
+      if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
+        revisionsOffsetFile.seek(revisionsOffsetFile.length());
+        revisionsOffsetFile.writeLong(offset);
       }
 
       return this;
@@ -171,14 +171,14 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   @Override
   public void close() throws SirixIOException {
     try {
-      if (mDataFile != null) {
-        mDataFile.close();
+      if (dataFile != null) {
+        dataFile.close();
       }
-      if (mRevisionsOffsetFile != null) {
-        mRevisionsOffsetFile.close();
+      if (revisionsOffsetFile != null) {
+        revisionsOffsetFile.close();
       }
-      if (mReader != null) {
-        mReader.close();
+      if (reader != null) {
+        reader.close();
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -189,8 +189,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
     try {
       write(pageReference);
-      mDataFile.seek(0);
-      mDataFile.writeLong(pageReference.getKey());
+      dataFile.seek(0);
+      dataFile.writeLong(pageReference.getKey());
 
       return this;
     } catch (final IOException e) {
@@ -200,16 +200,16 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   @Override
   protected Reader delegate() {
-    return mReader;
+    return reader;
   }
 
   @Override
   public Writer truncate() {
     try {
-      mDataFile.setLength(0);
+      dataFile.setLength(0);
 
-      if (mRevisionsOffsetFile != null)
-        mRevisionsOffsetFile.setLength(0);
+      if (revisionsOffsetFile != null)
+        revisionsOffsetFile.setLength(0);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
