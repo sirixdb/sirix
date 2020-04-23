@@ -49,7 +49,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 @Nonnull
 abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-  extends AbstractDiffObservable {
+    extends AbstractDiffObservable {
 
   /**
    * The old maximum depth.
@@ -236,7 +236,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     // the OR).
     if (mDiff != DiffType.SAMEHASH) {
       while ((mOldRtx.getKind() != documentNode() && mDiff == DiffType.DELETED) || moveCursor(mNewRtx, Revision.NEW,
-        Move.FOLLOWING)) {
+          Move.FOLLOWING)) {
         if (mDiff != DiffType.INSERTED) {
           moveCursor(mOldRtx, Revision.OLD, Move.FOLLOWING);
         }
@@ -300,7 +300,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private void fireDeletes() {
     fireDiff(DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
-      new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+        new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
 
     mIsFirst = false;
 
@@ -320,7 +320,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private void fireInserts() {
     fireDiff(DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
-      new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+        new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
 
     mIsFirst = false;
 
@@ -381,16 +381,17 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     boolean moved = false;
     if (rtx.hasFirstChild()) {
       if (rtx.getKind() != documentNode() && ((mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) || (
-        mOldMaxDepth > 0 && rtx.getKind() != NodeKind.OBJECT_KEY && mDepth.getOldDepth() + 1 >= mOldMaxDepth))) {
+          mOldMaxDepth > 0 && rtx.getKind() != NodeKind.OBJECT_KEY && mDepth.getOldDepth() + 1 >= mOldMaxDepth))) {
         moved = rtx.moveToRightSibling().hasMoved();
 
         if (!moved) {
           moved = moveToFollowingNode(rtx, revision);
         }
       } else {
+        final NodeKind nodeKind = rtx.getKind();
         moved = rtx.moveToFirstChild().hasMoved();
 
-        if (moved && rtx.getKind() != NodeKind.OBJECT_KEY) {
+        if (moved && nodeKind != NodeKind.OBJECT_KEY) {
           switch (revision) {
             case NEW:
               mDepth.incrementNewDepth();
@@ -464,21 +465,12 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     DiffType diff = DiffType.SAME;
 
     // Check for modifications.
-    switch (newRtx.getKind()) {
-      case XML_DOCUMENT:
-      case TEXT:
-      case ELEMENT:
-        if (checkNodes(newRtx, oldRtx)) {
-          final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
-          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
-          emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
-        } else {
-          diff = diffAlgorithm(newRtx, oldRtx, depth);
-        }
-        break;
-      // $CASES-OMITTED$
-      default:
-        // Do nothing.
+    if (checkNodes(newRtx, oldRtx)) {
+      final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
+      fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+      emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
+    } else {
+      diff = diffAlgorithm(newRtx, oldRtx, depth);
     }
 
     return diff;
@@ -603,8 +595,8 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         fireDiff(diff, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), diffDepth);
         emitNonStructuralDiff(mNewRtx, mOldRtx, diffDepth, diff);
       } while (moveCursor(rtx, revision, Move.DOCUMENT_ORDER) && (
-        (diff == DiffType.INSERTED && mDepth.getNewDepth() > depth) || (diff == DiffType.DELETED
-          && mDepth.getOldDepth() > depth)));
+          (diff == DiffType.INSERTED && mDepth.getNewDepth() > depth) || (diff == DiffType.DELETED
+              && mDepth.getOldDepth() > depth)));
     }
   }
 
@@ -719,8 +711,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param startNodeKey the start node key
    * @param revision     revision to iterate over
    */
-  private void adjustDepth(final R rtx, final @Nonnegative
-    long startNodeKey, final Revision revision) {
+  private void adjustDepth(final R rtx, final @Nonnegative long startNodeKey, final Revision revision) {
     assert rtx != null;
     assert revision != null;
     final long nodeKey = rtx.getNodeKey();
@@ -765,7 +756,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       return newRtx.getNodeKey() == oldRtx.getNodeKey();
     }
     return newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
-      && mDepth.getNewDepth() == mDepth.getOldDepth();
+        && mDepth.getNewDepth() == mDepth.getOldDepth();
   }
 
   /**
