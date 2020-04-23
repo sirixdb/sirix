@@ -1,0 +1,1 @@
+{"database":"json-path1","resource":"shredded","old-revision":1,"new-revision":2,"diffs":[{"insert":{"insertPositionNodeKey":15,"insertPosition":"asRightSibling","deweyID":"1.3.11","depth":2,"type":"jsonFragment","data":"{\"hereIAm\":\"yeah\"}"}}]}

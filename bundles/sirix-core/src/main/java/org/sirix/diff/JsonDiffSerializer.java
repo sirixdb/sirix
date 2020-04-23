@@ -71,11 +71,24 @@ public final class JsonDiffSerializer {
             final var insertedJson = new JsonObject();
             final var jsonInsertDiff = new JsonObject();
 
-            final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
+            if (emitFromDiffAlgorithm) {
+              oldRtx.moveTo(diffTuple.getOldNodeKey());
 
-            jsonInsertDiff.addProperty("insertPositionNodeKey",
-                newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
-            jsonInsertDiff.addProperty("insertPosition", insertPosition);
+              if (newRtx.getRightSiblingKey() == oldRtx.getNodeKey()) {
+                final var insertPosition = oldRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
+                jsonInsertDiff.addProperty("insertPositionNodeKey",
+                    oldRtx.hasLeftSibling() ? oldRtx.getLeftSiblingKey() : oldRtx.getParentKey());
+                jsonInsertDiff.addProperty("insertPosition", insertPosition);
+              } else if (newRtx.getParentKey() == oldRtx.getNodeKey()) {
+                jsonInsertDiff.addProperty("insertPositionNodeKey",
+                    oldRtx.getNodeKey());
+                jsonInsertDiff.addProperty("insertPosition", "asFirstChild");
+              } else {
+                insertBasedOnNewRtx(newRtx, jsonInsertDiff);
+              }
+            } else {
+              insertBasedOnNewRtx(newRtx, jsonInsertDiff);
+            }
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -170,6 +183,14 @@ public final class JsonDiffSerializer {
     }
 
     return json.toString();
+  }
+
+  private void insertBasedOnNewRtx(JsonNodeReadOnlyTrx newRtx, JsonObject jsonInsertDiff) {
+    final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
+
+    jsonInsertDiff.addProperty("insertPositionNodeKey",
+        newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
+    jsonInsertDiff.addProperty("insertPosition", insertPosition);
   }
 
   private JsonObject createMetaInfo(final String databaseName, final String resourceName, final int oldRevision,
