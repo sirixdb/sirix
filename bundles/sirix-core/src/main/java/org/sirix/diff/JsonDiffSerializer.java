@@ -71,24 +71,7 @@ public final class JsonDiffSerializer {
             final var insertedJson = new JsonObject();
             final var jsonInsertDiff = new JsonObject();
 
-            if (emitFromDiffAlgorithm) {
-              oldRtx.moveTo(diffTuple.getOldNodeKey());
-
-              if (newRtx.getRightSiblingKey() == oldRtx.getNodeKey()) {
-                final var insertPosition = oldRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
-                jsonInsertDiff.addProperty("insertPositionNodeKey",
-                    oldRtx.hasLeftSibling() ? oldRtx.getLeftSiblingKey() : oldRtx.getParentKey());
-                jsonInsertDiff.addProperty("insertPosition", insertPosition);
-              } else if (newRtx.getParentKey() == oldRtx.getNodeKey()) {
-                jsonInsertDiff.addProperty("insertPositionNodeKey",
-                    oldRtx.getNodeKey());
-                jsonInsertDiff.addProperty("insertPosition", "asFirstChild");
-              } else {
-                insertBasedOnNewRtx(newRtx, jsonInsertDiff);
-              }
-            } else {
-              insertBasedOnNewRtx(newRtx, jsonInsertDiff);
-            }
+            insertBasedOnNewRtx(newRtx, jsonInsertDiff);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -186,6 +169,7 @@ public final class JsonDiffSerializer {
   }
 
   private void insertBasedOnNewRtx(JsonNodeReadOnlyTrx newRtx, JsonObject jsonInsertDiff) {
+    jsonInsertDiff.addProperty("nodeKey", newRtx.getNodeKey());
     final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
 
     jsonInsertDiff.addProperty("insertPositionNodeKey",

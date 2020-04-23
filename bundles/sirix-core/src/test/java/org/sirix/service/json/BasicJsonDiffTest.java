@@ -5,6 +5,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import org.sirix.service.json.shredder.JsonShredder;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,7 +28,7 @@ public final class BasicJsonDiffTest {
   }
 
   @Test
-  public void test_whenMultipleRevisionsExist_thenDiff() throws IOException {
+  public void test_whenMultipleRevisionsExist_thenDiff1() throws IOException {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -46,6 +47,26 @@ public final class BasicJsonDiffTest {
 
       final String diffRev1Rev3 = new BasicJsonDiff().generateDiff(manager, 1, 3);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("diffRev1Rev3.json")), diffRev1Rev3);
+    }
+  }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenDiff2() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.moveTo(4);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"new\":\"stuff\"}"));
+      wtx.moveTo(4);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"new\":\"stuff\"}"));
+      wtx.moveTo(4);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"new\":\"stuff\"}"));
+
+      final String diffRev1Rev4 = new BasicJsonDiff().generateDiff(manager, 1, 4);
+      System.out.println(diffRev1Rev4);
     }
   }
 }
