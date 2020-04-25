@@ -448,7 +448,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           ? Fixed.NULL_NODE_KEY.getStandardProperty()
           : structNode.getFirstChildKey();
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
+      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
+          ? deweyIDManager.newRecordValueID()
+          : deweyIDManager.newFirstChildID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
 
@@ -651,7 +653,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "__array__", NodeKind.ARRAY);
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
+      final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
+          ? deweyIDManager.newRecordValueID()
+          : deweyIDManager.newFirstChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
@@ -722,15 +726,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final byte[] textValue = getBytes(value);
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
-
+      final SirixDeweyID id;
       final AbstractStringNode node;
-      final long rightSibKey;
       if (kind == NodeKind.OBJECT_KEY) {
-        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectStringNode(parentKey, textValue, useTextCompression, id);
       } else {
-        rightSibKey = structNode.getFirstChildKey();
+        id = deweyIDManager.newFirstChildID();
+        final long rightSibKey = structNode.getFirstChildKey();
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
       }
@@ -819,15 +822,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long pathNodeKey = getPathNodeKey(structNode);
       final long parentKey = structNode.getNodeKey();
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
-
+      final SirixDeweyID id;
       final AbstractBooleanNode node;
-      final long rightSibKey;
       if (kind == NodeKind.OBJECT_KEY) {
-        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectBooleanNode(parentKey, value, id);
       } else {
-        rightSibKey = structNode.getFirstChildKey();
+        id = deweyIDManager.newFirstChildID();
+        final long rightSibKey = structNode.getFirstChildKey();
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value, id);
       }
@@ -925,15 +927,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long pathNodeKey = getPathNodeKey(currentNode);
       final long parentKey = currentNode.getNodeKey();
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
-
+      final SirixDeweyID id;
       final AbstractNumberNode node;
-      final long rightSibKey;
       if (kind == NodeKind.OBJECT_KEY) {
-        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectNumberNode(parentKey, value, id);
       } else {
-        rightSibKey = currentNode.getFirstChildKey();
+        id = deweyIDManager.newFirstChildID();
+        final long rightSibKey = currentNode.getFirstChildKey();
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value, id);
       }
@@ -998,15 +999,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final long parentKey = structNode.getNodeKey();
 
-      final SirixDeweyID id = deweyIDManager.newFirstChildID();
-
+      final SirixDeweyID id;
       final AbstractNullNode node;
-      final long rightSibKey;
       if (kind == NodeKind.OBJECT_KEY) {
-        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectNullNode(parentKey, id);
       } else {
-        rightSibKey = structNode.getRightSiblingKey();
+        id = deweyIDManager.newFirstChildID();
+        final long rightSibKey = structNode.getRightSiblingKey();
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey, id);
       }
