@@ -40,8 +40,6 @@ import java.math.BigInteger;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * <h1>DocumentNode</h1>
- *
  * <p>
  * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
  * not be removed.

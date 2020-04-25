@@ -7,7 +7,10 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import org.sirix.api.Axis;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.axis.DescendantAxis;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.service.json.shredder.JsonShredder;
 
 import java.io.IOException;
@@ -31,6 +34,19 @@ public class JsonNodeTrxUpdateTest {
   @After
   public void tearDown() {
     JsonTestHelper.closeEverything();
+  }
+
+  @Test
+  public void testDeweyIDs() {
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var rtx = manager.beginNodeReadOnlyTrx()) {
+      new DescendantAxis(rtx).forEach(nodeKey -> {
+        System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID());
+      });
+    }
   }
 
   @Test
