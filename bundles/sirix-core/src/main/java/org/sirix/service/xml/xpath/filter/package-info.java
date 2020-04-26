@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Package filter</h1>
  * <p>
  * Contains all additional XPath filters or axis that work like filters.
  * </p>

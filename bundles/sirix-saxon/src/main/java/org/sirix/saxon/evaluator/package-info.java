@@ -32,7 +32,7 @@
  </p>
  <p>
  Code example for use with XPathEvaluator:
- <code><pre>
+ <pre><code>
  final File file = new File("src" + File.separator + "test"
  + File.separator + "resources" + File.separator + "testfile");
  Database.truncateDatabase(file);
@@ -47,7 +47,7 @@
  }
 
  System.out.println(strBuilder.toString());
- </pre></code>
+ </code></pre>
 
  You can do everything you like with the resulting items. The method <em>
  getStringValue()</em> of the item get's the string value from the underlying 
@@ -58,7 +58,7 @@
  </p>
  <p>
  Code example for use with XQueryEvaluator
- <code><pre>
+ <pre><code>
  final File file = new File("src" + File.separator + "test"
  + File.separator + "resources" + File.separator + "testfile");
  Database.truncateDatabase(file);
@@ -71,11 +71,11 @@
  }
 
  System.out.println(strBuilder.toString());
- </pre></code>
+ </code></pre>
  </p>
  <p>
  Code example for use with XQueryEvaluatorOutputStream:
- <code><pre>
+ <pre><code>
  final File file = new File("src" + File.separator + "test"
  + File.separator + "resources" + File.separator + "testfile");
  Database.truncateDatabase(file);
@@ -88,13 +88,13 @@
  final String result = xqe.call().toString();
 
  System.out.println(result);
- </pre></code>
+ </code></pre>
 
  Note that you can use other output streams as well.
  </p>
  <p>
  Code example for use with XQueryEvaluatorSAXHandler:
- <code><pre>  
+ <pre><code>  
  final StringBuilder strBuilder = new StringBuilder();
  final ContentHandler contHandler = new XMLFilterImpl() {
 
@@ -137,11 +137,11 @@
  contHandler).run();
 
  System.out.println(strBuilder.toString());
- </pre></code>
+ </code></pre>
  </p>
  <p>
  Code example for use with XSLTEvaluator:
- <code><pre>
+ <pre><code>
  final File file = new File("src" + File.separator + "test"
  + File.separator + "resources" + File.separator + "testfile");
  final File stylesheet = new File("src" + File.separator + "test"
@@ -157,7 +157,7 @@
  out).call();
 
  System.out.prinln(out.toString());
- </pre></code>
+ </code></pre>
  </p>
  *
  * @author Johannes Lichtenberger, University of Konstanz

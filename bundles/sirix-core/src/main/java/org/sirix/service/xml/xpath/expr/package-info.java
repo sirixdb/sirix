@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Package Expr</h1>
  * <p>
  * Contains all high level XPath expressions.
  * </p>

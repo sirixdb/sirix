@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Page Layer for sirix</h1>
  * <p>
  * Contains all page kinds and page utils.
  * </p>

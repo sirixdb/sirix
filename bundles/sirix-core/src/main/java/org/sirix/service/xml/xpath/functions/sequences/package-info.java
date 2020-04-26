@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Package functions on sequences.</h1>
  * <p>
  * Functions and Operators on Sequences defined under
  * http://www.w3.org/TR/xpath-functions/#sequence-functions.

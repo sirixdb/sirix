@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Access to Sirix</h1>
  * <p>
  * The access semantics is as follows:
  * <ul>

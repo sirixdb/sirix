@@ -34,14 +34,14 @@ import org.sirix.exception.SirixException;
  * This class creates a JSON document.
  * </p>
  *
- * <code><pre>
+ * <pre><code>
  * {
  *   "foo": ["bar", null, 2.33],
  *   "bar": { "hello": "world", "helloo": true },
  *   "baz": "hello",
  *   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
  * }
- * </pre></code>
+ * </code></pre>
  */
 public final class JsonDocumentCreator {
 
