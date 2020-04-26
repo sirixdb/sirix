@@ -37,7 +37,6 @@ import org.sirix.node.xml.TextNode;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
- * <h1>XmlNodeTrx</h1>
  *
  * <h2>Description</h2>
  *
@@ -50,20 +49,17 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *
  * <h2>Convention</h2>
  *
- * <p>
  * <ol>
  * <li>Only a single thread accesses the single INodeWriteTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>NodeWriteTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after modifying the cursor:
- * <code>(NodeWriteTrx.insertX() == m &&
+ * <code>(NodeWriteTrx.insertX() == m &amp;&amp;
  *       NodeWriteTrx.getNodeKey() == m)</code>.</li>
  * </ol>
- * </p>
  *
  * <h2>User Example</h2>
  *
- * <p>
  *
  * <pre>
  * // Without auto commit.
@@ -98,11 +94,9 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * }
  * </pre>
  *
- * </p>
  *
  * <h2>Developer Example</h2>
  *
- * <p>
  *
  * <pre>
  *   public void someNodeWriteTrxMethod() {
@@ -114,7 +108,6 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *   }
  * </pre>
  *
- * </p>
  */
 public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
 

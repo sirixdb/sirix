@@ -5,7 +5,7 @@ package org.sirix.api;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
- *         <T> generic type parameter
+ * @param <T> generic type parameter
  */
 public interface Builder<T> {
   /**
