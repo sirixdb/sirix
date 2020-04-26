@@ -28,7 +28,6 @@ import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>ConcurrentIntersectAxis</h1>
  * <p>
  * Computes concurrently and returns an intersection of two operands. This axis takes two node
  * sequences as operands and returns a sequence containing all the nodes that occur in both

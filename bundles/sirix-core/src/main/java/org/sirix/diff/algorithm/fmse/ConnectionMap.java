@@ -28,7 +28,7 @@ import java.util.Map;
  * Stores whether two objects have a (unidirectional) connection. /!\ The identities of the objects
  * are used, not equals()!
  * 
- * @param <T>
+ * @param <T> generic type for the map
  */
 public final class ConnectionMap<T> {
 

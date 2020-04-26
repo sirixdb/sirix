@@ -33,8 +33,6 @@ import org.sirix.node.immutable.xml.ImmutablePI;
 import org.sirix.node.immutable.xml.ImmutableText;
 
 /**
- * <h1>AbstractVisitor</h1>
- * 
  * <p>
  * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for
  * implementing inheritance or when using anonymous inner classes to create simple {@link XmlNodeVisitor}
@@ -42,15 +40,18 @@ import org.sirix.node.immutable.xml.ImmutableText;
  * </p>
  * 
  * <h2>Usage Examples:</h2>
- * 
- * <code><pre>
+ *
+ * <pre>
+ * <code>
  * final Visitor visitor = new NamespaceChangeVisitor(session);
  * for (final long nodeKey : new DescendantAxis.Builder(rtx).includeSelf().build()) {
  *      rtx.acceptVisitor(visitor);
  * }
- * </pre></code>
+ * </code>
+ * </pre>
  * 
- * <code><pre>
+ * <pre>
+ * <code>
  * // MyVisitor extends AbstractVisitor.
  * final Visitor visitor = new MyVisitor(rtx) {
  *   public void visit(final ImmutableElement node) {
@@ -62,8 +63,9 @@ import org.sirix.node.immutable.xml.ImmutableText;
  * for (final long nodeKey : new DescendantAxis(rtx);) {
  *   rtx.acceptVisitor(visitor);
  * }
- * </pre></code>
- * 
+ * </code>
+ * </pre>
+ *
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */

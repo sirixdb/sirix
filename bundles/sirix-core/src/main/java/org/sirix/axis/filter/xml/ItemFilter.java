@@ -25,8 +25,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>ItemFilter</h1>
- *
  * <p>
  * Match any item type (nodes and atomic values).
  * </p>

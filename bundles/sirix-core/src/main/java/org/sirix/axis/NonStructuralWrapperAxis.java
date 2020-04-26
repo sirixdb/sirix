@@ -27,8 +27,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>NonStructuralWrapperAxis</h1>
- *
  * <p>
  * Adds non-structural nodes (that is namespaces and attributes) to an axis.
  * </p>

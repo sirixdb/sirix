@@ -28,8 +28,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.Pair;
 
 /**
- * <h1>DescendantAxis</h1>
- *
  * <p>
  * Iterate over all structural descendants starting at a given node (in preorder). Self might or
  * might not be included.

@@ -28,7 +28,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
- * <h1>PredicateFilterAxis</h1>
  * <p>
  * The PredicateAxis evaluates a predicate (in the form of an axis) and returns true, if the
  * predicates has a value (axis.hasNext() == true) and this value if not the boolean value false.

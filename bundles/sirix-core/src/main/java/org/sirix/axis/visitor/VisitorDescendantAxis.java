@@ -39,8 +39,6 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>VisitorDescendantAxis</h1>
- *
  * <p>
  * Iterate over all descendants of any structural kind starting at a given node by it's unique node
  * key. The currently located node is optionally included. Furthermore a {@link NodeVisitor} is

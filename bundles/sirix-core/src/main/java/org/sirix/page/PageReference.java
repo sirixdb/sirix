@@ -29,8 +29,6 @@ import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 
 /**
- * <h1>PageReference</h1>
- *
  * <p>
  * Page reference pointing to a page. This might be on stable storage pointing to the start byte in
  * a file, including the length in bytes, and the checksum of the serialized page. Or it might be an
