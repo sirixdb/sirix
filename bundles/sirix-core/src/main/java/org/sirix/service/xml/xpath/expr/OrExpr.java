@@ -38,6 +38,10 @@ import org.sirix.utils.TypedValue;
  * The value of an or-expression is determined by the effective boolean values of its operands, as
  * shown in the following table:
  * <table>
+ *     <caption>
+ *         The value of an or-expression is determined by the effective boolean values of its operands, as
+ * shown in the following table:
+ *  </caption>
  * <tr>
  * <th>OR</th>
  * <th>EBV2 = true</th>

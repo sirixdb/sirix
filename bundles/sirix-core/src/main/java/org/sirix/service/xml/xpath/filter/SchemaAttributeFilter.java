@@ -33,12 +33,12 @@ import org.sirix.axis.filter.AbstractFilter;
  * A SchemaAttributeTest matches a candidate attribute node if both of the following conditions are
  * satisfied:
  * </p>
- * <p>
+ * <ul>
  * <li>1. The name of the candidate node matches the specified AttributeName.</li>
  * <li>2. derives-from(AT, ET) is true, where AT is the type annotation of the candidate node and ET
  * is the schema type declared for attribute AttributeName in the in-scope attribute
  * declarations.</li>
- * </p>
+ * </ul>
  * <p>
  * If the AttributeName specified in the SchemaAttributeTest is not found in the in-scope attribute
  * declarations, a static error is raised [err:XPST0008].

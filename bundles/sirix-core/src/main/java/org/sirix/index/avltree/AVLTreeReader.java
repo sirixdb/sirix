@@ -71,8 +71,12 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /**
    * Get a new instance.
    *
+   * @param <K> key instance which extends comparable
+   * @param <V> value
+   *
    * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
    * @param type type of index
+   * @param index index
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(

@@ -87,7 +87,7 @@ public interface Filter<R> {
   /**
    * Setting the transaction of this filter.
    *
-   * @return the transaction of this filter
+   * @param rtx the transaction of this filter
    */
   void setTrx(R rtx);
 

@@ -96,6 +96,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
    * Commit the transaction, that is persist changes if any and create a new revision.
    *
    * @throws SirixException if Sirix fails to commit
+   * @return UberPage the new revision after commit
    */
   UberPage commit();
 
@@ -104,6 +105,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
    * message is going to be persisted as well.
    *
    * @param commitMessage the commit message
+   * @return UberPage the revision after commit
    * @throws SirixException if Sirix fails to commit
    */
   UberPage commit(String commitMessage);

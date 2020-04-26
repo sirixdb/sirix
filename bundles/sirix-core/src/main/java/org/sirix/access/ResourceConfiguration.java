@@ -618,6 +618,7 @@ public final class ResourceConfiguration {
     /**
      * Determines if DeweyIDs should be stored or not.
      *
+     * @param  useDeweyIDs flag whihc represents to use the deweyIds
      * @return reference to the builder object
      */
     public Builder useDeweyIDs(final boolean useDeweyIDs) {

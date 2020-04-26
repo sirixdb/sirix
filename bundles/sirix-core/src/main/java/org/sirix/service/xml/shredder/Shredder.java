@@ -4,9 +4,9 @@ import org.sirix.exception.SirixException;
 
 /**
  * Interface all shredders have to implement.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ * //todo QName reference
  * @param <T> generic type parameter for start tag/end tags (usually a {@link QName}
  * @param <S> generic type parameter for text nodes (usually a String)
  */
@@ -29,8 +29,8 @@ public interface Shredder<S, T> {
 
   /**
    * Process a start tag.
-   * 
-   * @param name name, usually a {@link QName}
+   *
+   * @param name name, usually a {@link QName} //todo QName is not a class anymore
    * @throws SirixException if Sirix fails to insert a new node
    */
   void processStartTag(T name) throws SirixException;

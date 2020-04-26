@@ -40,8 +40,7 @@ import org.sirix.service.xml.xpath.expr.AbstractExpression;
  * </p>
  * <h2>Developer Example</h2>
  * 
- * <p>
- * 
+ *
  * <pre>
  *   Must extend &lt;code&gt;AbstractFunction&lt;/code&gt; and implement &lt;code&gt;IAxis&lt;/code&gt;.
  *   And the implement the abstract method computeResult(), that returns the 
@@ -63,7 +62,6 @@ import org.sirix.service.xml.xpath.expr.AbstractExpression;
  *   }
  * </pre>
  * 
- * </p>
  */
 public abstract class AbstractFunction extends AbstractExpression {
 

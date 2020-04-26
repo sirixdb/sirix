@@ -37,7 +37,7 @@ import org.testng.annotations.Test;
  * Test class for all classes implementing the {@link Page} interface.
  *
  * @author Sebastian Graf, University of Konstanz
- * @auhtor Johannes Lichtenberger, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  *
  */
 public class PageTest {
@@ -64,6 +64,7 @@ public class PageTest {
   }
 
   /**
+   * //todo IPage class is not in the package anymore
    * Test method for {@link org.Page.page.IPage#IPage(long)} and
    * {@link org.Page.page.IPage#getByteRepresentation()}.
    *

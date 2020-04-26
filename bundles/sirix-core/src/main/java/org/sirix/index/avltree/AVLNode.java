@@ -40,8 +40,9 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   /**
    * Constructor.
    *
-   * @param pToken token
-   * @param pParent id of the parent node
+   * @param key the key for the node
+   * @param value the value for the node
+   * @param delegate the delegate for the node
    */
   public AVLNode(final K key, final V value, final NodeDelegate delegate) {
     mKey = checkNotNull(key);

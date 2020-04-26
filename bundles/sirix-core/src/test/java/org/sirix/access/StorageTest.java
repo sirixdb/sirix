@@ -93,10 +93,13 @@ public final class StorageTest {
   }
 
   /**
+   * //todo link to update
    * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
    * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
    *
-   * @throws SirixIOException
+   * @param clazz Class
+   * @param storages storages
+   * @throws SirixIOException exception thrown
    */
   @Test(dataProvider = "instantiateStorages")
   public void testFirstRef(final Class<Storage> clazz, final Storage[] storages) throws SirixException {
