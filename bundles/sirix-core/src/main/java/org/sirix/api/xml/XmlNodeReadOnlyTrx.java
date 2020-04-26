@@ -53,8 +53,6 @@ import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
- * <h1>NodeReadTrx</h1>
- *
  * <h2>Description</h2>
  *
  * <p>
@@ -66,22 +64,19 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *
  * <h2>Convention</h2>
  *
- * <p>
  * <ol>
  * <li>Only a single thread accesses each NodeReadTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after moving cursor:
- * <code>(NodeReadTrx.moveTo(m).hasMoved() &&
+ * <code>(NodeReadTrx.moveTo(m).hasMoved() &amp;&amp;
  *       NodeReadTrx.getNodeKey() == m) ||
- *       (!NodeReadTrx.moveTo(m).hasMoved() &&
+ *       (!NodeReadTrx.moveTo(m).hasMoved() &amp;&amp;
  *       NodeReadTrx.getNodeKey() == n)</code>.</li>
  * </ol>
- * </p>
  *
  * <h2>User Example</h2>
  *
- * <p>
  *
  * <pre>
  *   try(final NodeReadTrx rtx = resourcemgr.beginNodeReadTrx()) {
@@ -109,11 +104,9 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *   }
  * </pre>
  *
- * </p>
  *
  * <h2>Developer Example</h2>
  *
- * <p>
  *
  * <pre>
  *   void someNodeReadTrxMethod() {
@@ -123,7 +116,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *   }
  * </pre>
  *
- * </p>
  */
 public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**

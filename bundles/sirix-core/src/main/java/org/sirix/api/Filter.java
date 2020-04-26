@@ -22,7 +22,6 @@
 package org.sirix.api;
 
 /**
- * <h1>Filter</h1>
  *
  * <h2>Description</h2>
  *
@@ -32,29 +31,25 @@ package org.sirix.api;
  *
  * <h2>Convention</h2>
  *
- * <p>
+ *
  * <ol>
  * <li><strong>Precondition</strong> before each call to <code>Filter.filter()</code>:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after each call to <code>Filter.filter()</code>:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * </ol>
- * </p>
  *
  * <h2>User Example</h2>
  *
- * <p>
  *
  * <pre>
  * // hasNext() yields true, iff rtx selects an element with local part &quot;foo&quot;.
  * new FilterAxis(new SelfAxis(rtx), new NameFilter(rtx, &quot;foo&quot;));
  * </pre>
  *
- * </p>
  *
  * <h2>Developer Example</h2>
  *
- * <p>
  *
  * <pre>
  * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;Filter&lt;/code&gt;.
@@ -72,7 +67,6 @@ package org.sirix.api;
  * }
  * </pre>
  *
- * </p>
  */
 public interface Filter<R> {
 

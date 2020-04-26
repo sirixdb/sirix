@@ -43,7 +43,6 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
- * <h1>ResourceManager</h1>
  *
  * <p>
  * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single read/write transaction can then be started from
