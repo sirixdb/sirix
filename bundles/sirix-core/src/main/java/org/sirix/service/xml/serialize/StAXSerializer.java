@@ -120,7 +120,7 @@ public final class StAXSerializer implements XMLEventReader {
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read. Do not serialize the tank ids.
    *
-   * @param pAxis {@link XmlNodeReadOnlyTrx} which is used to iterate over and generate StAX events
+   * @param rtx {@link XmlNodeReadOnlyTrx} which is used to iterate over and generate StAX events
    */
   public StAXSerializer(final XmlNodeReadOnlyTrx rtx) {
     this(rtx, true);
@@ -130,7 +130,7 @@ public final class StAXSerializer implements XMLEventReader {
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read. Do not serialize the tank ids.
    *
-   * @param pAxis {@link pRtx} which is used to iterate over and generate StAX events
+   * @param pRtx {@link XmlNodeReadOnlyTrx} which is used to iterate over and generate StAX events
    * @param pCloseRtx Determines if rtx should be closed afterwards.
    */
   public StAXSerializer(final XmlNodeReadOnlyTrx pRtx, final boolean pCloseRtx) {

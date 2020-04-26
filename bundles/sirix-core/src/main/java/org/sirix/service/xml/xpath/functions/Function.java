@@ -94,7 +94,7 @@ public class Function {
    * The effective boolean value of a value is defined as the result of applying the fn:boolean
    * function to the value, as defined in [XQuery 1.0 and XPath 2.0 Functions and Operators].]
    * </p>
-   * <p>
+   * <ul>
    * <li>If its operand is an empty sequence, fn:boolean returns false.</li>
    * <li>If its operand is a sequence whose first item is a node, fn:boolean returns true.</li>
    * <li>If its operand is a singleton value of type xs:boolean or derived from xs:boolean,
@@ -106,11 +106,11 @@ public class Function {
    * fn:boolean returns false if the operand value is NaN or is numerically equal to zero; otherwise
    * it returns true.</li>
    * <li>In all other cases, fn:boolean raises a type error [err:FORG0006].</li>
-   * </p>
+   * </ul>
    * 
    * @param rtx the transaction to operate on.
    * @param axis Expression to get the effective boolean value for
-   * @return true if sucessfull, false otherwise
+   * @return true if successful, false otherwise
    * @throws SirixXPathException
    */
   public static boolean fnBoolean(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis)

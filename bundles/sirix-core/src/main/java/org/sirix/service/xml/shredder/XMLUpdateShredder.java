@@ -191,7 +191,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
    * @param paramData the data the update shredder operates on. Either a {@link List} of
    *        {@link XMLEvent}s or a {@link File}
    * @param paramCommit determines if changes should be commited
-   * @throws SirixUsageException if insertasfirstChild && updateOnly is both true OR if wtx is not
+   * @throws SirixUsageException if insertasfirstChild &amp;&amp; updateOnly is both true OR if wtx is not
    *         pointing to doc-root and updateOnly= true
    * @throws SirixIOException if sirix cannot access node keys
    *

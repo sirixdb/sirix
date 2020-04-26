@@ -474,7 +474,7 @@ public class FunctionsTest {
   }
 
   /**
-   * Test <element attribute=""/> in return statement.
+   * Test &lt;element attribute=""/&gt; in return statement.
    * 
    * @throws SirixXPathException
    */

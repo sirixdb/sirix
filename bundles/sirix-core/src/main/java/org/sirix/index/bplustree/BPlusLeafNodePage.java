@@ -59,7 +59,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & DataRecord, V e
    * @param recordPageKey base key assigned to this node page
    * @param pageKind the kind of page (in which subtree it is)
    * @param pageReadTrx Sirix page reading transaction
-   * @param kind determines if it's a leaf or inner node page
    */
   public BPlusLeafNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
       final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
@@ -80,7 +79,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & DataRecord, V e
    * Read node page.
    *
    * @param in input bytes to read page from
-   * @param pageReadTrx {@link
+   * @param pageReadTrx {@link PageReadOnlyTrx}
    */
   protected BPlusLeafNodePage(final ByteArrayDataInput in, final PageReadOnlyTrx pageReadTrx) {
     mRecordPageKey = in.readLong();

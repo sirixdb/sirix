@@ -29,7 +29,7 @@ import com.google.common.collect.ImmutableSet;
 /**
  * Function for creating path indexes on stored documents, optionally restricted to a set of paths.
  * If successful, this function returns statistics about the newly created index as an XML fragment.
- * Supported signatures are:<br/>
+ * Supported signatures are:<br>
  * <ul>
  * <li><code>sdb:create-path-index($doc as node(), $paths as xs:string*) as
  * node()</code></li>

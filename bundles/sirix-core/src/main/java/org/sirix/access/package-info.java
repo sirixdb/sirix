@@ -22,6 +22,7 @@
 /**
  * <p>
  * The access semantics is as follows:
+ * </p>
  * <ul>
  * <li>There can only be a single {@link org.sirix.api.Database} instance per Database-Folder</li>
  * <li>There can be multiple {@link org.sirix.api.ResourceManager} instances per
@@ -32,10 +33,9 @@
  * <li>There can be multiple {@link org.sirix.api.xml.XmlNodeReadOnlyTrx} instances per
  * {@link org.sirix.api.ResourceManager}.</li>
  * </ul>
- * </p>
  * <p>
  * Code examples:
- *
+ * </p>
  * <pre>
  * // DatabaseConfiguration denoted the configuration for a connected set of data resources.
  * final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File("/path/to/db/location"));
@@ -62,10 +62,9 @@
  * database.close();
  * </pre>
  *
- * </p>
  * <p>
  * Best practice to safely manipulate a sirix resource within a database if everything exists:
- *
+ *</p>
  * <pre>
  *         final IDatabase database = Database.openDatabase(new File(&quot;/path/to/db/location&quot;);
  *         final ISession session = Session.beginSession(new SessionConfiguration(&quot;existingResource&quot;);
@@ -84,7 +83,7 @@
  *         database.close();
  * </pre>
  *
- * </p>
+ *
  *
  * @author Sebastian Graf, University of Konstanz
  */

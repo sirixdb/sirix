@@ -93,7 +93,7 @@ public class VariableAxis extends AbstractAxis {
   /**
    * Add an observer to the list.
    * 
-   * @param mObserver axis that wants to be notified of any change of this axis
+   * @param pObserver axis that wants to be notified of any change of this axis
    */
   public void addObserver(final VarRefExpr pObserver) {
     mVarRefs.add(checkNotNull(pObserver));

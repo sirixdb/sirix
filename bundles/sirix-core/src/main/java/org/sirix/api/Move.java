@@ -17,7 +17,7 @@ public abstract class Move<T extends NodeCursor> {
    * Returns a {@link Moved} instance with no contained reference.
    *
    * @param <T> type of NodeCursor
-   * @return <T> Move of NodeCursor
+   * @return Move Move of NodeCursor
    */
   @SuppressWarnings("unchecked")
   public static <T extends NodeCursor> Move<T> notMoved() {
@@ -27,7 +27,8 @@ public abstract class Move<T extends NodeCursor> {
   /**
    * Returns a {@code Moved} instance containing the given non-null reference.
    * @param <T> type of NodeCursor
-   * @return <T> Move of NodeCursor
+   * @param moved reference to get Moved instance for
+   * @return Move Move of NodeCursor
    */
   public static <T extends NodeCursor> Moved<T> moved(final T moved) {
     return new Moved<T>(checkNotNull(moved));

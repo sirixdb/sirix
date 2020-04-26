@@ -153,8 +153,6 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param reader an XML reader
    * @return the transaction instance
-   * @throws IOException if an I/O error occured
-   * @throws XMLStreamException if XML read by the reader is not well formed
    * @throws NullPointerException if {@code reader} is {@code null}
    * @throws SirixException if anything in Sirix fails
    */
@@ -400,7 +398,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
    *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
-   *        {@link XmlShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
@@ -415,7 +413,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
    *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
-   *        {@link XmlShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
@@ -430,7 +428,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
    *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
-   *        {@link XmlShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or

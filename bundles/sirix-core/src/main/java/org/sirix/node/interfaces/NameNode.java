@@ -65,7 +65,7 @@ public interface NameNode extends ImmutableNameNode {
   /**
    * Setting the prefix key.
    *
-   * @param nameKey the prefix key to be set
+   * @param prefixKey the prefix key to be set
    */
   void setPrefixKey(int prefixKey);
 
