@@ -231,6 +231,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * Finds the specified key in the index starting from the specified node key and returns its
    * AVLNode.
    *
+   * @param startNodeKey specified node
    * @param key key to be found
    * @param mode the search mode
    * @return Optional {@link AVLNode} reference
@@ -292,6 +293,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    *
    * @param key key to be found
    * @param mode the search mode
+   * @param comp comparator to be used to compare keys
    * @return Optional {@link AVLNode} reference
    */
   public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode, final Comparator<? super K> comp) {

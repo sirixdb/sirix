@@ -288,7 +288,7 @@ public final class XmlDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds except the attributes.
    *
-   * @param paramWtx {@link XmlNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
   public static void createWithoutAttributes(final XmlNodeTrx wtx) {
@@ -342,8 +342,6 @@ public final class XmlDocumentCreator {
    * Create revisioned document.
    *
    * @throws SirixException if shredding fails
-   * @throws XMLStreamException if StAX reader couldn't be created
-   * @throws IOException if reading XML string fails
    */
   public static void createRevisioned(final Database<XmlResourceManager> database) {
 

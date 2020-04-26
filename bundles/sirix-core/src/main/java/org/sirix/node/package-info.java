@@ -23,12 +23,12 @@
  * <p>
  * Here, all different nodes are listed which are used in Sirix. The nodes can be distinguished
  * between {@code IStructNode} and {INode}.
+ * </p>
  * <ul>
  * <li>An {@code INode} is an interface defining the super type of all nodes.</li>
  * <li>An {@code IStructuralNode} is the super type of all structural nodes. .</li>
  * </ul>
- * </p>
- * 
+ *
  * <p>
  * In Java8 use traits/virtual methods for implementations!
  * </p>

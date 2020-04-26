@@ -66,10 +66,11 @@ public class SequenceType {
 
   /**
    * Constructor. Sequence type is an ItemType with an wildcard.
+   * <ul>
    * <li>'ItemType ?' means the sequence has zero or one items that are of the ItemType</li>
    * <li>'ItemType +' means the sequence one or more items that are of the ItemType</li>
    * <li>'ItemType *' means the sequence has zero or more items that are of the ItemType</li>
-   * 
+   * </ul>
    * @param filter item type filter
    * @param mWildcard either '*', '?' or '+'
    */

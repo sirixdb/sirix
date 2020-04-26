@@ -29,7 +29,7 @@ import com.google.common.collect.ImmutableSet;
 /**
  * Function for creating name indexes on stored documents, optionally restricted to a set of
  * included {@code QNm}s. If successful, this function returns statistics about the newly created
- * index as an XML fragment. Supported signatures are:<br/>
+ * index as an XML fragment. Supported signatures are:<br>
  * <ul>
  * <li><code>sdb:create-name-index($doc as node(), $include as xs:QName*) as
  * node()</code></li>

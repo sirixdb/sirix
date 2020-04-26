@@ -283,7 +283,8 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
 
   /**
    * Get the index controller.
-   *
+   * @param <C> The index Controller
+   * @param revision the revision
    * @return the {@link XmlIndexController} instance
    */
   <C extends IndexController<R, W>> C getWtxIndexController(int revision);

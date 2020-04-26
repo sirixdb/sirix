@@ -189,7 +189,7 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Resetting the nodekey of this axis to a given nodekey.
    *
-   * @param paramNodeKey the nodekey where the reset should occur to
+   * @param pNodeKey the nodekey where the reset should occur to
    */
   @Override
   public void reset(@Nonnegative final long pNodeKey) {

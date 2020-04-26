@@ -26,7 +26,6 @@ public interface ByteHandler {
    *
    * @param toDeserialize to deserialize
    * @return result of the deserialization
-   * @throws IOException if a byte handling exception occurs
    */
   InputStream deserialize(InputStream toDeserialize);
 

@@ -84,7 +84,7 @@ public final class Matching {
   }
 
   /**
-   * Adds the matching x -> y.
+   * Adds the matching x -&gt; y.
    *
    * @param nodeX source node (in old revision)
    * @param nodeY partner of nodeX (in new revision)

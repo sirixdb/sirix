@@ -58,7 +58,7 @@ public class DupFilterAxis extends AbstractAxis {
    * Constructor. Initializes the internal state.
    * 
    * @param rtx Exclusive (immutable) trx to iterate with.
-   * @param mDupAxis Sequence that may return duplicates.
+   * @param pDupAxis Sequence that may return duplicates.
    */
   public DupFilterAxis(final XmlNodeReadOnlyTrx rtx, final Axis pDupAxis) {
 

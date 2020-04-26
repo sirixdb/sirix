@@ -25,12 +25,12 @@ import com.google.common.io.ByteStreams;
 public final class ByteHandlerTest {
 
   /**
+   * //todo not found
    * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
    * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
    *
    * @throws IOException
    *
-   * @throws TTByteHandleException
    */
   @Test(dataProvider = "instantiateByteHandler")
   public void testSerializeAndDeserialize(Class<ByteHandler> clazz, ByteHandler[] handlers)

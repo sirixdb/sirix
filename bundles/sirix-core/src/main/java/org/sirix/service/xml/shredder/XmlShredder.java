@@ -142,7 +142,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     /**
      * Include processing instructions or not (default: yes).
      *
-     * @param nclude processing instructions
+     * @param include processing instructions
      * @return this builder instance
      */
     public Builder includePIs(final boolean include) {

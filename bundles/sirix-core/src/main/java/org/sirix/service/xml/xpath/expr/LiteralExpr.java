@@ -36,7 +36,7 @@ public class LiteralExpr extends AbstractExpression {
    * Constructor. Initializes the internal state.
    * 
    * @param pRtx exclusive (immutable) trx to iterate with
-   * @param mItemKey itemKey of the literal
+   * @param pItemKey itemKey of the literal
    */
   public LiteralExpr(final XmlNodeReadOnlyTrx pRtx, final long pItemKey) {
     super(pRtx);

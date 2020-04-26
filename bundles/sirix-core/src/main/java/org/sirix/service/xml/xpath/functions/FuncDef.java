@@ -502,12 +502,12 @@ public enum FuncDef {
    * fn:ends-with($arg1 as xs:string?, $arg2 as xs:string?) as xs:boolean
    * <p>
    * fn:ends-with( $arg1 as xs:string?, $arg2 as xs:string?, $collation as xs:string) as xs:boolean
-   * </p
+   * </p>
    * <p>
-   * >Returns an xs:boolean indicating whether or not the value of $arg1 ends with a sequence of
+   * Returns an xs:boolean indicating whether or not the value of $arg1 ends with a sequence of
    * collation units that provides a minimal match to the collation units of $arg2 according to the
    * collation that is used.
-   * <p>
+   * </p>
    */
   ENDS_WITH(AbstractFunction.class, 2, 3, "xs:boolean", "fn:ends-with"),
   /**
@@ -521,7 +521,7 @@ public enum FuncDef {
    * Returns the substring of the value of $arg1 that precedes in the value of $arg1 the first
    * occurrence of a sequence of collation units that provides a minimal match to the collation
    * units of $arg2 according to the collation that is used.
-   * <p>
+   * </p>
    */
   SUBSTR_BEFORE(AbstractFunction.class, 2, 3, "xs:string", "fn:substring-before"),
 
@@ -536,7 +536,7 @@ public enum FuncDef {
    * Returns the substring of the value of $arg1 that follows in the value of $arg1 the first
    * occurrence of a sequence of collation units that provides a minimal match to the collation
    * units of $arg2 according to the collation that is used.
-   * <p>
+   * </p>
    */
   SUBSTR_AFTER(AbstractFunction.class, 2, 3, "xs:string", "fn:substring-after"),
 
@@ -550,7 +550,7 @@ public enum FuncDef {
    * <p>
    * The function returns true if $input matches the regular expression supplied as $pattern as
    * influenced by the value of $flags, if present; otherwise, it returns false.
-   * <p>
+   * </p>
    */
   MATCH(AbstractFunction.class, 2, 3, "xs:boolean", "fn:matches"),
 
@@ -1141,7 +1141,7 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the result of multiplying the value of $arg1 by $arg2. The result is rounded to the
-   * nearest month. For a value v, 0 <= v < 0.5 rounds to 0; 0.5 <= v < 1.0 rounds to 1.
+   * nearest month. For a value v, 0 &lt;= v &lt; 0.5 rounds to 0; 0.5 &lt;= v &lt; 1.0 rounds to 1.
    * </p>
    */
   MUL_YMD(AbstractFunction.class, 2, 2, "xs:yearMonthDuration", "op:multiply-yearMonthDuration"),
@@ -1153,7 +1153,7 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the result of dividing the value of $arg1 by $arg2. The result is rounded to the
-   * nearest month. For a value v, 0 <= v < 0.5 rounds to 0; 0.5 <= v < 1.0 rounds to 1.
+   * nearest month. For a value v, 0 &lt;= v &lt; 0.5 rounds to 0; 0.5 &lt;= v &lt; 1.0 rounds to 1.
    * </p>
    */
   DIV_YMD(AbstractFunction.class, 2, 2, "xs:yearMonthDuration", "op:divide-yearMonthDuration"),
@@ -1683,7 +1683,7 @@ public enum FuncDef {
    * If the node identified by the value of $argumentseter1 occurs in document order before the node
    * identified by the value of $argumentseter2, this function returns true; otherwise, it returns
    * false. The rules determining the order of nodes within a single document and in different
-   * documents can be found in Section 2.4 Document OrderDM. This function backs up the "<<"
+   * documents can be found in Section 2.4 Document OrderDM. This function backs up the "&lt;&lt;"
    * operator.
    * </p>
    */
@@ -1697,7 +1697,7 @@ public enum FuncDef {
    * If the node identified by the value of $argumentseter1 occurs in document order after the node
    * identified by the value of $argumentseter2, this function returns true; otherwise, it returns
    * false. The rules determining the order of nodes within a single document and in different
-   * documents can be found in Section 2.4 Document OrderDM. This function backs up the ">>"
+   * documents can be found in Section 2.4 Document OrderDM. This function backs up the "&gt;&gt;>"
    * operator.
    * </p>
    */

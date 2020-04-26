@@ -63,7 +63,8 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & DataRecord, V 
    *
    * @param recordPageKey base key assigned to this node page
    * @param pageReadTrx Sirix page reading transaction
-   * @param kind determines if it's a leaf or inner node page
+   * @param pageKind determines if it's a leaf or inner node page
+   * @param previousPageRefKey previous reference
    */
   public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
       final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
@@ -83,7 +84,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & DataRecord, V 
    * Read node page.
    *
    * @param in input bytes to read page from
-   * @param pageReadTrx {@link
+   * @param pageReadTrx {@link PageReadOnlyTrx}
    */
   protected BPlusInnerNodePage(final ByteArrayDataInput in, final PageReadOnlyTrx pageReadTrx) {
     mDelegate = null;

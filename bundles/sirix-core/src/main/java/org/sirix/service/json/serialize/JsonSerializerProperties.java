@@ -83,8 +83,6 @@ public final class JsonSerializerProperties {
   }
 
   /**
-   * <h3>Read properties</h3>
-   *
    * <p>
    * Read properties file into a concurrent map. Format of properties file:
    * </p>
