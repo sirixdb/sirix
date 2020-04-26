@@ -49,7 +49,6 @@ public class XPathScannerTest {
   /**
    * Sets up the variables for the test.
    * 
-   * @throws java.lang.Exception
    */
   @Before
   public void setUp() {

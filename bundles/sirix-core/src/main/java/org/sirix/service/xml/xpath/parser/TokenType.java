@@ -68,9 +68,9 @@ public enum TokenType {
   INTERROGATION("?"),
   /** Token type that represents a star. */
   STAR("*"),
-  /** Token type that represents a left shift: << . */
+  /** Token type that represents a left shift: &lt;&lt; . */
   L_SHIFT("<<"),
-  /** Token type that represents a right shift: >> . */
+  /** Token type that represents a right shift: &gt;&gt; . */
   R_SHIFT(">>"),
   /** Token type that represents a shortcut for the parent: .. . */
   PARENT(".."),

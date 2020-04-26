@@ -34,10 +34,13 @@ import org.sirix.utils.TypedValue;
  * sequences. If a logical expression does not raise an error, its value is always one of the
  * boolean values true or false.
  * </p>
- * <p>
+ *
+ *
+ * <table>
+ *     <caption>
  * The value of an and-expression is determined by the effective boolean values of its operands, as
  * shown in the following table:
- * <table>
+ *  </caption>
  * <tr>
  * <th>AND</th>
  * <th>EBV2 = true</th>

@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath;
 
 /**
- * <h1>DupState</h1> Enum represents different states of the current result sequence that helps to
+ * Enum represents different states of the current result sequence that helps to
  * specify, whether the result query will contain duplicates.
  */
 public enum DupState {

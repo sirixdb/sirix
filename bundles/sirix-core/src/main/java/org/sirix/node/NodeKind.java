@@ -808,7 +808,7 @@ public enum NodeKind implements NodePersistenter {
     }
   },
 
-  /** Node includes a deweyID <=> nodeKey mapping. */
+  /** Node includes a deweyID &lt;=&gt; nodeKey mapping. */
   DEWEYIDMAPPING((byte) 23, DeweyIDMappingNode.class) {
     @Override
     public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,

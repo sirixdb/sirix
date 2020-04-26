@@ -331,6 +331,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * Get the number of nodes which reference to the name.
    *
    * @param name name to lookup
+   * @param kind node kind
    * @return number of nodes with the same name and node kind
    */
   int getNameCount(String name, @Nonnull NodeKind kind);
@@ -345,6 +346,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Get the attribute key of the index (for element nodes).
    *
+   * @param index the index to get key for
    * @return attribute key for index or {@code -1} if no attribute with the given index is available
    */
   long getAttributeKey(@Nonnegative int index);
