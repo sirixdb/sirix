@@ -35,7 +35,6 @@ import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLFilterImpl;
 
 /**
- * <h1>ExtractArticles</h1>
  * 
  * <p>
  * Provides a SAX based mechanism to extract the first N Wikipedia articles

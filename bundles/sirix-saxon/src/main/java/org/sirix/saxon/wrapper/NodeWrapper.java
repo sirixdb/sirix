@@ -74,7 +74,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>NodeWrapper</h1>
  * 
  * <p>
  * Wraps a Sirix node into Saxon's internal representation of a node. It
@@ -748,7 +747,6 @@ public final class NodeWrapper implements SiblingCountingNode {
 	}
 
 	/**
-	 * <h1>SaxonEnumeration</h1>
 	 * 
 	 * <p>
 	 * Saxon adaptor for axis iterations.

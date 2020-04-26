@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath;
 
 /**
- * <h1>XPathError</h1>
  * <p>
  * XPath error as described in <a href="http://www.w3.org/2005/xqt-errors/"> XQuery 1.0 and XPath
  * 2.0 Error Codes </a>.

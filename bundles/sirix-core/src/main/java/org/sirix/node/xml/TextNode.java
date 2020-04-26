@@ -42,8 +42,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>TextNode</h1>
- *
  * <p>
  * Node representing a text node.
  * </p>

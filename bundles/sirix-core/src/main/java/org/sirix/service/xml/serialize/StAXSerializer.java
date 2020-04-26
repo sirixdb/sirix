@@ -46,7 +46,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.utils.XMLToken;
 
 /**
- * <h1>StAXSerializer</h1>
  *
  * <p>
  * Provides a StAX implementation (event API) for retrieving a sirix database.

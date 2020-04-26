@@ -24,7 +24,6 @@ package org.sirix.service.xml.xpath;
 import org.sirix.api.Filter;
 
 /**
- * <h1>SequenceType</h1>
  * <p>
  * A sequence type defines a type a the items in a sequnce can have. It consists of either an
  * empty-sequence-test, or an ItemType(kind test, item() or atomic value) and an optional wildcard

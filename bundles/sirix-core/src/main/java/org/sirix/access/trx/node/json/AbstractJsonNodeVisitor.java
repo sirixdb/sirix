@@ -35,7 +35,6 @@ import org.sirix.node.immutable.json.ImmutableObjectNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
 
 /**
- * <h1>AbstractVisitor</h1>
  *
  * <p>
  * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for

@@ -36,7 +36,6 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>AbsAxis</h1>
  *
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced for loop available

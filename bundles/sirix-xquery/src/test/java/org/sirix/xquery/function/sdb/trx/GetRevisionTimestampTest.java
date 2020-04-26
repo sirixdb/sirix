@@ -46,7 +46,7 @@ import org.sirix.xquery.node.BasicXmlDBStore;
 import junit.framework.TestCase;
 
 /**
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class GetRevisionTimestampTest extends TestCase {

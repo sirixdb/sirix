@@ -40,7 +40,6 @@ import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>AtomicValue</h1>
  * <p>
  * An item represents either an atomic value or a node. An atomic value is a value in the value
  * space of an atomic type, as defined in <a href="http://www.w3.org/TR/xmlschema11-2/">XMLSchema

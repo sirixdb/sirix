@@ -30,7 +30,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>DateWritable</h1>
  * 
  * <p>
  * Simple date wrapper which implements {@link WritableComparable}, so it can be

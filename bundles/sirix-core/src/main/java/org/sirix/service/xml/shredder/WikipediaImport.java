@@ -63,7 +63,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>WikipediaImport</h1>
  *
  * <p>
  * Import sorted Wikipedia revisions. Precondition is a file, which is produced from a Hadoop job.

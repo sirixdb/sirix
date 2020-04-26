@@ -46,8 +46,6 @@ import com.google.common.base.Objects;
 import com.google.common.hash.HashCode;
 
 /**
- * <h1>AttributeNode</h1>
- *
  * <p>
  * Node representing an attribute.
  * </p>

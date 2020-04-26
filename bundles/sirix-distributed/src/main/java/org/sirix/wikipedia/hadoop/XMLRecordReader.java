@@ -55,8 +55,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLRecordReader</h1>
- * 
+ *
  * <p>
  * Read an XML record.
  * </p>

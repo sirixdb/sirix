@@ -25,7 +25,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>SchemaAttributeFilter</h1>
  * <p>
  * A SchemaAttributeTest matches an attribute node against a corresponding attribute declaration
  * found in the in-scope attribute declarations.

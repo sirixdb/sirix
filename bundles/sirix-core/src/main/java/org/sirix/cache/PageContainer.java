@@ -29,7 +29,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>PageContainer</h1>
  *
  * <p>
  * This class acts as a container for revisioned {@link KeyValuePage}s. Each {@link KeyValuePage} is

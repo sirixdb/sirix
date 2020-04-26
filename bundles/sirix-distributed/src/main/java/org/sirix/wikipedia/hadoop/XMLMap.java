@@ -30,7 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLMapper</h1>
  * 
  * <p>
  * Maps single revisions. Output key is of type {@link DateWritable} which

@@ -30,7 +30,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
- * <h1>VariableAxis</h1>
  * <p>
  * Evaluated the given binding sequence, the variable is bound to and stores in a list that can be
  * accessed by other sequences and notifies its observers, as soon as a new value of the binding

@@ -31,7 +31,6 @@ import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 
 /**
- * <h1>DupFilterAxis</h1>
  * <p>
  * Duplicate Filter. Assures that the resulting node set contains no duplicates.
  * </p>

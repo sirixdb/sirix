@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.parser;
 
 /**
- * <h1>XPathToken</h1>
  * <p>
  * Categorized block of text.
  * </p>

@@ -27,7 +27,7 @@ import com.google.common.collect.HashBiMap;
 /**
  * The transaction intent log, used for logging everything a write transaction changes.
  *
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class TransactionIntentLog implements AutoCloseable {
 

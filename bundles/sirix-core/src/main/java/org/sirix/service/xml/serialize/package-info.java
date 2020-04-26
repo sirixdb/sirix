@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Serializer Package</h1>
  * <p>
  * All class in this package are for getting data out of sirix. This includes the export of single
  * XML Instances plus the complete dump of XML with all versions.

@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.parser;
 
 /**
- * <h1>XPathScanner</h1>
  * <p>
  * Lexical scanner to extract tokens from the query.
  * </p>

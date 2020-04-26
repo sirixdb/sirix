@@ -32,7 +32,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>FNString</h1>
  * <p>
  * IAxis that represents the function fn:count specified in
  * <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0 Functions and

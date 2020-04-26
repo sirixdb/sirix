@@ -34,7 +34,7 @@ import org.brackit.xquery.xdm.node.NodeStore;
 /**
  * Database store.
  *
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface XmlDBStore extends NodeStore, AutoCloseable {
   @Override

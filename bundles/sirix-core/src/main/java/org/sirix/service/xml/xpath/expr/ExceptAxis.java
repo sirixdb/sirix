@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
 
 /**
- * <h1>ExceptAxis</h1>
  * <p>
  * Returns the nodes of the first operand except those of the second operand. This axis takes two
  * node sequences as operands and returns a sequence containing all the nodes that occur in the

@@ -29,7 +29,6 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 
 /**
- * <h1>JSON-Document</h1>
  *
  * <p>
  * This class creates a JSON document.

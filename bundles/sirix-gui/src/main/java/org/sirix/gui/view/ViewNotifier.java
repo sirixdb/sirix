@@ -38,7 +38,6 @@ import org.sirix.gui.GUI;
 import com.google.common.base.Optional;
 
 /**
- * <h1>ViewNotifier</h1>
  * 
  * <p>
  * Notifies views of changes (observer pattern).

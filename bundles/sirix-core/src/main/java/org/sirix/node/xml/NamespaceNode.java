@@ -41,8 +41,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>NamespaceNode</h1>
- *
  * <p>
  * Node representing a namespace.
  * </p>

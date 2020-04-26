@@ -28,7 +28,6 @@ import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.functions.Function;
 
 /**
- * <h1>IfAxis</h1>
  * <p>
  * IAxis that represents the conditional expression based on the keywords if, then, and else.
  * </p>

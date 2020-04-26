@@ -32,7 +32,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLSerializerProperties</h1>
  *
  * <p>
  * XMLSerializer properties.

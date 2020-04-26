@@ -31,8 +31,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 
 /**
- * <h1>QueueEventReader</h1>
- * 
+ *
  * <p>
  * Implements an XMLEventReader based on a Queue of XMLEvents.
  * </p>

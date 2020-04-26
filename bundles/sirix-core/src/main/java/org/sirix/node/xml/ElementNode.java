@@ -46,8 +46,6 @@ import com.google.common.base.Objects;
 import com.google.common.collect.BiMap;
 
 /**
- * <h1>ElementNode</h1>
- *
  * <p>
  * Node representing an XML element.
  * </p>

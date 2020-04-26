@@ -33,7 +33,7 @@ import org.sirix.page.RevisionRootPage;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 /**
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {

@@ -38,7 +38,6 @@ import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
 
 /**
- * <h1>JSONStringNode</h1>
  *
  * <p>
  * Node representing a JSON string.

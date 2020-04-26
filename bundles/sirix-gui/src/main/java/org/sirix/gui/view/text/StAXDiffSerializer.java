@@ -57,7 +57,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
 
 /**
- * <h1>StAXDiffSerializer</h1>
  *
  * <p>
  * Provides a StAX implementation (event API) for retrieving a sirix database (based on diffs).
