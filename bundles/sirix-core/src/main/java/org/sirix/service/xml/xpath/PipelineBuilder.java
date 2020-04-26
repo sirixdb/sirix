@@ -65,7 +65,6 @@ import org.sirix.service.xml.xpath.operators.MulOpAxis;
 import org.sirix.service.xml.xpath.operators.SubOpAxis;
 
 /**
- * <h1>PipeBuilder</h1>
  * <p>
  * Builder of a query execution plan in the pipeline manner.
  * </p>

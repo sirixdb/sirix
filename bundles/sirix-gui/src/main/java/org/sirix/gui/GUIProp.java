@@ -28,7 +28,6 @@
 package org.sirix.gui;
 
 /**
- * <h1>GUIProps</h1>
  * 
  * <p>
  * GUI properties.

@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.expr.AbstractExpression;
 
 /**
- * <h1>AbstractFunction</h1>
  * <p>
  * Abstract super class for all function classes.
  * </p>

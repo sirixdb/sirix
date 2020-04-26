@@ -29,7 +29,6 @@ import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>XPath Axis</h1>
  * <p>
  * Evaluates a given XPath query.
  * </p>

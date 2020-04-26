@@ -27,7 +27,6 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 
 /**
- * <h1>InputFormat</h1>
  * 
  * <p>
  * Custom input format, which splits XML files. Key is a date/timestamp, value

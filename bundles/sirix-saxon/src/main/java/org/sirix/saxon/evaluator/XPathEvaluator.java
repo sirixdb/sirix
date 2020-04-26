@@ -46,7 +46,6 @@ import org.sirix.api.Session;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 
 /**
- * <h1>XPath Evaluator</h1>
  * 
  * <p>
  * The XPath evaluator takes an XPath expression and evaluates the expression

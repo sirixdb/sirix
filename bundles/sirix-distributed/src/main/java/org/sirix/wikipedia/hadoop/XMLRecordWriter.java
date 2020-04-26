@@ -32,7 +32,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLRecordReader</h1>
  * 
  * <p>
  * Appends values to an output file.

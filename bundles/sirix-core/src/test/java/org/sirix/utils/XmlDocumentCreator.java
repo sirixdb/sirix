@@ -36,7 +36,6 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
- * <h1>XmlDocumentCreator</h1>
  *
  * <p>
  * This class creates an XML document that contains all features seen in the Extensible Markup

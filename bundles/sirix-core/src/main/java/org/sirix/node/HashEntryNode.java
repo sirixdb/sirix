@@ -29,7 +29,7 @@ import com.google.common.base.Objects;
 /**
  * Hash entry node.
  *
- * @author Johannes Lichtenberger <johannes.lichtenberger@sirix.io>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class HashEntryNode implements DataRecord {

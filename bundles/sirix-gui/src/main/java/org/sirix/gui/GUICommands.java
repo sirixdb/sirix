@@ -60,8 +60,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>GUICommands</h1>
- * 
+ *
  * <p>
  * All available GUI commands.
  * </p>

@@ -28,7 +28,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
- * <h1>SequenceAxis</h1>
  * <p>
  * Axis that represents a sequence of singleExpressions, normally separated by a ','.
  * </p>

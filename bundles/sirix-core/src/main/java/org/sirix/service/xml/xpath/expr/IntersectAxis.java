@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
 
 /**
- * <h1>IntersectAxis</h1>
  * <p>
  * Returns an intersection of two operands. This axis takes two node sequences as operands and
  * returns a sequence containing all the nodes that occur in both operands.

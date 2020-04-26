@@ -25,7 +25,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>SchemaElementFilter</h1>
  * <p>
  * A SchemaElementTest matches an element node against a corresponding element declaration found in
  * the in-scope element declarations.

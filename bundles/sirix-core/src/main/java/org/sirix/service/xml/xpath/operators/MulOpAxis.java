@@ -32,7 +32,6 @@ import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>AddOpAxis</h1>
  * <p>
  * Performs an arithmetic multiplication on two input operators.
  * </p>

@@ -32,7 +32,6 @@ import javax.swing.JComponent;
 import com.google.common.base.Optional;
 
 /**
- * <h1>IView</h1>
  * 
  * <p>
  * Interface every view has to implement.

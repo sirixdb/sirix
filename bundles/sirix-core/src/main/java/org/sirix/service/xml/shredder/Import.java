@@ -25,8 +25,7 @@ import java.util.List;
 import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 
 /**
- * <h1>Import</h1>
- * 
+ *
  * <p>
  * Interface to provide convenient methods which all classes have to implement which shredder
  * revisioned databases into sirix.

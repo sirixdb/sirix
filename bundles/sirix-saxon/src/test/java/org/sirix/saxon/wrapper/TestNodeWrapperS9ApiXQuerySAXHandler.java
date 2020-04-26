@@ -42,7 +42,6 @@ import org.xml.sax.SAXException;
 import org.xml.sax.helpers.XMLFilterImpl;
 
 /**
- * <h1>TestNodeWrapperS9ApiXQueryHandler</h1>
  * 
  * <p>
  * Test the NodeWrapper with Saxon's S9Api for XQuery.

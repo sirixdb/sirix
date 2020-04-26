@@ -28,7 +28,6 @@ import org.sirix.exception.SirixXPathException;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>FNPosition</h1>
  * <p>
  * IAxis that represents the function fn:position specified in
  * <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0 Functions and

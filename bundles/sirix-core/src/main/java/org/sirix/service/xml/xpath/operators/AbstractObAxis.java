@@ -32,7 +32,6 @@ import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
- * <h1>AbstractOpAxis</h1>
  * <p>
  * Abstract axis for all operators performing an arithmetic operation.
  * </p>

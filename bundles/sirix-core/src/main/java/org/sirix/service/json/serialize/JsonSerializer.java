@@ -57,7 +57,6 @@ import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
 
 /**
- * <h1>JsonSerializer</h1>
  *
  * <p>
  * Serializes a subtree into the JSON-format.

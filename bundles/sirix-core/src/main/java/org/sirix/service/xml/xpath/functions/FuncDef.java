@@ -27,7 +27,6 @@ import org.sirix.service.xml.xpath.functions.sequences.FNBoolean;
 import org.sirix.service.xml.xpath.functions.sequences.FNCount;
 
 /**
- * <h1>FuncDef</h1>
  * <p>
  * List of functions and their attributes according to the specification in
  * <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0 Functions and

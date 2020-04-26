@@ -52,7 +52,6 @@ import org.sirix.node.interfaces.Node;
 import com.google.common.base.Optional;
 
 /**
- * <h1>TreeView</h1>
  * 
  * <p>
  * Tree view on a sirix storage.

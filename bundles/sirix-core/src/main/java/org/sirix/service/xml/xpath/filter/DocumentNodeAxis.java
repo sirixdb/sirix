@@ -26,7 +26,6 @@ import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>DocumentNodeAxis</h1>
  * <p>
  * Iterate to document node starting at a given node.
  * </p>

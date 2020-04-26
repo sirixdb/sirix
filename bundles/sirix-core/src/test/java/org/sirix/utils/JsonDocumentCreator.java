@@ -31,7 +31,6 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 
 /**
- * <h1>JSON-TestDocument</h1>
  *
  * <p>
  * This class creates a JSON test document.

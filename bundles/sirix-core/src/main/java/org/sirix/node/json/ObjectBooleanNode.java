@@ -34,7 +34,6 @@ import java.math.BigInteger;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * <h1>JSONBooleanNode</h1>
  *
  * <p>
  * Node representing a JSON boolean.

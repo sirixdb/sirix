@@ -30,7 +30,7 @@ package org.sirix.access.trx.node.json.objectvalue;
 import org.sirix.node.NodeKind;
 
 /**
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ObjectValue implements ObjectRecordValue<Void> {
   @Override

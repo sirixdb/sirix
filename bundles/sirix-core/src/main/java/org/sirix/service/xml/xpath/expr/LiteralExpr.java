@@ -24,7 +24,6 @@ package org.sirix.service.xml.xpath.expr;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
- * <h1>LiteralExpr</h1>
  * <p>
  * Expression that holds a literal.
  * </p>

@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Filter Package</h1>
  * <p>
  * Contains all Filters for filtering regarding different purposes.
  * </p>

@@ -59,7 +59,6 @@ import org.sirix.utils.TypedValue;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLUpdateShredder</h1>
  *
  * <p>
  * Shredder, which updates a sirix revision to the next revision, as thus it just inserts or deletes

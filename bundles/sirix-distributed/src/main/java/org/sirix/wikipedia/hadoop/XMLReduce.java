@@ -36,8 +36,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLReducer</h1>
- * 
+ *
  * <p>
  * After sorting and grouping key's the reducer just emits the results (identity
  * reducer).
