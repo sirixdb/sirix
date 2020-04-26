@@ -26,8 +26,7 @@
  */
 
 /**
- * <h1>Views</h1>
- * 
+ *
  * <p>
  * This package provides several views and interaction mechanisms with the sirix storage.
  * </p>

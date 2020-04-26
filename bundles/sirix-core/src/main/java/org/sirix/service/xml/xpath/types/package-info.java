@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Package types</h1>
  * <p>
  * Contains XMLSchema types specified in <a href="http://www.w3.org/TR/xmlschema11-2/">XML Schema
  * 1.1 Part 2: Datatypes</a>.

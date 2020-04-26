@@ -26,7 +26,6 @@
  */
 
 /**
- * <h1>Sirix GUI</h1>
  * 
  * <p>
  * Provides a GUI to interact with and visualize the sirix storage.

@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Node Page Layer for Sirix</h1>
  * <p>
  * Here, all different nodes are listed which are used in Sirix. The nodes can be distinguished
  * between {@code IStructNode} and {INode}.

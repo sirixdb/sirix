@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Diff Layer</h1>
  * <p>
  * The package diff layer provides mechanisms to compute diffs between two different revisions.
  * </p>

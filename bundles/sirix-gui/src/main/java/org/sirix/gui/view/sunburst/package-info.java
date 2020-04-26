@@ -26,8 +26,7 @@
  */
 
 /**
- * <h1>Sunburst View</h1>
- * 
+ *
  * <p>
  * Radial space filling view, which also provides a way to visually explore several revisions at once.
  * </p>

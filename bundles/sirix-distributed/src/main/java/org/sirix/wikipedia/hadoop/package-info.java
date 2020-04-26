@@ -15,8 +15,7 @@
  * 
  */
 /**
- * <h1>Hadoop - Wikipedia</h1>
- * 
+ *
  * <p>
  * Provides a way to sort wikipedia page revisions with Hadoop according to a given timestamp.
  * </p>
