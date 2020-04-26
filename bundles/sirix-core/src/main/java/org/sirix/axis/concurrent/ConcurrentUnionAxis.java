@@ -29,7 +29,6 @@ import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 
 /**
- * <h1>ConcurrentUnionAxis</h1>
  * <p>
  * Computes concurrently and returns a union of two operands. This axis takes two node sequences as
  * operands and returns a sequence containing all the items that occur in either of the operands. A

@@ -25,8 +25,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
 
 /**
- * <h1>AttributeAxis</h1>
- *
  * <p>
  * Iterate over all attibutes of a given node.
  * </p>
@@ -39,7 +37,7 @@ public final class AttributeAxis extends AbstractAxis {
   /**
    * Constructor initializing internal state.
    *
-   * @param paramRtx exclusive (immutable) mTrx to iterate with
+   * @param rtx exclusive (immutable) mTrx to iterate with
    */
   public AttributeAxis(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);

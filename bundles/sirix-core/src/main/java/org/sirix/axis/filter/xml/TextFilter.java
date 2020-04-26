@@ -27,8 +27,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.xml.TextNode;
 
 /**
- * <h1>TextFilter</h1>
- *
  * <p>
  * Only select nodes of kind {@link TextNode}.
  * </p>

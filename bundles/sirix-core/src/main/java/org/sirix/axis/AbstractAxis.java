@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -37,8 +37,6 @@ import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
 
 /**
- * <h1>AbstractAxis</h1>
- *
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced for loop available
  * since Java 5.
@@ -334,7 +332,7 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Implements a simple foreach-method.
    *
-   * @param visitor {@link IVisitor} implementation
+   * @param visitor {@link XmlNodeVisitor} implementation
    */
   @Override
   public final void foreach(final XmlNodeVisitor visitor) {

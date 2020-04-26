@@ -25,8 +25,6 @@ import org.sirix.api.NodeCursor;
 import org.sirix.node.NodeKind;
 
 /**
- * <h1>FollowingSiblingAxis</h1>
- *
  * <p>
  * Iterate over all following siblings of kind ELEMENT or TEXT starting at a given node. Self is not
  * included.

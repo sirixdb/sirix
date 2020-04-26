@@ -27,8 +27,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>JsonNameFilter</h1>
- *
  * <p>
  * Match QNames of json object records.
  * </p>

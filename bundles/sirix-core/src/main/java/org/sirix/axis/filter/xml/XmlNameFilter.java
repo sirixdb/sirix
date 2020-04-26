@@ -26,8 +26,11 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
+ * //todo name of the class does not match with description
  * <h1>NameAxisTest</h1>
  *
+ * //todo duplicate description as to that of
+ * @see org.sirix.axis.filter.PathNameFilter
  * <p>
  * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>

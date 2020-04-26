@@ -28,7 +28,6 @@ import org.sirix.api.Filter;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
- * <h1>NestedFilter</h1>
  * <p>
  * Nests two or more IFilters.
  * </p>

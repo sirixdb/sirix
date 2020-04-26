@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -27,7 +27,6 @@ import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
 
 /**
- * <h1>WildcardFilter</h1>
  * <p>
  * Filters ELEMENTS and ATTRIBUTES and supports wildcards either instead of the namespace prefix, or
  * the local name.
@@ -56,7 +55,7 @@ public final class WildcardFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    * @param rtx transaction to operate on
    * @param knownPart part of the qualified name that is specified. This can be either the namespace
    *        prefix, or the local name
-   * @param pIsName defines, if the specified part is the prefix, or the local name (true, if it is
+   * @param type defines, if the specified part is the prefix, or the local name (true, if it is
    *        the local name)
    */
   public WildcardFilter(final XmlNodeReadOnlyTrx rtx, final String knownPart, final EType type) {

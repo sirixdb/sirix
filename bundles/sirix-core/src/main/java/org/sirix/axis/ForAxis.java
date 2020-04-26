@@ -25,7 +25,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 
 /**
- * <h1>ForAxis</h1>
  * <p>
  * Axis that handles a for expression.
  * </p>

@@ -18,7 +18,7 @@ import com.google.crypto.tink.streamingaead.StreamingAeadFactory;
 /**
  * Decorator for encrypting any content.
  *
- * @author Johannes Lichtenberger <johannes.lichtenberger@sirix.io>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class Encryptor implements ByteHandler {

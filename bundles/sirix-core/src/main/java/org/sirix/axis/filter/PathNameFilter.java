@@ -25,8 +25,6 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.index.path.summary.PathSummaryReader;
 
 /**
- * <h1>NameAxisTest</h1>
- *
  * <p>
  * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>
