@@ -33,7 +33,6 @@ import org.sirix.api.ResourceManager;
 import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.io.IOStorage;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
@@ -572,7 +571,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         levelKey -= offset << inpLevelPageCountExp[level];
 
         try {
-          reference = derefPage.getReference(offset);
+          reference = derefPage.getOrCreateReference(offset);
         } catch (final IndexOutOfBoundsException e) {
           throw new SirixIOException("Node key isn't supported, it's too big!");
         }

@@ -71,7 +71,7 @@ public interface Page {
    * @param offset the offset
    * @return the {@link PageReference} at the specified offset
    */
-  PageReference getReference(@Nonnegative int offset);
+  PageReference getOrCreateReference(@Nonnegative int offset);
 
   /**
    * Set the reference at the specified offset
@@ -79,5 +79,5 @@ public interface Page {
    * @param pageReference the page reference
    * @return {@code true}, if the page is already full, {@code false} otherwise
    */
-  boolean setReference(int offset, PageReference pageReference);
+  boolean setOrCreateReference(int offset, PageReference pageReference);
 }

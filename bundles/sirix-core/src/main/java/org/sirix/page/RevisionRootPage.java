@@ -90,10 +90,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public RevisionRootPage() {
     delegate = new BitmapReferencesPage(5);
-    getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
-    getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
-    getReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
-    getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
+    getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
+    getOrCreateReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
+    getOrCreateReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
+    getOrCreateReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     maxNodeKey = -1L;
     currentMaxLevelOfIndirectPages = 1;
@@ -146,7 +146,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return path summary page reference
    */
   public PageReference getPathSummaryPageReference() {
-    return getReference(PATH_SUMMARY_REFERENCE_OFFSET);
+    return getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET);
   }
 
   /**
@@ -155,7 +155,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return CAS page reference
    */
   public PageReference getCASPageReference() {
-    return getReference(CAS_REFERENCE_OFFSET);
+    return getOrCreateReference(CAS_REFERENCE_OFFSET);
   }
 
   /**
@@ -164,7 +164,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return name page reference
    */
   public PageReference getNamePageReference() {
-    return getReference(NAME_REFERENCE_OFFSET);
+    return getOrCreateReference(NAME_REFERENCE_OFFSET);
   }
 
   /**
@@ -173,7 +173,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return path page reference
    */
   public PageReference getPathPageReference() {
-    return getReference(PATH_REFERENCE_OFFSET);
+    return getOrCreateReference(PATH_REFERENCE_OFFSET);
   }
 
   /**
@@ -182,7 +182,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @return Indirect page reference.
    */
   public PageReference getIndirectPageReference() {
-    return getReference(INDIRECT_REFERENCE_OFFSET);
+    return getOrCreateReference(INDIRECT_REFERENCE_OFFSET);
   }
 
   /**
@@ -269,11 +269,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
                       .add("revisionTimestamp", revisionTimestamp)
                       .add("maxNodeKey", maxNodeKey)
                       .add("delegate", delegate)
-                      .add("namePage", getReference(NAME_REFERENCE_OFFSET))
-                      .add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
-                      .add("pathPage", getReference(PATH_REFERENCE_OFFSET))
-                      .add("CASPage", getReference(CAS_REFERENCE_OFFSET))
-                      .add("nodePage", getReference(INDIRECT_REFERENCE_OFFSET))
+                      .add("namePage", getOrCreateReference(NAME_REFERENCE_OFFSET))
+                      .add("pathSummaryPage", getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET))
+                      .add("pathPage", getOrCreateReference(PATH_REFERENCE_OFFSET))
+                      .add("CASPage", getOrCreateReference(CAS_REFERENCE_OFFSET))
+                      .add("nodePage", getOrCreateReference(INDIRECT_REFERENCE_OFFSET))
                       .toString();
   }
 

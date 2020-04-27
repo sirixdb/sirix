@@ -34,12 +34,12 @@ public final class PageUtils {
   }
 
   public static Page setReference(Page pageDelegate, int offset, PageReference pageReference) {
-    final var hasToGrow = pageDelegate.setReference(offset, pageReference);
+    final var hasToGrow = pageDelegate.setOrCreateReference(offset, pageReference);
 
     if (hasToGrow) {
       if (pageDelegate instanceof ReferencesPage4) {
         pageDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) pageDelegate);
-        pageDelegate.setReference(offset, pageReference);
+        pageDelegate.setOrCreateReference(offset, pageReference);
       } else {
         throw new IllegalStateException();
       }
@@ -74,7 +74,7 @@ public final class PageUtils {
       final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
-    reference = page.getReference(0);
+    reference = page.getOrCreateReference(0);
 
     // Create new record page.
     final UnorderedKeyValuePage recordPage = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,

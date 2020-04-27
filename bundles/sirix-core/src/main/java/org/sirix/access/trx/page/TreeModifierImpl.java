@@ -93,7 +93,7 @@ public final class TreeModifierImpl implements TreeModifier {
       final IndirectPage page = new IndirectPage();
 
       // Get the first reference.
-      final PageReference newReference = page.getReference(0);
+      final PageReference newReference = page.getOrCreateReference(0);
 
       // Set new reference in log with the old referenced page.
       log.put(newReference, PageContainer.getInstance(oldPage, oldPage));
@@ -113,7 +113,7 @@ public final class TreeModifierImpl implements TreeModifier {
       offset = (int) (levelKey >> inpLevelPageCountExp[level]);
       levelKey -= offset << inpLevelPageCountExp[level];
       final IndirectPage page = prepareIndirectPage(pageRtx, log, reference);
-      reference = page.getReference(offset);
+      reference = page.getOrCreateReference(offset);
     }
 
     // Return reference to leaf of indirect tree.
@@ -139,12 +139,12 @@ public final class TreeModifierImpl implements TreeModifier {
       final PageKind pageKind, final int index, final PageReference pageReference) {
     // $CASES-OMITTED$
     switch (pageKind) {
-      case RECORDPAGE -> revisionRoot.setReference(0, pageReference);
-      case UBERPAGE -> pageRtx.getUberPage().setReference(0, pageReference);
-      case CASPAGE -> pageRtx.getCASPage(revisionRoot).setReference(index, pageReference);
-      case PATHPAGE -> pageRtx.getPathPage(revisionRoot).setReference(index, pageReference);
-      case NAMEPAGE -> pageRtx.getNamePage(revisionRoot).setReference(index, pageReference);
-      case PATHSUMMARYPAGE -> pageRtx.getPathSummaryPage(revisionRoot).setReference(index, pageReference);
+      case RECORDPAGE -> revisionRoot.setOrCreateReference(0, pageReference);
+      case UBERPAGE -> pageRtx.getUberPage().setOrCreateReference(0, pageReference);
+      case CASPAGE -> pageRtx.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PATHPAGE -> pageRtx.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case NAMEPAGE -> pageRtx.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PATHSUMMARYPAGE -> pageRtx.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     }

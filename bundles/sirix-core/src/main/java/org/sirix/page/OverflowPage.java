@@ -50,12 +50,12 @@ public final class OverflowPage implements Page {
       PageTrx<K, V, S> pageWriteTrx) {}
 
   @Override
-  public PageReference getReference(int offset) {
+  public PageReference getOrCreateReference(int offset) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean setReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
   }
 

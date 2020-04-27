@@ -47,7 +47,7 @@ public final class PathPage extends AbstractForwardingPage {
    * @return indirect page reference
    */
   public PageReference getIndirectPageReference(int offset) {
-    return getReference(offset);
+    return getOrCreateReference(offset);
   }
 
   /**
@@ -89,10 +89,10 @@ public final class PathPage extends AbstractForwardingPage {
    */
   public void createPathIndexTree(final PageReadOnlyTrx pageReadTrx, final int index,
       final TransactionIntentLog log) {
-    PageReference reference = getReference(index);
+    PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getReference(index);
+      reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
