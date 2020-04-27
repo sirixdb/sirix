@@ -140,7 +140,7 @@ public final class UberPage extends AbstractForwardingPage {
    * @return indirect page reference
    */
   public PageReference getIndirectPageReference() {
-    return getReference(INDIRECT_REFERENCE_OFFSET);
+    return getOrCreateReference(INDIRECT_REFERENCE_OFFSET);
   }
 
   /**
@@ -191,8 +191,8 @@ public final class UberPage extends AbstractForwardingPage {
   }
 
   @Override
-  public boolean setReference(int offset, PageReference pageReference) {
-    return delegate().setReference(0, pageReference);
+  public boolean setOrCreateReference(int offset, PageReference pageReference) {
+    return delegate().setOrCreateReference(0, pageReference);
   }
 
   @Override
@@ -200,7 +200,7 @@ public final class UberPage extends AbstractForwardingPage {
     return MoreObjects.toStringHelper(this)
                       .add("forwarding page", super.toString())
                       .add("revisionCount", revisionCount)
-                      .add("indirectPage", getReference(INDIRECT_REFERENCE_OFFSET))
+                      .add("indirectPage", getOrCreateReference(INDIRECT_REFERENCE_OFFSET))
                       .add("isBootstrap", isBootstrap)
                       .toString();
   }
@@ -221,7 +221,7 @@ public final class UberPage extends AbstractForwardingPage {
 
     final var page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
-    reference = page.getReference(0);
+    reference = page.getOrCreateReference(0);
 
     rootPage = new RevisionRootPage();
 

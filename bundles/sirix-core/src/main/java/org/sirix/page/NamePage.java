@@ -418,10 +418,10 @@ public final class NamePage extends AbstractForwardingPage {
    * @param log the transaction intent log
    */
   public void createNameIndexTree(final PageReadOnlyTrx pageReadTrx, final int index, final TransactionIntentLog log) {
-    PageReference reference = getReference(index);
+    PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getReference(index);
+      reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
@@ -443,7 +443,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @return indirect page reference
    */
   public PageReference getIndirectPageReference(final int offset) {
-    return getReference(offset);
+    return getOrCreateReference(offset);
   }
 
   /**
@@ -468,7 +468,7 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   @Override
-  public boolean setReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(int offset, PageReference pageReference) {
     delegate = PageUtils.setReference(delegate, offset, pageReference);
 
     return false;

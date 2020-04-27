@@ -510,12 +510,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   @Override
-  public PageReference getReference(int offset) {
+  public PageReference getOrCreateReference(int offset) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean setReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
   }
 

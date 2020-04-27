@@ -68,7 +68,7 @@ public final class BitmapReferencesPage implements Page {
     final var pageReferences = pageToCopy.getReferences();
 
     for (int i = 0, size = offsets.size(); i < size; i++) {
-      setReference(offsets.get(i), pageReferences.get(i));
+      setOrCreateReference(offsets.get(i), pageReferences.get(i));
     }
   }
 
@@ -148,7 +148,7 @@ public final class BitmapReferencesPage implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getReference(final @Nonnegative int offset) {
+  public PageReference getOrCreateReference(final @Nonnegative int offset) {
     if (bitmap.get(offset)) {
       final int index = index(offset);
       return references.get(index);
@@ -158,7 +158,7 @@ public final class BitmapReferencesPage implements Page {
   }
 
   @Override
-  public boolean setReference(final int offset, final PageReference pageReference) {
+  public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
     if (!bitmap.get(offset)) {
       createNewReference(offset);
     }

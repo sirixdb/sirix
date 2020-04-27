@@ -60,7 +60,7 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   @Override
-  public boolean setReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(int offset, PageReference pageReference) {
     delegate = PageUtils.setReference(delegate, offset, pageReference);
 
     return false;
@@ -73,7 +73,7 @@ public final class CASPage extends AbstractForwardingPage {
    * @return indirect page reference
    */
   public PageReference getIndirectPageReference(int index) {
-    return getReference(index);
+    return getOrCreateReference(index);
   }
 
   @Override
@@ -95,10 +95,10 @@ public final class CASPage extends AbstractForwardingPage {
    */
   public void createCASIndexTree(final PageReadOnlyTrx pageReadTrx, final int index,
       final TransactionIntentLog log) {
-    PageReference reference = getReference(index);
+    PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getReference(index);
+      reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT

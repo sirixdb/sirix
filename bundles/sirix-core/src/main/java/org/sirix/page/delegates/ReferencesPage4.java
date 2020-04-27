@@ -102,7 +102,7 @@ public final class ReferencesPage4 implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getReference(final @Nonnegative int offset) {
+  public PageReference getOrCreateReference(final @Nonnegative int offset) {
     for (int i = 0, count = offsets.size(); i < count; i++) {
       if (offsets.get(i) == offset) {
         return references.get(offset);
@@ -120,10 +120,19 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public boolean setReference(final int offset, final PageReference pageReference) {
+  public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
     if (offsets.size() < 4) {
-      offsets.add((short) offset);
-      references.set(offsets.size(), pageReference);
+      boolean found = false;
+      for (int i = 0, count = offsets.size(); i < count; i++) {
+        if (offsets.get(i) == offset) {
+          found = true;
+          references.set(i, pageReference);
+        }
+      }
+      if (!found) {
+        offsets.add((short) offset);
+        references.add(pageReference);
+      }
       return false;
     }
 
