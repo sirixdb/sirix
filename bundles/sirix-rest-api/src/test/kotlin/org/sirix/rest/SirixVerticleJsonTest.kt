@@ -221,7 +221,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the diff of a resource")
     fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -373,7 +373,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -777,7 +777,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1045,7 +1045,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1118,7 +1118,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource as well as a subsequent modification thereof")
     fun testPUTthenPOSTthenGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
