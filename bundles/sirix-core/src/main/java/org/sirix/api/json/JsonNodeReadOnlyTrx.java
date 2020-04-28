@@ -10,21 +10,21 @@ import org.sirix.api.visitor.VisitResultType;
 
 public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   @Override
-  public String getValue();
+  String getValue();
 
-  public boolean isObject();
+  boolean isObject();
 
-  public boolean isObjectKey();
+  boolean isObjectKey();
 
-  public boolean isArray();
+  boolean isArray();
 
-  public boolean isStringValue();
+  boolean isStringValue();
 
-  public boolean isNumberValue();
+  boolean isNumberValue();
 
-  public boolean isNullValue();
+  boolean isNullValue();
 
-  public boolean isBooleanValue();
+  boolean isBooleanValue();
 
   @Override
   Move<? extends JsonNodeReadOnlyTrx> moveTo(long nodeKey);
