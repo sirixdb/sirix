@@ -51,7 +51,7 @@ class DiffHandler(private val location: Path) {
                             val diffPath = resourceManager.getResourceConfig()
                                 .resource
                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
-                                .resolve("diffFromRev${firstRevision.toInt()}to${secondRevision.toInt()}Rev.json")
+                                .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
 
                             it.complete(Files.readString(diffPath))
                         } else {
