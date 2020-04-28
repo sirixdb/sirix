@@ -1772,7 +1772,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Deserialize index definitions.
       final Path diff = resourceManager.getResourceConfig()
                                        .getResource()
-                                       .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                        .resolve(
                                            "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
       try {

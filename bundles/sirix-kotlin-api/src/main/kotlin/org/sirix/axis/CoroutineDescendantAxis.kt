@@ -48,18 +48,18 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     private val LOGGER = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
 
     /** Right page coroutine producer  */
-    private var mProducer: Producer
+    private var producer: Producer
 
     /** Axis current resource manager  */
-    private var mResourceManager: ResourceManager<R, W>
+    private var resourceManager: ResourceManager<R, W>
 
     /** Determines if it's the first call to hasNext().  */
-    private var mFirst = false
+    private var first = false
 
     /** Determines if left page still has any results to compute.  */
-    private var mLeft = true
+    private var left = true
 
-    /** Capacity of the mResults queue.  */
+    /** Capacity of the results queue.  */
     private val M_CAPACITY = 200
 
     /**
@@ -68,8 +68,8 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param resourceManager to retrieve cursors for pages
      */
     constructor(resourceManager: ResourceManager<R, W>) : super(resourceManager.beginNodeReadOnlyTrx()) {
-        mResourceManager = resourceManager
-        mProducer = Producer()
+        this.resourceManager = resourceManager
+        producer = Producer()
     }
     /**
      * Constructor initializing internal state.
@@ -78,8 +78,8 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param includeSelf determines if current node is included or not
      */
     constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf) : super(resourceManager.beginNodeReadOnlyTrx(), includeSelf) {
-        mResourceManager = resourceManager
-        mProducer = Producer()
+        this.resourceManager = resourceManager
+        producer = Producer()
     }
     /**
      * Constructor initializing internal state.
@@ -89,32 +89,30 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param cursor to iterate through left page
      */
     constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf, cursor: NodeCursor) : super(cursor, includeSelf) {
-        mResourceManager = resourceManager
-        mProducer = Producer()
+        this.resourceManager = resourceManager
+        producer = Producer()
     }
 
     init {
-        mFirst = true
-        mLeft = true
+        first = true
+        left = true
     }
 
     override fun reset(nodeKey: Long) {
         super.reset(nodeKey)
-        mFirst = true
-        mLeft = true
-        if (mProducer != null) {
-            mProducer.close()
-        }
+        first = true
+        left = true
+        producer.close()
     }
 
     @InternalCoroutinesApi
     override fun nextKey(): Long {
         var key = Fixed.NULL_NODE_KEY.standardProperty
 
-        if (mLeft) {
+        if (left) {
             // Determines if first call to hasNext().
-            if (mFirst) {
-                mFirst = false
+            if (first) {
+                first = false
                 return nextKeyForFirst()
             }
             // Always follow first child if there is one.
@@ -127,14 +125,14 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
             }
 
             // End of left page, any other results are computed in coroutine
-            mLeft = false
+            left = false
         }
 
         // Follow right page when coroutine is enabled.
-        if (mProducer.mRunning && !mLeft) {
+        if (producer.running && !left) {
 
             // Then follow right sibling on from coroutine.
-            runBlocking { key = mProducer.receive() }
+            runBlocking { key = producer.receive() }
 
             if (!isDone(key)) {
                 val currKey = cursor.nodeKey
@@ -156,7 +154,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     @InternalCoroutinesApi
     private fun nextKeyForFirstChild(): Long {
         if (cursor.hasRightSibling()) {
-            mProducer.run(cursor.rightSiblingKey)
+            producer.run(cursor.rightSiblingKey)
         }
         return cursor.firstChildKey
     }
@@ -197,49 +195,49 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      */
     override fun done(): Long {
         // End of results also from right page
-        mLeft = true
+        left = true
         // Cancel all coroutine tasks
-        mProducer.close()
+        producer.close()
         return Fixed.NULL_NODE_KEY.standardProperty
     }
 
      private inner class Producer: CoroutineScope {
         /** Stack for remembering next nodeKey in right page.  */
-        private val mRightSiblingKeyStack: Deque<Long> = ArrayDeque<Long>()
+        private val rightSiblingKeyStack: Deque<Long> = ArrayDeque<Long>()
         /**
          * Channel that stores result keys already computed by the producer. End of the result sequence is
          * marked by the NULL_NODE_KEY.
          */
-        private var mResults: Channel<Long> = Channel(M_CAPACITY)
+        private var results: Channel<Long> = Channel(M_CAPACITY)
          /**
          * Actual coroutine job
          */
-        private var mProducingTask: Job? = null
+        private var producingTask: Job? = null
         /** Determines if right page coroutine is running.  */
-        var mRunning = false
+        var running = false
         /** Right page cursor  */
-        private val cursor: NodeCursor = mResourceManager.beginNodeReadOnlyTrx()
+        private val cursor: NodeCursor = resourceManager.beginNodeReadOnlyTrx()
 
         override val coroutineContext: CoroutineContext
             get() = CoroutineName("CoroutineDescendantAxis") + Dispatchers.Default
 
         fun close() {
-            mProducingTask?.cancel()
-            mResults.close()
-            mRunning = false
-            mResults = Channel(M_CAPACITY)
+            producingTask?.cancel()
+            results.close()
+            running = false
+            results = Channel(M_CAPACITY)
             cursor.close()
         }
         suspend fun receive(): Long {
-            return mResults.receive()
+            return results.receive()
         }
 
         @InternalCoroutinesApi
         fun run(key: Long) {
             // wait for last coroutine end
-            runBlocking { mProducingTask?.join() }
-            mProducingTask = launch { produce(key) }
-            mRunning = true
+            runBlocking { producingTask?.join() }
+            producingTask = launch { produce(key) }
+            running = true
         }
 
          @InternalCoroutinesApi
@@ -251,7 +249,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
          @InternalCoroutinesApi
          private suspend fun produceAll(startKey: Long) {
              var key = startKey
-             mResults.send(key)
+             results.send(key)
              // Compute all results from given start key
              while (NonCancellable.isActive) {
                  cursor.moveTo(key)
@@ -260,9 +258,9 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
                  if (cursor.hasFirstChild()) {
                      key = cursor.firstChildKey
                      if (cursor.hasRightSibling()) {
-                         mRightSiblingKeyStack.push(cursor.rightSiblingKey)
+                         rightSiblingKeyStack.push(cursor.rightSiblingKey)
                      }
-                     mResults.send(key)
+                     results.send(key)
                      continue
                  }
 
@@ -270,15 +268,15 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
                  if (cursor.hasRightSibling()) {
                      val currKey: Long = cursor.node.nodeKey
                      key = hasNextNode(cursor, cursor.rightSiblingKey, currKey)
-                     mResults.send(key)
+                     results.send(key)
                      continue
                  }
 
                  // Then follow right sibling on stack.
-                 if (mRightSiblingKeyStack.size > 0) {
+                 if (rightSiblingKeyStack.size > 0) {
                      val currKey: Long = cursor.node.nodeKey
-                     key = hasNextNode(cursor, mRightSiblingKeyStack.pop(), currKey)
-                     mResults.send(key)
+                     key = hasNextNode(cursor, rightSiblingKeyStack.pop(), currKey)
+                     results.send(key)
                      continue
                  }
                  break
@@ -290,7 +288,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
              try {
                  // Mark end of result sequence by the NULL_NODE_KEY only if channel is not already closed
                  if (NonCancellable.isActive) {
-                     mResults.send(Fixed.NULL_NODE_KEY.standardProperty)
+                     results.send(Fixed.NULL_NODE_KEY.standardProperty)
                  }
              } catch (e: InterruptedException) {
                  LOGGER.error(e.message, e)
