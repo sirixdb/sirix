@@ -7,15 +7,14 @@ import org.sirix.settings.Fixed
 import org.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
 
-class CoroutineAxisHelper(axis: Axis, channel: Channel<Long>) {
+class CoroutineAxisHelper(
+    /** [Axis] that computes the results.  */
+    private val axis: Axis,
+    /** [Channel] shared with consumer.  */
+    private val channel: Channel<Long>
+) {
     /** Logger  */
     private val LOGGER = LogWrapper(LoggerFactory.getLogger(CoroutineAxisHelper::class.java))
-
-    /** [Axis] that computes the results.  */
-    private val mAxis: Axis = axis
-
-    /** [Channel] shared with consumer.  */
-    private val mChannel: Channel<Long> = channel
 
     @InternalCoroutinesApi
     suspend fun produce() {
@@ -26,11 +25,11 @@ class CoroutineAxisHelper(axis: Axis, channel: Channel<Long>) {
     @InternalCoroutinesApi
     private suspend fun produceAll() {
         // Compute all results of the given axis
-        while (NonCancellable.isActive && mAxis.hasNext()) {
-            val nodeKey = mAxis.next()
+        while (NonCancellable.isActive && axis.hasNext()) {
+            val nodeKey = axis.next()
             try {
                 // Send result to consumer
-                mChannel.send(nodeKey)
+                channel.send(nodeKey)
             } catch (e: InterruptedException) {
                 LOGGER.error(e.message, e)
             }
@@ -42,7 +41,7 @@ class CoroutineAxisHelper(axis: Axis, channel: Channel<Long>) {
         try {
             // Mark end of result sequence by the NULL_NODE_KEY.
             if (NonCancellable.isActive) {
-                mChannel.send(Fixed.NULL_NODE_KEY.standardProperty)
+                channel.send(Fixed.NULL_NODE_KEY.standardProperty)
             }
         } catch (e: InterruptedException) {
             LOGGER.error(e.message, e)

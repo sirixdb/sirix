@@ -31,11 +31,9 @@ public class CoroutineAxisTest {
     /**
      * Method is called once before each test. It deletes all states, shreds XML file to database and
      * initializes the required variables.
-     *
-     * @throws Exception
      */
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         try {
             XmlTestHelper.deleteEverything();
             XmlShredder.main(XML.toAbsolutePath().toString(), XmlTestHelper.PATHS.PATH1.getFile().toAbsolutePath().toString());
@@ -48,14 +46,9 @@ public class CoroutineAxisTest {
 
     /**
      * Test coroutine.
-     *
-     * @throws SirixException
-     *
-     * @throws SirixXPathException
      */
-    // @Bench
     @Test
-    public void testCoroutine() throws Exception {
+    public void testCoroutine() {
         /* query: //regions/africa//location */
         final int resultNumber = 55;
         final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
@@ -84,12 +77,9 @@ public class CoroutineAxisTest {
 
     /**
      * Test coroutine.
-     *
-     * @throws SirixXPathException
      */
-    // @Bench
     @Test
-    public void testPartCoroutineDescAxis1() throws Exception {
+    public void testPartCoroutineDescAxis1() {
         /* query: //regions/africa//location */
         final int resultNumber = 55;
         final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
@@ -111,12 +101,9 @@ public class CoroutineAxisTest {
 
     /**
      * Test coroutine.
-     *
-     * @throws SirixXPathException
      */
-    // @Bench
     @Test
-    public void testPartConcurrentDescAxis2() throws Exception {
+    public void testPartConcurrentDescAxis2() {
         /* query: //regions/africa//location */
         final int resultNumber = 55;
         final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();

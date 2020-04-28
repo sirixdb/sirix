@@ -47,12 +47,12 @@ class DiffHandler(private val location: Path) {
                         val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
                         val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: 0
 
-                        val diffPath: Path = resourceManager.getResourceConfig()
-                            .resource
-                            .resolve(ResourceConfiguration.ResourcePaths.DATA.path)
-                            .resolve("diffFromRev1toRev2.json")
+                        if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L && secondRevision.toInt() - 1 == firstRevision.toInt()) {
+                            val diffPath = resourceManager.getResourceConfig()
+                                .resource
+                                .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
+                                .resolve("diffFromRev${firstRevision.toInt()}to${secondRevision.toInt()}Rev.json")
 
-                        if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
                             it.complete(Files.readString(diffPath))
                         } else {
                             it.complete(

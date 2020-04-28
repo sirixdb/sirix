@@ -80,7 +80,10 @@ public final class ResourceConfiguration {
     INDEXES(Paths.get("indexes"), true),
 
     /** Folder to store the encryption key. */
-    ENCRYPTION_KEY(Paths.get("encryption"), true);
+    ENCRYPTION_KEY(Paths.get("encryption"), true),
+
+    /** Folder to store the update operations. */
+    UPDATE_OPERATIONS(Paths.get("update-operations"), true);
 
     /** Location of the file. */
     private final Path path;

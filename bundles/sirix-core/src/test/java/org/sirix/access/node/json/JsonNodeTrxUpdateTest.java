@@ -43,9 +43,7 @@ public class JsonNodeTrxUpdateTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
          final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
-      new DescendantAxis(rtx).forEach(nodeKey -> {
-        System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID());
-      });
+      new DescendantAxis(rtx).forEach(nodeKey -> System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID()));
     }
   }
 
@@ -200,7 +198,7 @@ public class JsonNodeTrxUpdateTest {
 
       final var diffPath = manager.getResourceConfig()
                                   .getResource()
-                                  .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                  .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                   .resolve("diffFromRev1toRev2.json");
 
       assertEquals(Files.readString(JSON.resolve("diffFromRev1toRev2.json")), Files.readString(diffPath));
