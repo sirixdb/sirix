@@ -2,6 +2,7 @@ package org.sirix.rest.crud
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -10,6 +11,7 @@ import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
+import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.BasicJsonDiff
 import java.nio.charset.StandardCharsets
@@ -62,20 +64,16 @@ class DiffHandler(private val location: Path) {
                                 val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
 
                                 rtx.use {
-                                    rtx.moveTo(startNodeKeyAsLong)
-                                    val metaInfo = createMetaInfo(
+                                    useUpdateOperations(
+                                        rtx,
+                                        startNodeKeyAsLong,
                                         databaseName,
                                         resourceName,
-                                        firstRevision.toInt(),
-                                        secondRevision.toInt()
+                                        firstRevision,
+                                        secondRevision,
+                                        maxDepthAsLong,
+                                        resultPromise
                                     )
-
-                                    val diffs = metaInfo.getAsJsonArray("diffs")
-                                    val updateOperations =
-                                        rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
-                                    updateOperations.forEach { diffs.add(it) }
-                                    val json = metaInfo.toString()
-                                    resultPromise.complete(json)
                                 }
                             }
                         } else {
@@ -104,6 +102,32 @@ class DiffHandler(private val location: Path) {
         }
 
         return ctx.currentRoute()
+    }
+
+    private fun useUpdateOperations(
+        rtx: JsonNodeReadOnlyTrx,
+        startNodeKeyAsLong: Long,
+        databaseName: String,
+        resourceName: String,
+        firstRevision: String,
+        secondRevision: String,
+        maxDepthAsLong: Long,
+        resultPromise: Promise<String>
+    ) {
+        rtx.moveTo(startNodeKeyAsLong)
+        val metaInfo = createMetaInfo(
+            databaseName,
+            resourceName,
+            firstRevision.toInt(),
+            secondRevision.toInt()
+        )
+
+        val diffs = metaInfo.getAsJsonArray("diffs")
+        val updateOperations =
+            rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
+        updateOperations.forEach { diffs.add(it) }
+        val json = metaInfo.toString()
+        resultPromise.complete(json)
     }
 
     private fun openDatabase(databaseName: String): Database<*> {
