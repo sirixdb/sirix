@@ -43,7 +43,6 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
- * <h1>ResourceManager</h1>
  *
  * <p>
  * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single read/write transaction can then be started from
@@ -276,13 +275,16 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Get the index controller.
    *
+   * @param <C> Instance of IndexController
+   * @param revision the revision number
    * @return the {@link XmlIndexController} instance
    */
   <C extends IndexController<R, W>> C getRtxIndexController(int revision);
 
   /**
    * Get the index controller.
-   *
+   * @param <C> The index Controller
+   * @param revision the revision
    * @return the {@link XmlIndexController} instance
    */
   <C extends IndexController<R, W>> C getWtxIndexController(int revision);

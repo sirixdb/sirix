@@ -28,7 +28,6 @@ import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
- * <h1>CompKind</h1>
  * <p>
  * Enumeration for all comparison kinds.
  * </p>

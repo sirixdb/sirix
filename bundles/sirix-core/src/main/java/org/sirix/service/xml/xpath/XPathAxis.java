@@ -29,7 +29,6 @@ import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>XPath Axis</h1>
  * <p>
  * Evaluates a given XPath query.
  * </p>
@@ -44,8 +43,7 @@ import org.sirix.settings.Fixed;
  * an tnk file and a <code>ReadTransaction</code> with an <code>INodeList</code> as argument has to
  * be started on it. (For more information how to do that, see the sirix documentation.) Then the
  * <code>XPathAxis</code> can be used like this:
- * <p>
- *
+ * </p>
  * <pre>
  *   ...
  *   IReadTransaction rtx = session.beginReadTransaction(new ItemList());
@@ -70,7 +68,7 @@ import org.sirix.settings.Fixed;
  *   ...
  * </pre>
  *
- * </p>
+ *
  */
 public final class XPathAxis extends AbstractAxis {
 

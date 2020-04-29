@@ -52,7 +52,6 @@ import org.sirix.gui.view.text.TextView;
 import org.sirix.gui.view.tree.TreeView;
 
 /**
- * <h1>Sirix GUI</h1>
  *
  * <p>
  * Main GUI frame.

@@ -28,7 +28,6 @@
 package org.sirix.gui;
 
 /**
- * <h1>IGUICommand</h1>
  * 
  * <p>
  * Interface for GUI menus.

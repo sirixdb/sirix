@@ -39,7 +39,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 /**
- * @author Johannes Lichtenberger <johannes.lichtenberger@sirix.io>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public enum ByteHandlerKind {
   DEFLATE_COMPRESSOR(DeflateCompressor.class) {
@@ -113,7 +113,6 @@ public enum ByteHandlerKind {
   /**
    * Constructor.
    *
-   * @param pId unique identifier
    * @param clazz class
    */
   ByteHandlerKind(final Class<? extends ByteHandler> clazz) {

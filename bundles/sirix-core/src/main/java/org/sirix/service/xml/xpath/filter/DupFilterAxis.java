@@ -31,7 +31,6 @@ import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 
 /**
- * <h1>DupFilterAxis</h1>
  * <p>
  * Duplicate Filter. Assures that the resulting node set contains no duplicates.
  * </p>
@@ -59,7 +58,7 @@ public class DupFilterAxis extends AbstractAxis {
    * Constructor. Initializes the internal state.
    * 
    * @param rtx Exclusive (immutable) trx to iterate with.
-   * @param mDupAxis Sequence that may return duplicates.
+   * @param pDupAxis Sequence that may return duplicates.
    */
   public DupFilterAxis(final XmlNodeReadOnlyTrx rtx, final Axis pDupAxis) {
 

@@ -40,7 +40,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>ConcurrentAxis</h1>
  * <p>
  * Realizes in combination with the <code>ConurrentAxisHelper</code> the concurrent evaluation of
  * pipeline steps. The given axis is uncoupled from the main thread by embedding it in a Runnable

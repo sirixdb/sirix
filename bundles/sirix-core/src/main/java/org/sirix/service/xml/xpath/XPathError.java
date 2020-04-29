@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath;
 
 /**
- * <h1>XPathError</h1>
  * <p>
  * XPath error as described in <a href="http://www.w3.org/2005/xqt-errors/"> XQuery 1.0 and XPath
  * 2.0 Error Codes </a>.
@@ -39,10 +38,14 @@ package org.sirix.service.xml.xpath;
  * </p>
  * <p>
  * The errors are identified by QNames that have the form err:XPYYnnnn, where:
+ * </p>
+ * <ul>
  * <li>err denotes the namespace for XPath and XQuery errors.</li>
  * <li>XP identifies the error as an XPath error.</li>
  * <li>YY denotes the error category, using the following encoding: ST denotes a static error. DY
  * denotes a dynamic error. TY denotes a type error. nnnn is a unique numeric code.</li>
+ * </ul>
+ *
  */
 @Deprecated
 public class XPathError extends RuntimeException {

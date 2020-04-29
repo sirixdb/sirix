@@ -41,7 +41,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ObjectNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 

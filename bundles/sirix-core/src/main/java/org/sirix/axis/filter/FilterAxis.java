@@ -30,8 +30,7 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
- * <h1>TestAxis</h1>
- *
+ * //todo Does the name need to change
  * <p>
  * Perform a test on a given axis.
  * </p>

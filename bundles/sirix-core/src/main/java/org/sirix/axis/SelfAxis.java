@@ -24,8 +24,6 @@ package org.sirix.axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
- * <h1>ParentAxis</h1>
- * 
  * <p>
  * Iterate to parent node starting at a given node. Self is not included.
  * </p>

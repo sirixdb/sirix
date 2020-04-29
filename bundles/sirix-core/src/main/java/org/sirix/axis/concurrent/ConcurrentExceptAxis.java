@@ -28,7 +28,6 @@ import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>ConcurrentExceptAxis</h1>
  * <p>
  * Computes concurrently and returns the nodes of the first operand except those of the second
  * operand. This axis takes two node sequences as operands and returns a sequence containing all the

@@ -29,7 +29,6 @@ import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>Logical Or Expression</h1>
  * <p>
  * The logical or expression performs a logical disjunction of the boolean values of two input
  * sequences. If a logical expression does not raise an error, its value is always one of the
@@ -39,6 +38,10 @@ import org.sirix.utils.TypedValue;
  * The value of an or-expression is determined by the effective boolean values of its operands, as
  * shown in the following table:
  * <table>
+ *     <caption>
+ *         The value of an or-expression is determined by the effective boolean values of its operands, as
+ * shown in the following table:
+ *  </caption>
  * <tr>
  * <th>OR</th>
  * <th>EBV2 = true</th>

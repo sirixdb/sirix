@@ -46,8 +46,6 @@ import javax.annotation.Nullable;
 import java.math.BigInteger;
 
 /**
- * <h1>AttributeNode</h1>
- *
  * <p>
  * Node representing an attribute.
  * </p>

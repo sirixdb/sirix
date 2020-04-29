@@ -25,8 +25,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>NamespaceFilter</h1>
- *
  * <p>
  * Only match NAMESPACE nodes.
  * </p>

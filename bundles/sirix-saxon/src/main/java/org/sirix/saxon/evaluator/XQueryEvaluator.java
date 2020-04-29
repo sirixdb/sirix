@@ -45,7 +45,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XQuery evaluator</h1>
  * 
  * <p>
  * Evaluates an XQuery expression against a sirix storage and returns an

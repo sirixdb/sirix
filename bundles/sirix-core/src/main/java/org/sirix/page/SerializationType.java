@@ -42,7 +42,7 @@ import java.util.List;
 /**
  * Defines the serialization/deserialization type.
  *
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public enum SerializationType {
   /**

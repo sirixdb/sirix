@@ -18,6 +18,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * modification at all.
    *
    * @throws SirixException if this revision couldn't be commited
+   * @return NodeTrx return current instance
    */
   NodeTrx commit();
 
@@ -26,7 +27,8 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * modification at all. The author assignes a commit message.
    *
    * @param commitMessage message of the commit
-   * @throws SirixException if this revision couldn't be commited
+   * @throws SirixException if this revision couldn't be committed
+   * @return NodeTrx return current instance
    */
   NodeTrx commit(String commitMessage);
 
@@ -34,6 +36,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * Rollback all modifications of the exclusive write transaction.
    *
    * @throws SirixException if the changes in this revision couldn't be rollbacked
+   * @return NodeTrx return current instance
    */
   NodeTrx rollback();
 
@@ -42,6 +45,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * revert is always bound to a {@link XmlNodeReadOnlyTrx#moveToDocumentRoot()}.
    *
    * @param revision revert to the revision
+   * @return NodeTrx return current instance
    */
   NodeTrx revertTo(@Nonnegative int revision);
 
@@ -49,6 +53,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * Add pre commit hook.
    *
    * @param hook pre commit hook
+   * @return NodeTrx return current instance
    */
   NodeTrx addPreCommitHook(PreCommitHook hook);
 
@@ -56,6 +61,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * Add a post commit hook.
    *
    * @param hook post commit hook
+   * @return NodeTrx return current instance
    */
   NodeTrx addPostCommitHook(PostCommitHook hook);
 
@@ -63,7 +69,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * Truncate to a revision.
    *
    * @param revision the revision to truncate to
-   * @return
+   * @return NodeTrx return current instance
    */
   NodeTrx truncateTo(int revision);
 

@@ -45,7 +45,6 @@ import org.sirix.gui.ReadDB;
 import org.sirix.node.interfaces.Node;
 
 /**
- * <h1>TreeCellRenderer</h1>
  * 
  * <p>
  * Customized tree cell renderer to render nodes nicely.

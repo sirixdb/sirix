@@ -41,7 +41,8 @@ public final class Util {
   /**
    * Longest common subsequence algorithm. cf. E. Myers. An O(ND) difference algorithm and its
    * variations. Algorithmica, 1(2): 251-266, 1986
-   * 
+   *
+   * @param <T> Element to find commonSubSequence for
    * @param first first list
    * @param second second list
    * @param cmp function to compare the items in both lists (equality)

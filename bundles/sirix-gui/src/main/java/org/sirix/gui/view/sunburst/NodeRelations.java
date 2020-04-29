@@ -33,7 +33,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
 
 /**
- * <h1>NodeRelations</h1>
  * 
  * <p>
  * Relations between a node and it's children. Container class used to simplify

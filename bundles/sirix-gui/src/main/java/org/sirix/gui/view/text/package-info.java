@@ -26,8 +26,7 @@
  */
 
 /**
- * <h1>Text View</h1>
- * 
+ *
  * <p>
  * This view provides a syntax highlighted serialized XML view.
  * </p>

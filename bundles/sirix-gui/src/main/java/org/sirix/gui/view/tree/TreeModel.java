@@ -36,7 +36,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>TreeModel</h1>
  * 
  * <p>
  * Extends an AbstractTreeModel and implements main methods, used to construct

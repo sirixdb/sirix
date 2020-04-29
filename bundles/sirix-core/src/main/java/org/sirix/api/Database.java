@@ -86,6 +86,7 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
    * Truncating a resource. This includes the removal of all data stored within this resource.
    *
    * @param resourceName resource name
+   * @return Database updated database
    */
   Database<T> removeResource(String resourceName);
 

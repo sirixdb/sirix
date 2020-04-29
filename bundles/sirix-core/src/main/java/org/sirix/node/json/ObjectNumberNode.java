@@ -31,9 +31,8 @@ import org.sirix.node.interfaces.StructNode;
 
 import java.math.BigInteger;
 
+
 /**
- * <h1>JSONNumberNode</h1>
- *
  * <p>
  * Node representing a JSON number.
  * </p>

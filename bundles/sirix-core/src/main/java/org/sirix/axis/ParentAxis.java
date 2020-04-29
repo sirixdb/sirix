@@ -26,8 +26,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>ParentAxis</h1>
- *
  * <p>
  * Iterate to parent node starting at a given node. Self is not included.
  * </p>
@@ -39,7 +37,8 @@ public final class ParentAxis extends AbstractAxis {
   /**
    * Constructor initializing internal state.
    *
-   * @param rtx exclusive (immutable) trx to iterate with.
+   * //todo update descriptions of the cursor
+   * @param cursor exclusive (immutable) trx to iterate with.
    */
   public ParentAxis(final NodeCursor cursor) {
     super(cursor);

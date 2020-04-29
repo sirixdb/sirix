@@ -26,8 +26,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>PrecedingSiblingAxis</h1>
- *
  * <p>
  * Iterate over all preceding siblings of kind ELEMENT or TEXT starting at a given node. Self is not
  * included. Note that the axis conforms to the XPath specification and returns nodes in document

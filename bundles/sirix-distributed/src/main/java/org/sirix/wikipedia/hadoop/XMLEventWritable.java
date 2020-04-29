@@ -34,7 +34,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLEventWritable</h1>
  * 
  * <p>
  * Serialize/Deserialize {@link XMLEvent}s. Very inefficient, because fpr

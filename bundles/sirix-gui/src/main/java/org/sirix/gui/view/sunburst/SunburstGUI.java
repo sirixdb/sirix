@@ -55,8 +55,7 @@ import controlP5.Textfield;
 import controlP5.Toggle;
 
 /**
- * <h1>SunburstGUI</h1>
- * 
+ *
  * <p>
  * Internal Sunburst view GUI.
  * </p>

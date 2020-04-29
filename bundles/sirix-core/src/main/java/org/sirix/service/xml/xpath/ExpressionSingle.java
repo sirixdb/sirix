@@ -36,7 +36,6 @@ import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.service.xml.xpath.filter.DupFilterAxis;
 
 /**
- * <h1>ExpresseionSingle</h1>
  * <p>
  * This class builds an execution chain to execute a XPath query. All added axis are build together
  * by using NestedAxis.

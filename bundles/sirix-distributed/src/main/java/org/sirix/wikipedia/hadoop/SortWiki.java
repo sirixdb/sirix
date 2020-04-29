@@ -35,7 +35,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>SortWiki</h1>
  * 
  * <p>
  * Sort Wikipedia pages meta history dump according to the timestamps of the

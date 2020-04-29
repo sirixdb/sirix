@@ -111,6 +111,9 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    *
    * @param indexLogKey it has the key {@code key} of key/value page to get the record from, the index number
    *                    or {@code -1}, if it's a regular record page to lookup and the kind of page to lookup
+   * @param <K> Key
+   * @param <V> Value
+   * @param <T> Instance of {@link KeyValuePage}
    * @return {@code the node} or {@code null} if it's not available
    * @throws SirixIOException if can't read recordPage
    * @throws NullPointerException if {@code key} is {@code null}
@@ -120,7 +123,9 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
       @Nonnull IndexLogKey indexLogKey);
 
-  /** Determines if transaction is closed or not. */
+  /** Determines if transaction is closed or not.
+   * @return status whether closed or not
+   * */
   boolean isClosed();
 
   /**
@@ -143,7 +148,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    *
    * @param recordKey record key to find record page key for
    * @return record page key
-   * @throws IllegalArgumentException if {code recordKey} < 0
+   * @throws IllegalArgumentException if {code recordKey} &lt; 0
    */
   long pageKey(@Nonnegative long recordKey);
 
@@ -151,6 +156,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Get the {@link NamePage} associated with the current revision root.
    *
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link NamePage}
+   * @return NamePage The associated NamePage
    * @throws SirixIOException if an I/O error occurs
    */
   NamePage getNamePage(RevisionRootPage revisionRoot);
@@ -159,6 +165,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Get the {@link PathPage} associated with the current revision root.
    *
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link PathPage}
+   * @return PathPage The associated PathPage
    * @throws SirixIOException if an I/O error occur@Nonnull RevisionRootPage revisionRoots
    */
   PathPage getPathPage(RevisionRootPage revisionRoot);
@@ -167,6 +174,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Get the {@link CASPage} associated with the current revision root.
    *
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link CASPage}
+   * @return CASPage the associated CASPAGE
    * @throws SirixIOException if an I/O error occurs
    */
   CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot);
@@ -175,6 +183,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Get the {@link PathSummaryPage} associated with the current revision root.
    *
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link PathSummaryPage}
+   * @return PathSummaryPage The associated PathSummaryPage
    * @throws SirixIOException if an I/O error occurs
    */
   PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot);
@@ -189,7 +198,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @param pageKind the kind of subtree
    * @return {@link PageReference} instance pointing to the page denoted by {@code key}
    * @throws SirixIOException if an I/O error occurs
-   * @throws IllegalArgumentException if {code pageKey} < 0
+   * @throws IllegalArgumentException if {code pageKey} &lt; 0
    */
   PageReference getReferenceToLeafOfSubtree(PageReference startReference, @Nonnegative long pageKey, int indexNumber,
       @Nonnull PageKind pageKind);

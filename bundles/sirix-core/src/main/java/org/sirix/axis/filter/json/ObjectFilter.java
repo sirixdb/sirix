@@ -26,8 +26,6 @@ import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
 
 /**
- * <h1>ObjectFilter</h1>
- *
  * <p>
  * Only match OBJECT nodes.
  * </p>

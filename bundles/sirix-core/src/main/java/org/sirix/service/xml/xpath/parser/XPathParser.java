@@ -66,7 +66,6 @@ import org.sirix.service.xml.xpath.filter.SchemaElementFilter;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>XPath Parser</h1>
  * <p>
  * Parses the given XPath query and starts the execution of the XPath request. The given query is
  * send to the scanner that categorizes the symbols by creating tokens. The parser receives this

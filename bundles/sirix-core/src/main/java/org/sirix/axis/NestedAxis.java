@@ -25,8 +25,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 
 /**
- * <h1>NestedAxis</h1>
- *
  * <p>
  * Chains two axis operations.
  * </p>

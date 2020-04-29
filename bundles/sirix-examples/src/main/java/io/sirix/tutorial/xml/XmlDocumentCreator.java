@@ -34,7 +34,6 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
- * <h1>XmlDocumentCreator</h1>
  *
  * <p>
  * This class creates an XML document that contains all features seen in the Extensible Markup
@@ -43,7 +42,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *
  * <p>
  * The following figure describes the created test document (see <code>xml/test.xml</code>). The
- * nodes are described as follows:
+ * nodes are described as follows:</p>
  *
  * <ul>
  * <li><code>Kind.ROOT: doc()</code></li>
@@ -89,7 +88,6 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *     |- 15 #oops3
  * </pre>
  *
- * </p>
  */
 public final class XmlDocumentCreator {
 
@@ -278,7 +276,7 @@ public final class XmlDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds except the attributes.
    *
-   * @param paramWtx {@link XmlNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
   public static void createWithoutAttributes(final XmlNodeTrx wtx) {
@@ -330,8 +328,6 @@ public final class XmlDocumentCreator {
    * Create revisioned document.
    *
    * @throws SirixException if shredding fails
-   * @throws XMLStreamException if StAX reader couldn't be created
-   * @throws IOException if reading XML string fails
    */
   public static void createRevisioned(final Database<XmlResourceManager> database) {
 

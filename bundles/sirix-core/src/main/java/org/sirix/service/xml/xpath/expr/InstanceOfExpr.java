@@ -28,7 +28,6 @@ import org.sirix.service.xml.xpath.SequenceType;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>InstanceOfExpr</h1>
  * <p>
  * The boolean instance of expression returns true if the value of its first operand matches the
  * SequenceType in its second operand, according to the rules for SequenceType matching; otherwise

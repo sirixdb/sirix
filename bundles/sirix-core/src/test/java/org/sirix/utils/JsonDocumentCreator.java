@@ -31,20 +31,19 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 
 /**
- * <h1>JSON-TestDocument</h1>
  *
  * <p>
  * This class creates a JSON test document.
  * </p>
  *
- * <code><pre>
+ * <pre><code>
  * {
  *   "foo": ["bar", null, 2.33],
  *   "bar": { "hello": "world", "helloo": true },
  *   "baz": "hello",
  *   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
  * }
- * </pre></code>
+ * </code></pre>
  */
 public final class JsonDocumentCreator {
 

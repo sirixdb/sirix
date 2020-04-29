@@ -32,7 +32,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLSerializerProperties</h1>
  *
  * <p>
  * XMLSerializer properties.
@@ -84,8 +83,6 @@ public final class JsonSerializerProperties {
   }
 
   /**
-   * <h2>Read properties</h2>
-   *
    * <p>
    * Read properties file into a concurrent map. Format of properties file:
    * </p>

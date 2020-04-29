@@ -29,7 +29,6 @@ import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
- * <h1>ValueComp</h1>
  * <p>
  * Value comparisons are used for comparing single values.
  * </p>

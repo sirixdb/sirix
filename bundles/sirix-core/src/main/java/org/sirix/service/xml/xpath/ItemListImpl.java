@@ -27,7 +27,6 @@ import java.util.Optional;
 import org.sirix.api.ItemList;
 
 /**
- * <h1>ItemList</h1>
  * <p>
  * Data structure to store XPath items.
  * </p>

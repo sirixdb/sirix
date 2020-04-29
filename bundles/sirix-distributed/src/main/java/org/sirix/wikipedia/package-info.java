@@ -15,7 +15,6 @@
  * 
  */
 /**
- * <h1>Wikipedia</h1>
  * 
  * <p>
  * Some wikipedia utility classes, e.g. to extract a number of articles and an {@link EventReader} based on a

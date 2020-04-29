@@ -26,7 +26,6 @@ import javax.xml.stream.events.XMLEvent;
 import org.apache.hadoop.io.ArrayWritable;
 
 /**
- * <h1>ListWritable</h1>
  * 
  * <p>
  * Wrapper to wrap a List of {@link XMLEventWritable}s in an

@@ -36,7 +36,7 @@ import org.testng.annotations.Test;
  * Test class for all classes implementing the {@link Page} interface.
  *
  * @author Sebastian Graf, University of Konstanz
- * @auhtor Johannes Lichtenberger, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  *
  */
 public class PageTest {

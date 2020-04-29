@@ -129,7 +129,7 @@ public interface StructNode extends Node {
   /**
    * Set the descendant count.
    *
-   * @param pDescendantCount new descendant count
+   * @param descendantCount new descendant count
    */
   void setDescendantCount(long descendantCount);
 }

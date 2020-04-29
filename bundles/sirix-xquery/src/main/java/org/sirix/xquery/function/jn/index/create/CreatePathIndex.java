@@ -29,7 +29,7 @@ import com.google.common.collect.ImmutableSet;
 /**
  * Function for creating path indexes on stored documents, optionally restricted to a set of paths.
  * If successful, this function returns statistics about the newly created index as an Json
- * fragment. Supported signatures are:</br>
+ * fragment. Supported signatures are:<br>
  * <ul>
  * <li><code>jn:create-path-index($doc as json-item(), $paths as xs:string*) as json-item()</code></li>
  * <li><code>jn:create-path-index($doc as json-item()) as json-item()</code></li>

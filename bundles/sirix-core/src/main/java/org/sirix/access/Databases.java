@@ -151,6 +151,7 @@ public final class Databases {
    * instance bound to the {@link File} is returned.
    *
    * @param file determines where the database is located
+   * @param user user used to open the database
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
@@ -166,7 +167,7 @@ public final class Databases {
    * instance bound to the {@link File} is returned.
    *
    * @param file determines where the database is located
-   * @param user the user, who opens the database
+   * @param user the user who interacts with the db
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly

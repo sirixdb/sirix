@@ -26,8 +26,6 @@ import java.util.Deque;
 import org.sirix.api.NodeCursor;
 
 /**
- * <h1>FollowingAxis</h1>
- *
  * <p>
  * Iterate over all following nodes of kind ELEMENT or TEXT starting at a given node. Self is not
  * included.

@@ -35,7 +35,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLOutputFormat</h1>
  * 
  * <p>
  * Outputs only values and appends them

@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
- * <h1>AbstractComparator</h1>
  * <p>
  * Abstract axis that evaluates a comparison.
  * </p>

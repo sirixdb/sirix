@@ -38,7 +38,6 @@ import org.sirix.node.xml.AbstractStructForwardingNode;
 import com.google.common.base.Objects;
 
 /**
- * <h1>DocumentNode</h1>
  *
  * <p>
  * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
