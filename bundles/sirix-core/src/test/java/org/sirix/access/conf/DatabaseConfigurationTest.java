@@ -32,7 +32,7 @@ public class DatabaseConfigurationTest {
   /**
    * Test method for
    * {@link org.sirix.access.DatabaseConfiguration#serialize(org.sirix.access.DatabaseConfiguration)}
-   * and {@link org.sirix.access.DatabaseConfiguration#deserialize(java.io.File)} .
+   * and {@link org.sirix.access.DatabaseConfiguration#deserialize(java.nio.file.Path)} .
    * 
    * @throws SirixIOException if an I/O exception occurs
    */

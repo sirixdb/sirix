@@ -1697,7 +1697,7 @@ public enum FuncDef {
    * If the node identified by the value of $argumentseter1 occurs in document order after the node
    * identified by the value of $argumentseter2, this function returns true; otherwise, it returns
    * false. The rules determining the order of nodes within a single document and in different
-   * documents can be found in Section 2.4 Document OrderDM. This function backs up the "&gt;&gt;>"
+   * documents can be found in Section 2.4 Document OrderDM. This function backs up the "&gt;&gt;"
    * operator.
    * </p>
    */
