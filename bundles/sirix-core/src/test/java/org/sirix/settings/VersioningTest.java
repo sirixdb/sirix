@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -178,19 +178,19 @@ public class VersioningTest {
           wtx.insertElementAsFirstChild(new QNm("foo"));
         }
         wtx.commit();
-        assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
+        assertEquals(wtx.getNodeKey(), Constants.NDP_NODE_COUNT - 1);
         fillNodePage(wtx);
         wtx.commit();
-        assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT << 1) - 1);
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 1) - 1);
         fillNodePage(wtx);
         wtx.commit();
-        assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 3) - 1);
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 3) - 1);
         fillNodePage(wtx);
         wtx.commit();
-        assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT << 2) - 1);
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 2) - 1);
         fillNodePage(wtx);
         wtx.commit();
-        assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 5) - 1);
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 5) - 1);
         try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -216,7 +216,7 @@ public class VersioningTest {
         wtx.insertElementAsFirstChild(new QNm("foo"));
       }
       wtx.commit();
-      assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
+      assertEquals(wtx.getNodeKey(), Constants.NDP_NODE_COUNT - 1);
       wtx.close();
       wtx = manager.beginNodeTrx();
       setBaaaz(wtx);

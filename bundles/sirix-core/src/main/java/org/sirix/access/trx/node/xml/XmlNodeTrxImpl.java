@@ -36,7 +36,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.LevelOrderAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -107,6 +106,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /** Maximum number of node modifications before auto commit. */
   private final int maxNodeCount;
 
+  /** The deweyID manager. */
+  private final XmlDeweyIDManager deweyIDManager;
+
   /** Modification counter. */
   long modificationCount;
 
@@ -119,9 +121,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
   /** {@link InternalXmlNodeReadOnlyTrx} reference. */
   final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
-
-  /** Determines if a bulk insert operation is done. */
-  private boolean mBulkInsert;
 
   /** {@link PathSummaryWriter} instance. */
   private PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
@@ -138,7 +137,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private final Lock lock;
 
   /** Determines if dewey IDs should be stored or not. */
-  private final boolean deweyIDsStored;
+  private final boolean storeDeweyIDs;
 
   /** Determines if text values should be compressed or not. */
   private final boolean useTextCompression;
@@ -166,7 +165,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /**
    * Constructor.
    *
-   * @param transactionID ID of transaction
    * @param resourceManager the resource manager this transaction is bound to
    * @param nodeReadOnlyTrx {@link PageTrx} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
@@ -179,8 +177,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   @SuppressWarnings("unchecked")
-  XmlNodeTrxImpl(final @Nonnegative long transactionID,
-      final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
       final @Nonnull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory) {
@@ -213,8 +210,10 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         : null;
 
     hashType = resourceManager.getResourceConfig().hashType;
-    deweyIDsStored = resourceManager.getResourceConfig().areDeweyIDsStored;
+    storeDeweyIDs = resourceManager.getResourceConfig().areDeweyIDsStored;
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
+
+    deweyIDManager = new XmlDeweyIDManager(this);
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
@@ -224,6 +223,16 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     // throw new IllegalStateException(e);
     // }
     // }
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return getNode().getDeweyID();
+  }
+
+  @Override
+  public boolean storeDeweyIDs() {
+    return storeDeweyIDs;
   }
 
   @Override
@@ -286,8 +295,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           adaptSubtreeForMove(toMove, ChangeType.INSERT);
 
           // Compute and assign new DeweyIDs.
-          if (deweyIDsStored) {
-            computeNewDeweyIDs();
+          if (storeDeweyIDs) {
+            deweyIDManager.computeNewDeweyIDs();
           }
         }
         return this;
@@ -347,85 +356,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       indexController.notifyChange(type, getNode(), pathNodeKey);
     }
     moveTo(beforeNodeKey);
-  }
-
-  /**
-   * Compute the new DeweyIDs.
-   *
-   * @throws SirixException if anything went wrong
-   */
-  private void computeNewDeweyIDs() {
-    SirixDeweyID id;
-    if (hasLeftSibling() && hasRightSibling()) {
-      id = SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(), getRightSiblingDeweyID().get());
-    } else if (hasLeftSibling()) {
-      id = SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(), null);
-    } else if (hasRightSibling()) {
-      id = SirixDeweyID.newBetween(null, getRightSiblingDeweyID().get());
-    } else {
-      id = nodeReadOnlyTrx.getParentDeweyID().get().getNewChildID();
-    }
-
-    final long nodeKey = nodeReadOnlyTrx.getCurrentNode().getNodeKey();
-
-    final StructNode root = (StructNode) pageTrx.prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1);
-    root.setDeweyID(id);
-
-    if (root.hasFirstChild()) {
-      final Node firstChild =
-          (Node) pageTrx.prepareEntryForModification(root.getFirstChildKey(), PageKind.RECORDPAGE, -1);
-      firstChild.setDeweyID(id.getNewChildID());
-
-      int previousLevel = getDeweyID().get().getLevel();
-      nodeReadOnlyTrx.moveTo(firstChild.getNodeKey());
-      int attributeNr = 0;
-      int nspNr = 0;
-      for (@SuppressWarnings("unused")
-      final long key : LevelOrderAxis.newBuilder(this).includeNonStructuralNodes().build()) {
-        SirixDeweyID deweyID;
-        if (isAttribute()) {
-          final long attNodeKey = nodeReadOnlyTrx.getNodeKey();
-          if (attributeNr == 0) {
-            deweyID = nodeReadOnlyTrx.getParentDeweyID().get().getNewAttributeID();
-          } else {
-            nodeReadOnlyTrx.moveTo(attributeNr - 1);
-            deweyID = SirixDeweyID.newBetween(nodeReadOnlyTrx.getNode().getDeweyID().get(), null);
-          }
-          nodeReadOnlyTrx.moveTo(attNodeKey);
-          attributeNr++;
-        } else if (isNamespace()) {
-          final long nspNodeKey = nodeReadOnlyTrx.getNodeKey();
-          if (nspNr == 0) {
-            deweyID = nodeReadOnlyTrx.getParentDeweyID().get().getNewNamespaceID();
-          } else {
-            nodeReadOnlyTrx.moveTo(nspNr - 1);
-            deweyID = SirixDeweyID.newBetween(nodeReadOnlyTrx.getNode().getDeweyID().get(), null);
-          }
-          nodeReadOnlyTrx.moveTo(nspNodeKey);
-          nspNr++;
-        } else {
-          attributeNr = 0;
-          nspNr = 0;
-          if (previousLevel + 1 == getDeweyID().get().getLevel()) {
-            if (nodeReadOnlyTrx.hasLeftSibling()) {
-              deweyID = SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(), null);
-            } else {
-              deweyID = getParentDeweyID().get().getNewChildID();
-            }
-          } else {
-            previousLevel++;
-            deweyID = getParentDeweyID().get().getNewChildID();
-          }
-        }
-
-        final Node node =
-            (Node) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(),
-                PageKind.RECORDPAGE, -1);
-        node.setDeweyID(deweyID);
-      }
-
-      nodeReadOnlyTrx.moveTo(nodeKey);
-    }
   }
 
   @Override
@@ -495,8 +425,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           }
 
           // Recompute DeweyIDs if they are used.
-          if (deweyIDsStored) {
-            computeNewDeweyIDs();
+          if (storeDeweyIDs) {
+            deweyIDManager.computeNewDeweyIDs();
           }
         }
         return this;
@@ -648,7 +578,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final long pathNodeKey = buildPathSummary
             ? pathSummaryWriter.getPathNodeKey(name, NodeKind.ELEMENT)
             : 0;
-        final SirixDeweyID id = newFirstChildID();
+        final SirixDeweyID id = deweyIDManager.newFirstChildID();
         final ElementNode node =
             nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
 
@@ -687,7 +617,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final long leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
         final long rightSibKey = getCurrentNode().getNodeKey();
 
-        final SirixDeweyID id = newLeftSiblingID();
+        final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
         final ElementNode node =
             nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
 
@@ -727,7 +657,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final long leftSibKey = getCurrentNode().getNodeKey();
         final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
 
-        final SirixDeweyID id = newRightSiblingID();
+        final SirixDeweyID id = deweyIDManager.newRightSiblingID();
         final ElementNode node =
             nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
 
@@ -863,28 +793,27 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         InsertPos pos = InsertPos.ASFIRSTCHILD;
         SirixDeweyID id;
         switch (insert) {
-          case AS_FIRST_CHILD:
+          case AS_FIRST_CHILD -> {
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
-            id = newFirstChildID();
-            break;
-          case AS_RIGHT_SIBLING:
+            id = deweyIDManager.newFirstChildID();
+          }
+          case AS_RIGHT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = getCurrentNode().getNodeKey();
             rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
             pos = InsertPos.ASRIGHTSIBLING;
-            id = newRightSiblingID();
-            break;
-          case AS_LEFT_SIBLING:
+            id = deweyIDManager.newRightSiblingID();
+          }
+          case AS_LEFT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
             rightSibKey = getCurrentNode().getNodeKey();
             pos = InsertPos.ASLEFTSIBLING;
-            id = newLeftSiblingID();
-            break;
-          default:
-            throw new IllegalStateException("Insert location not known!");
+            id = deweyIDManager.newLeftSiblingID();
+          }
+          default -> throw new IllegalStateException("Insert location not known!");
         }
 
         final QNm targetName = new QNm(target);
@@ -954,29 +883,28 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final SirixDeweyID id;
 
         switch (insert) {
-          case AS_FIRST_CHILD:
+          case AS_FIRST_CHILD -> {
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
             pos = InsertPos.ASFIRSTCHILD;
-            id = newFirstChildID();
-            break;
-          case AS_RIGHT_SIBLING:
+            id = deweyIDManager.newFirstChildID();
+          }
+          case AS_RIGHT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = getCurrentNode().getNodeKey();
             rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
             pos = InsertPos.ASRIGHTSIBLING;
-            id = newRightSiblingID();
-            break;
-          case AS_LEFT_SIBLING:
+            id = deweyIDManager.newRightSiblingID();
+          }
+          case AS_LEFT_SIBLING -> {
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
             rightSibKey = getCurrentNode().getNodeKey();
             pos = InsertPos.ASLEFTSIBLING;
-            id = newLeftSiblingID();
-            break;
-          default:
-            throw new IllegalStateException("Insert location not known!");
+            id = deweyIDManager.newLeftSiblingID();
+          }
+          default -> throw new IllegalStateException("Insert location not known!");
         }
 
         final CommentNode node =
@@ -1023,7 +951,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
         // Insert new text node if no adjacent text nodes are found.
         final byte[] textValue = getBytes(value);
-        final SirixDeweyID id = newFirstChildID();
+        final SirixDeweyID id = deweyIDManager.newFirstChildID();
         final TextNode node =
             nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
@@ -1084,7 +1012,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         // Insert new text node if no adjacent text nodes are found.
         moveTo(rightSibKey);
         final byte[] textValue = getBytes(builder.toString());
-        final SirixDeweyID id = newLeftSiblingID();
+        final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
         final TextNode node =
             nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
@@ -1149,7 +1077,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         // Insert new text node if no adjacent text nodes are found.
         moveTo(leftSibKey);
         final byte[] textValue = getBytes(builder.toString());
-        final SirixDeweyID id = newRightSiblingID();
+        final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
         final TextNode node =
             nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
@@ -1177,107 +1105,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     } finally {
       unLock();
     }
-  }
-
-  /**
-   * Get an optional namespace {@link SirixDeweyID} reference.
-   *
-   * @return optional namespace {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newNamespaceID() {
-    SirixDeweyID id = null;
-    if (deweyIDsStored) {
-      if (nodeReadOnlyTrx.hasNamespaces()) {
-        nodeReadOnlyTrx.moveToNamespace(nodeReadOnlyTrx.getNamespaceCount() - 1);
-        id = SirixDeweyID.newBetween(nodeReadOnlyTrx.getNode().getDeweyID().get(), null);
-        nodeReadOnlyTrx.moveToParent();
-      } else {
-        id = nodeReadOnlyTrx.getCurrentNode().getDeweyID().get().getNewNamespaceID();
-      }
-    }
-    return id;
-  }
-
-  /**
-   * Get an optional attribute {@link SirixDeweyID} reference.
-   *
-   * @return optional attribute {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newAttributeID() {
-    SirixDeweyID id = null;
-    if (deweyIDsStored) {
-      if (nodeReadOnlyTrx.hasAttributes()) {
-        nodeReadOnlyTrx.moveToAttribute(nodeReadOnlyTrx.getAttributeCount() - 1);
-        id = SirixDeweyID.newBetween(nodeReadOnlyTrx.getNode().getDeweyID().get(), null);
-        nodeReadOnlyTrx.moveToParent();
-      } else {
-        id = nodeReadOnlyTrx.getCurrentNode().getDeweyID().get().getNewAttributeID();
-      }
-    }
-    return id;
-  }
-
-  /**
-   * Get an optional first child {@link SirixDeweyID} reference.
-   *
-   * @return optional first child {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newFirstChildID() {
-    SirixDeweyID id = null;
-    if (deweyIDsStored) {
-      if (nodeReadOnlyTrx.getStructuralNode().hasFirstChild()) {
-        nodeReadOnlyTrx.moveToFirstChild();
-        id = SirixDeweyID.newBetween(null, nodeReadOnlyTrx.getNode().getDeweyID().get());
-      } else {
-        id = nodeReadOnlyTrx.getCurrentNode().getDeweyID().get().getNewChildID();
-      }
-    }
-    return id;
-  }
-
-  /**
-   * Get an optional left sibling {@link SirixDeweyID} reference.
-   *
-   * @return optional left sibling {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newLeftSiblingID() {
-    SirixDeweyID id = null;
-    if (deweyIDsStored) {
-      final SirixDeweyID currID = nodeReadOnlyTrx.getCurrentNode().getDeweyID().get();
-      if (nodeReadOnlyTrx.hasLeftSibling()) {
-        nodeReadOnlyTrx.moveToLeftSibling();
-        id = SirixDeweyID.newBetween(nodeReadOnlyTrx.getCurrentNode().getDeweyID().get(), currID);
-        nodeReadOnlyTrx.moveToRightSibling();
-      } else {
-        id = SirixDeweyID.newBetween(null, currID);
-      }
-    }
-    return id;
-  }
-
-  /**
-   * Get an optional right sibling {@link SirixDeweyID} reference.
-   *
-   * @return optional right sibling {@link SirixDeweyID} reference
-   * @throws SirixException if generating an ID fails
-   */
-  private SirixDeweyID newRightSiblingID() {
-    SirixDeweyID id = null;
-    if (deweyIDsStored) {
-      final SirixDeweyID currID = nodeReadOnlyTrx.getCurrentNode().getDeweyID().get();
-      if (nodeReadOnlyTrx.hasRightSibling()) {
-        nodeReadOnlyTrx.moveToRightSibling();
-        id = SirixDeweyID.newBetween(currID, nodeReadOnlyTrx.getCurrentNode().getDeweyID().get());
-        nodeReadOnlyTrx.moveToLeftSibling();
-      } else {
-        id = SirixDeweyID.newBetween(currID, null);
-      }
-    }
-    return id;
   }
 
   /**
@@ -1333,7 +1160,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
             : 0;
         final byte[] attValue = getBytes(value);
 
-        final SirixDeweyID id = newAttributeID();
+        final SirixDeweyID id = deweyIDManager.newAttributeID();
         final long elementKey = getCurrentNode().getNodeKey();
         final AttributeNode node = nodeFactory.createAttributeNode(elementKey, name, attValue, pathNodeKey, id);
 
@@ -1388,7 +1215,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
             : 0;
         final long elementKey = getCurrentNode().getNodeKey();
 
-        final SirixDeweyID id = newNamespaceID();
+        final SirixDeweyID id = deweyIDManager.newNamespaceID();
         final NamespaceNode node = nodeFactory.createNamespaceNode(elementKey, name, pathNodeKey, id);
 
         final Node parentNode =
@@ -1784,9 +1611,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
   @Override
   public void adaptHashesInPostorderTraversal() {
-    long nodeKey;
     if (hashType != HashType.NONE) {
-      nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = getCurrentNode().getNodeKey();
       postOrderTraversalHashes();
       final ImmutableNode startNode = getCurrentNode();
       moveToParent();

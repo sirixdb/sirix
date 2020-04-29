@@ -1,8 +1,6 @@
 package org.sirix.access.trx.node.json;
 
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.Optional;
+import com.google.common.collect.ForwardingObject;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -14,11 +12,19 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import com.google.common.collect.ForwardingObject;
+
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.Optional;
 
 public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingObject implements JsonNodeReadOnlyTrx {
   @Override
   protected abstract JsonNodeReadOnlyTrx delegate();
+
+  @Override
+  public boolean storeDeweyIDs() {
+    return delegate().storeDeweyIDs();
+  }
 
   @Override
   public Optional<User> getUser() {

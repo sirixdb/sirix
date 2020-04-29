@@ -1,16 +1,19 @@
 package org.sirix.index.avltree;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.index.avltree.interfaces.MutableAVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * AVLNode which is mutable.
@@ -20,10 +23,10 @@ import com.google.common.base.Objects;
 public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractForwardingNode
     implements MutableAVLNode<K, V> {
   /** Key token. */
-  private K mKey;
+  private K key;
 
   /** Value. */
-  private V mValue;
+  private V value;
 
   /** Reference to the left node. */
   private long mLeft = Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -32,33 +35,33 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   private long mRight = Fixed.NULL_NODE_KEY.getStandardProperty();
 
   /** 'changed' status of tree node. */
-  private boolean mChanged;
+  private boolean isChanged;
 
   /** {@link NodeDelegate} reference. */
-  private NodeDelegate mNodeDelegate;
+  private NodeDelegate nodeDelegate;
 
   /**
    * Constructor.
    *
-   * @param key the key for the node
-   * @param value the value for the node
-   * @param delegate the delegate for the node
+   * @param key the key
+   * @param value the value
+   * @param nodeDelegate the used node delegate
    */
-  public AVLNode(final K key, final V value, final NodeDelegate delegate) {
-    mKey = checkNotNull(key);
-    mValue = checkNotNull(value);
-    mNodeDelegate = checkNotNull(delegate);
+  public AVLNode(final K key, final V value, final NodeDelegate nodeDelegate) {
+    this.key = checkNotNull(key);
+    this.value = checkNotNull(value);
+    this.nodeDelegate = checkNotNull(nodeDelegate);
   }
 
   @Override
   public NodeKind getKind() {
-    if (mKey instanceof Long) {
+    if (key instanceof Long) {
       return NodeKind.PATHAVL;
     }
-    if (mKey instanceof CASValue) {
+    if (key instanceof CASValue) {
       return NodeKind.CASAVL;
     }
-    if (mKey instanceof QNm) {
+    if (key instanceof QNm) {
       return NodeKind.NAMEAVL;
     }
     return NodeKind.UNKNOWN;
@@ -66,17 +69,17 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
 
   @Override
   protected NodeDelegate delegate() {
-    return mNodeDelegate;
+    return nodeDelegate;
   }
 
   @Override
   public K getKey() {
-    return mKey;
+    return key;
   }
 
   @Override
   public V getValue() {
-    return mValue;
+    return value;
   }
 
   /**
@@ -86,12 +89,12 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
    */
   @Override
   public boolean isChanged() {
-    return mChanged;
+    return isChanged;
   }
 
   @Override
   public void setChanged(final boolean changed) {
-    mChanged = changed;
+    isChanged = changed;
   }
 
   @Override
@@ -126,7 +129,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeDelegate.getNodeKey());
+    return Objects.hashCode(nodeDelegate.getNodeKey());
   }
 
   @Override
@@ -134,7 +137,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
     if (obj instanceof AVLNode) {
       @SuppressWarnings("unchecked")
       final AVLNode<K, V> other = (AVLNode<K, V>) obj;
-      return this.mNodeDelegate.getNodeKey() == other.mNodeDelegate.getNodeKey();
+      return this.nodeDelegate.getNodeKey() == other.nodeDelegate.getNodeKey();
     }
     return false;
   }
@@ -142,22 +145,27 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", mNodeDelegate)
+                      .add("node delegate", nodeDelegate)
                       .add("left child", mLeft)
                       .add("right child", mRight)
-                      .add("changed", mChanged)
-                      .add("key", mKey)
-                      .add("value", mValue)
+                      .add("changed", isChanged)
+                      .add("key", key)
+                      .add("value", value)
                       .toString();
   }
 
   @Override
   public void setKey(final K key) {
-    mKey = checkNotNull(key);
+    this.key = checkNotNull(key);
   }
 
   @Override
   public void setValue(final V value) {
-    mValue = checkNotNull(value);
+    this.value = checkNotNull(value);
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return null;
   }
 }

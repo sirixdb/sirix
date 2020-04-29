@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -102,6 +102,11 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   }
 
   @Override
+  public boolean storeDeweyIDs() {
+    return false;
+  }
+
+  @Override
   public void setCurrentNode(final @Nullable ImmutableXmlNode currentNode) {
     assertNotClosed();
     this.currentNode = currentNode;
@@ -142,25 +147,17 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public ImmutableXmlNode getNode() {
     assertNotClosed();
 
-    switch (currentNode.getKind()) {
-      case ELEMENT:
-        return ImmutableElement.of((ElementNode) currentNode);
-      case TEXT:
-        return ImmutableText.of((TextNode) currentNode);
-      case COMMENT:
-        return ImmutableComment.of((CommentNode) currentNode);
-      case PROCESSING_INSTRUCTION:
-        return ImmutablePI.of((PINode) currentNode);
-      case ATTRIBUTE:
-        return ImmutableAttributeNode.of((AttributeNode) currentNode);
-      case NAMESPACE:
-        return ImmutableNamespace.of((NamespaceNode) currentNode);
-      case XML_DOCUMENT:
-        return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) currentNode);
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException("Node kind not known!");
-    }
+    // $CASES-OMITTED$
+    return switch (currentNode.getKind()) {
+      case ELEMENT -> ImmutableElement.of((ElementNode) currentNode);
+      case TEXT -> ImmutableText.of((TextNode) currentNode);
+      case COMMENT -> ImmutableComment.of((CommentNode) currentNode);
+      case PROCESSING_INSTRUCTION -> ImmutablePI.of((PINode) currentNode);
+      case ATTRIBUTE -> ImmutableAttributeNode.of((AttributeNode) currentNode);
+      case NAMESPACE -> ImmutableNamespace.of((NamespaceNode) currentNode);
+      case XML_DOCUMENT -> ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) currentNode);
+      default -> throw new IllegalStateException("Node kind not known!");
+    };
   }
 
   @Override
@@ -458,18 +455,18 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     assertNotClosed();
     return ((ImmutableXmlNode) currentNode).getDeweyID();
   }
 
   @Override
-  public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
+  public SirixDeweyID getLeftSiblingDeweyID() {
     assertNotClosed();
     if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.empty();
+      SirixDeweyID deweyID = null;
       if (node.hasLeftSibling()) {
         // Left sibling node.
         deweyID = moveTo(node.getLeftSiblingKey()).trx().getDeweyID();
@@ -477,15 +474,15 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override
-  public Optional<SirixDeweyID> getRightSiblingDeweyID() {
+  public SirixDeweyID getRightSiblingDeweyID() {
     if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.empty();
+      SirixDeweyID deweyID = null;
       if (node.hasRightSibling()) {
         // Right sibling node.
         deweyID = moveTo(node.getRightSiblingKey()).trx().getDeweyID();
@@ -493,14 +490,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override
-  public Optional<SirixDeweyID> getParentDeweyID() {
+  public SirixDeweyID getParentDeweyID() {
     if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final long nodeKey = currentNode.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.empty();
+      SirixDeweyID deweyID = null;
       if (currentNode.hasParent()) {
         // Parent node.
         deweyID = moveTo(currentNode.getParentKey()).trx().getDeweyID();
@@ -508,15 +505,15 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override
-  public Optional<SirixDeweyID> getFirstChildDeweyID() {
+  public SirixDeweyID getFirstChildDeweyID() {
     if (resourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.empty();
+      SirixDeweyID deweyID = null;
       if (node.hasFirstChild()) {
         // Right sibling node.
         deweyID = moveTo(node.getFirstChildKey()).trx().getDeweyID();
@@ -524,7 +521,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override

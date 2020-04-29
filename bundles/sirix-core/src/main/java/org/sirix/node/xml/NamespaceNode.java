@@ -21,10 +21,8 @@
 
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -37,8 +35,10 @@ import org.sirix.node.immutable.xml.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * <p>
@@ -205,7 +205,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNodeDel.getDeweyID();
   }
 

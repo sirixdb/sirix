@@ -21,12 +21,9 @@
 
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.collect.BiMap;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -41,9 +38,13 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.collect.BiMap;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.math.BigInteger;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * <p>
@@ -373,7 +374,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mStructNodeDel.getNodeDelegate().getDeweyID();
   }
 

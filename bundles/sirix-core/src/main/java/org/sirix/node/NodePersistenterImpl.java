@@ -1,14 +1,14 @@
 package org.sirix.node;
 
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.NodePersistenter;
+
+import javax.annotation.Nonnegative;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.node.interfaces.NodePersistenter;
-import org.sirix.node.interfaces.DataRecord;
 
 /**
  * Serialize and deserialize nodes.
@@ -34,7 +34,7 @@ public final class NodePersistenterImpl implements NodePersistenter {
   }
 
   @Override
-  public Optional<SirixDeweyID> deserializeDeweyID(final DataInput source, SirixDeweyID previousDeweyID,
+  public SirixDeweyID deserializeDeweyID(final DataInput source, SirixDeweyID previousDeweyID,
       ResourceConfiguration resourceConfig) throws IOException {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);

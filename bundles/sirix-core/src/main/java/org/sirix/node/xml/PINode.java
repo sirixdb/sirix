@@ -242,7 +242,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mStructNodeDel.getNodeDelegate().getDeweyID();
   }
 

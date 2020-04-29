@@ -1,9 +1,5 @@
 package org.sirix.node.immutable.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -17,6 +13,11 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.AttributeNode;
 import org.sirix.settings.Constants;
 
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * Immutable attribute node wrapper.
  *
@@ -26,7 +27,7 @@ import org.sirix.settings.Constants;
 public final class ImmutableAttributeNode implements ImmutableValueNode, ImmutableNameNode, ImmutableXmlNode {
 
   /** Mutable {@link AttributeNode}. */
-  private final AttributeNode mNode;
+  private final AttributeNode node;
 
   /**
    * Private constructor.
@@ -34,7 +35,7 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
    * @param node mutable {@link AttributeNode}
    */
   private ImmutableAttributeNode(final AttributeNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -49,12 +50,12 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
 
   @Override
   public int getTypeKey() {
-    return mNode.getTypeKey();
+    return node.getTypeKey();
   }
 
   @Override
   public boolean isSameItem(final @Nullable Node other) {
-    return mNode.isSameItem(other);
+    return node.isSameItem(other);
   }
 
   @Override
@@ -64,91 +65,91 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
 
   @Override
   public BigInteger getHash() {
-    return mNode.getHash();
+    return node.getHash();
   }
 
   @Override
   public long getParentKey() {
-    return mNode.getParentKey();
+    return node.getParentKey();
   }
 
   @Override
   public boolean hasParent() {
-    return mNode.hasParent();
+    return node.hasParent();
   }
 
   @Override
   public long getNodeKey() {
-    return mNode.getNodeKey();
+    return node.getNodeKey();
   }
 
   @Override
   public NodeKind getKind() {
-    return mNode.getKind();
+    return node.getKind();
   }
 
   @Override
   public long getRevision() {
-    return mNode.getRevision();
+    return node.getRevision();
   }
 
   @Override
   public int getLocalNameKey() {
-    return mNode.getLocalNameKey();
+    return node.getLocalNameKey();
   }
 
   @Override
   public int getPrefixKey() {
-    return mNode.getPrefixKey();
+    return node.getPrefixKey();
   }
 
   @Override
   public int getURIKey() {
-    return mNode.getURIKey();
+    return node.getURIKey();
   }
 
   @Override
   public long getPathNodeKey() {
-    return mNode.getPathNodeKey();
+    return node.getPathNodeKey();
   }
 
   @Override
   public byte[] getRawValue() {
-    return mNode.getRawValue();
+    return node.getRawValue();
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    return mNode.getDeweyID();
+  public SirixDeweyID getDeweyID() {
+    return node.getDeweyID();
   }
 
   @Override
   public boolean equals(Object obj) {
-    return mNode.equals(obj);
+    return node.equals(obj);
   }
 
   @Override
   public int hashCode() {
-    return mNode.hashCode();
+    return node.hashCode();
   }
 
   @Override
   public String toString() {
-    return mNode.toString();
+    return node.toString();
   }
 
   @Override
   public QNm getName() {
-    return mNode.getName();
+    return node.getName();
   }
 
   @Override
   public String getValue() {
-    return new String(((ValueNode) mNode).getRawValue(), Constants.DEFAULT_ENCODING);
+    return new String(((ValueNode) node).getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
   }
 }

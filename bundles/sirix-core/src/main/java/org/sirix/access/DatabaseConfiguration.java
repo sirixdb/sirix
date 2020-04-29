@@ -51,26 +51,37 @@ public final class DatabaseConfiguration {
    * layout.
    */
   public enum DatabasePaths {
-
-    /** File to store db settings. */
+    /**
+     * File to store db settings.
+     */
     CONFIGBINARY(Paths.get("dbsetting.obj"), false),
-    /** File to store encryption db settings. */
+    /**
+     * File to store encryption db settings.
+     */
     KEYSELECTOR(Paths.get("keyselector"), true),
-    /** File to store the data. */
+    /**
+     * File to store the data.
+     */
     DATA(Paths.get("resources"), true),
-    /** Lock file. */
+    /**
+     * Lock file.
+     */
     LOCK(Paths.get(".lock"), false);
 
-    /** Location of the file. */
+    /**
+     * Location of the file.
+     */
     private final Path mFile;
 
-    /** Is the location a folder or no? */
+    /**
+     * Is the location a folder or no?
+     */
     private final boolean mIsFolder;
 
     /**
      * Constructor.
      *
-     * @param file to be set
+     * @param file     to be set
      * @param isFolder determines if the file is a folder instead
      */
     DatabasePaths(final Path file, final boolean isFolder) {
@@ -101,7 +112,7 @@ public final class DatabaseConfiguration {
      *
      * @param file to be checked
      * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if the
-     *         structure has more folders
+     * structure has more folders
      */
     public static int compareStructure(final Path file) {
       checkNotNull(file);
@@ -117,19 +128,29 @@ public final class DatabaseConfiguration {
   }
 
   // STATIC STANDARD FIELDS
-  /** Identification for string. */
+  /**
+   * Identification for string.
+   */
   public static final String BINARY = "0.1.0";
 
-  /** Binary version of storage. */
+  /**
+   * Binary version of storage.
+   */
   private final String binaryVersion;
 
-  /** Path to file. */
+  /**
+   * Path to file.
+   */
   private final Path file;
 
-  /** Maximum unique resource ID. */
+  /**
+   * Maximum unique resource ID.
+   */
   private long maxResourceID;
 
-  /** The database type. */
+  /**
+   * The database type.
+   */
   private DatabaseType databaseType;
 
   /**
@@ -202,7 +223,7 @@ public final class DatabaseConfiguration {
     if (!(obj instanceof DatabaseConfiguration))
       return false;
 
-    final DatabaseConfiguration other = (DatabaseConfiguration) obj;
+    final var other = (DatabaseConfiguration) obj;
     return Objects.equal(file, other.file) && Objects.equal(binaryVersion, other.binaryVersion);
   }
 
@@ -222,6 +243,7 @@ public final class DatabaseConfiguration {
 
   /**
    * Get the database name.
+   *
    * @return the database name
    */
   public String getDatabaseName() {
@@ -236,7 +258,7 @@ public final class DatabaseConfiguration {
    */
   public static void serialize(final DatabaseConfiguration config) throws SirixIOException {
     try (final FileWriter fileWriter = new FileWriter(config.getConfigFile().toFile());
-        final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
+         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
       final String filePath = config.file.toAbsolutePath().toString();
       jsonWriter.name("file").value(filePath);
@@ -256,10 +278,9 @@ public final class DatabaseConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static DatabaseConfiguration deserialize(final Path file) {
-    try (
-        final FileReader fileReader =
-            new FileReader(file.toAbsolutePath().resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
-        final JsonReader jsonReader = new JsonReader(fileReader)) {
+    try (final FileReader fileReader = new FileReader(
+        file.toAbsolutePath().resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
+         final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
       assert fileName.equals("file");
@@ -271,10 +292,9 @@ public final class DatabaseConfiguration {
       assert databaseType.equals("databaseType");
       final String type = jsonReader.nextString();
       jsonReader.endObject();
-      final DatabaseType dbType =
-          DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
-      return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
-                                              .setDatabaseType(dbType);
+      final DatabaseType dbType = DatabaseType.fromString(type)
+                                              .orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
+      return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID).setDatabaseType(dbType);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

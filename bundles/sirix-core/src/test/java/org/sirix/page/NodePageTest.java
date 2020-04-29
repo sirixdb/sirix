@@ -28,6 +28,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
+
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -78,7 +80,7 @@ public final class NodePageTest {
   @Test
   public void testSerializeDeserialize() throws IOException {
     final UnorderedKeyValuePage page1 =
-        new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
+        new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, List.of(), mPageReadTrx);
     assertEquals(0L, page1.getPageKey());
 
     final NodeDelegate del = new NodeDelegate(0, 1, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());

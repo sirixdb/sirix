@@ -80,7 +80,10 @@ public final class ResourceConfiguration {
     INDEXES(Paths.get("indexes"), true),
 
     /** Folder to store the encryption key. */
-    ENCRYPTION_KEY(Paths.get("encryption"), true);
+    ENCRYPTION_KEY(Paths.get("encryption"), true),
+
+    /** Folder to store the update operations. */
+    UPDATE_OPERATIONS(Paths.get("update-operations"), true);
 
     /** Location of the file. */
     private final Path path;
@@ -217,17 +220,17 @@ public final class ResourceConfiguration {
    * @param builder {@link Builder} reference
    */
   private ResourceConfiguration(final ResourceConfiguration.Builder builder) {
-    storageType = builder.mType;
-    byteHandlePipeline = builder.mByteHandler;
-    revisioningType = builder.mRevisionKind;
-    hashType = builder.mHashKind;
-    numberOfRevisionsToRestore = builder.mRevisionsToRestore;
-    useTextCompression = builder.mCompression;
-    withPathSummary = builder.mPathSummary;
-    areDeweyIDsStored = builder.mUseDeweyIDs;
-    recordPersister = builder.mPersistenter;
-    resourceName = builder.mResource;
-    nodeHashFunction = builder.mHashFunction;
+    storageType = builder.type;
+    byteHandlePipeline = builder.byteHandler;
+    revisioningType = builder.revisionKind;
+    hashType = builder.hashKind;
+    numberOfRevisionsToRestore = builder.revisionsToRestore;
+    useTextCompression = builder.useTextCompression;
+    withPathSummary = builder.pathSummary;
+    areDeweyIDsStored = builder.useDeweyIDs;
+    recordPersister = builder.persistenter;
+    resourceName = builder.resource;
+    nodeHashFunction = builder.hashFunction;
   }
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
@@ -489,37 +492,37 @@ public final class ResourceConfiguration {
   public static final class Builder {
 
     /** Hashing function for hashing nodes. */
-    private HashFunction mHashFunction = Hashing.sha256();
+    private HashFunction hashFunction = Hashing.sha256();
 
     /** Type of Storage (File, Berkeley). */
-    private StorageType mType = STORAGE;
+    private StorageType type = STORAGE;
 
     /** Kind of revisioning (Incremental, Differential). */
-    private VersioningType mRevisionKind = VERSIONING;
+    private VersioningType revisionKind = VERSIONING;
 
     /** Kind of integrity hash (rolling, postorder). */
-    private HashType mHashKind = HASHKIND;
+    private HashType hashKind = HASHKIND;
 
     /** Number of revisions to restore a complete set of data. */
-    private int mRevisionsToRestore = VERSIONSTORESTORE;
+    private int revisionsToRestore = VERSIONSTORESTORE;
 
     /** Record/Node persistenter. */
-    private RecordPersister mPersistenter = PERSISTENTER;
+    private RecordPersister persistenter = PERSISTENTER;
 
     /** Resource for this session. */
-    private final String mResource;
+    private final String resource;
 
     /** Determines if text-compression should be used or not (default is true). */
-    private boolean mCompression;
+    private boolean useTextCompression;
 
     /** Byte handler pipeline. */
-    private ByteHandlePipeline mByteHandler;
+    private ByteHandlePipeline byteHandler;
 
     /** Determines if DeweyIDs should be used or not. */
-    private boolean mUseDeweyIDs;
+    private boolean useDeweyIDs;
 
     /** Determines if a path summary should be build or not. */
-    private boolean mPathSummary;
+    private boolean pathSummary;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -528,13 +531,13 @@ public final class ResourceConfiguration {
      * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
      */
     public Builder(final String resource) {
-      mResource = checkNotNull(resource);
-      mPathSummary = true;
+      this.resource = checkNotNull(resource);
+      pathSummary = true;
 
       // final Path path =
       // mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(mResource);
 
-      mByteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
+      byteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
     }
 
     /**
@@ -544,7 +547,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder storageType(final StorageType type) {
-      mType = checkNotNull(type);
+      this.type = checkNotNull(type);
       return this;
     }
 
@@ -555,7 +558,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder persistenter(final RecordPersister persistenter) {
-      mPersistenter = checkNotNull(persistenter);
+      this.persistenter = checkNotNull(persistenter);
       return this;
     }
 
@@ -577,7 +580,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder versioningApproach(final VersioningType versioning) {
-      mRevisionKind = checkNotNull(versioning);
+      revisionKind = checkNotNull(versioning);
       return this;
     }
 
@@ -588,7 +591,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder hashKind(final HashType hashKind) {
-      mHashKind = checkNotNull(hashKind);
+      this.hashKind = checkNotNull(hashKind);
       return this;
     }
 
@@ -599,7 +602,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder byteHandlerPipeline(final ByteHandlePipeline byteHandler) {
-      mByteHandler = checkNotNull(byteHandler);
+      this.byteHandler = checkNotNull(byteHandler);
       return this;
     }
 
@@ -611,7 +614,7 @@ public final class ResourceConfiguration {
      */
     public Builder revisionsToRestore(final @Nonnegative int revisionsToRestore) {
       checkArgument(revisionsToRestore > 0, "revisionsToRestore must be > 0!");
-      mRevisionsToRestore = revisionsToRestore;
+      this.revisionsToRestore = revisionsToRestore;
       return this;
     }
 
@@ -622,7 +625,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder useDeweyIDs(final boolean useDeweyIDs) {
-      mUseDeweyIDs = useDeweyIDs;
+      this.useDeweyIDs = useDeweyIDs;
       return this;
     }
 
@@ -633,7 +636,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder useTextCompression(final boolean useTextCompression) {
-      mCompression = useTextCompression;
+      this.useTextCompression = useTextCompression;
       return this;
     }
 
@@ -643,19 +646,19 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
-      mPathSummary = buildPathSummary;
+      pathSummary = buildPathSummary;
       return this;
     }
 
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
-                        .add("Type", mType)
-                        .add("RevisionKind", mRevisionKind)
-                        .add("HashKind", mHashKind)
-                        .add("HashFunction", mHashFunction)
-                        .add("PathSummary", mPathSummary)
-                        .add("TextCompression", mCompression)
+                        .add("Type", type)
+                        .add("RevisionKind", revisionKind)
+                        .add("HashKind", hashKind)
+                        .add("HashFunction", hashFunction)
+                        .add("PathSummary", pathSummary)
+                        .add("TextCompression", useTextCompression)
                         .toString();
     }
 

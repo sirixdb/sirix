@@ -24,7 +24,7 @@ package org.sirix.io.file;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.io.Storage;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -42,7 +42,7 @@ import java.nio.file.Path;
  * @author Sebastian Graf, University of Konstanz.
  *
  */
-public final class FileStorage implements Storage {
+public final class FileStorage implements IOStorage {
 
   /** Data file name. */
   private static final String FILENAME = "sirix.data";

@@ -20,7 +20,7 @@
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-**We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the Future, we might also support the storage and querying of other data formats.**
+**We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats.**
 
 <p>&nbsp;</p>
 
@@ -62,6 +62,8 @@ SirixDB is a log-structured, temporal NoSQL document store, which stores evoluti
 Some of the most important core principles and design goals are:
 
 <dl>
+  <dt>Embeddable</dt>
+  <dd>Similar to SQLite and DucksDB SirixDB is embeddable at its core. Other APIs as the non-blocking REST-API are built on top.</dd>
   <dt>Minimize Storage Overhead</dt>
   <dd>SirixDB shares unchanged data pages as well as records between revisions, depending on a chosen versioning algorithm during the initial bootstrapping of a resource. SirixDB aims to balance read and writer performance in its default configuration.</dd>
   <dt>Concurrent</dt>
@@ -164,6 +166,7 @@ Thanks goes to these wonderful people, who greatly improved SirixDB lately. Siri
   <tr>
     <td align="center"><a href="https://github.com/EmilGedda"><img src="https://avatars2.githubusercontent.com/u/4695818?v=4" width="100px;" alt=""/><br /><sub><b>Emil Gedda</b></sub></a><br /><a href="https://github.com/sirixdb/sirix/commits?author=EmilGedda" title="Code">💻</a></td>
     <td align="center"><a href="https://github.com/arohlen"><img src="https://avatars1.githubusercontent.com/u/49123208?v=4" width="100px;" alt=""/><br /><sub><b>Andreas Rohlén</b></sub></a><br /><a href="https://github.com/sirixdb/sirix/commits?author=arohlen" title="Code">💻</a></td>
+    <td align="center"><a href="https://github.com/marcinbieleckiLLL"><img src="https://avatars3.githubusercontent.com/u/26444765?v=4" width="100px;" alt=""/><br /><sub><b>Marcin Bielecki</b></sub></a><br /><a href="https://github.com/sirixdb/sirix/commits?author=marcinbieleckiLLL" title="Code">💻</a></td>
   </tr>
 </table>
 

@@ -1,11 +1,12 @@
 package org.sirix.node;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.collect.ForwardingObject;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
-import com.google.common.collect.ForwardingObject;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * Skeletal implementation of {@link Node} interface.
@@ -20,6 +21,11 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
 
   @Override
   protected abstract NodeDelegate delegate();
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return delegate().getDeweyID();
+  }
 
   /**
    * Get a snapshot of the node delegate.

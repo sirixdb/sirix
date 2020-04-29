@@ -140,7 +140,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNode.getDeweyID();
   }
 

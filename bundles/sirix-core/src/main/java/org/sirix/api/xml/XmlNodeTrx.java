@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,11 +21,6 @@
 
 package org.sirix.api.xml;
 
-import java.io.IOException;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Movement;
 import org.sirix.api.NodeTrx;
@@ -36,8 +31,11 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.xml.TextNode;
 import org.sirix.service.xml.shredder.XmlShredder;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.xml.stream.XMLEventReader;
+
 /**
- *
  * <h2>Description</h2>
  *
  * <p>
@@ -103,7 +101,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *     // This must be called to make sure the transaction is not closed.
  *     assertNotClosed();
  *     // This must be called to track the modifications.
- *     mModificationCount++;
+ *     modificationCount++;
  *     ...
  *   }
  * </pre>

@@ -21,13 +21,6 @@
 
 package org.sirix;
 
-import static org.junit.Assert.fail;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
@@ -40,6 +33,15 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.utils.JsonDocumentCreator;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
+
+import static org.junit.Assert.fail;
 
 /**
  * Helper class for offering convenient usage of the {@link JsonResourceManager} for test cases.
@@ -116,7 +118,7 @@ public final class JsonTestHelper {
           Databases.createJsonDatabase(config);
         }
         final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
         INSTANCES.put(file, database);
         return database;
       } catch (final SirixRuntimeException e) {
@@ -162,7 +164,7 @@ public final class JsonTestHelper {
    */
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
     try (final JsonResourceManager manager = database.openResourceManager(RESOURCE);
         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
