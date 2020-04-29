@@ -206,15 +206,15 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public QNm getName() {
     assertNotClosed();
     if (currentNode instanceof NameNode) {
-      final String uri = pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
+      final String uri = pageReadOnlyTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = ((NameNode) currentNode).getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
-          : pageReadTrx.getName(prefixKey, currentNode.getKind());
+          : pageReadOnlyTrx.getName(prefixKey, currentNode.getKind());
       final int localNameKey = ((NameNode) currentNode).getLocalNameKey();
       final String localName = localNameKey == -1
           ? ""
-          : pageReadTrx.getName(localNameKey, currentNode.getKind());
+          : pageReadOnlyTrx.getName(localNameKey, currentNode.getKind());
       return new QNm(uri, prefix, localName);
     }
 
@@ -224,13 +224,13 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public String getType() {
     assertNotClosed();
-    return pageReadTrx.getName(((ImmutableXmlNode) currentNode).getTypeKey(), currentNode.getKind());
+    return pageReadOnlyTrx.getName(((ImmutableXmlNode) currentNode).getTypeKey(), currentNode.getKind());
   }
 
   @Override
   public byte[] rawNameForKey(final int key) {
     assertNotClosed();
-    return pageReadTrx.getRawName(key, currentNode.getKind());
+    return pageReadOnlyTrx.getRawName(key, currentNode.getKind());
   }
 
   @Override
@@ -278,14 +278,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     if (obj instanceof XmlNodeReadOnlyTrxImpl) {
       final XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) obj;
       return currentNode.getNodeKey() == rtx.currentNode.getNodeKey()
-          && pageReadTrx.getRevisionNumber() == rtx.pageReadTrx.getRevisionNumber();
+          && pageReadOnlyTrx.getRevisionNumber() == rtx.pageReadOnlyTrx.getRevisionNumber();
     }
     return false;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(currentNode.getNodeKey(), pageReadTrx.getRevisionNumber());
+    return Objects.hashCode(currentNode.getNodeKey(), pageReadOnlyTrx.getRevisionNumber());
   }
 
   @Override
@@ -395,7 +395,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public String getNamespaceURI() {
     assertNotClosed();
     if (currentNode instanceof NameNode) {
-      return pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
+      return pageReadOnlyTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
     }
     return null;
   }
@@ -528,14 +528,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public void close() {
     if (!isClosed) {
       // Close own state.
-      pageReadTrx.close();
+      pageReadOnlyTrx.close();
       setPageReadTransaction(null);
 
       // Callback on session to make sure everything is cleaned up.
       resourceManager.closeReadTransaction(trxId);
 
       // Immediately release all references.
-      pageReadTrx = null;
+      pageReadOnlyTrx = null;
       currentNode = null;
 
       // Close state.
@@ -552,7 +552,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     if (currentNode instanceof ValueNode) {
       returnVal = new String(((ValueNode) currentNode).getRawValue(), Constants.DEFAULT_ENCODING);
     } else if (currentNode.getKind() == NodeKind.NAMESPACE) {
-      returnVal = pageReadTrx.getName(((NamespaceNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
+      returnVal = pageReadOnlyTrx.getName(((NamespaceNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
     } else {
       returnVal = "";
     }
@@ -569,7 +569,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public int getNameCount(String name, @Nonnull NodeKind kind) {
     assertNotClosed();
     if (currentNode instanceof NameNode) {
-      return pageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
+      return pageReadOnlyTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
     }
     return 0;
   }

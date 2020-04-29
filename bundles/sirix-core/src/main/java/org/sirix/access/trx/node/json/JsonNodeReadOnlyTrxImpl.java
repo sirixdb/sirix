@@ -1,11 +1,15 @@
 package org.sirix.access.trx.node.json;
 
 import com.google.common.base.MoreObjects;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -14,6 +18,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;
@@ -25,7 +30,14 @@ import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 
 import javax.annotation.Nonnegative;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -66,6 +78,84 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
+  public List<JsonObject> getUpdateOperations() {
+    final var revisionNumber = pageReadOnlyTrx instanceof PageTrx ? getRevisionNumber() - 1 : getRevisionNumber();
+    final var updateOperationsFile = resourceManager.getResourceConfig()
+                                                    .getResource()
+                                                    .resolve(
+                                                        ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                                    .resolve(
+                                                        "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber
+                                                            + ".json");
+
+    final var diffTuples = new ArrayList<JsonObject>();
+
+    try {
+      final var jsonElement = JsonParser.parseString(Files.readString(updateOperationsFile));
+      final var jsonObject = jsonElement.getAsJsonObject();
+      final var diffs = jsonObject.getAsJsonArray("diffs");
+
+      diffs.forEach(diff -> diffTuples.add(diff.getAsJsonObject()));
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+
+    return diffTuples;
+  }
+
+  @Override
+  public List<JsonObject> getUpdateOperationsInSubtreeOfNode(final SirixDeweyID rootDeweyId, final long maxDepth) {
+    checkNotNull(rootDeweyId);
+
+    final var updateOperations = getUpdateOperations();
+
+    final var filteredUpdateOperations = updateOperations.stream().filter(updateOperation -> {
+      if (updateOperation.has("insert")) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "insert", maxDepth);
+      } else if (updateOperation.has("delete")) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "delete", maxDepth);
+      } else if (updateOperation.has("update")) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "update", maxDepth);
+      } else if (updateOperation.has("replace")) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "replace", maxDepth);
+      } else {
+        throw new IllegalStateException(updateOperation + " not known.");
+      }
+    }).collect(Collectors.toList());
+
+    filteredUpdateOperations.sort(Comparator.comparing(updateOperation -> {
+      if (updateOperation.has("insert")) {
+        return getDeweyID(updateOperation, "insert");
+      } else if (updateOperation.has("delete")) {
+        return getDeweyID(updateOperation, "delete");
+      } else if (updateOperation.has("update")) {
+        return getDeweyID(updateOperation, "update");
+      } else if (updateOperation.has("replace")) {
+        return getDeweyID(updateOperation, "replace");
+      }
+      throw new IllegalStateException(updateOperation + " not known.");
+    }));
+
+    return filteredUpdateOperations;
+  }
+
+  private SirixDeweyID getDeweyID(final JsonObject updateOperation, final String operation) {
+    final var opAsJsonObject = updateOperation.getAsJsonObject(operation);
+    return new SirixDeweyID(opAsJsonObject.getAsJsonPrimitive("deweyID").getAsString());
+  }
+
+  private boolean isDescendatOrSelfOf(final SirixDeweyID rootDeweyId, final JsonObject updateOperation, final String operation, final long maxDepth) {
+    final var opAsJsonObject = updateOperation.getAsJsonObject(operation);
+
+    final var deweyId = new SirixDeweyID(opAsJsonObject.getAsJsonPrimitive("deweyID").getAsString());
+
+    if (deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() <= maxDepth) {
+      return true;
+    }
+    return false;
+  }
+
+  @Override
   public Move<JsonNodeReadOnlyTrx> moveTo(long nodeKey) {
     assertNotClosed();
 
@@ -77,7 +167,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       if (nodeKey < 0) {
         newNode = Optional.empty();
       } else {
-        newNode = pageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        newNode = pageReadOnlyTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
       }
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
@@ -214,7 +304,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public void close() {
     if (!isClosed) {
       // Close own state.
-      pageReadTrx.close();
+      pageReadOnlyTrx.close();
 
       // Callback on session to make sure everything is cleaned up.
       resourceManager.closeReadTransaction(trxId);
@@ -222,7 +312,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       setPageReadTransaction(null);
 
       // Immediately release all references.
-      pageReadTrx = null;
+      pageReadOnlyTrx = null;
       currentNode = null;
 
       // Close state.
@@ -252,7 +342,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) currentNode).getNameKey();
-      final String localName = nameKey == -1 ? "" : pageReadTrx.getName(nameKey, currentNode.getKind());
+      final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getKind());
       return new QNm(localName);
     }
 
@@ -296,8 +386,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
     if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
         || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
         || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
       helper.add("Value of Node", getValue());
     }

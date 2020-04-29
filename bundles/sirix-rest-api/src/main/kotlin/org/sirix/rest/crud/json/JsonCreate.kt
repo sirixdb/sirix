@@ -78,7 +78,7 @@ class JsonCreate(
             val fileResolver = FileResolver()
             ctx.fileUploads().forEach { fileUpload ->
                 val fileName = fileUpload.fileName()
-                val resConfig = ResourceConfiguration.Builder(fileName).build()
+                val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true).build()
 
                 createOrRemoveAndCreateResource(
                     database,
@@ -134,7 +134,7 @@ class JsonCreate(
 
             database.use {
                 val resConfig =
-                    ResourceConfiguration.Builder(resPathName).build()
+                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).build()
                 createOrRemoveAndCreateResource(
                     database,
                     resConfig,
