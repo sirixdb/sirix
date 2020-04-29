@@ -7,7 +7,7 @@ import org.sirix.exception.SirixException;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  * //todo QName reference
- * @param <T> generic type parameter for start tag/end tags (usually a {@link QName}
+ * @param <T> generic type parameter for start tag/end tags (usually a {@link org.brackit.xquery.atomic.QNm}
  * @param <S> generic type parameter for text nodes (usually a String)
  */
 public interface Shredder<S, T> {
@@ -30,7 +30,7 @@ public interface Shredder<S, T> {
   /**
    * Process a start tag.
    *
-   * @param name name, usually a {@link QName} //todo QName is not a class anymore
+   * @param name name, usually a {@link org.brackit.xquery.atomic.QNm}
    * @throws SirixException if Sirix fails to insert a new node
    */
   void processStartTag(T name) throws SirixException;
@@ -46,7 +46,7 @@ public interface Shredder<S, T> {
   /**
    * Process an end tag.
    * 
-   * @param name name, usually a {@link QName}
+   * @param name name, usually a {@link org.brackit.xquery.atomic.QNm}
    * @throws SirixException if Sirix fails to insert a new node
    */
   void processEndTag(T name) throws SirixException;
@@ -54,7 +54,7 @@ public interface Shredder<S, T> {
   /**
    * Process an empty element.
    * 
-   * @param name name, usually a {@link QName}
+   * @param name name, usually a {@link org.brackit.xquery.atomic.QNm}
    * @throws SirixException if Sirix fails to insert a new node
    */
   void processEmptyElement(T name) throws SirixException;

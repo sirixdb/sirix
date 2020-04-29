@@ -44,7 +44,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *
  * <p>
  * The following figure describes the created test document (see <code>xml/test.xml</code>). The
- * nodes are described as follows:
+ * nodes are described as follows: </p>
  *
  * <ul>
  * <li><code>Kind.ROOT: doc()</code></li>
@@ -56,7 +56,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * <li><code>Kind.PI: &amp;content:target</code></li>
  * </ul>
  *
- * without processing instruction and comment:
+ * <p>without processing instruction and comment:</p>
  *
  * <pre>
  * 0 doc()
@@ -72,7 +72,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *     |- 13 #oops3
  * </pre>
  *
- * with processing instruction and comment:
+ * <p> with processing instruction and comment: </p>
  *
  * <pre>
  * 0 doc()
@@ -90,7 +90,6 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *     |- 15 #oops3
  * </pre>
  *
- * </p>
  */
 public final class XmlDocumentCreator {
 

@@ -26,8 +26,8 @@ public final class ByteHandlerTest {
 
   /**
    * //todo not found
-   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
+   * Test method for {@link org.sirix.io.bytepipe.ByteHandler#deserialize(java.io.InputStream)} and for
+   * {@link org.sirix.io.bytepipe.ByteHandler#serialize(java.io.OutputStream)}.
    *
    * @throws IOException
    *
