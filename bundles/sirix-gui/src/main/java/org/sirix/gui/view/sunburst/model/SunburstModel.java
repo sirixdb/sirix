@@ -88,7 +88,6 @@ import com.google.common.util.concurrent.Callables;
 import controlP5.ControlGroup;
 
 /**
- * <h1>SunburstModel</h1>
  * 
  * <p>
  * The model, which interacts with sirix.

@@ -58,7 +58,6 @@ import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XmlSerializer</h1>
  *
  * <p>
  * Most efficient way to serialize a subtree into an OutputStream. The encoding always is UTF-8.

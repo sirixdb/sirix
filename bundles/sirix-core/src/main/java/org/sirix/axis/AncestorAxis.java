@@ -27,8 +27,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>AncestorAxis</h1>
- *
  * <p>
  * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not
  * included.

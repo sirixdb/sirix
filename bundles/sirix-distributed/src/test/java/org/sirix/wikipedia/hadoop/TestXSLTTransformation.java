@@ -38,7 +38,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>TestXSLTTransformation</h1>
  * 
  * <p>
  * Tests the grouping of revisions in one page, which have the same timestamp.

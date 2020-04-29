@@ -25,12 +25,12 @@ import com.google.common.io.ByteStreams;
 public final class ByteHandlerTest {
 
   /**
-   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
+   * //todo not found
+   * Test method for {@link org.sirix.io.bytepipe.ByteHandler#deserialize(java.io.InputStream)} and for
+   * {@link org.sirix.io.bytepipe.ByteHandler#serialize(java.io.OutputStream)}.
    *
    * @throws IOException
    *
-   * @throws TTByteHandleException
    */
   @Test(dataProvider = "instantiateByteHandler")
   public void testSerializeAndDeserialize(Class<ByteHandler> clazz, ByteHandler[] handlers)

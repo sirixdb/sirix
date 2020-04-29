@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Package Utils</h1>
  * <p>
  * The package utils contains all small code fragments, tools, configuration, and constants that are
  * used all over the sirix project.

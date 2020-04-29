@@ -32,7 +32,6 @@ import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
- * <h1>GeneralComp</h1>
  * <p>
  * General comparisons are existentially quantified comparisons that may be applied to operand
  * sequences of any length.

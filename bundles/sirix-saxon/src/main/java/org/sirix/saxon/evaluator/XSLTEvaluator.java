@@ -53,8 +53,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XSLT Evaluator</h1>
- * 
+ *
  * <p>
  * Transforms an input document according to an XSLT stylesheet and returns a
  * resulting output stream.

@@ -29,8 +29,6 @@ import org.sirix.api.NodeReadOnlyTrx;
 import com.google.common.base.Predicate;
 
 /**
- * <h1>AbstractFilter</h1>
- *
  * <p>
  * Filter node of transaction this filter is bound to.
  * </p>

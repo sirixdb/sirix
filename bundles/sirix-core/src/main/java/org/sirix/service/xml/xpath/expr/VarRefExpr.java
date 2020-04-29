@@ -25,7 +25,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
- * <h1>VarRefExpr</h1>
  * <p>
  * Reference to the current item of the variable expression.
  * </p>

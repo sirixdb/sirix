@@ -17,7 +17,7 @@ public interface References {
    * 
    * @param nodeKey the node key to remove
    * @return {@code true}, if the node key is removed, {@code false} if it isn't present
-   * @throws IllegalArgumentException if {@code nodeKey} < {@code 0}
+   * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
   boolean removeNodeKey(@Nonnegative long nodeKey);
 
@@ -25,7 +25,7 @@ public interface References {
    * Add a new nodeKey.
    * 
    * @param nodeKey node key to add
-   * @throws IllegalArgumentException if {@code nodeKey} < {@code 0}
+   * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
   References addNodeKey(@Nonnegative long nodeKey);
 
@@ -33,7 +33,7 @@ public interface References {
    * Determines if the node key is indexed or not.
    * 
    * @param nodeKey node key to lookup
-   * @throws IllegalArgumentException if {@code nodeKey} < {@code 0}
+   * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
   boolean contains(@Nonnegative long nodeKey);
 
@@ -42,7 +42,7 @@ public interface References {
    * 
    * @param nodeKey node key to lookup
    * @return {@code true} if it is indexed, {@code false} otherwise
-   * @throws IllegalArgumentException if {@code nodeKey} < {@code 0}
+   * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
   boolean isPresent(@Nonnegative long nodeKey);
 

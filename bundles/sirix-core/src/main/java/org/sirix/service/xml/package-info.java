@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Package XML Layer</h1>
  * <p>
  * The package xml layer implements all axis iterations for the encoding implemented in the node
  * layer. It also provides an adaptor for the saxon XPath/XQuery/XSLT reference implementation.

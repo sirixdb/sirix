@@ -41,7 +41,6 @@ import static org.sirix.gui.GUICommands.TREE;
 import java.awt.Color;
 
 /**
- * <h1>GUIConstants</h1>
  * 
  * <p>
  * Some constants which are used all over the GUI packages.

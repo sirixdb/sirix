@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Axis Layer</h1>
  * <p>
  * Contains all classes that deal with axis navigation.
  * </p>

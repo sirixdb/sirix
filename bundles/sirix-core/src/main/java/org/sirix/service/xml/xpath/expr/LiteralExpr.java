@@ -24,7 +24,6 @@ package org.sirix.service.xml.xpath.expr;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
- * <h1>LiteralExpr</h1>
  * <p>
  * Expression that holds a literal.
  * </p>
@@ -37,7 +36,7 @@ public class LiteralExpr extends AbstractExpression {
    * Constructor. Initializes the internal state.
    * 
    * @param pRtx exclusive (immutable) trx to iterate with
-   * @param mItemKey itemKey of the literal
+   * @param pItemKey itemKey of the literal
    */
   public LiteralExpr(final XmlNodeReadOnlyTrx pRtx, final long pItemKey) {
     super(pRtx);

@@ -32,8 +32,7 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.gui.view.AbstractDiffAxis;
 
 /**
- * <h1>AbsSunburstAxis</h1>
- * 
+ *
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced
  * for loop available since Java 5.

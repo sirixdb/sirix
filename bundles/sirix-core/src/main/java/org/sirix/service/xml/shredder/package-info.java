@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Shredder Package</h1>
  * <p>
  * All classes in this package are for getting data into sirix. This includes the import of single
  * XML Instances plus the the possibility to shred several independant versions into sirix.

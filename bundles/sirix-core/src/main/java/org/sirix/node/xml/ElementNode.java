@@ -47,8 +47,6 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * <h1>ElementNode</h1>
- *
  * <p>
  * Node representing an XML element.
  * </p>
@@ -85,7 +83,6 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param attributeKeys list of attribute keys
    * @param attributes attribute nameKey / nodeKey mapping in both directions
    * @param namespaceKeys keys of namespaces to be set
-   * @param
    */
   public ElementNode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
       final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
@@ -112,7 +109,6 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param attributeKeys list of attribute keys
    * @param attributes attribute nameKey / nodeKey mapping in both directions
    * @param namespaceKeys keys of namespaces to be set
-   * @param
    */
   public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
       final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {

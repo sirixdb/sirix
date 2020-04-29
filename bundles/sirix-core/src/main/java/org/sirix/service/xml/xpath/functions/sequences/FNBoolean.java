@@ -31,7 +31,6 @@ import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>FNBooleean</h1>
  * <p>
  * IAxis that represents the function fn:boolean specified in
  * <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0 Functions and

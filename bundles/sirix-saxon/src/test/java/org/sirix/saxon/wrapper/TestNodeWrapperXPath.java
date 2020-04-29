@@ -443,7 +443,6 @@ public final class TestNodeWrapperXPath {
 	}
 
 	/**
-	 * <h1>Namespace Context</h1>
 	 * 
 	 * <p>
 	 * Namespace Context to test the NodeInfo implementation (

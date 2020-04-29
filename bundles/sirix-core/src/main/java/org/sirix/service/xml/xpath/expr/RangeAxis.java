@@ -29,7 +29,6 @@ import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>RangeExpr</h1>
  * <p>
  * A range expression can be used to construct a sequence of consecutive integers.
  * </p>

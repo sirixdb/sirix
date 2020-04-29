@@ -36,8 +36,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 
 /**
- * <h1>AbsDiffAxis</h1>
- * 
+ *
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced
  * for loop available since Java 5.

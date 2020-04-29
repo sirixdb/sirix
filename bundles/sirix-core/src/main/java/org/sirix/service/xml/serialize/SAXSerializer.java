@@ -53,7 +53,6 @@ import org.xml.sax.helpers.AttributesImpl;
 import org.xml.sax.helpers.DefaultHandler;
 
 /**
- * <h1>SaxSerializer</h1>
  *
  * <p>
  * Generates SAX events from a Sirix database/resource.

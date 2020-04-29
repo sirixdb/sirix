@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.parser;
 
 /**
- * <h1>XPathToken</h1>
  * <p>
  * Categorized block of text.
  * </p>
@@ -41,8 +40,8 @@ public final class VariableXPathToken implements XPathToken {
   /**
    * Constructor initializing internal state.
    * 
-   * @param mStr the content of the token
-   * @param mStorage the type of the token
+   * @param paramStr the content of the token
+   * @param paramType the type of the token
    */
   public VariableXPathToken(final String paramStr, final TokenType paramType) {
     mContent = paramStr;

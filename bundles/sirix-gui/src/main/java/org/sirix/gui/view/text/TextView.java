@@ -80,7 +80,6 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Optional;
 
 /**
- * <h1>TextView</h1>
  * 
  * <p>
  * Basic text view.

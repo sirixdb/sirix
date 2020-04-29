@@ -26,7 +26,6 @@
  */
 
 /**
- * <h1>Tree view</h1>
  * 
  * <p>
  * The package tree provides a tree view of hierarichal xml data. One can delete nodes/whole subtrees or

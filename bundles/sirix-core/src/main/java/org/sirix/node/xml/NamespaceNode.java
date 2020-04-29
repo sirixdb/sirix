@@ -41,8 +41,6 @@ import javax.annotation.Nullable;
 import java.math.BigInteger;
 
 /**
- * <h1>NamespaceNode</h1>
- *
  * <p>
  * Node representing a namespace.
  * </p>

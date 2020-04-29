@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
- * <h1>CastExpr</h1>
  * <p>
  * The cast expression cast a given value into a given target type.
  * </p>

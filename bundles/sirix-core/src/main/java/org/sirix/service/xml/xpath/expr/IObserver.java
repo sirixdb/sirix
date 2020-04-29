@@ -24,7 +24,6 @@ package org.sirix.service.xml.xpath.expr;
 import org.sirix.api.Expression;
 
 /**
- * <h1>IObserver</h1>
  * <p>
  * Interface for all axis that observe another axis' state.
  * </p>

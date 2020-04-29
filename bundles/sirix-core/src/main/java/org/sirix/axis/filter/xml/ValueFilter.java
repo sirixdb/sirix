@@ -28,8 +28,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>ValueAxisTest</h1>
- *
  * <p>
  * Only match nodes of kind TEXT or ATTRIBUTE whoe's value matches.
  * </p>

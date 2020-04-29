@@ -52,22 +52,19 @@ import java.util.List;
  *
  * <h2>Convention</h2>
  *
- * <p>
  * <ol>
  * <li>Only a single thread accesses each NodeReadTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after moving cursor:
- * <code>(NodeReadTrx.moveTo(m).hasMoved() &&
+ * <code>(NodeReadTrx.moveTo(m).hasMoved() &amp;&amp;
  *       NodeReadTrx.getNodeKey() == m) ||
- *       (!NodeReadTrx.moveTo(m).hasMoved() &&
+ *       (!NodeReadTrx.moveTo(m).hasMoved() &amp;&amp;
  *       NodeReadTrx.getNodeKey() == n)</code>.</li>
  * </ol>
- * </p>
  *
  * <h2>User Example</h2>
  *
- * <p>
  *
  * <pre>
  *   try(final NodeReadTrx rtx = resourcemgr.beginNodeReadTrx()) {
@@ -95,11 +92,9 @@ import java.util.List;
  *   }
  * </pre>
  *
- * </p>
  *
  * <h2>Developer Example</h2>
  *
- * <p>
  *
  * <pre>
  *   void someNodeReadTrxMethod() {
@@ -109,7 +104,6 @@ import java.util.List;
  *   }
  * </pre>
  *
- * </p>
  */
 public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
@@ -313,6 +307,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * Get the number of nodes which reference to the name.
    *
    * @param name name to lookup
+   * @param kind node kind
    * @return number of nodes with the same name and node kind
    */
   int getNameCount(String name, @Nonnull NodeKind kind);
@@ -327,6 +322,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Get the attribute key of the index (for element nodes).
    *
+   * @param index the index to get key for
    * @return attribute key for index or {@code -1} if no attribute with the given index is available
    */
   long getAttributeKey(@Nonnegative int index);

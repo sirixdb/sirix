@@ -209,7 +209,7 @@ public class FunctionsXMarkTest {
   }
 
   /**
-   * Test function exactly-one(). alternative query: exactly-one('a') -> result: a
+   * Test function exactly-one(). alternative query: exactly-one('a') -&lt; result: a
    *
    * @throws SirixXPathException
    */
@@ -237,7 +237,7 @@ public class FunctionsXMarkTest {
   }
 
   /**
-   * Test function zero-or-one(). alternative query: zero-or-one('a') -> result: a
+   * Test function zero-or-one(). alternative query: zero-or-one('a') -&lt; result: a
    *
    * @throws SirixXPathException
    */
@@ -439,7 +439,7 @@ public class FunctionsXMarkTest {
   }
 
   /**
-   * Test <element attribute=""/> in return statement.
+   * Test &lt;element attribute=""/&lt; in return statement.
    *
    * @throws SirixXPathException
    */

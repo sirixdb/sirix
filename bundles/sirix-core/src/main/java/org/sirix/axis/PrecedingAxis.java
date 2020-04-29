@@ -27,8 +27,6 @@ import org.sirix.api.NodeCursor;
 import org.sirix.node.NodeKind;
 
 /**
- * <h1>PrecedingAxis</h1>
- *
  * <p>
  * Iterate over all preceding nodes of kind ELEMENT or TEXT starting at a given node. Self is not
  * included. Note that the nodes are retrieved in reverse document order.

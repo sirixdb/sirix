@@ -84,7 +84,7 @@ public class SirixException extends RuntimeException {
   /**
    * Util method to provide StringBuilder functionality.
    *
-   * @param message to be concatenated
+   * @param pMessage to be concatenated
    * @return the StringBuilder for the combined string
    */
   public static StringBuilder concat(final String... pMessage) {

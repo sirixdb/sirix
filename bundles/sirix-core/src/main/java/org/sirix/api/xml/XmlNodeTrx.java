@@ -47,20 +47,17 @@ import javax.xml.stream.XMLEventReader;
  *
  * <h2>Convention</h2>
  *
- * <p>
  * <ol>
  * <li>Only a single thread accesses the single INodeWriteTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>NodeWriteTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after modifying the cursor:
- * <code>(NodeWriteTrx.insertX() == m &&
+ * <code>(NodeWriteTrx.insertX() == m &amp;&amp;
  *       NodeWriteTrx.getNodeKey() == m)</code>.</li>
  * </ol>
- * </p>
  *
  * <h2>User Example</h2>
  *
- * <p>
  *
  * <pre>
  * // Without auto commit.
@@ -95,11 +92,9 @@ import javax.xml.stream.XMLEventReader;
  * }
  * </pre>
  *
- * </p>
  *
  * <h2>Developer Example</h2>
  *
- * <p>
  *
  * <pre>
  *   public void someNodeWriteTrxMethod() {
@@ -111,7 +106,6 @@ import javax.xml.stream.XMLEventReader;
  *   }
  * </pre>
  *
- * </p>
  */
 public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
 
@@ -402,7 +396,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
    *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
-   *        {@link XmlShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
@@ -417,7 +411,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
    *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
-   *        {@link XmlShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
@@ -432,7 +426,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
    *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
-   *        {@link XmlShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or

@@ -32,8 +32,8 @@ import javax.annotation.Nonnull;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  *
- * @param K the key
- * @param V the value
+ * @param <K> the key
+ * @param <V> the value
  */
 public interface Cache<K, V> {
   /**

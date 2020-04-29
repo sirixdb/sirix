@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * Simple immutable data/value/bean class.
  *
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class DeserializedBitmapReferencesPageTuple {

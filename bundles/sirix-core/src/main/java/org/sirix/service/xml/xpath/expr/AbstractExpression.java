@@ -27,7 +27,6 @@ import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
- * <h1>AbstractExpression</h1>
  * <p>
  * Template for all expressions.
  * </p>
@@ -46,7 +45,7 @@ public abstract class AbstractExpression extends AbstractAxis implements Express
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx exclusive (immutable) trx to iterate with
+   * @param pRtx exclusive (immutable) trx to iterate with
    */
   public AbstractExpression(final XmlNodeReadOnlyTrx pRtx) {
     super(pRtx);

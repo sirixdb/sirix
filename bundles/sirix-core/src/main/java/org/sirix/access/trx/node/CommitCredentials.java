@@ -30,7 +30,7 @@ package org.sirix.access.trx.node;
 import org.sirix.access.User;
 
 /**
- * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class CommitCredentials {

@@ -28,7 +28,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>EveryExpr</h1>
  * <p>
  * IAxis that represents the quantified expression "every".
  * </p>

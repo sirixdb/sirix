@@ -29,16 +29,18 @@ import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>Logical And Expression</h1>
  * <p>
  * The logical and expression performs a logical conjunction of the boolean values of two input
  * sequences. If a logical expression does not raise an error, its value is always one of the
  * boolean values true or false.
  * </p>
- * <p>
+ *
+ *
+ * <table>
+ *     <caption>
  * The value of an and-expression is determined by the effective boolean values of its operands, as
  * shown in the following table:
- * <table>
+ *  </caption>
  * <tr>
  * <th>AND</th>
  * <th>EBV2 = true</th>

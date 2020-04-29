@@ -32,7 +32,6 @@ import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>CastableExpression</h1>
  * <p>
  * The castable expression tests whether a given value is castable into a given target type. The
  * target type must be an atomic type that is in the in-scope schema types [err:XPST0051]. In

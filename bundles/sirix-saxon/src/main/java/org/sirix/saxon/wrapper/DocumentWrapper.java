@@ -58,8 +58,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>DocumentWrapper</h1>
- * 
+ *
  * <p>
  * Wraps a sirix document and represents a document node. Therefore it
  * implements Saxon's DocumentInfo core interface and also represents a Node in

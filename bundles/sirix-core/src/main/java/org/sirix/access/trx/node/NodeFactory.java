@@ -14,9 +14,8 @@ public interface NodeFactory {
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
-   * @param hash hash value associated with the node
    * @param name {@link QName} of the node
-   * @param pathNodeKey path node key of node
+   * @param level level of this node
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */

@@ -26,8 +26,6 @@ import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
 
 /**
- * <h1>BooleanValueFilter</h1>
- *
  * <p>
  * Only match BOOLEAN_VALUE nodes.
  * </p>

@@ -34,7 +34,6 @@ import org.sirix.node.interfaces.ValueNode;
 import java.math.BigInteger;
 
 /**
- * <h1>JSONStringNode</h1>
  *
  * <p>
  * Node representing a JSON string.

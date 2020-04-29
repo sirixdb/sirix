@@ -36,8 +36,6 @@ import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 
 /**
- * <h1>JSONBooleanNode</h1>
- *
  * <p>
  * Node representing a JSON boolean.
  * </p>

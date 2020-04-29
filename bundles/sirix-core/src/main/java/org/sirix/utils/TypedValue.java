@@ -24,7 +24,6 @@ package org.sirix.utils;
 import org.sirix.settings.Constants;
 
 /**
- * <h1>UTF</h1>
  * 
  * <p>
  * Util to efficiently convert byte arrays to various Java types and vice versa. It also provides

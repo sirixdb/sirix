@@ -54,7 +54,6 @@ import processing.core.PApplet;
 import com.google.common.base.Optional;
 
 /**
- * <h1>SunburstView</h1>
  * 
  * <p>
  * Main sunburst class.

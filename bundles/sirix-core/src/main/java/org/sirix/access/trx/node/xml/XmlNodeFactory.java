@@ -58,7 +58,6 @@ public interface XmlNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
-   * @param hash hash value associated with the node
    * @param name {@link QNm} of the node
    * @param pathNodeKey path node key associated with the element node
    * @param id optional DeweyID

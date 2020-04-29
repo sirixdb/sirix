@@ -27,8 +27,6 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
- * <h1>Node</h1>
- *
  * <p>
  * Common interface for all node kinds.
  * </p>

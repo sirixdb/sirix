@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
 
 /**
- * <h1>NodeComp</h1>
  * <p>
  * Node comparisons are used to compare two nodes, by their identity or by their document order.
  * </p>

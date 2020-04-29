@@ -36,7 +36,6 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 
 /**
- * <h1>AbsAxis</h1>
  *
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced for loop available
@@ -190,7 +189,7 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Resetting the nodekey of this axis to a given nodekey.
    *
-   * @param paramNodeKey the nodekey where the reset should occur to
+   * @param pNodeKey the nodekey where the reset should occur to
    */
   @Override
   public void reset(@Nonnegative final long pNodeKey) {

@@ -30,7 +30,7 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
   XmlNodeReadOnlyTrx asXdmNodeReadTrx();
 
   /**
-   * Foreach-iterator calling a {@link IVistor} for each iteration.
+   * Foreach-iterator calling a {@link org.sirix.api.visitor.NodeVisitor} for each iteration.
    *
    * @param visitor {@link XmlNodeVisitor} implementation
    */

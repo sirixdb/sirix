@@ -30,7 +30,6 @@ import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
 
 /**
- * <h1>UnionAxis</h1>
  * <p>
  * Returns an union of two operands. This axis takes two node sequences as operands and returns a
  * sequence containing all the items that occur in either of the operands. A union of two sequences

@@ -24,8 +24,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>PINode</h1>
- *
  * <p>
  * Node representing a processing instruction.
  * </p>

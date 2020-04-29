@@ -20,7 +20,6 @@
  */
 
 /**
- * <h1>Exception Layer</h1>
  * <p>
  * All exceptions thrown by Sirix are instance of these classes.
  * </p>

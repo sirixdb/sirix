@@ -46,8 +46,7 @@ import org.slf4j.LoggerFactory;
 import org.xml.sax.ContentHandler;
 
 /**
- * <h1>XQuery evaluator</h1>
- * 
+ *
  * <p>
  * Evaluates an XQuery expression and returns the result to a given content
  * handler.

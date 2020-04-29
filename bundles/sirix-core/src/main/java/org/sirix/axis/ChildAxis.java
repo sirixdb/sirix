@@ -24,8 +24,6 @@ package org.sirix.axis;
 import org.sirix.api.NodeCursor;
 
 /**
- * <h1>ChildAxis</h1>
- *
  * <p>
  * Iterate over all children of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>

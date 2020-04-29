@@ -61,7 +61,6 @@ import processing.core.PVector;
 import com.google.common.base.Equivalence;
 
 /**
- * <h1>SunburstItem</h1>
  * 
  * <p>
  * Represents one item in the Sunburst diagram.

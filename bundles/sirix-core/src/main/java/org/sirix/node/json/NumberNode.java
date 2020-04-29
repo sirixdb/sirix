@@ -35,7 +35,6 @@ import org.sirix.node.xml.AbstractStructForwardingNode;
 import com.google.common.hash.HashCode;
 
 /**
- * <h1>JSONNumberNode</h1>
  *
  * <p>
  * Node representing a JSON number.

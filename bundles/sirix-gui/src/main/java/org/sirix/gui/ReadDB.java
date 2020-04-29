@@ -43,7 +43,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>ReadDB</h1>
  *
  * <p>
  * Provides access to a sirix storage.
