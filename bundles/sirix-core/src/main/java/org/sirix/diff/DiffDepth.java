@@ -21,9 +21,10 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import java.io.Serializable;
 import javax.annotation.Nonnegative;
+import java.io.Serializable;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * Immutable serializable diff depth container class to save the depth of the node in the old
@@ -39,10 +40,10 @@ public final class DiffDepth implements Serializable {
   private static final long serialVersionUID = 2657000076345449253L;
 
   /** Depth in new revision. */
-  private final int mNewDepth;
+  private final int newDepth;
 
   /** Depth in old revision. */
-  private final int mOldDepth;
+  private final int oldDepth;
 
   /**
    * Constructor.
@@ -53,8 +54,8 @@ public final class DiffDepth implements Serializable {
   public DiffDepth(final @Nonnegative int newDepth, final @Nonnegative int oldDepth) {
     checkArgument(newDepth >= -1);
     checkArgument(oldDepth >= -1);
-    mNewDepth = newDepth;
-    mOldDepth = oldDepth;
+    this.newDepth = newDepth;
+    this.oldDepth = oldDepth;
   }
 
   /**
@@ -63,7 +64,7 @@ public final class DiffDepth implements Serializable {
    * @return depth in new revision
    */
   public int getNewDepth() {
-    return mNewDepth;
+    return newDepth;
   }
 
   /**
@@ -72,6 +73,6 @@ public final class DiffDepth implements Serializable {
    * @return depth in old revision
    */
   public int getOldDepth() {
-    return mOldDepth;
+    return oldDepth;
   }
 }

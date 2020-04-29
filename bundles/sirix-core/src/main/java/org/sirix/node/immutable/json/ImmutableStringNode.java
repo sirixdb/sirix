@@ -1,16 +1,19 @@
 package org.sirix.node.immutable.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import javax.annotation.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xml.TextNode;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable JSONValueString wrapper.
@@ -20,7 +23,7 @@ import org.sirix.node.xml.TextNode;
  */
 public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNode implements ImmutableValueNode {
   /** Mutable {@link StringNode}. */
-  private final StringNode mNode;
+  private final StringNode node;
 
   /**
    * Private constructor.
@@ -28,7 +31,7 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
    * @param node {@link StringNode} to wrap
    */
   private ImmutableStringNode(final StringNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -43,7 +46,7 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
 
   @Override
   public boolean isSameItem(final @Nullable Node other) {
-    return mNode.isSameItem(other);
+    return node.isSameItem(other);
   }
 
   @Override
@@ -53,101 +56,106 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
 
   @Override
   public long getParentKey() {
-    return mNode.getParentKey();
+    return node.getParentKey();
   }
 
   @Override
   public boolean hasParent() {
-    return mNode.hasParent();
+    return node.hasParent();
   }
 
   @Override
   public long getNodeKey() {
-    return mNode.getNodeKey();
+    return node.getNodeKey();
   }
 
   @Override
   public NodeKind getKind() {
-    return mNode.getKind();
+    return node.getKind();
   }
 
   @Override
   public long getRevision() {
-    return mNode.getRevision();
+    return node.getRevision();
   }
 
   @Override
   public boolean hasFirstChild() {
-    return mNode.hasFirstChild();
+    return node.hasFirstChild();
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return mNode.hasLeftSibling();
+    return node.hasLeftSibling();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return mNode.hasRightSibling();
+    return node.hasRightSibling();
   }
 
   @Override
   public long getChildCount() {
-    return mNode.getChildCount();
+    return node.getChildCount();
   }
 
   @Override
   public long getDescendantCount() {
-    return mNode.getDescendantCount();
+    return node.getDescendantCount();
   }
 
   @Override
   public long getFirstChildKey() {
-    return mNode.getFirstChildKey();
+    return node.getFirstChildKey();
   }
 
   @Override
   public long getLeftSiblingKey() {
-    return mNode.getLeftSiblingKey();
+    return node.getLeftSiblingKey();
   }
 
   @Override
   public long getRightSiblingKey() {
-    return mNode.getRightSiblingKey();
+    return node.getRightSiblingKey();
   }
 
   @Override
   public byte[] getRawValue() {
-    return mNode.getRawValue();
+    return node.getRawValue();
   }
 
   @Override
   public String getValue() {
-    return mNode.getValue();
+    return node.getValue();
   }
 
   @Override
   public boolean equals(Object obj) {
-    return mNode.equals(obj);
+    return node.equals(obj);
   }
 
   @Override
   public int hashCode() {
-    return mNode.hashCode();
+    return node.hashCode();
   }
 
   @Override
   public String toString() {
-    return mNode.toString();
+    return node.toString();
   }
 
   @Override
   public StructNode structDelegate() {
-    return mNode.getStructNodeDelegate();
+    return node.getStructNodeDelegate();
   }
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return node.getDeweyID();
   }
 }

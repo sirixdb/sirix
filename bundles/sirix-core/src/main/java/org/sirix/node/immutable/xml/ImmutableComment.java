@@ -135,7 +135,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return mNode.getDeweyID();
   }
 

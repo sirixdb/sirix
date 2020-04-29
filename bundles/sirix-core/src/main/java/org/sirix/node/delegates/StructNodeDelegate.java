@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -20,19 +20,19 @@
  */
 package org.sirix.node.delegates;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.Fixed;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.PrimitiveSink;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * Delegate method for all nodes building up the structure. That means that all nodes representing
@@ -47,116 +47,114 @@ import com.google.common.hash.PrimitiveSink;
 public class StructNodeDelegate extends AbstractForwardingNode implements StructNode {
 
   /** Pointer to the first child of the current node. */
-  private long mFirstChild;
+  private long firstChild;
 
   /** Pointer to the right sibling of the current node. */
-  private long mRightSibling;
+  private long rightSibling;
 
   /** Pointer to the left sibling of the current node. */
-  private long mLeftSibling;
+  private long leftSibling;
 
   /** Number of children. */
-  private long mChildCount;
+  private long childCount;
 
   /** Number of descendants. */
-  private long mDescendantCount;
+  private long descendantCount;
 
   /** Delegate for common node information. */
-  private final NodeDelegate mDelegate;
+  private final NodeDelegate nodeDelegate;
 
   /**
    * Constructor.
    *
-   * @param del {@link NodeDelegate} instance
+   * @param nodeDelegate {@link NodeDelegate} instance
    * @param firstChild first child key
-   * @param rightSib right sibling key
-   * @param leftSib left sibling key
+   * @param rightSibling right sibling key
+   * @param leftSibling left sibling key
    * @param childCount number of children of the node
    * @param descendantCount number of descendants of the node
    */
-  public StructNodeDelegate(final NodeDelegate del, final long firstChild, final long rightSib, final long leftSib,
+  public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long rightSibling, final long leftSibling,
       final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
-    if (descendantCount < 0)
-      System.out.println();
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
-    assert del != null : "del must not be null!";
-    mDelegate = del;
-    mFirstChild = firstChild;
-    mRightSibling = rightSib;
-    mLeftSibling = leftSib;
-    mChildCount = childCount;
-    mDescendantCount = descendantCount;
+    assert nodeDelegate != null : "del must not be null!";
+    this.nodeDelegate = nodeDelegate;
+    this.firstChild = firstChild;
+    this.rightSibling = rightSibling;
+    this.leftSibling = leftSibling;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
   }
 
   @Override
   public NodeKind getKind() {
-    return mDelegate.getKind();
+    return nodeDelegate.getKind();
   }
 
   @Override
   public boolean hasFirstChild() {
-    return mFirstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return firstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return mLeftSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return leftSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return mRightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return rightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getChildCount() {
-    return mChildCount;
+    return childCount;
   }
 
   @Override
   public long getFirstChildKey() {
-    return mFirstChild;
+    return firstChild;
   }
 
   @Override
   public long getLeftSiblingKey() {
-    return mLeftSibling;
+    return leftSibling;
   }
 
   @Override
   public long getRightSiblingKey() {
-    return mRightSibling;
+    return rightSibling;
   }
 
   @Override
   public void setRightSiblingKey(final long key) {
-    mRightSibling = key;
+    rightSibling = key;
   }
 
   @Override
   public void setLeftSiblingKey(final long key) {
-    mLeftSibling = key;
+    leftSibling = key;
   }
 
   @Override
   public void setFirstChildKey(final long key) {
-    mFirstChild = key;
+    firstChild = key;
   }
 
   @Override
   public void decrementChildCount() {
-    mChildCount--;
+    childCount--;
   }
 
   @Override
   public void incrementChildCount() {
-    mChildCount++;
+    childCount++;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling, mDescendantCount);
+    return Objects.hashCode(childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount);
   }
 
   @Override
@@ -167,7 +165,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
           node.getRightSiblingKey()).putLong(node.getFirstChildKey());
     };
 
-    final BigInteger hash = new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
+    final BigInteger hash = new BigInteger(1, nodeDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
 
     return Node.to128BitsAtMaximumBigInteger(hash);
   }
@@ -189,9 +187,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
     final StructNodeDelegate other = (StructNodeDelegate) obj;
 
-    return Objects.equal(mChildCount, other.mChildCount) && Objects.equal(mDelegate, other.mDelegate) && Objects.equal(
-        mFirstChild, other.mFirstChild) && Objects.equal(mLeftSibling, other.mLeftSibling) && Objects.equal(
-        mRightSibling, other.mRightSibling) && Objects.equal(mDescendantCount, other.mDescendantCount);
+    return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate) && Objects.equal(
+        firstChild, other.firstChild) && Objects.equal(leftSibling, other.leftSibling) && Objects.equal(rightSibling, other.rightSibling) && Objects.equal(descendantCount, other.descendantCount);
   }
 
   @Override
@@ -208,37 +205,37 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public long getDescendantCount() {
-    return mDescendantCount;
+    return descendantCount;
   }
 
   @Override
   public void decrementDescendantCount() {
-    mDescendantCount--;
+    descendantCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
-    mDescendantCount++;
+    descendantCount++;
   }
 
   @Override
   public void setDescendantCount(final @Nonnegative long descendantCount) {
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
-    mDescendantCount = descendantCount;
+    this.descendantCount = descendantCount;
   }
 
   @Override
   public boolean isSameItem(final @Nullable Node other) {
-    return mDelegate.isSameItem(other);
+    return nodeDelegate.isSameItem(other);
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mDelegate;
+    return nodeDelegate;
   }
 
   public boolean isNotEmpty() {
-    return mDescendantCount != 0 || mChildCount != 0 || mLeftSibling != Fixed.NULL_NODE_KEY.getStandardProperty()
-        || mRightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return descendantCount != 0 || childCount != 0 || leftSibling != Fixed.NULL_NODE_KEY.getStandardProperty()
+        || rightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 }

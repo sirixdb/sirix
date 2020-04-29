@@ -67,7 +67,7 @@ public final class IOTestHelper {
    * @throws SirixException if something went wrong
    */
   public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) throws SirixException {
-    final Storage fac = StorageType.getStorage(resourceConf);
+    final IOStorage fac = StorageType.getStorage(resourceConf);
     final PageReference pageRef1 = new PageReference();
     final UberPage page1 = new UberPage();
     pageRef1.setPage(page1);

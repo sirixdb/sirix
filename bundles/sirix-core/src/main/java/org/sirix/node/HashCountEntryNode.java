@@ -33,9 +33,9 @@ import com.google.common.base.Objects;
  */
 public final class HashCountEntryNode implements DataRecord {
 
-  private final long mNodeKey;
+  private final long nodeKey;
 
-  private int mValue;
+  private int value;
 
   /**
    * Constructor.
@@ -44,8 +44,8 @@ public final class HashCountEntryNode implements DataRecord {
    * @param value the String value
    */
   public HashCountEntryNode(final long nodeKey, final int value) {
-    mNodeKey = nodeKey;
-    mValue = value;
+    this.nodeKey = nodeKey;
+    this.value = value;
   }
 
   @Override
@@ -54,22 +54,22 @@ public final class HashCountEntryNode implements DataRecord {
   }
 
   public int getValue() {
-    return mValue;
+    return value;
   }
 
   public HashCountEntryNode incrementValue() {
-    mValue++;
+    value++;
     return this;
   }
 
   public HashCountEntryNode decrementValue() {
-    mValue--;
+    value--;
     return this;
   }
 
   @Override
   public int hashCode() {
-    return Integer.valueOf(mValue).hashCode();
+    return Integer.valueOf(value).hashCode();
   }
 
   @Override
@@ -78,21 +78,26 @@ public final class HashCountEntryNode implements DataRecord {
       return false;
 
     final HashCountEntryNode other = (HashCountEntryNode) obj;
-    return Objects.equal(mValue, other.mValue);
+    return Objects.equal(value, other.value);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", mValue).toString();
+    return MoreObjects.toStringHelper(this).add("value", value).toString();
   }
 
   @Override
   public long getNodeKey() {
-    return mNodeKey;
+    return nodeKey;
   }
 
   @Override
   public long getRevision() {
     throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return null;
   }
 }

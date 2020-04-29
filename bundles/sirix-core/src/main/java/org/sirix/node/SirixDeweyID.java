@@ -39,6 +39,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   private final static int rootNodeDivisionValue = 1;
   private final static String rootNodeDivisionValueStr = Integer.toString(rootNodeDivisionValue);
   private final static int attributeRootDivisionValue = 1;
+  private final static int recordValueRootDivisionValue = 0;
 
   // must be an even number! when a new DeweyID is calculated, and there is a
   // choice, DISTANCE_TO_SIBLING/2 nodes fits between the existing node, and
@@ -428,7 +429,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
   public SirixDeweyID(SirixDeweyID deweyID, int extraDivisionValue) {
     this.divisionValues = new int[deweyID.divisionValues.length + 1];
-    this.level = deweyID.level + 1;
+    if (extraDivisionValue == recordValueRootDivisionValue) {
+      this.level = deweyID.level;
+    } else {
+      this.level = deweyID.level + 1;
+    }
     System.arraycopy(deweyID.divisionValues, 0, divisionValues, 0, deweyID.divisionValues.length);
     divisionValues[divisionValues.length - 1] = extraDivisionValue;
   }
@@ -820,6 +825,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
         && (divisionValues[divisionValues.length - 2] == SirixDeweyID.attributeRootDivisionValue));
   }
 
+  public boolean isRecordValue() {
+    return ((level > 1) && (divisionValues.length > 1)
+        && (divisionValues[divisionValues.length - 1] == SirixDeweyID.recordValueRootDivisionValue));
+  }
+
   public boolean isAttributeRoot() {
     return ((level > 1) && (divisionValues.length > 1)
         && (divisionValues[divisionValues.length - 1] == SirixDeweyID.attributeRootDivisionValue));
@@ -1158,6 +1168,10 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);
 
     return newID;
+  }
+
+  public final SirixDeweyID getRecordValueRootID() {
+    return new SirixDeweyID(this, SirixDeweyID.recordValueRootDivisionValue);
   }
 
   public final SirixDeweyID getAttributeRootID() {

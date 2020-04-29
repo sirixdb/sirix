@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -28,6 +28,8 @@ import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
 
+import java.util.List;
+
 /**
  * Helper class for testing the cache.
  *
@@ -55,11 +57,11 @@ public class CacheTestHelper {
     PAGES = new UnorderedKeyValuePage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final UnorderedKeyValuePage page =
-          new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, PAGE_READ_TRX);
+          new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, List.of(), PAGE_READ_TRX);
       final UnorderedKeyValuePage[] revs = new UnorderedKeyValuePage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
-        PAGES[i][j + 1] = new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, Constants.NULL_ID_LONG,
+        PAGES[i][j + 1] = new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, List.of(),
             PAGE_READ_TRX);
         revs[j] = PAGES[i][j + 1];
       }

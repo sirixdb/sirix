@@ -1,5 +1,7 @@
 package org.sirix.node.interfaces;
 
+import org.sirix.node.SirixDeweyID;
+
 /**
  * Base interface for all records.
  * 
@@ -13,6 +15,13 @@ public interface DataRecord {
    * @return node key
    */
   long getNodeKey();
+
+  /**
+   * Get the DeweyID.
+   *
+   * @return the DeweyID if present, otherwise {@code null}
+   */
+  SirixDeweyID getDeweyID();
 
   /**
    * Gets the kind of the node (element node, text node, attribute node....).

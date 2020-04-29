@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -43,10 +43,14 @@ import java.util.List;
  */
 public final class ReferencesPage4 implements Page {
 
-  /** Page reference 1. */
+  /**
+   * Page reference 1.
+   */
   private final List<PageReference> references;
 
-  /** Page reference 4. */
+  /**
+   * Page reference 4.
+   */
   private final List<Short> offsets;
 
   /**
@@ -60,7 +64,7 @@ public final class ReferencesPage4 implements Page {
   /**
    * Constructor to initialize instance.
    *
-   * @param in input stream to read from
+   * @param in   input stream to read from
    * @param type the serialization type
    */
   public ReferencesPage4(final DataInput in, final SerializationType type) {
@@ -102,9 +106,9 @@ public final class ReferencesPage4 implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getReference(final @Nonnegative int offset) {
-    for (int i = 0, count = offsets.size(); i < count; i++) {
-      if (offsets.get(i) == offset) {
+  public PageReference getOrCreateReference(final @Nonnegative int offset) {
+    for (final var currOffset : offsets) {
+      if (currOffset == offset) {
         return references.get(offset);
       }
     }
@@ -120,14 +124,20 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public boolean setReference(final int offset, final PageReference pageReference) {
+  public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
+    boolean found = false;
+    for (int i = 0, count = offsets.size(); i < count; i++) {
+      if (offsets.get(i) == offset) {
+        references.set(i, pageReference);
+        return true;
+      }
+    }
     if (offsets.size() < 4) {
       offsets.add((short) offset);
-      references.set(offsets.size(), pageReference);
-      return false;
+      references.add(pageReference);
+      return true;
     }
-
-    return true;
+    return false;
   }
 
   /**
@@ -148,9 +158,9 @@ public final class ReferencesPage4 implements Page {
   /**
    * Serialize page references into output.
    *
-   * @param out output stream
+   * @param out  output stream
    * @param type the type to serialize (transaction intent log or the data file
-   *        itself).
+   *             itself).
    */
   @Override
   public void serialize(final DataOutput out, final SerializationType type) {

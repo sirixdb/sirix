@@ -1,30 +1,12 @@
 package org.sirix.index.path.summary;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.BitSet;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import javax.annotation.Nonnegative;
-
+import com.google.common.base.MoreObjects;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.api.Axis;
-import org.sirix.api.Move;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -34,10 +16,11 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
-import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.JsonDocumentRootNode;
@@ -46,7 +29,13 @@ import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.*;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Path summary reader organizing the path classes of a resource.
@@ -135,6 +124,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public Optional<User> getUser() {
     return mPageReadTrx.getActualRevisionRootPage().getUser();
+  }
+
+  @Override
+  public boolean storeDeweyIDs() {
+    return false;
   }
 
   @Override
@@ -865,6 +859,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public String getValue() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
     throw new UnsupportedOperationException();
   }
 }

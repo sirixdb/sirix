@@ -1,11 +1,6 @@
 package org.sirix.access.trx.node.xml;
 
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import com.google.common.collect.ForwardingObject;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -22,7 +17,13 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.service.xml.xpath.AtomicValue;
-import com.google.common.collect.ForwardingObject;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Forwards all methods to the delegate.
@@ -37,6 +38,11 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
 
   @Override
   protected abstract XmlNodeReadOnlyTrx delegate();
+
+  @Override
+  public boolean storeDeweyIDs() {
+    return delegate().storeDeweyIDs();
+  }
 
   @Override
   public Optional<User> getUser() {
@@ -449,27 +455,27 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
+  public SirixDeweyID getDeweyID() {
     return delegate().getDeweyID();
   }
 
   @Override
-  public Optional<SirixDeweyID> getFirstChildDeweyID() {
+  public SirixDeweyID getFirstChildDeweyID() {
     return delegate().getFirstChildDeweyID();
   }
 
   @Override
-  public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
+  public SirixDeweyID getLeftSiblingDeweyID() {
     return delegate().getLeftSiblingDeweyID();
   }
 
   @Override
-  public Optional<SirixDeweyID> getParentDeweyID() {
+  public SirixDeweyID getParentDeweyID() {
     return delegate().getParentDeweyID();
   }
 
   @Override
-  public Optional<SirixDeweyID> getRightSiblingDeweyID() {
+  public SirixDeweyID getRightSiblingDeweyID() {
     return delegate().getRightSiblingDeweyID();
   }
 }

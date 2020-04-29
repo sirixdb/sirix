@@ -308,7 +308,7 @@ class SirixVerticleJsonTest {
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                 val expectedDiffJsonString = """
-                    {"database":"database","resource":"json-resource","old-revision":1,"new-revision":2,"diffs":[{"insert":{"oldNodeKey":7,"newNodeKey":26,"insertPositionNodeKey":6,"insertPosition":"asRightSibling","type":"jsonFragment","data":"{\"tadaaa\":true}"}}]}
+                    {"database":"database","resource":"json-resource","old-revision":1,"new-revision":2,"diffs":[{"insert":{"nodeKey":26,"insertPositionNodeKey":6,"insertPosition":"asRightSibling","type":"jsonFragment","data":"{\"tadaaa\":true}"}}]}
                 """.trimIndent()
 
                 testContext.verify {
@@ -373,7 +373,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -777,7 +777,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1045,7 +1045,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1118,7 +1118,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource as well as a subsequent modification thereof")
     fun testPUTthenPOSTthenGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

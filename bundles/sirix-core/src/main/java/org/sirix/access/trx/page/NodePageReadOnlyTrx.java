@@ -46,10 +46,8 @@ import org.sirix.settings.VersioningType;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -127,7 +125,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param resourceManager       the resource manager
    * @param uberPage              {@link UberPage} to start reading from
    * @param revision              key of revision to read from uber page
-   * @param reader                reader to read stored pages for this transaction
+   * @param reader                to read stored pages for this transaction
    * @param trxIntentLog          transaction intent log
    * @param resourceBufferManager caches in-memory reconstructed pages
    * @throws SirixIOException if reading of the persistent storage fails
@@ -286,8 +284,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     } else {
       // The indirect page reference either fails horribly or returns a non null
       // instance.
-      final PageReference reference =
-          getReferenceToLeafOfSubtree(uberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
+      final PageReference reference = getReferenceToLeafOfSubtree(uberPage.getIndirectPageReference(), revisionKey, -1,
+          PageKind.UBERPAGE);
 
       RevisionRootPage page = null;
 
@@ -369,9 +367,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       //      }
     }
 
-    final Optional<PageReference> pageReferenceToRecordPage =
-        getLeafPageReference(checkNotNull(indexLogKey.getRecordPageKey()), indexLogKey.getIndex(),
-            checkNotNull(indexLogKey.getIndexType()));
+    final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(
+        checkNotNull(indexLogKey.getRecordPageKey()), indexLogKey.getIndex(), checkNotNull(indexLogKey.getIndexType()));
 
     if (!pageReferenceToRecordPage.isPresent()) {
       return Optional.empty();
@@ -382,23 +379,22 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final var page = pageReferenceToRecordPage.get().getPage();
 
       if (page != null) {
-        mostRecentlyReadRecordPage =
-            new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
+        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
+            indexLogKey.getRecordPageKey(), page);
         return Optional.of(page);
       }
 
       final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
 
       if (recordPageFromBuffer != null) {
-        mostRecentlyReadRecordPage =
-            new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(),
-                recordPageFromBuffer);
+        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
+            indexLogKey.getRecordPageKey(), recordPageFromBuffer);
         return Optional.of(recordPageFromBuffer);
       }
     }
 
     // Load list of page "fragments" from persistent storage.
-    final List<T> pages = getSnapshotPages(pageReferenceToRecordPage.get());
+    final List<T> pages = getPageFragments(pageReferenceToRecordPage.get());
 
     if (pages.isEmpty()) {
       return Optional.empty();
@@ -414,9 +410,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.get().setPage(completePage);
     }
 
-    mostRecentlyReadRecordPage =
-        new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(),
-            completePage);
+    mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
+        indexLogKey.getRecordPageKey(), completePage);
 
     return Optional.of(completePage);
   }
@@ -443,39 +438,35 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  final <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getSnapshotPages(
+  final <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPageFragments(
       final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();
     final int revsToRestore = config.numberOfRevisionsToRestore;
     final int[] revisionsToRead = config.revisioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<T> pages = new ArrayList<>(revisionsToRead.length);
-    boolean first = true;
-    for (int i = 0; i < revisionsToRead.length; i++) {
-      long refKeyToRecordPage = Constants.NULL_ID_LONG;
-      if (first) {
-        first = false;
-        refKeyToRecordPage = pageReference.getKey();
-      } else {
-        refKeyToRecordPage = pages.get(pages.size() - 1).getPreviousReferenceKey();
-      }
 
-      if (refKeyToRecordPage != Constants.NULL_ID_LONG) {
-        final PageReference reference = new PageReference().setKey(refKeyToRecordPage);
-        if (reference.getKey() != Constants.NULL_ID_LONG) {
-          @SuppressWarnings("unchecked")
-          final T page = (T) pageReader.read(reference, this);
-          pages.add(page);
-          if (page.size() == Constants.NDP_NODE_COUNT) {
-            // Page is full, thus we can skip reconstructing pages with elder versions.
-            break;
-          }
-        }
-      } else {
-        break;
-      }
+    final T page = (T) pageReader.read(pageReference, this);
+    pages.add(page);
+
+    if (!page.getPreviousReferenceKeys().isEmpty()) {
+      pages.addAll(getPreviousPageFragments(page));
     }
+
     return pages;
+  }
+
+  private <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPreviousPageFragments(
+      T page) {
+    return page.getPreviousReferenceKeys()
+               .stream()
+               .map(pageFragmentKey -> {
+                 try (final var pageTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
+                   return (T) pageTrx.getReader().read(new PageReference().setKey(pageFragmentKey.getKey()), pageTrx);
+                 }
+               })
+               .sorted(Comparator.<T, Integer>comparing(currentPage -> currentPage.getRevision()).reversed())
+               .collect(Collectors.toList());
   }
 
   /**
@@ -569,8 +560,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int maxHeight = getCurrentMaxIndirectPageTreeLevel(pageKind, indexNumber, null);
 
     // Iterate through all levels.
-    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
-         level < height; level++) {
+    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length; level < height;
+        level++) {
       final Page derefPage = dereferenceIndirectPageReference(reference);
       if (derefPage == null) {
         reference = null;
@@ -580,7 +571,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         levelKey -= offset << inpLevelPageCountExp[level];
 
         try {
-          reference = derefPage.getReference(offset);
+          reference = derefPage.getOrCreateReference(offset);
         } catch (final IndexOutOfBoundsException e) {
           throw new SirixIOException("Node key isn't supported, it's too big!");
         }

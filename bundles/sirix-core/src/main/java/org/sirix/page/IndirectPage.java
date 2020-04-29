@@ -75,18 +75,18 @@ public final class IndirectPage extends AbstractForwardingPage {
   }
 
   @Override
-  public boolean setReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(int offset, PageReference pageReference) {
     delegate = PageUtils.setReference(delegate, offset, pageReference);
 
     return false;
   }
 
   @Override
-  public PageReference getReference(int offset) {
-    PageReference reference = super.getReference(offset);
+  public PageReference getOrCreateReference(int offset) {
+    PageReference reference = super.getOrCreateReference(offset);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getReference(offset);
+      reference = delegate.getOrCreateReference(offset);
     }
     return reference;
   }

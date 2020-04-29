@@ -21,13 +21,7 @@
 
 package org.sirix.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.Optional;
+import com.google.common.hash.Hashing;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -41,9 +35,11 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.xml.AttributeNode;
 import org.sirix.utils.NamePageHash;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Attribute node test.
@@ -89,7 +85,7 @@ public class AttributeNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID().orElse(null), mPageReadTrx);
+        node.getDeweyID(), mPageReadTrx);
     check(node2);
   }
 
@@ -107,7 +103,7 @@ public class AttributeNodeTest {
     assertEquals(NodeKind.ATTRIBUTE, node.getKind());
     assertEquals(true, node.hasParent());
     assertEquals(NodeKind.ATTRIBUTE, node.getKind());
-    assertEquals(Optional.of(SirixDeweyID.newRootID()), node.getDeweyID());
+    assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
   }
 
 }

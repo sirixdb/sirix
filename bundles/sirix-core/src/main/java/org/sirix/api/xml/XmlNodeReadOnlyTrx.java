@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,19 +21,8 @@
 
 package org.sirix.api.xml;
 
-import java.math.BigInteger;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.ItemList;
-import org.sirix.api.Move;
-import org.sirix.api.Moved;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -43,14 +32,13 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
+import org.sirix.node.xml.*;
 import org.sirix.service.xml.xpath.AtomicValue;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.math.BigInteger;
+import java.util.List;
 
 /**
  * <h2>Description</h2>
@@ -125,18 +113,6 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    */
   @Override
   PageReadOnlyTrx getPageTrx();
-
-  /** String constants used by XPath. */
-  String[] XPATHCONSTANTS = {"xs:anyType", "xs:anySimpleType", "xs:anyAtomicType", "xs:untypedAtomic", "xs:untyped",
-      "xs:string", "xs:duration", "xs:yearMonthDuration", "xs:dayTimeDuration", "xs:dateTime", "xs:time", "xs:date",
-      "xs:gYearMonth", "xs:gYear", "xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean", "xs:base64Binary",
-      "xs:hexBinary", "xs:anyURI", "xs:QName", "xs:NOTATION", "xs:float", "xs:double", "xs:pDecimal", "xs:decimal",
-      "xs:integer", "xs:long", "xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger", "xs:negativeInteger",
-      "xs:nonNegativeInteger", "xs:positiveInteger", "xs:unsignedLong", "xs:unsignedInt", "xs:unsignedShort",
-      "xs:unsignedByte", "xs:normalizedString", "xs:token", "xs:language", "xs:name", "xs:NCName", "xs:ID", "xs:IDREF",
-      "xs:ENTITY", "xs:IDREFS", "xs:NMTOKEN", "xs:NMTOKENS",};
-
-
 
   // --- Node Selectors
   // --------------------------------------------------------
@@ -241,35 +217,35 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    *
    * @return left {@link SirixDeweyID} of the currently selected node
    */
-  Optional<SirixDeweyID> getLeftSiblingDeweyID();
+  SirixDeweyID getLeftSiblingDeweyID();
 
   /**
    * Get the right {@link SirixDeweyID} of the currently selected node.
    *
    * @return right {@link SirixDeweyID} of the currently selected node
    */
-  Optional<SirixDeweyID> getRightSiblingDeweyID();
+  SirixDeweyID getRightSiblingDeweyID();
 
   /**
    * Get the parent {@link SirixDeweyID} of the currently selected node.
    *
    * @return parent {@link SirixDeweyID} of the currently selected node
    */
-  Optional<SirixDeweyID> getParentDeweyID();
+  SirixDeweyID getParentDeweyID();
 
   /**
    * Get the first child {@link SirixDeweyID} of the currently selected node.
    *
    * @return first child {@link SirixDeweyID} of the currently selected node
    */
-  Optional<SirixDeweyID> getFirstChildDeweyID();
+  SirixDeweyID getFirstChildDeweyID();
 
   /**
    * Get the {@link SirixDeweyID} of the currently selected node.
    *
    * @return first {@link SirixDeweyID} of the currently selected node
    */
-  Optional<SirixDeweyID> getDeweyID();
+  SirixDeweyID getDeweyID();
 
   /**
    * Get the number of attributes the currently selected node has.

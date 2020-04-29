@@ -1,6 +1,5 @@
 package org.sirix.node.interfaces.immutable;
 
-import java.util.Optional;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.SirixDeweyID;
@@ -11,7 +10,7 @@ public interface ImmutableXmlNode extends ImmutableNode {
    *
    * @return dewey ID
    */
-  Optional<SirixDeweyID> getDeweyID();
+  SirixDeweyID getDeweyID();
 
   /**
    * Gets value type of the item.

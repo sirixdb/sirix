@@ -14,7 +14,7 @@ import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManager;
-import org.sirix.io.Storage;
+import org.sirix.io.IOStorage;
 import org.sirix.io.StorageType;
 import org.sirix.page.UberPage;
 
@@ -49,7 +49,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
     checkNotNull(resourceFile);
 
     return resourceManagers.computeIfAbsent(resourceFile, k -> {
-      final Storage storage = StorageType.getStorage(resourceConfig);
+      final IOStorage storage = StorageType.getStorage(resourceConfig);
       final UberPage uberPage = getUberPage(storage);
 
       final Lock writeLock = DatabasesInternals.computeWriteLockIfAbsent(resourceConfig.getResource());

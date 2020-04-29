@@ -4,7 +4,7 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.io.Reader;
-import org.sirix.io.Storage;
+import org.sirix.io.IOStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -27,7 +27,7 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
     this.user = user;
   }
 
-  protected UberPage getUberPage(final Storage storage) {
+  protected UberPage getUberPage(final IOStorage storage) {
     final UberPage uberPage;
     if (storage.exists()) {
       try (final Reader reader = storage.createReader()) {
