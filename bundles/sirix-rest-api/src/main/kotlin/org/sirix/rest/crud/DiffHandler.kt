@@ -1,5 +1,7 @@
 package org.sirix.rest.crud
 
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -13,6 +15,7 @@ import org.sirix.service.json.BasicJsonDiff
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.function.Consumer
 
 class DiffHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -32,7 +35,7 @@ class DiffHandler(private val location: Path) {
 
             resourceManager.use {
                 if (resourceManager is JsonResourceManager) {
-                    val diff = context.executeBlockingAwait<String> {
+                    val diff = context.executeBlockingAwait<String> { resultPromise ->
                         val firstRevision: String? = ctx.queryParam("first-revision").getOrNull(0)
                         val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
 
@@ -45,17 +48,38 @@ class DiffHandler(private val location: Path) {
                         val maxDepth: String? = ctx.queryParam("maxDepth").getOrNull(0)
 
                         val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
-                        val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: 0
+                        val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: Long.MAX_VALUE
 
-                        if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L && secondRevision.toInt() - 1 == firstRevision.toInt()) {
-                            val diffPath = resourceManager.getResourceConfig()
-                                .resource
-                                .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
-                                .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
+                        if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
+                            if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
+                                val diffPath = resourceManager.getResourceConfig()
+                                    .resource
+                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
+                                    .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
 
-                            it.complete(Files.readString(diffPath))
+                                resultPromise.complete(Files.readString(diffPath))
+                            } else {
+                                val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
+
+                                rtx.use {
+                                    rtx.moveTo(startNodeKeyAsLong)
+                                    val metaInfo = createMetaInfo(
+                                        databaseName,
+                                        resourceName,
+                                        firstRevision.toInt(),
+                                        secondRevision.toInt()
+                                    )
+
+                                    val diffs = metaInfo.getAsJsonArray("diffs")
+                                    val updateOperations =
+                                        rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
+                                    updateOperations.forEach { diffs.add(it) }
+                                    val json = metaInfo.toString()
+                                    resultPromise.complete(json)
+                                }
+                            }
                         } else {
-                            it.complete(
+                            resultPromise.complete(
                                 BasicJsonDiff().generateDiff(
                                     resourceManager,
                                     firstRevision.toInt(),
@@ -88,5 +112,19 @@ class DiffHandler(private val location: Path) {
             DatabaseType.JSON -> openJsonDatabase(location.resolve(databaseName))
             DatabaseType.XML -> openXmlDatabase(location.resolve(databaseName))
         }
+    }
+
+    private fun createMetaInfo(
+        databaseName: String, resourceName: String, oldRevision: Int,
+        newRevision: Int
+    ): JsonObject {
+        val json = JsonObject()
+        json.addProperty("database", databaseName)
+        json.addProperty("resource", resourceName)
+        json.addProperty("old-revision", oldRevision)
+        json.addProperty("new-revision", newRevision)
+        val diffsArray = JsonArray()
+        json.add("diffs", diffsArray)
+        return json
     }
 }

@@ -1,5 +1,7 @@
 package org.sirix.access.node.json;
 
+import com.google.gson.JsonObject;
+import net.bytebuddy.pool.TypePool;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -17,6 +19,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -43,7 +47,8 @@ public class JsonNodeTrxUpdateTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
          final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
-      new DescendantAxis(rtx).forEach(nodeKey -> System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID()));
+      new DescendantAxis(rtx).forEach(
+          nodeKey -> System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID()));
     }
   }
 
@@ -168,7 +173,7 @@ public class JsonNodeTrxUpdateTest {
   }
 
   @Test
-  public void test_whenMultipleRevisionsExist_thenDiff() throws IOException {
+  public void test_whenMultipleRevisionsExist_thenStoreUpdateOperations() throws IOException {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -202,6 +207,51 @@ public class JsonNodeTrxUpdateTest {
                                   .resolve("diffFromRev1toRev2.json");
 
       assertEquals(Files.readString(JSON.resolve("diffFromRev1toRev2.json")), Files.readString(diffPath));
+    }
+  }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenGetUpdateOperationsInSubtree() {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.moveToDocumentRoot().trx().moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
+      wtx.moveTo(5);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), false);
+      wtx.moveTo(5);
+      wtx.remove();
+      wtx.moveTo(4);
+      wtx.insertBooleanValueAsRightSibling(true);
+      wtx.setBooleanValue(false);
+      wtx.moveTo(6);
+      wtx.setNumberValue(1.2);
+      wtx.moveTo(9);
+      wtx.remove();
+      wtx.moveTo(13);
+      wtx.remove();
+      wtx.moveTo(15);
+      wtx.setObjectKeyName("tadaa");
+      wtx.moveTo(22);
+      wtx.setBooleanValue(true);
+      wtx.commit();
+
+      wtx.moveTo(2);
+      final var rootDeweyId = wtx.getDeweyID();
+      final var updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, Integer.MAX_VALUE);
+
+      assertEquals(4, updateOperations.size());
+      assertTrue(updateOperations.get(0).has("insert"));
+      assertTrue(updateOperations.get(1).has("delete"));
+      assertTrue(updateOperations.get(2).has("insert"));
+      assertTrue(updateOperations.get(3).has("update"));
+
+      final var updateOperationsWithMaxDepth = wtx.getUpdateOperationsInSubtreeOfNode(SirixDeweyID.newRootID(), 2);
+
+      System.out.println();
     }
   }
 }

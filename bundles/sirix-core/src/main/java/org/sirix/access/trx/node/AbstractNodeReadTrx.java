@@ -35,7 +35,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   private final long id;
 
   /** State of transaction including all cached stuff. */
-  protected PageReadOnlyTrx pageReadTrx;
+  protected PageReadOnlyTrx pageReadOnlyTrx;
 
   /** The current node. */
   protected ImmutableNode currentNode;
@@ -50,13 +50,13 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
       final @Nonnull ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
     id = trxId;
-    pageReadTrx = checkNotNull(pageReadTransaction);
+    pageReadOnlyTrx = checkNotNull(pageReadTransaction);
     currentNode = checkNotNull(documentNode);
   }
 
   @Override
   public Optional<User> getUser() {
-    return pageReadTrx.getActualRevisionRootPage().getUser();
+    return pageReadOnlyTrx.getActualRevisionRootPage().getUser();
   }
 
   @SuppressWarnings("unchecked")
@@ -121,7 +121,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    return pageReadTrx.getName(key, currentNode.getKind());
+    return pageReadOnlyTrx.getName(key, currentNode.getKind());
   }
 
   @Override
@@ -146,13 +146,13 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return pageReadTrx.getActualRevisionRootPage().getRevision();
+    return pageReadOnlyTrx.getActualRevisionRootPage().getRevision();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(pageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
+    return Instant.ofEpochMilli(pageReadOnlyTrx.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override
@@ -220,7 +220,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    */
   public PageReadOnlyTrx getPageTransaction() {
     assertNotClosed();
-    return pageReadTrx;
+    return pageReadOnlyTrx;
   }
 
   /**
@@ -230,13 +230,13 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    */
   public final void setPageReadTransaction(@Nullable final PageReadOnlyTrx pageReadTransaction) {
     assertNotClosed();
-    pageReadTrx = pageReadTransaction;
+    pageReadOnlyTrx = pageReadTransaction;
   }
 
   @Override
   public final long getMaxNodeKey() {
     assertNotClosed();
-    return pageReadTrx.getActualRevisionRootPage().getMaxNodeKey();
+    return pageReadOnlyTrx.getActualRevisionRootPage().getMaxNodeKey();
   }
 
   /**
@@ -441,12 +441,12 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
 
   @Override
   public PageReadOnlyTrx getPageTrx() {
-    return pageReadTrx;
+    return pageReadOnlyTrx;
   }
 
   @Override
   public CommitCredentials getCommitCredentials() {
-    return pageReadTrx.getCommitCredentials();
+    return pageReadOnlyTrx.getCommitCredentials();
   }
 
   @Override
