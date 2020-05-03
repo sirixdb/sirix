@@ -7,6 +7,7 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.expr.Cast;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
@@ -41,7 +42,7 @@ import java.util.Set;
     parameters = {"$doc", "$idx-no", "$key", "$include-self", "$search-mode", "$paths"})
 public final class ScanCASIndex extends AbstractScanIndex {
 
-  public final static QNm DEFAULT_NAME = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "scan-cas-index");
+  public final static QNm DEFAULT_NAME = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "scan-cas-index");
 
   public ScanCASIndex() {
     super(DEFAULT_NAME,

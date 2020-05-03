@@ -3,6 +3,7 @@ package org.sirix.xquery.function.jn.temporal;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
@@ -24,7 +25,7 @@ import org.sirix.xquery.json.TemporalJsonDBItem;
 public final class First extends AbstractFunction {
 
   /** Function name. */
-  public final static QNm FIRST = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "first");
+  public final static QNm FIRST = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "first");
 
   /**
    * Constructor.

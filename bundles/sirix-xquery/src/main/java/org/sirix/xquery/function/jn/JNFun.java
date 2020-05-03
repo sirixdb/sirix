@@ -14,6 +14,7 @@ import static org.sirix.xquery.function.jn.io.Store.STORE;
 import static org.sirix.xquery.function.jn.diff.Diff.DIFF;
 
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
 import org.brackit.xquery.xdm.Signature;
@@ -54,19 +55,13 @@ import org.sirix.xquery.function.jn.diff.Diff;
  *
  */
 public final class JNFun {
-  /** Prefix for Sirix json functions. */
-  public static final String JN_PREFIX = "jn";
+  public static final QNm ERR_INVALID_ARGUMENT = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF0001");
 
-  /** Namespace URI for Sirix json functions. */
-  public static final String JN_NSURI = "https://sirix.io/json";
+  public static final QNm ERR_INDEX_NOT_FOUND = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF0002");
 
-  public static final QNm ERR_INVALID_ARGUMENT = new QNm(JN_NSURI, JN_PREFIX, "SIRIXDBF0001");
+  public static final QNm ERR_FILE_NOT_FOUND = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF0003");
 
-  public static final QNm ERR_INDEX_NOT_FOUND = new QNm(JN_NSURI, JN_PREFIX, "SIRIXDBF0002");
-
-  public static final QNm ERR_FILE_NOT_FOUND = new QNm(JN_NSURI, JN_PREFIX, "SIRIXDBF0003");
-
-  public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(JN_NSURI, JN_PREFIX, "SIRIXDBF004");
+  public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF004");
 
   public static void register() {
     // dummy function to cause static block
@@ -74,8 +69,6 @@ public final class JNFun {
   }
 
   static {
-    Namespaces.predefine(JNFun.JN_PREFIX, JNFun.JN_NSURI);
-
     // move to
     Functions.predefine(new SelectJsonItem(SelectJsonItem.SELECT_JSON_ITEM, new Signature(SequenceType.JSON_ITEM,
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.INT, Cardinality.One))));

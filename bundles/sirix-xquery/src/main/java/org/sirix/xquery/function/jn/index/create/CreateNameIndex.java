@@ -8,6 +8,7 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
@@ -41,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
 public final class CreateNameIndex extends AbstractFunction {
 
   /** Path index function name. */
-  public final static QNm CREATE_NAME_INDEX = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "create-name-index");
+  public final static QNm CREATE_NAME_INDEX = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "create-name-index");
 
   /**
    * Constructor.

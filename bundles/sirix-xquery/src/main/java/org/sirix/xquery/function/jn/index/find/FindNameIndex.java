@@ -9,6 +9,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
@@ -36,7 +37,7 @@ import org.sirix.xquery.json.JsonDBItem;
 public final class FindNameIndex extends AbstractFunction {
 
   /** CAS index function name. */
-  public final static QNm FIND_NAME_INDEX = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "find-name-index");
+  public final static QNm FIND_NAME_INDEX = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "find-name-index");
 
   /**
    * Constructor.

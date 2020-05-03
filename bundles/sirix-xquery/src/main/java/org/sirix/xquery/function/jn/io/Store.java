@@ -7,6 +7,7 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.sequence.FunctionConversionSequence;
@@ -46,7 +47,7 @@ import com.google.gson.stream.JsonReader;
 public final class Store extends AbstractFunction {
 
   /** Store function name. */
-  public final static QNm STORE = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "store");
+  public final static QNm STORE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "store");
 
   /**
    * Constructor.

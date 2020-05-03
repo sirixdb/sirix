@@ -9,6 +9,7 @@ import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.ItemSequence;
 import org.brackit.xquery.xdm.Sequence;
@@ -21,7 +22,7 @@ import org.sirix.xquery.json.JsonDBObject;
 public final class OpenRevisions extends AbstractFunction {
 
   /** Doc function name. */
-  public final static QNm OPEN_REVISIONS = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "open-revisions");
+  public final static QNm OPEN_REVISIONS = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open-revisions");
 
   /**
    * Constructor.

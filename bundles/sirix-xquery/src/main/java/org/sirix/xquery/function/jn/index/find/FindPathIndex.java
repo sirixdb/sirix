@@ -7,6 +7,7 @@ import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Sequence;
@@ -34,7 +35,7 @@ import org.sirix.xquery.json.JsonDBItem;
 public final class FindPathIndex extends AbstractFunction {
 
   /** CAS index function name. */
-  public final static QNm FIND_PATH_INDEX = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "find-path-index");
+  public final static QNm FIND_PATH_INDEX = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "find-path-index");
 
   /**
    * Constructor.
