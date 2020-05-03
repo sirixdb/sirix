@@ -32,6 +32,7 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
@@ -61,7 +62,7 @@ public final class Diff extends AbstractFunction {
   /**
    * Sort by document order name.
    */
-  public final static QNm DIFF = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "diff");
+  public final static QNm DIFF = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "diff");
 
   /**
    * Constructor.

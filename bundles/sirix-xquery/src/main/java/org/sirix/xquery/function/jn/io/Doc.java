@@ -5,6 +5,7 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
@@ -30,7 +31,7 @@ import org.sirix.xquery.json.JsonDBCollection;
 public final class Doc extends AbstractFunction {
 
   /** Doc function name. */
-  public final static QNm DOC = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "doc");
+  public final static QNm DOC = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "doc");
 
   /**
    * Constructor.

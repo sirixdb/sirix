@@ -11,6 +11,7 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.FunctionConversionSequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
@@ -49,7 +50,7 @@ import com.google.gson.stream.JsonReader;
 public final class Load extends AbstractFunction {
 
   /** Load function name. */
-  public final static QNm LOAD = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "load");
+  public final static QNm LOAD = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "load");
 
   /**
    * Constructor.

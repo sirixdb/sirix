@@ -4,6 +4,7 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
@@ -28,7 +29,7 @@ import org.sirix.xquery.json.JsonItemFactory;
 public final class SelectJsonItem extends AbstractFunction {
 
   /** Move to function name. */
-  public final static QNm SELECT_JSON_ITEM = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "select-json-item");
+  public final static QNm SELECT_JSON_ITEM = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "select-json-item");
 
   /**
    * Constructor.

@@ -7,6 +7,7 @@ import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
@@ -30,7 +31,7 @@ import org.sirix.xquery.json.JsonDBCollection;
 public final class DocByPointInTime extends AbstractFunction {
 
   /** Open function name. */
-  public final static QNm OPEN = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "open");
+  public final static QNm OPEN = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open");
 
   /**
    * Constructor.
