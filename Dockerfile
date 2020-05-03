@@ -7,7 +7,7 @@ WORKDIR /usr/app/
 
 # Package jar
 COPY . .
-RUN gradle build -x test
+RUN gradle build --refresh-dependencies -x test
 
 # Stage-2
 # Copy jar and run the server 
