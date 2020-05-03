@@ -175,7 +175,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
   }
 
-  private final int[] parseDivisionValues(String divisionPart) throws SirixException {
+  private final int[] parseDivisionValues(String divisionPart) {
     if (divisionPart.charAt(divisionPart.length() - 1) != '.')
       divisionPart += '.';
 
@@ -438,7 +438,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     divisionValues[divisionValues.length - 1] = extraDivisionValue;
   }
 
-  public SirixDeweyID(String deweyID) throws SirixException {
+  public SirixDeweyID(String deweyID) {
     this.divisionValues = parseDivisionValues(deweyID);
     this.level = calcLevel(divisionValues);
   }
@@ -455,7 +455,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     return divisionValues;
   }
 
-  public int getDivisionValue(int division) throws SirixException {
+  public int getDivisionValue(int division) {
     if (division >= divisionValues.length) {
       throw new SirixException("Invalid division: " + division);
     }
@@ -981,7 +981,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   }
 
   public static SirixDeweyID newBetween(SirixDeweyID deweyID1, SirixDeweyID deweyID2)
-      throws SirixException {
+      {
     // newBetween always returns ID of new node in same level!
 
     if ((deweyID1 == null) && (deweyID2 != null)) {
