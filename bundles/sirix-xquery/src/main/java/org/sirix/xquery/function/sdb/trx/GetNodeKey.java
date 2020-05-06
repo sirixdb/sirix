@@ -15,7 +15,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * Function for getting the nodeKey of the node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:getNodeKey($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:nodekey($doc as xs:structured-item()) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

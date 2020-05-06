@@ -17,7 +17,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * Function for getting a path. The result is the path. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:getPath($doc as xs:node) as xs:string</code></li>
+ * <li><code>sdb:path($doc as xs:structured-item) as xs:string</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

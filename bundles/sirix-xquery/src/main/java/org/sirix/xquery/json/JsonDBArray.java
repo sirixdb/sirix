@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.array.AbstractArray;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.xdm.AbstractItem;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.Array;
@@ -33,25 +33,25 @@ import org.sirix.xquery.stream.json.TemporalSirixJsonArrayStream;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
-public final class JsonDBArray extends AbstractItem
+public final class JsonDBArray extends AbstractArray
     implements TemporalJsonDBItem<JsonDBArray>, Array, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBArray.class));
 
   /** Sirix read-only transaction. */
-  private final JsonNodeReadOnlyTrx mRtx;
+  private final JsonNodeReadOnlyTrx rtx;
 
   /** Sirix node key. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Collection this node is part of. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /** Determines if write-transaction is present. */
-  private final boolean mIsWtx;
+  private final boolean isWtx;
 
-  private JsonItemFactory mJsonUtil;
+  private JsonItemFactory jsonUtil;
 
 
   /**
@@ -61,58 +61,58 @@ public final class JsonDBArray extends AbstractItem
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
-    mCollection = Preconditions.checkNotNull(collection);
-    mRtx = Preconditions.checkNotNull(rtx);
-    mIsWtx = mRtx instanceof JsonNodeTrx;
+    this.collection = Preconditions.checkNotNull(collection);
+    this.rtx = Preconditions.checkNotNull(rtx);
+    isWtx = this.rtx instanceof JsonNodeTrx;
 
-    if (mRtx.isDocumentRoot())
-      mRtx.moveToFirstChild();
+    if (this.rtx.isDocumentRoot())
+      this.rtx.moveToFirstChild();
 
-    assert mRtx.isArray();
+    assert this.rtx.isArray();
 
-    mNodeKey = mRtx.getNodeKey();
+    nodeKey = this.rtx.getNodeKey();
 
-    mJsonUtil = new JsonItemFactory();
+    jsonUtil = new JsonItemFactory();
   }
 
   @Override
   public JsonResourceManager getResourceManager() {
-    return mRtx.getResourceManager();
+    return rtx.getResourceManager();
   }
 
   @Override
   public long getNodeKey() {
     moveRtx();
 
-    return mRtx.getNodeKey();
+    return rtx.getNodeKey();
   }
 
   private final void moveRtx() {
-    mRtx.moveTo(mNodeKey);
+    rtx.moveTo(nodeKey);
   }
 
   @Override
   public JsonDBCollection getCollection() {
-    return mCollection;
+    return collection;
   }
 
   @Override
   public JsonNodeReadOnlyTrx getTrx() {
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public JsonDBArray getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   private JsonDBArray moveTemporalAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis) {
     if (axis.hasNext()) {
       final var rtx = axis.next();
-      return new JsonDBArray(rtx, mCollection);
+      return new JsonDBArray(rtx, collection);
     }
 
     return null;
@@ -122,7 +122,7 @@ public final class JsonDBArray extends AbstractItem
   public JsonDBArray getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new PreviousAxis<>(mRtx.getResourceManager(), mRtx);
+        new PreviousAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -130,14 +130,14 @@ public final class JsonDBArray extends AbstractItem
   public JsonDBArray getFirst() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new FirstAxis<>(mRtx.getResourceManager(), mRtx);
+        new FirstAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public JsonDBArray getLast() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -147,7 +147,7 @@ public final class JsonDBArray extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArrayStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixJsonArrayStream(new PastAxis<>(rtx.getResourceManager(), rtx, include), collection);
   }
 
   @Override
@@ -156,13 +156,13 @@ public final class JsonDBArray extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArrayStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixJsonArrayStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBArray> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonArrayStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
+    return new TemporalSirixJsonArrayStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
   }
 
   @Override
@@ -314,7 +314,7 @@ public final class JsonDBArray extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(rtx, mCollection);
+      return jsonUtil.getSequence(rtx, collection);
     }
 
     return null;
@@ -322,31 +322,31 @@ public final class JsonDBArray extends AbstractItem
 
   @Override
   public Sequence at(IntNumeric numericIndex) {
-    return getSequenceAtIndex(mRtx, numericIndex.intValue());
+    return getSequenceAtIndex(rtx, numericIndex.intValue());
   }
 
   @Override
   public Sequence at(int index) {
-    return getSequenceAtIndex(mRtx, index);
+    return getSequenceAtIndex(rtx, index);
   }
 
   @Override
   public IntNumeric length() {
     moveRtx();
-    return new Int64(mRtx.getChildCount());
+    return new Int64(rtx.getChildCount());
   }
 
   @Override
   public int len() {
     moveRtx();
 
-    return (int) mRtx.getChildCount();
+    return (int) rtx.getChildCount();
   }
 
   @Override
   public Array range(IntNumeric from, IntNumeric to) {
     moveRtx();
 
-    return new JsonDBArraySlice(mRtx, mCollection, from.intValue(), to.intValue());
+    return new JsonDBArraySlice(rtx, collection, from.intValue(), to.intValue());
   }
 }

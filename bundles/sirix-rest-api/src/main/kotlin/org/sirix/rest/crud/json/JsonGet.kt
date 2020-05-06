@@ -143,6 +143,7 @@ class JsonGet(private val location: Path) {
             val dbStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
 
             dbStore.use {
+                val compileChain = SirixCompileChain.createWithJsonStore(dbStore)
                 val queryCtx = SirixQueryContext.createWithJsonStore(dbStore)
 
                 node.let { queryCtx.contextItem = node }

@@ -81,7 +81,7 @@ public final class LevelOrder extends AbstractFunction {
           public Item next() {
             if (axis.hasNext()) {
               axis.next();
-              return (Item) util.getSequence((JsonNodeReadOnlyTrx) axis.getTrx(), jsonItem.getCollection());
+              return util.getSequence((JsonNodeReadOnlyTrx) axis.getTrx(), jsonItem.getCollection());
             }
             return null;
           }

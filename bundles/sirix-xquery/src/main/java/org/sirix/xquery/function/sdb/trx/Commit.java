@@ -18,7 +18,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * signature is:
  * </p>
  * <ul>
- * <li><code>sdb:commit($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:commit($doc as xs:structured-item) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -50,19 +50,27 @@ public final class Commit extends AbstractFunction {
       return new Int64(revision);
     } else {
       final ResourceManager<?, ?> manager = doc.getTrx().getResourceManager();
-      final NodeTrx wtx;
-      if (manager.getNodeWriteTrx().isPresent()) {
-        wtx = manager.getNodeWriteTrx().get();
-      } else {
-        wtx = manager.beginNodeTrx();
+      boolean newTrxOpened = false;
+      NodeTrx wtx = null;
+      try {
+        if (manager.getNodeWriteTrx().isPresent()) {
+          wtx = manager.getNodeWriteTrx().get();
+        } else {
+          newTrxOpened = true;
+          wtx = manager.beginNodeTrx();
+        }
+        final int revision = doc.getTrx().getRevisionNumber();
+        if (revision < manager.getMostRecentRevisionNumber()) {
+          wtx.revertTo(doc.getTrx().getRevisionNumber());
+        }
+        final int revisionToCommit = wtx.getRevisionNumber();
+        wtx.commit();
+        return new Int64(revisionToCommit);
+      } finally {
+        if (newTrxOpened && wtx != null) {
+          wtx.close();
+        }
       }
-      final int revision = doc.getTrx().getRevisionNumber();
-      if (revision < manager.getMostRecentRevisionNumber()) {
-        wtx.revertTo(doc.getTrx().getRevisionNumber());
-      }
-      final int revisionToCommit = wtx.getRevisionNumber();
-      wtx.commit();
-      return new Int64(revisionToCommit);
     }
   }
 }

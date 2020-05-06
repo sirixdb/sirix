@@ -15,7 +15,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * Function for getting the most recent revision. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:most-recent-revision($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:most-recent-revision($doc as xs:structured-item) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

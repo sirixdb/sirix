@@ -18,7 +18,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * signature is:
  * </p>
  * <ul>
- * <li><code>sdb:rollback($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:rollback($doc as xs:structured-item) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

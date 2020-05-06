@@ -68,7 +68,7 @@ public final class GetRevisionTimestampTest extends TestCase {
   }
 
   @Test
-  public void test() throws IOException, QueryException {
+  public void test() throws QueryException {
     XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
 

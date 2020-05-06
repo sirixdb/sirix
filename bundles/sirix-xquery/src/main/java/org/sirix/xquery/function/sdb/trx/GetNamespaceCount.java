@@ -15,7 +15,7 @@ import org.sirix.xquery.node.XmlDBNode;
  * Function for getting the number of namespaces of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:get-namespace-count($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:get-namespace-count($doc as xs:structured-item) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

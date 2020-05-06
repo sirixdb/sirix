@@ -15,7 +15,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * Function for retrieving the number of descendants of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:get-descendant-count($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:descendant-count($doc as xs:structured-item) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

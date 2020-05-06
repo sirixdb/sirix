@@ -9,9 +9,11 @@ import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.translator.TopDownTranslator;
 import org.brackit.xquery.expr.Accessor;
+import org.brackit.xquery.expr.DerefExpr;
 import org.brackit.xquery.node.stream.EmptyStream;
 import org.brackit.xquery.util.Cfg;
 import org.brackit.xquery.xdm.Axis;
+import org.brackit.xquery.xdm.Expr;
 import org.brackit.xquery.xdm.Kind;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.Node;
@@ -56,6 +58,16 @@ public final class SirixTranslator extends TopDownTranslator {
    */
   public SirixTranslator(final Map<QNm, Str> options) {
     super(options);
+  }
+
+  @Override
+  protected Expr derefExpr(AST node) throws QueryException {
+    Expr record = expr(node.getChild(0), true);
+    Expr[] fields = new Expr[node.getChildCount() - 1];
+    for (int i = 1; i < node.getChildCount(); i++) {
+      fields[i - 1] = expr(node.getChild(i), true);
+    }
+    return new DerefExpr(record, fields);
   }
 
   @Override
