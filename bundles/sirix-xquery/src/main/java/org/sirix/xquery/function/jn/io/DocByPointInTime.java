@@ -11,6 +11,7 @@ import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 
@@ -32,6 +33,8 @@ public final class DocByPointInTime extends AbstractFunction {
 
   /** Open function name. */
   public final static QNm OPEN = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open");
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Constructor.
@@ -56,8 +59,8 @@ public final class DocByPointInTime extends AbstractFunction {
     }
 
     final String expResName = ((Str) args[1]).stringValue();
-    final String dateTime = ((DateTime) args[2]).stringValue();
-    final Instant pointInTime = Instant.parse(dateTime);
+    final DateTime dateTime = (DateTime) args[2];
+    final Instant pointInTime = dateTimeToInstant.convert(dateTime);
 
     return col.getDocument(expResName, pointInTime);
   }

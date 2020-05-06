@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb.io;
 
 import java.time.Instant;
+
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.DateTime;
@@ -10,6 +11,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBCollection;
 
@@ -31,6 +33,8 @@ public final class DocByPointInTime extends AbstractFunction {
 
   /** Open function name. */
   public final static QNm OPEN = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "open");
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Constructor.
@@ -55,8 +59,8 @@ public final class DocByPointInTime extends AbstractFunction {
     }
 
     final String expResName = ((Str) args[1]).stringValue();
-    final String dateTime = ((DateTime) args[2]).stringValue();
-    final Instant pointInTime = Instant.parse(dateTime);
+    final DateTime dateTime = (DateTime) args[2];
+    final Instant pointInTime = dateTimeToInstant.convert(dateTime);
 
     return col.getDocument(expResName, pointInTime);
   }
