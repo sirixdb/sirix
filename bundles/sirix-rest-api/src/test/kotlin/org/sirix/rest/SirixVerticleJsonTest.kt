@@ -221,7 +221,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the diff of a resource")
     fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

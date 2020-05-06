@@ -69,4 +69,20 @@ public final class BasicJsonDiffTest {
       System.out.println(diffRev1Rev4);
     }
   }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenDiff3() throws IOException {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.insertArrayAsFirstChild();
+      wtx.commit();
+      wtx.insertObjectAsFirstChild();
+      wtx.commit();
+
+      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("emptyObjectDiffRev1Rev2.json")), diffRev1Rev2);
+    }
+  }
 }
