@@ -191,7 +191,7 @@ public final class JsonDiffSerializer {
 
   private void addTypeAndDataProperties(int newRevision, JsonResourceManager resourceManager,
       JsonNodeReadOnlyTrx newRtx, JsonObject json) {
-    if (newRtx.getChildCount() > 0) {
+    if (newRtx.isArray() || newRtx.isObject() || newRtx.isObjectKey()) {
       json.addProperty("type", "jsonFragment");
       serialize(newRevision, resourceManager, newRtx, json);
     } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
