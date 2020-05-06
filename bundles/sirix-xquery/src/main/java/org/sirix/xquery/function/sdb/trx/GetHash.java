@@ -15,7 +15,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * Function for getting the hash of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:hash($doc as xs:node) as xs:string</code></li>
+ * <li><code>sdb:hash($doc as xs:structured-item) as xs:string</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

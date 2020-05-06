@@ -32,10 +32,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /** The XML node store. */
-  private final XmlDBStore mNodeStore;
+  private final XmlDBStore nodeStore;
 
   /** The JSON item store. */
-  private final JsonDBStore mJsonItemStore;
+  private final JsonDBStore jsonItemStore;
 
   public static final SirixCompileChain create() {
     return new SirixCompileChain(null, null);
@@ -61,10 +61,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * @param jsonItemStore the json item store.
    */
   public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
-    mNodeStore = nodeStore == null
+    this.nodeStore = nodeStore == null
         ? BasicXmlDBStore.newBuilder().build()
         : nodeStore;
-    mJsonItemStore = jsonItemStore == null
+    this.jsonItemStore = jsonItemStore == null
         ? BasicJsonDBStore.newBuilder().build()
         : jsonItemStore;
   }
@@ -79,12 +79,12 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (!OPTIMIZE) {
       return super.getOptimizer(options);
     }
-    return new SirixOptimizer(options, mNodeStore, mJsonItemStore);
+    return new SirixOptimizer(options, nodeStore, jsonItemStore);
   }
 
   @Override
   public void close() {
-    mNodeStore.close();
-    mJsonItemStore.close();
+    nodeStore.close();
+    jsonItemStore.close();
   }
 }

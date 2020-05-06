@@ -34,10 +34,12 @@ import java.io.PrintWriter;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
+import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -49,24 +51,24 @@ import org.sirix.service.json.serialize.JsonSerializer;
  */
 public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
-  private final Appendable mOut;
+  private final Appendable out;
 
-  private final boolean mPrettyPrint;
+  private final boolean prettyPrint;
 
-  private boolean mFirst;
+  private boolean first;
 
   public JsonDBSerializer(final Appendable out, final boolean prettyPrint) {
-    mOut = checkNotNull(out);
-    mPrettyPrint = prettyPrint;
-    mFirst = true;
+    this.out = checkNotNull(out);
+    this.prettyPrint = prettyPrint;
+    first = true;
   }
 
   @Override
   public void serialize(final Sequence sequence) {
     try {
       if (sequence != null) {
-        if (mFirst) {
-          mOut.append("{\"rest\":[");
+        if (first) {
+          out.append("{\"rest\":[");
         }
 
         var it = sequence.iterate();
@@ -79,9 +81,9 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               @SuppressWarnings("unchecked")
               final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
 
-              var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceManager(), mOut,
+              var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceManager(), out,
                   node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
-              if (mPrettyPrint)
+              if (prettyPrint)
                 serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
               final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
               serializer.call();
@@ -89,24 +91,30 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               item = it.next();
 
               if (item != null)
-                mOut.append(",");
+                out.append(",");
             } else if (item instanceof Atomic) {
-              mOut.append(item.toString());
+              if (((Atomic) item).type() == Type.STR) {
+                out.append("\"");
+              }
+              out.append(item.toString());
+              if (((Atomic) item).type() == Type.STR) {
+                out.append("\"");
+              }
 
               item = it.next();
 
               if (item != null)
-                mOut.append(",");
+                out.append(",");
             } else if ((item instanceof Array) || (item instanceof Record)) {
               final var out = new ByteArrayOutputStream();
               final var printWriter = new PrintWriter(out);
               new StringSerializer(printWriter).serialize(item);
-              mOut.append(out.toString(StandardCharsets.UTF_8));
+              this.out.append(out.toString(StandardCharsets.UTF_8));
 
               item = it.next();
 
               if (item != null)
-                mOut.append(",");
+                this.out.append(",");
             }
           }
         } finally {
@@ -122,7 +130,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
   @Override
   public void close() {
     try {
-      mOut.append("]}");
+      out.append("]}");
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }

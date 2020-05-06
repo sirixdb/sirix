@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2020, Sirix
  *
  * All rights reserved.
  *
@@ -25,14 +25,14 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.xquery.function.sdb.io;
+package org.sirix.xquery.function.sdb.trx;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.atomic.Int64;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
@@ -43,25 +43,23 @@ import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import org.sirix.xquery.node.XmlDBNode;
-import junit.framework.TestCase;
+
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public final class DocByPointInTimeTest extends TestCase {
+public final class GetNodeKeyTest {
   /** The {@link Holder} instance. */
   private Holder holder;
 
-  @Override
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
-  @Override
   @After
   public void tearDown() throws SirixException {
     holder.close();
@@ -70,7 +68,7 @@ public final class DocByPointInTimeTest extends TestCase {
 
   @Test
   public void test() throws QueryException {
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
 
     final Path database = PATHS.PATH1.getFile();
@@ -82,16 +80,10 @@ public final class DocByPointInTimeTest extends TestCase {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:open('" + dbName + "','" + resName + "', xs:dateTime(\"2219-05-01T00:00:00-00:00\"))";
-
-      // final String xq1 =
-      // "(xs:dateTime(\"2019-05-01T00:00:00-00:00\") - xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div
-      // xs:dayTimeDuration('PT0.001S')";
+      final String xq1 = "declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(sdb:doc('" + dbName + "','" + resName + "')/p:a/b[1])";
 
       final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
-      final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
-
-      assertEquals(5, node.getTrx().getRevisionNumber());
+      Assert.assertEquals(new Int64(5), query.execute(ctx));
     }
   }
 }

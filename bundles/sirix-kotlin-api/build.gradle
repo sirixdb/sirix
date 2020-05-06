@@ -24,7 +24,7 @@ dependencies {
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.kotlinxCoroutinesCore
 
-    testCompile project(':sirix-core').sourceSets.test.output
+    testImplementation project(':sirix-core').sourceSets.test.output
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine

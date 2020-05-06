@@ -49,16 +49,16 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   /** The commit strategy. */
-  private final CommitStrategy mCommitStrategy;
+  private final CommitStrategy commitStrategy;
 
   /** The query context delegate. */
-  private final QueryContext mQueryContextDelegate;
+  private final QueryContext queryContextDelegate;
 
   /** The node store (XML store). */
-  private final XmlDBStore mXmlStore;
+  private final XmlDBStore xmlStore;
 
   /** The json item store. */
-  private final JsonDBStore mJsonStore;
+  private final JsonDBStore jsonStore;
 
   public static SirixQueryContext createWithNodeStore(final XmlDBStore nodeStore) {
     return new SirixQueryContext(nodeStore, null, CommitStrategy.AUTO);
@@ -96,24 +96,24 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
    */
   private SirixQueryContext(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
       final CommitStrategy commitStrategy) {
-    mXmlStore = nodeStore == null
+    xmlStore = nodeStore == null
         ? BasicXmlDBStore.newBuilder().build()
         : nodeStore;
-    mJsonStore = jsonItemStore == null
+    jsonStore = jsonItemStore == null
         ? BasicJsonDBStore.newBuilder().build()
         : jsonItemStore;
-    mQueryContextDelegate = new BrackitQueryContext(nodeStore);
-    mCommitStrategy = Preconditions.checkNotNull(commitStrategy);
+    queryContextDelegate = new BrackitQueryContext(nodeStore);
+    this.commitStrategy = Preconditions.checkNotNull(commitStrategy);
   }
 
   @Override
   public void applyUpdates() {
-    mQueryContextDelegate.applyUpdates();
+    queryContextDelegate.applyUpdates();
 
-    if (mCommitStrategy == CommitStrategy.AUTO) {
-      final List<UpdateOp> updateList = mQueryContextDelegate.getUpdateList() == null
+    if (commitStrategy == CommitStrategy.AUTO) {
+      final List<UpdateOp> updateList = queryContextDelegate.getUpdateList() == null
           ? Collections.emptyList()
-          : mQueryContextDelegate.getUpdateList().list();
+          : queryContextDelegate.getUpdateList().list();
 
       if (!updateList.isEmpty()) {
         final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
@@ -124,7 +124,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
           return Optional.empty();
         };
 
-        final Set<Long> trxIDs = new HashSet<>();
+        final var trxIDs = new HashSet<Long>();
 
         updateList.stream()
                   .map(UpdateOp::getTarget)
@@ -138,112 +138,112 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public void addPendingUpdate(UpdateOp op) {
-    mQueryContextDelegate.addPendingUpdate(op);
+    queryContextDelegate.addPendingUpdate(op);
   }
 
   @Override
   public UpdateList getUpdateList() {
-    return mQueryContextDelegate.getUpdateList();
+    return queryContextDelegate.getUpdateList();
   }
 
   @Override
   public void setUpdateList(UpdateList updates) {
-    mQueryContextDelegate.setUpdateList(updates);
+    queryContextDelegate.setUpdateList(updates);
   }
 
   @Override
   public void bind(QNm name, Sequence sequence) {
-    mQueryContextDelegate.bind(name, sequence);
+    queryContextDelegate.bind(name, sequence);
   }
 
   @Override
   public Sequence resolve(QNm name) throws QueryException {
-    return mQueryContextDelegate.resolve(name);
+    return queryContextDelegate.resolve(name);
   }
 
   @Override
   public boolean isBound(QNm name) {
-    return mQueryContextDelegate.isBound(name);
+    return queryContextDelegate.isBound(name);
   }
 
   @Override
   public void setContextItem(Item item) {
-    mQueryContextDelegate.setContextItem(item);
+    queryContextDelegate.setContextItem(item);
   }
 
   @Override
   public Item getContextItem() {
-    return mQueryContextDelegate.getContextItem();
+    return queryContextDelegate.getContextItem();
   }
 
   @Override
   public ItemType getItemType() {
-    return mQueryContextDelegate.getItemType();
+    return queryContextDelegate.getItemType();
   }
 
   @Override
   public Node<?> getDefaultDocument() {
-    return mQueryContextDelegate.getDefaultDocument();
+    return queryContextDelegate.getDefaultDocument();
   }
 
   @Override
   public void setDefaultDocument(Node<?> defaultDocument) {
-    mQueryContextDelegate.setDefaultDocument(defaultDocument);
+    queryContextDelegate.setDefaultDocument(defaultDocument);
   }
 
   @Override
   public NodeCollection<?> getDefaultCollection() {
-    return mQueryContextDelegate.getDefaultCollection();
+    return queryContextDelegate.getDefaultCollection();
   }
 
   @Override
   public void setDefaultCollection(NodeCollection<?> defaultCollection) {
-    mQueryContextDelegate.setDefaultCollection(defaultCollection);
+    queryContextDelegate.setDefaultCollection(defaultCollection);
   }
 
   @Override
   public DateTime getDateTime() {
-    return mQueryContextDelegate.getDateTime();
+    return queryContextDelegate.getDateTime();
   }
 
   @Override
   public Date getDate() {
-    return mQueryContextDelegate.getDate();
+    return queryContextDelegate.getDate();
   }
 
   @Override
   public Time getTime() {
-    return mQueryContextDelegate.getTime();
+    return queryContextDelegate.getTime();
   }
 
   @Override
   public DTD getImplicitTimezone() {
-    return mQueryContextDelegate.getImplicitTimezone();
+    return queryContextDelegate.getImplicitTimezone();
   }
 
   @Override
   public AnyURI getBaseUri() {
-    return mQueryContextDelegate.getBaseUri();
+    return queryContextDelegate.getBaseUri();
   }
 
   @Override
   public NodeFactory<?> getNodeFactory() {
-    return mQueryContextDelegate.getNodeFactory();
+    return queryContextDelegate.getNodeFactory();
   }
 
   @Override
   public XmlDBStore getNodeStore() {
-    return mXmlStore;
+    return xmlStore;
   }
 
   @Override
   public JsonDBStore getJsonItemStore() {
-    return mJsonStore;
+    return jsonStore;
   }
 
   @Override
   public void close() {
-    mXmlStore.close();
-    mJsonStore.close();
+    xmlStore.close();
+    jsonStore.close();
   }
 }
