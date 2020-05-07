@@ -81,13 +81,13 @@ subprojects {
         failOnError = false
     }
 
-//    compileJava {
-//        options.compilerArgs += ["--enable-preview"]
-//    }
-//
-//    compileTestJava {
-//        options.compilerArgs += ["--enable-preview"]
-//    }
+    compileJava {
+        options.compilerArgs += ["--enable-preview"]
+    }
+
+    compileTestJava {
+        options.compilerArgs += ["--enable-preview"]
+    }
 
     tasks.withType(JavaCompile).each {
         it.options.compilerArgs.add('--enable-preview')
