@@ -548,7 +548,9 @@ public final class JsonShredder implements Callable<Long> {
 
     try {
       final var fileReader = new FileReader(path.toFile());
-      return new JsonReader(fileReader);
+      final var jsonReader = new JsonReader(fileReader);
+      jsonReader.setLenient(true);
+      return jsonReader;
     } catch (final FileNotFoundException e) {
       throw new UncheckedIOException(e);
     }
@@ -564,6 +566,8 @@ public final class JsonShredder implements Callable<Long> {
     checkNotNull(json);
 
     final var stringReader = new StringReader(json);
-    return new JsonReader(stringReader);
+    final var jsonReader = new JsonReader(stringReader);
+    jsonReader.setLenient(true);
+    return jsonReader;
   }
 }

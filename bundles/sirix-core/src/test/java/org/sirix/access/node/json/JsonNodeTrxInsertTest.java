@@ -5,7 +5,12 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
+import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.json.shredder.JsonShredder;
+
+import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -22,12 +27,78 @@ public final class JsonNodeTrxInsertTest {
   }
 
   @Test
-  public void insertSubtreeIntoObjectAsFirstChild() {
+  public void testInsertSubtreeArrayAsFirstChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[[]]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeArrayAsRightSibling() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("[]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[[],[]]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeObjectAsFirstChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[{}]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeObjectAsRightSibling() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{}"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[{},{}]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeIntoObjectAsFirstChild() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(8);
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"foo\": \"bar\"}"));
@@ -44,12 +115,12 @@ public final class JsonNodeTrxInsertTest {
   }
 
   @Test
-  public void insertSubtreeIntoArrayAsFirstChild() {
+  public void testInsertSubtreeIntoArrayAsFirstChild() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(3);
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"foo\"]"));
@@ -57,19 +128,19 @@ public final class JsonNodeTrxInsertTest {
       wtx.moveTo(3);
 
       assertEquals(4, wtx.getChildCount());
-      assertEquals(4, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
+      assertEquals(5, wtx.getDescendantCount());
+      assertTrue(wtx.moveToFirstChild().trx().moveToFirstChild().hasMoved());
       assertEquals("foo", wtx.getValue());
     }
   }
 
   @Test
-  public void insertArrayIntoArrayAsRightSibling() {
+  public void testInsertArrayIntoArrayAsRightSibling() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
 
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("[\"foo\"]"));
@@ -87,12 +158,12 @@ public final class JsonNodeTrxInsertTest {
   }
 
   @Test
-  public void insertObjectIntoArrayAsRightSibling() {
+  public void testInsertObjectIntoArrayAsRightSibling() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
 
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"foo\": \"bar\"}"));
