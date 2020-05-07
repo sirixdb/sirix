@@ -81,13 +81,13 @@ subprojects {
         failOnError = false
     }
 
-    compileJava {
-        options.compilerArgs += ["--enable-preview"]
-    }
-
-    compileTestJava {
-        options.compilerArgs += ["--enable-preview"]
-    }
+//    compileJava {
+//        options.compilerArgs += ["--enable-preview"]
+//    }
+//
+//    compileTestJava {
+//        options.compilerArgs += ["--enable-preview"]
+//    }
 
     tasks.withType(JavaCompile).each {
         it.options.compilerArgs.add('--enable-preview')
@@ -200,7 +200,7 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
-        jvmArgs(['--enable-preview'])
+ //       jvmArgs(['--enable-preview'])
 
 //        minHeapSize = '2g'
 //        maxHeapSize = '15g'

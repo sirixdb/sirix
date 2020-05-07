@@ -361,10 +361,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
               if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
                 throw new IllegalStateException("Current node in storage must be an array node.");
               }
-
-              if (nodeKind == NodeKind.ARRAY)
-                skipRootJsonToken = true;
-
               break;
             // $CASES-OMITTED$
             default:
