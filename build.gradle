@@ -200,7 +200,7 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
- //       jvmArgs(['--enable-preview'])
+        jvmArgs(['--enable-preview'])
 
 //        minHeapSize = '2g'
 //        maxHeapSize = '15g'
