@@ -36,6 +36,29 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void test() throws IOException {
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final var writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"test\",\"test\"]"));
+      wtx.moveTo(2);
+      wtx.remove();
+      wtx.moveTo(1);
+      wtx.insertStringValueAsFirstChild("diff");
+      wtx.moveTo(3);
+      wtx.remove();
+      wtx.moveTo(1);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"interesting\": \"!\"}]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+      final var expected = Files.readString(JSON.resolve("array-with-right-sibling.json"), StandardCharsets.UTF_8);
+      JSONAssert.assertEquals(expected, writer.toString(), true);
+    }
+  }
+
+  @Test
   public void testJsonDocumentPrettyPrinted() throws IOException {
     JsonTestHelper.createTestDocument();
 
