@@ -19,11 +19,13 @@ import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
+import org.sirix.rest.crud.xml.XmlSessionDBStore
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.json.*
+import org.sirix.xquery.node.BasicXmlDBStore
 import java.io.StringWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
@@ -140,24 +142,35 @@ class JsonGet(private val location: Path) {
     ) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
             // Initialize queryResource context and store.
-            val dbStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
+            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
+            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
 
-            dbStore.use {
-                val queryCtx = SirixQueryContext.createWithJsonStore(dbStore)
+            jsonDBStore.use {
+                xmlDBStore.use {
+                    val queryCtx = SirixQueryContext.createWithJsonStore(jsonDBStore)
 
-                node.let { queryCtx.contextItem = node }
+                    node.let { queryCtx.contextItem = node }
 
-                val out = StringBuilder()
+                    val out = StringBuilder()
 
-                executeQueryAndSerialize(dbStore, out, startResultSeqIndex, query, queryCtx, endResultSeqIndex)
+                    executeQueryAndSerialize(
+                        xmlDBStore,
+                        jsonDBStore,
+                        out,
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex
+                    )
 
-                val body = out.toString()
+                    val body = out.toString()
 
-                routingContext.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
-                    .write(body)
-                    .end()
+                    routingContext.response().setStatusCode(200)
+                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                        .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
+                        .write(body)
+                        .end()
+                }
             }
 
             promise.complete(null)
@@ -165,14 +178,15 @@ class JsonGet(private val location: Path) {
     }
 
     private fun executeQueryAndSerialize(
-        dbStore: JsonSessionDBStore,
+        xmlDBStore: XmlSessionDBStore,
+        jsonDBStore: JsonSessionDBStore,
         out: StringBuilder,
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext?,
         endResultSeqIndex: Long?
     ) {
-        SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
+        SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
                 val serializer = JsonDBSerializer(out, false)
                 XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
