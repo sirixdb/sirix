@@ -63,7 +63,15 @@ class GetHandler(private val location: Path) {
                                 startResultSeqIndex?.toLong(),
                                 endResultSeqIndex?.toLong()
                         )
-                        else -> IllegalArgumentException("Accept header missing ('application/json' or 'application/xml')")
+                        else -> JsonGet(location).xquery(
+                            query,
+                            null,
+                            ctx,
+                            context,
+                            ctx.get("user") as User,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
                     }
                 }
             }
@@ -86,7 +94,7 @@ class GetHandler(private val location: Path) {
                 when {
                     contains("application/json") -> JsonGet(location).handle(ctx)
                     contains("application/xml") -> XmlGet(location).handle(ctx)
-                    else -> IllegalArgumentException("Accept header missing ('application/json' or 'application/xml')")
+                    else -> JsonGet(location).handle(ctx)
                 }
             }
         }
