@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
 import java.util.Collection;
-import java.util.Iterator;
 
 public final class JsonDiffSerializer {
   private final JsonResourceManager resourceManager;
