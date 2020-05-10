@@ -216,6 +216,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private final Map<Long, DiffTuple> updateOperationsUnordered;
 
   /**
+   * Flag to decide whether to store child count
+   */
+  private final boolean storeChildCount;
+
+  /**
    * Constructor.
    *
    * @param resourceManager the resource manager instance this transaction is bound to
@@ -244,6 +249,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     pageWriteTrx = (PageTrx<Long, DataRecord, UnorderedKeyValuePage>) nodeReadOnlyTrx.getPageTrx();
+    storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
 
     this.nodeFactory = Preconditions.checkNotNull(nodeFactory);
 
@@ -1555,7 +1561,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     final StructNode parent = (StructNode) pageWriteTrx.prepareEntryForModification(structNode.getParentKey(),
         PageKind.RECORDPAGE, -1);
-    parent.incrementChildCount();
+
+    if (storeChildCount) {
+      parent.incrementChildCount();
+    }
+
     if (!structNode.hasLeftSibling()) {
       parent.setFirstChildKey(structNode.getNodeKey());
     }
@@ -1609,7 +1619,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
-    parent.decrementChildCount();
+
+    if (storeChildCount) {
+      parent.decrementChildCount();
+    }
 
     // Remove non structural nodes of old node.
     if (oldNode.getKind() == NodeKind.ELEMENT) {
