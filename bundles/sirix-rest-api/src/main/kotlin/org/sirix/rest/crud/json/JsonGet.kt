@@ -145,32 +145,37 @@ class JsonGet(private val location: Path) {
             val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
             val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
 
-            jsonDBStore.use {
-                xmlDBStore.use {
-                    val queryCtx = SirixQueryContext.createWithJsonStore(jsonDBStore)
+            val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
+                xmlDBStore,
+                jsonDBStore,
+                SirixQueryContext.CommitStrategy.AUTO
+            )
 
-                    node.let { queryCtx.contextItem = node }
+            queryCtx.use {
+                node.let { queryCtx.contextItem = node }
 
-                    val out = StringBuilder()
+                val out = StringBuilder()
 
-                    executeQueryAndSerialize(
-                        xmlDBStore,
-                        jsonDBStore,
-                        out,
-                        startResultSeqIndex,
-                        query,
-                        queryCtx,
-                        endResultSeqIndex
+                executeQueryAndSerialize(
+                    xmlDBStore,
+                    jsonDBStore,
+                    out,
+                    startResultSeqIndex,
+                    query,
+                    queryCtx,
+                    endResultSeqIndex
+                )
+
+                val body = out.toString()
+
+                routingContext.response().setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(
+                        HttpHeaders.CONTENT_LENGTH,
+                        body.toByteArray(StandardCharsets.UTF_8).size.toString()
                     )
-
-                    val body = out.toString()
-
-                    routingContext.response().setStatusCode(200)
-                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                        .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
-                        .write(body)
-                        .end()
-                }
+                    .write(body)
+                    .end()
             }
 
             promise.complete(null)
