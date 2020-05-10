@@ -12,7 +12,7 @@ import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
 import org.brackit.xquery.xdm.type.ItemType;
-import org.brackit.xquery.xdm.type.ListOrUnionType;
+import org.brackit.xquery.xdm.type.RecordType;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -42,22 +42,22 @@ public final class JsonDBObject extends AbstractItem
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBObject.class));
 
-  /** Sirix {@link v}. */
-  private final JsonNodeReadOnlyTrx mRtx;
+  /** Sirix transaction. */
+  private final JsonNodeReadOnlyTrx rtx;
 
   /** Sirix node key. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Kind of node. */
-  private final org.sirix.node.NodeKind mKind;
+  private final org.sirix.node.NodeKind kind;
 
   /** Collection this node is part of. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /** Determines if write-transaction is present. */
-  private final boolean mIsWtx;
+  private final boolean isWtx;
 
-  private JsonItemFactory mJsonUtil;
+  private JsonItemFactory jsonUtil;
 
 
   /**
@@ -67,28 +67,28 @@ public final class JsonDBObject extends AbstractItem
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonDBObject(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
-    mCollection = Preconditions.checkNotNull(collection);
-    mRtx = Preconditions.checkNotNull(rtx);
-    mIsWtx = mRtx instanceof JsonNodeTrx;
+    this.collection = Preconditions.checkNotNull(collection);
+    this.rtx = Preconditions.checkNotNull(rtx);
+    isWtx = this.rtx instanceof JsonNodeTrx;
 
-    if (mRtx.isDocumentRoot())
-      mRtx.moveToFirstChild();
+    if (this.rtx.isDocumentRoot())
+      this.rtx.moveToFirstChild();
 
-    mNodeKey = mRtx.getNodeKey();
-    mKind = mRtx.getKind();
-    mJsonUtil = new JsonItemFactory();
+    nodeKey = this.rtx.getNodeKey();
+    kind = this.rtx.getKind();
+    jsonUtil = new JsonItemFactory();
   }
 
   @Override
   public JsonResourceManager getResourceManager() {
-    return mRtx.getResourceManager();
+    return rtx.getResourceManager();
   }
 
   @Override
   public long getNodeKey() {
     moveRtx();
 
-    return mRtx.getNodeKey();
+    return rtx.getNodeKey();
   }
 
 
@@ -98,31 +98,31 @@ public final class JsonDBObject extends AbstractItem
    * @return new read transaction instance which is moved to {@code nodeKey}
    */
   private final void moveRtx() {
-    mRtx.moveTo(mNodeKey);
+    rtx.moveTo(nodeKey);
   }
 
   @Override
   public JsonDBCollection getCollection() {
-    return mCollection;
+    return collection;
   }
 
   @Override
   public JsonNodeReadOnlyTrx getTrx() {
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public JsonDBObject getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   private JsonDBObject moveTemporalAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis) {
     if (axis.hasNext()) {
       final var rtx = axis.next();
-      return new JsonDBObject(rtx, mCollection);
+      return new JsonDBObject(rtx, collection);
     }
 
     return null;
@@ -132,7 +132,7 @@ public final class JsonDBObject extends AbstractItem
   public JsonDBObject getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new PreviousAxis<>(mRtx.getResourceManager(), mRtx);
+        new PreviousAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -140,14 +140,14 @@ public final class JsonDBObject extends AbstractItem
   public JsonDBObject getFirst() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new FirstAxis<>(mRtx.getResourceManager(), mRtx);
+        new FirstAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public JsonDBObject getLast() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -157,7 +157,7 @@ public final class JsonDBObject extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixJsonObjectStream(new PastAxis<>(rtx.getResourceManager(), rtx, include), collection);
   }
 
   @Override
@@ -166,13 +166,13 @@ public final class JsonDBObject extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixJsonObjectStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBObject> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonObjectStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
+    return new TemporalSirixJsonObjectStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
   }
 
   @Override
@@ -288,7 +288,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public ItemType itemType() {
-    return ListOrUnionType.LIST_OR_UNION;
+    return RecordType.RECORD;
   }
 
   @Override
@@ -305,12 +305,12 @@ public final class JsonDBObject extends AbstractItem
   public Sequence get(QNm field) {
     moveRtx();
 
-    final var axis = new FilterAxis<JsonNodeReadOnlyTrx>(new ChildAxis(mRtx), new JsonNameFilter(mRtx, field));;
+    final var axis = new FilterAxis<JsonNodeReadOnlyTrx>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));;
 
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(mRtx.moveToFirstChild().trx(), mCollection);
+      return jsonUtil.getSequence(rtx.moveToFirstChild().trx(), collection);
     }
 
     return null;
@@ -322,7 +322,7 @@ public final class JsonDBObject extends AbstractItem
 
     final int index = intNumericIndex.intValue();
 
-    return getValueSequenceAtIndex(mRtx, index);
+    return getValueSequenceAtIndex(rtx, index);
   }
 
   private Sequence getValueSequenceAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
@@ -334,7 +334,7 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(rtx.moveToFirstChild().trx(), mCollection);
+      return jsonUtil.getSequence(rtx.moveToFirstChild().trx(), collection);
     }
 
     return null;
@@ -346,21 +346,21 @@ public final class JsonDBObject extends AbstractItem
 
     moveRtx();
 
-    return getValueSequenceAtIndex(mRtx, index);
+    return getValueSequenceAtIndex(rtx, index);
   }
 
   @Override
   public Array names() {
     moveRtx();
 
-    return new JsonObjectKeyDBArray(mRtx, mCollection);
+    return new JsonObjectKeyDBArray(rtx, collection);
   }
 
   @Override
   public Array values() {
     moveRtx();
 
-    return new JsonObjectValueDBArray(mRtx, mCollection);
+    return new JsonObjectValueDBArray(rtx, collection);
   }
 
   @Override
@@ -369,7 +369,7 @@ public final class JsonDBObject extends AbstractItem
 
     moveRtx();
 
-    return getNameAtIndex(mRtx, numericIndex.intValue());
+    return getNameAtIndex(rtx, numericIndex.intValue());
   }
 
   @Override
@@ -378,13 +378,13 @@ public final class JsonDBObject extends AbstractItem
 
     moveRtx();
 
-    return getNameAtIndex(mRtx, index);
+    return getNameAtIndex(rtx, index);
   }
 
   private QNm getNameAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
     final var axis = new ChildAxis(rtx);
 
-    try (final var stream = new SirixJsonStream(axis, mCollection)) {
+    try (final var stream = new SirixJsonStream(axis, collection)) {
       for (int i = 0; i < index && stream.next() != null; i++);
       final var jsonItem = stream.next();
 
@@ -400,13 +400,13 @@ public final class JsonDBObject extends AbstractItem
   public IntNumeric length() {
     moveRtx();
 
-    return new Int64(mRtx.getChildCount());
+    return new Int64(rtx.getChildCount());
   }
 
   @Override
   public int len() {
     moveRtx();
 
-    return (int) mRtx.getChildCount();
+    return (int) rtx.getChildCount();
   }
 }

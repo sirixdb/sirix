@@ -295,7 +295,7 @@ public final class JsonDBArray extends AbstractArray
   public List<Sequence> values() {
     moveRtx();
 
-    final List<Sequence> values = new ArrayList<Sequence>();
+    final var values = new ArrayList<Sequence>();
 
     for (int i = 0, length = len(); i < length; i++)
       values.add(at(i));

@@ -159,7 +159,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               appendObjectEnd(true);
             }
 
-            if (rtx.hasRightSibling()) {
+            if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
               appendObjectSeparator();
             }
           }

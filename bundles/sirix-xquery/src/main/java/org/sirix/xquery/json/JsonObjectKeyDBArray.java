@@ -42,21 +42,21 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonObjectKeyDBArray.class));
 
   /** Sirix read-only transaction. */
-  private final JsonNodeReadOnlyTrx mRtx;
+  private final JsonNodeReadOnlyTrx rtx;
 
   /** Sirix node key. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Kind of node. */
-  private final org.sirix.node.NodeKind mKind;
+  private final org.sirix.node.NodeKind kind;
 
   /** Collection this node is part of. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /** Determines if write-transaction is present. */
-  private final boolean mIsWtx;
+  private final boolean isWtx;
 
-  private JsonItemFactory mJsonUtil;
+  private JsonItemFactory jsonUtil;
 
   /**
    * Constructor.
@@ -65,54 +65,48 @@ public final class JsonObjectKeyDBArray extends AbstractItem
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonObjectKeyDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
-    mCollection = Preconditions.checkNotNull(collection);
-    mRtx = Preconditions.checkNotNull(rtx);
-    mIsWtx = mRtx instanceof JsonNodeTrx;
-    mNodeKey = mRtx.getNodeKey();
-    assert mRtx.isObject();
-    mKind = NodeKind.ARRAY;
-    mJsonUtil = new JsonItemFactory();
+    this.collection = Preconditions.checkNotNull(collection);
+    this.rtx = Preconditions.checkNotNull(rtx);
+    isWtx = this.rtx instanceof JsonNodeTrx;
+    nodeKey = this.rtx.getNodeKey();
+    assert this.rtx.isObject();
+    kind = NodeKind.ARRAY;
+    jsonUtil = new JsonItemFactory();
   }
 
   @Override
   public long getNodeKey() {
     moveRtx();
 
-    return mRtx.getNodeKey();
+    return rtx.getNodeKey();
   }
 
-
-  /**
-   * Create a new {@link IReadTransaction} and move to {@link mKey}.
-   *
-   * @return new read transaction instance which is moved to {@link mKey}
-   */
   private final void moveRtx() {
-    mRtx.moveTo(mNodeKey);
+    rtx.moveTo(nodeKey);
   }
 
   @Override
   public JsonDBCollection getCollection() {
-    return mCollection;
+    return collection;
   }
 
   @Override
   public JsonNodeReadOnlyTrx getTrx() {
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public JsonObjectKeyDBArray getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   private JsonObjectKeyDBArray moveTemporalAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis) {
     if (axis.hasNext()) {
       final var rtx = axis.next();
-      return new JsonObjectKeyDBArray(rtx, mCollection);
+      return new JsonObjectKeyDBArray(rtx, collection);
     }
 
     return null;
@@ -122,7 +116,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   public JsonObjectKeyDBArray getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new PreviousAxis<>(mRtx.getResourceManager(), mRtx);
+        new PreviousAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -130,14 +124,14 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   public JsonObjectKeyDBArray getFirst() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new FirstAxis<>(mRtx.getResourceManager(), mRtx);
+        new FirstAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public JsonObjectKeyDBArray getLast() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -147,8 +141,8 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectKeyArrayStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include),
-        mCollection);
+    return new TemporalSirixJsonObjectKeyArrayStream(new PastAxis<>(rtx.getResourceManager(), rtx, include),
+        collection);
   }
 
   @Override
@@ -157,14 +151,14 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectKeyArrayStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include),
-        mCollection);
+    return new TemporalSirixJsonObjectKeyArrayStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include),
+        collection);
   }
 
   @Override
   public Stream<JsonObjectKeyDBArray> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonObjectKeyArrayStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
+    return new TemporalSirixJsonObjectKeyArrayStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
   }
 
   @Override
@@ -316,7 +310,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(rtx, mCollection);
+      return jsonUtil.getSequence(rtx, collection);
     }
 
     return null;
@@ -324,35 +318,35 @@ public final class JsonObjectKeyDBArray extends AbstractItem
 
   @Override
   public Sequence at(final IntNumeric numericIndex) {
-    return getSequenceAtIndex(mRtx, numericIndex.intValue());
+    return getSequenceAtIndex(rtx, numericIndex.intValue());
   }
 
   @Override
   public Sequence at(final int index) {
-    return getSequenceAtIndex(mRtx, index);
+    return getSequenceAtIndex(rtx, index);
   }
 
   @Override
   public IntNumeric length() {
     moveRtx();
-    return new Int64(mRtx.getChildCount());
+    return new Int64(rtx.getChildCount());
   }
 
   @Override
   public int len() {
     moveRtx();
-    return (int) mRtx.getChildCount();
+    return (int) rtx.getChildCount();
   }
 
   @Override
   public Array range(IntNumeric from, IntNumeric to) {
     moveRtx();
 
-    return new JsonDBArraySlice(mRtx, mCollection, from.intValue(), to.intValue());
+    return new JsonDBArraySlice(rtx, collection, from.intValue(), to.intValue());
   }
 
   @Override
   public JsonResourceManager getResourceManager() {
-    return mRtx.getResourceManager();
+    return rtx.getResourceManager();
   }
 }
