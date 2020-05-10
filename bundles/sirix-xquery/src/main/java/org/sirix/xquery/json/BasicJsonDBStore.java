@@ -45,19 +45,19 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
   /** {@link Set} of databases. */
-  private final Set<Database<JsonResourceManager>> mDatabases;
+  private final Set<Database<JsonResourceManager>> databases;
 
   /** Mapping sirix databases to collections. */
-  private final ConcurrentMap<Database<JsonResourceManager>, JsonDBCollection> mCollections;
+  private final ConcurrentMap<Database<JsonResourceManager>, JsonDBCollection> collections;
 
   /** {@link StorageType} instance. */
-  private final StorageType mStorageType;
+  private final StorageType storageType;
 
   /** The location to store created collections/databases. */
-  private final Path mLocation;
+  private final Path location;
 
   /** Determines if a path summary should be built. */
-  private boolean mBuildPathSummary;
+  private boolean buildPathSummary;
 
   /** Get a new builder instance. */
   public static Builder newBuilder() {
@@ -69,13 +69,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
    */
   public static class Builder {
     /** Storage type. */
-    private StorageType mStorageType = StorageType.FILE;
+    private StorageType storageType = StorageType.FILE;
 
     /** The location to store created collections/databases. */
-    private Path mLocation = LOCATION;
+    private Path location = LOCATION;
 
     /** Determines if for resources a path summary should be build. */
-    private boolean mBuildPathSummary = true;
+    private boolean buildPathSummary = true;
 
     /**
      * Set the storage type (default: file backend).
@@ -84,7 +84,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder storageType(final StorageType storageType) {
-      mStorageType = checkNotNull(storageType);
+      this.storageType = checkNotNull(storageType);
       return this;
     }
 
@@ -95,7 +95,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
-      mBuildPathSummary = buildPathSummary;
+      this.buildPathSummary = buildPathSummary;
       return this;
     }
 
@@ -106,7 +106,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder location(final Path location) {
-      mLocation = checkNotNull(location);
+      this.location = checkNotNull(location);
       return this;
     }
 
@@ -126,32 +126,32 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * @param builder builder instance
    */
   private BasicJsonDBStore(final Builder builder) {
-    mDatabases = Collections.synchronizedSet(new HashSet<>());
-    mCollections = new ConcurrentHashMap<>();
-    mStorageType = builder.mStorageType;
-    mLocation = builder.mLocation;
-    mBuildPathSummary = builder.mBuildPathSummary;
+    databases = Collections.synchronizedSet(new HashSet<>());
+    collections = new ConcurrentHashMap<>();
+    storageType = builder.storageType;
+    location = builder.location;
+    buildPathSummary = builder.buildPathSummary;
   }
 
   /** Get the location of the generated collections/databases. */
   public Path getLocation() {
-    return mLocation;
+    return location;
   }
 
   @Override
   public JsonDBCollection lookup(final String name) {
-    final Path dbPath = mLocation.resolve(name);
+    final Path dbPath = location.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
         final var database = Databases.openJsonDatabase(dbPath);
         final Optional<Database<JsonResourceManager>> storedCollection =
-            mDatabases.stream().findFirst().filter(db -> db.equals(database));
+            databases.stream().findFirst().filter(db -> db.equals(database));
         if (storedCollection.isPresent()) {
-          return mCollections.get(storedCollection.get());
+          return collections.get(storedCollection.get());
         }
-        mDatabases.add(database);
+        databases.add(database);
         final JsonDBCollection collection = new JsonDBCollection(name, database);
-        mCollections.put(database, collection);
+        collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e.getCause());
@@ -162,17 +162,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(location.resolve(name));
     try {
-      if (Databases.createXmlDatabase(dbConf)) {
+      if (Databases.createJsonDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
       }
 
       final var database = Databases.openJsonDatabase(dbConf.getFile());
-      mDatabases.add(database);
+      databases.add(database);
 
       final JsonDBCollection collection = new JsonDBCollection(name, database);
-      mCollections.put(database, collection);
+      collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -201,13 +201,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
       final JsonReader reader) {
-    final Path dbPath = mLocation.resolve(collName);
+    final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       Databases.removeDatabase(dbPath);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
-      mDatabases.add(database);
+      databases.add(database);
 
       final String resourceName;
       if (optionalResourceName != null) {
@@ -231,11 +231,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
-                                                   .buildPathSummary(mBuildPathSummary)
-                                                   .storageType(mStorageType)
+                                                   .buildPathSummary(buildPathSummary)
+                                                   .storageType(storageType)
                                                    .build());
       final JsonDBCollection collection = new JsonDBCollection(collName, database);
-      mCollections.put(database, collection);
+      collections.put(database, collection);
 
       try (final JsonResourceManager manager = database.openResourceManager(resourceName);
           final JsonNodeTrx wtx = manager.beginNodeTrx()) {
@@ -249,13 +249,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders) {
-    final Path dbPath = mLocation.resolve(collName);
+    final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       Databases.removeDatabase(dbPath);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getFile());
-      mDatabases.add(database);
+      databases.add(database);
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int numberOfResources = database.listResources().size();
       for (final var jsonReader : jsonReaders) {
@@ -283,13 +283,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
     if (jsonStrings == null)
       return null;
 
-    final Path dbPath = mLocation.resolve(collName);
+    final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       Databases.removeDatabase(dbPath);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getFile());
-      mDatabases.add(database);
+      databases.add(database);
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int i = database.listResources().size() + 1;
       try {
@@ -316,7 +316,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private Void createResource(String collName, final Database<JsonResourceManager> database, final JsonReader reader,
       final String resourceName) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                 .storageType(mStorageType)
+                                                 .storageType(storageType)
                                                  .useDeweyIDs(true)
                                                  .useTextCompression(true)
                                                  .buildPathSummary(true)
@@ -324,7 +324,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     try (final JsonResourceManager manager = database.openResourceManager(resourceName);
         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       final JsonDBCollection collection = new JsonDBCollection(collName, database);
-      mCollections.put(database, collection);
+      collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
     }
     return null;
@@ -335,13 +335,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
     if (paths == null)
       return null;
 
-    final Path dbPath = mLocation.resolve(collName);
+    final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       Databases.removeDatabase(dbPath);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getFile());
-      mDatabases.add(database);
+      databases.add(database);
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int i = database.listResources().size() + 1;
       try {
@@ -351,7 +351,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
           final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
           pool.submit(() -> {
             database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                         .storageType(mStorageType)
+                                                         .storageType(storageType)
                                                          .useDeweyIDs(true)
                                                          .useTextCompression(true)
                                                          .buildPathSummary(true)
@@ -359,7 +359,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
             try (final JsonResourceManager manager = database.openResourceManager(resourceName);
                 final JsonNodeTrx wtx = manager.beginNodeTrx()) {
               final JsonDBCollection collection = new JsonDBCollection(collName, database);
-              mCollections.put(database, collection);
+              collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
             }
             return null;
@@ -379,13 +379,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public void drop(final String name) {
-    final Path dbPath = mLocation.resolve(name);
+    final Path dbPath = location.resolve(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (Databases.existsDatabase(dbPath)) {
       try {
         try (final var database = Databases.openJsonDatabase(dbConfig.getFile())) {
-          mDatabases.remove(database);
-          mCollections.remove(database);
+          databases.remove(database);
+          collections.remove(database);
         }
         Databases.removeDatabase(dbPath);
       } catch (final SirixRuntimeException e) {
@@ -408,7 +408,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public void close() {
     try {
-      for (final var database : mDatabases) {
+      for (final var database : databases) {
         database.close();
       }
     } catch (final SirixException e) {

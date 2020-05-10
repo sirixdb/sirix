@@ -78,9 +78,9 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     return new SirixQueryContext(null, jsonItemStore, commitStrategy);
   }
 
-  public static SirixQueryContext createWithJsonStoreAndNodeStoreAndCommitStrategy(
+  public static SirixQueryContext createWithJsonStoreAndNodeStoreAndCommitStrategy(final XmlDBStore nodeStore,
       final JsonDBStore jsonItemStore, final CommitStrategy commitStrategy) {
-    return new SirixQueryContext(null, jsonItemStore, commitStrategy);
+    return new SirixQueryContext(nodeStore, jsonItemStore, commitStrategy);
   }
 
   public static SirixQueryContext create() {
