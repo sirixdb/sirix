@@ -87,6 +87,11 @@ public final class JsonShredderTest {
   }
 
   @Test
+  public void testLarge() throws IOException {
+    test("CVX.json");
+  }
+
+  @Test
   public void testLinux() throws IOException {
     test("linux.json");
   }

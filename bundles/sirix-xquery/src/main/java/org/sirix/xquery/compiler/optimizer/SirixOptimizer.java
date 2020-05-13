@@ -24,20 +24,24 @@ public final class SirixOptimizer extends TopDownOptimizer {
     // }
     //
     // });
-    getStages().add(new IndexMatching(nodeStore));
+    getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }
 
   private static class IndexMatching implements Stage {
-    // private final DBStore mStore;
+    private final XmlDBStore xmlNodeStore;
 
-    public IndexMatching(final XmlDBStore store) {
-      // mStore = store;
+    private final JsonDBStore jsonItemStore;
+
+    public IndexMatching(final XmlDBStore xmlNodestore, final JsonDBStore jsonItemStore) {
+      this.xmlNodeStore = xmlNodestore;
+      this.jsonItemStore = jsonItemStore;
     }
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
       // TODO add rules for index resolution here
       ast.display();
+
       return ast;
     }
   }
