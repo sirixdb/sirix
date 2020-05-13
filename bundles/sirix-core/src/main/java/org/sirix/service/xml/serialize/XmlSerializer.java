@@ -79,34 +79,34 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
       10000000000000000L, 100000000000000000L, 1000000000000000000L};
 
   /** OutputStream to write to. */
-  private final OutputStream mOut;
+  private final OutputStream out;
 
   /** Indent output. */
-  private final boolean mIndent;
+  private final boolean indent;
 
   /** Serialize XML declaration. */
-  private final boolean mSerializeXMLDeclaration;
+  private final boolean serializeXMLDeclaration;
 
   /** Serialize rest header and closer and rest:id. */
-  private final boolean mSerializeRest;
+  private final boolean serializeRest;
 
   /** Serialize a rest-sequence element for the start-document. */
-  private final boolean mSerializeRestSequence;
+  private final boolean serializeRestSequence;
 
   /** Serialize id. */
-  private final boolean mSerializeId;
+  private final boolean serializeId;
 
   /** Number of spaces to indent. */
-  private final int mIndentSpaces;
+  private final int indentSpaces;
 
   /** Determines if serializing with initial indentation. */
-  private final boolean mWithInitialIndent;
+  private final boolean withInitialIndent;
 
-  private final boolean mEmitXQueryResultSequence;
+  private final boolean emitXQueryResultSequence;
 
-  private final boolean mSerializeTimestamp;
+  private final boolean serializeTimestamp;
 
-  private final boolean mMetaData;
+  private final boolean metaData;
 
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
@@ -121,20 +121,20 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   private XmlSerializer(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
       final XmlSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
       final int... revsions) {
-    super(resourceMgr, builder.mMaxLevel == -1
+    super(resourceMgr, builder.maxLevel == -1
         ? null
-        : new XmlMaxLevelVisitor(builder.mMaxLevel), nodeKey, revision, revsions);
-    mOut = new BufferedOutputStream(builder.mStream, 4096);
-    mIndent = builder.mIndent;
-    mSerializeXMLDeclaration = builder.mDeclaration;
-    mSerializeRest = builder.mREST;
-    mSerializeRestSequence = builder.mRESTSequence;
-    mSerializeId = builder.mID;
-    mIndentSpaces = builder.mIndentSpaces;
-    mWithInitialIndent = builder.mInitialIndent;
-    mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
-    mSerializeTimestamp = builder.mSerializeTimestamp;
-    mMetaData = builder.mMetaData;
+        : new XmlMaxLevelVisitor(builder.maxLevel), nodeKey, revision, revsions);
+    out = new BufferedOutputStream(builder.stream, 4096);
+    indent = builder.indent;
+    serializeXMLDeclaration = builder.declaration;
+    serializeRest = builder.rest;
+    serializeRestSequence = builder.restSequence;
+    serializeId = builder.id;
+    indentSpaces = builder.indentSpaces;
+    withInitialIndent = builder.initialIndent;
+    emitXQueryResultSequence = builder.emitXQueryResultSequence;
+    serializeTimestamp = builder.serializeTimestamp;
+    metaData = builder.mMetaData;
   }
 
   /**
@@ -151,100 +151,100 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
         case ELEMENT:
           // Emit start element.
           indent();
-          mOut.write(CharsForSerializing.OPEN.getBytes());
+          out.write(CharsForSerializing.OPEN.getBytes());
           writeQName(rtx);
           final long key = rtx.getNodeKey();
           // Emit namespace declarations.
           for (int index = 0, nspCount = rtx.getNamespaceCount(); index < nspCount; index++) {
             rtx.moveToNamespace(index);
             if (rtx.getPrefixKey() == -1) {
-              mOut.write(CharsForSerializing.XMLNS.getBytes());
+              out.write(CharsForSerializing.XMLNS.getBytes());
               write(rtx.nameForKey(rtx.getURIKey()));
-              mOut.write(CharsForSerializing.QUOTE.getBytes());
+              out.write(CharsForSerializing.QUOTE.getBytes());
             } else {
-              mOut.write(CharsForSerializing.XMLNS_COLON.getBytes());
+              out.write(CharsForSerializing.XMLNS_COLON.getBytes());
               write(rtx.nameForKey(rtx.getPrefixKey()));
-              mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+              out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
               write(rtx.nameForKey(rtx.getURIKey()));
-              mOut.write(CharsForSerializing.QUOTE.getBytes());
+              out.write(CharsForSerializing.QUOTE.getBytes());
             }
             rtx.moveTo(key);
           }
           // Emit attributes.
           // Add virtual rest:id attribute.
-          if (mSerializeId || mMetaData) {
-            if (mSerializeRest) {
-              mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
-            } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
-              mOut.write(CharsForSerializing.SID_PREFIX.getBytes());
+          if (serializeId || metaData) {
+            if (serializeRest) {
+              out.write(CharsForSerializing.REST_PREFIX.getBytes());
+            } else if (revisions.length > 1 || (revisions.length == 1 && revisions[0] == -1)) {
+              out.write(CharsForSerializing.SID_PREFIX.getBytes());
             } else {
-              mOut.write(CharsForSerializing.SPACE.getBytes());
+              out.write(CharsForSerializing.SPACE.getBytes());
             }
-            mOut.write(CharsForSerializing.ID.getBytes());
-            mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+            out.write(CharsForSerializing.ID.getBytes());
+            out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
             write(rtx.getNodeKey());
-            mOut.write(CharsForSerializing.QUOTE.getBytes());
+            out.write(CharsForSerializing.QUOTE.getBytes());
           }
-          if (mMetaData) {
-            if (mSerializeRest) {
-              mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
-            } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
-              mOut.write(CharsForSerializing.SID_PREFIX.getBytes());
+          if (metaData) {
+            if (serializeRest) {
+              out.write(CharsForSerializing.REST_PREFIX.getBytes());
+            } else if (revisions.length > 1 || (revisions.length == 1 && revisions[0] == -1)) {
+              out.write(CharsForSerializing.SID_PREFIX.getBytes());
             } else {
-              mOut.write(CharsForSerializing.SPACE.getBytes());
+              out.write(CharsForSerializing.SPACE.getBytes());
             }
-            mOut.write(CharsForSerializing.ID.getBytes());
-            mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+            out.write(CharsForSerializing.ID.getBytes());
+            out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
             write(rtx.getNodeKey());
-            mOut.write(CharsForSerializing.QUOTE.getBytes());
+            out.write(CharsForSerializing.QUOTE.getBytes());
           }
 
           // Iterate over all persistent attributes.
           for (int index = 0, attCount = rtx.getAttributeCount(); index < attCount; index++) {
             rtx.moveToAttribute(index);
-            mOut.write(CharsForSerializing.SPACE.getBytes());
+            out.write(CharsForSerializing.SPACE.getBytes());
             writeQName(rtx);
-            mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
-            mOut.write(XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
-            mOut.write(CharsForSerializing.QUOTE.getBytes());
+            out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+            out.write(XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+            out.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
-          if (rtx.hasFirstChild() && (mVisitor == null || currentLevel() + 1 < maxLevel())) {
-            mOut.write(CharsForSerializing.CLOSE.getBytes());
+          if (rtx.hasFirstChild() && (visitor == null || currentLevel() + 1 < maxLevel())) {
+            out.write(CharsForSerializing.CLOSE.getBytes());
           } else {
-            mOut.write(CharsForSerializing.SLASH_CLOSE.getBytes());
+            out.write(CharsForSerializing.SLASH_CLOSE.getBytes());
           }
-          if (mIndent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1)) {
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
+          if (indent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1)) {
+            out.write(CharsForSerializing.NEWLINE.getBytes());
           }
           break;
         case COMMENT:
           indent();
-          mOut.write(CharsForSerializing.OPENCOMMENT.getBytes());
-          mOut.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
-          if (mIndent) {
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
+          out.write(CharsForSerializing.OPENCOMMENT.getBytes());
+          out.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+          if (indent) {
+            out.write(CharsForSerializing.NEWLINE.getBytes());
           }
-          mOut.write(CharsForSerializing.CLOSECOMMENT.getBytes());
+          out.write(CharsForSerializing.CLOSECOMMENT.getBytes());
           break;
         case TEXT:
           if (rtx.hasRightSibling() || rtx.hasLeftSibling())
             indent();
-          mOut.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
-          if (mIndent && (rtx.hasRightSibling() || rtx.hasLeftSibling())) {
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
+          out.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+          if (indent && (rtx.hasRightSibling() || rtx.hasLeftSibling())) {
+            out.write(CharsForSerializing.NEWLINE.getBytes());
           }
           break;
         case PROCESSING_INSTRUCTION:
           indent();
-          mOut.write(CharsForSerializing.OPENPI.getBytes());
+          out.write(CharsForSerializing.OPENPI.getBytes());
           writeQName(rtx);
-          mOut.write(CharsForSerializing.SPACE.getBytes());
-          mOut.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
-          if (mIndent) {
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
+          out.write(CharsForSerializing.SPACE.getBytes());
+          out.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+          if (indent) {
+            out.write(CharsForSerializing.NEWLINE.getBytes());
           }
-          mOut.write(CharsForSerializing.CLOSEPI.getBytes());
+          out.write(CharsForSerializing.CLOSEPI.getBytes());
           break;
         // $CASES-OMITTED$
         default:
@@ -263,13 +263,13 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
     try {
-      if (mIndent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1))
+      if (indent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1))
         indent();
-      mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
+      out.write(CharsForSerializing.OPEN_SLASH.getBytes());
       writeQName(rtx);
-      mOut.write(CharsForSerializing.CLOSE.getBytes());
-      if (mIndent) {
-        mOut.write(CharsForSerializing.NEWLINE.getBytes());
+      out.write(CharsForSerializing.CLOSE.getBytes());
+      if (indent) {
+        out.write(CharsForSerializing.NEWLINE.getBytes());
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -279,36 +279,36 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   // Write a QName.
   private void writeQName(final XmlNodeReadOnlyTrx rtx) throws IOException {
     if (rtx.getPrefixKey() != -1) {
-      mOut.write(rtx.rawNameForKey(rtx.getPrefixKey()));
-      mOut.write(CharsForSerializing.COLON.getBytes());
+      out.write(rtx.rawNameForKey(rtx.getPrefixKey()));
+      out.write(CharsForSerializing.COLON.getBytes());
     }
-    mOut.write(rtx.rawNameForKey(rtx.getLocalNameKey()));
+    out.write(rtx.rawNameForKey(rtx.getLocalNameKey()));
   }
 
   @Override
   protected void emitStartDocument() {
     try {
-      if (mSerializeXMLDeclaration) {
+      if (serializeXMLDeclaration) {
         write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-        if (mIndent) {
-          mOut.write(CharsForSerializing.NEWLINE.getBytes());
+        if (indent) {
+          out.write(CharsForSerializing.NEWLINE.getBytes());
         }
       }
 
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
-      if (mSerializeRestSequence || length > 1) {
-        if (mSerializeRestSequence) {
+      if (serializeRestSequence || length > 1) {
+        if (serializeRestSequence) {
           write("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
           write("<sdb:sirix xmlns:sdb=\"https://sirix.io/rest\">");
         }
 
-        if (mIndent) {
-          mOut.write(CharsForSerializing.NEWLINE.getBytes());
-          mStack.push(Constants.NULL_ID_LONG);
+        if (indent) {
+          out.write(CharsForSerializing.NEWLINE.getBytes());
+          stack.push(Constants.NULL_ID_LONG);
         }
       }
     } catch (final IOException e) {
@@ -319,24 +319,24 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitEndDocument() {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
-      if (mSerializeRestSequence || length > 1) {
-        if (mIndent) {
-          mStack.pop();
+      if (serializeRestSequence || length > 1) {
+        if (indent) {
+          stack.pop();
         }
         indent();
 
-        if (mSerializeRestSequence) {
+        if (serializeRestSequence) {
           write("</rest:sequence>");
         } else {
           write("</sdb:sirix>");
         }
       }
 
-      mOut.flush();
+      out.flush();
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -345,20 +345,20 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
-      if (mSerializeRest || length > 1) {
+      if (serializeRest || length > 1) {
         indent();
-        if (mSerializeRest) {
+        if (serializeRest) {
           write("<rest:item");
         } else {
           write("<sdb:sirix-item");
         }
 
-        if (length > 1 || mEmitXQueryResultSequence) {
-          if (mSerializeRest) {
+        if (length > 1 || emitXQueryResultSequence) {
+          if (serializeRest) {
             write(" rest:revision=\"");
           } else {
             write(" sdb:revision=\"");
@@ -366,8 +366,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           write(Integer.toString(rtx.getRevisionNumber()));
           write("\"");
 
-          if (mSerializeTimestamp) {
-            if (mSerializeRest) {
+          if (serializeTimestamp) {
+            if (serializeRest) {
               write(" rest:revisionTimestamp=\"");
             } else {
               write(" sdb:revisionTimestamp=\"");
@@ -378,15 +378,15 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           }
 
           write(">");
-        } else if (mSerializeRest) {
+        } else if (serializeRest) {
           write(">");
         }
 
         if (rtx.hasFirstChild())
-          mStack.push(Constants.NULL_ID_LONG);
+          stack.push(Constants.NULL_ID_LONG);
 
-        if (mIndent) {
-          mOut.write(CharsForSerializing.NEWLINE.getBytes());
+        if (indent) {
+          out.write(CharsForSerializing.NEWLINE.getBytes());
         }
       }
     } catch (final IOException e) {
@@ -397,23 +397,23 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
-      if (mSerializeRest || length > 1) {
+      if (serializeRest || length > 1) {
         if (rtx.moveToDocumentRoot().trx().hasFirstChild())
-          mStack.pop();
+          stack.pop();
         indent();
-        if (mSerializeRest) {
+        if (serializeRest) {
           write("</rest:item>");
         } else {
           write("</sdb:sirix-item>");
         }
       }
 
-      if (mIndent) {
-        mOut.write(CharsForSerializing.NEWLINE.getBytes());
+      if (indent) {
+        out.write(CharsForSerializing.NEWLINE.getBytes());
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -430,7 +430,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   private XmlMaxLevelVisitor castVisitor() {
-    return (XmlMaxLevelVisitor) mVisitor;
+    return (XmlMaxLevelVisitor) visitor;
   }
 
   private long currentLevel() {
@@ -439,12 +439,12 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   @Override
   protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
-    return mVisitor == null || currentLevel() + 1 < maxLevel();
+    return visitor == null || currentLevel() + 1 < maxLevel();
   }
 
   @Override
   protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
-    if (mVisitor == null) {
+    if (visitor == null) {
       return false;
     } else {
       return currentLevel() + 1 >= maxLevel();
@@ -457,12 +457,12 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @throws IOException if can't indent output
    */
   private void indent() throws IOException {
-    if (mIndent) {
-      final int indentSpaces = mWithInitialIndent
-          ? (mStack.size() + 1) * mIndentSpaces
-          : mStack.size() * mIndentSpaces;
+    if (indent) {
+      final int indentSpaces = withInitialIndent
+          ? (stack.size() + 1) * this.indentSpaces
+          : stack.size() * this.indentSpaces;
       for (int i = 0; i < indentSpaces; i++) {
-        mOut.write(" ".getBytes(Constants.DEFAULT_ENCODING));
+        out.write(" ".getBytes(Constants.DEFAULT_ENCODING));
       }
     }
   }
@@ -475,7 +475,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @throws UnsupportedEncodingException if unsupport encoding
    */
   protected void write(final String value) throws UnsupportedEncodingException, IOException {
-    mOut.write(value.getBytes(Constants.DEFAULT_ENCODING));
+    out.write(value.getBytes(Constants.DEFAULT_ENCODING));
   }
 
   /**
@@ -490,7 +490,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     long remainder = value;
     for (int i = length; i >= 0; i--) {
       digit = (byte) (remainder / LONG_POWERS[i]);
-      mOut.write((byte) (digit + ASCII_OFFSET));
+      out.write((byte) (digit + ASCII_OFFSET));
       remainder -= digit * LONG_POWERS[i];
     }
   }
@@ -559,57 +559,57 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * XMLSerializerBuilder to setup the XMLSerializer.
    */
   public static final class XmlSerializerBuilder {
-    public boolean mRESTSequence;
+    public boolean restSequence;
 
     /**
      * Intermediate boolean for indendation, not necessary.
      */
-    private boolean mIndent;
+    private boolean indent;
 
     /**
      * Intermediate boolean for rest serialization, not necessary.
      */
-    private boolean mREST;
+    private boolean rest;
 
     /**
      * Intermediate boolean for XML-Decl serialization, not necessary.
      */
-    private boolean mDeclaration;
+    private boolean declaration;
 
     /**
      * Intermediate boolean for ids, not necessary.
      */
-    private boolean mID;
+    private boolean id;
 
     /**
      * Intermediate number of spaces to indent, not necessary.
      */
-    private int mIndentSpaces = 2;
+    private int indentSpaces = 2;
 
     /** Stream to pipe to. */
-    private final OutputStream mStream;
+    private final OutputStream stream;
 
     /** Resource manager to use. */
-    private final XmlResourceManager mResourceMgr;
+    private final XmlResourceManager resourceMgr;
 
     /** Further revisions to serialize. */
-    private int[] mVersions;
+    private int[] versions;
 
     /** Revision to serialize. */
-    private int mVersion;
+    private int version;
 
     /** Node key of subtree to shredder. */
-    private long mNodeKey;
+    private long nodeKey;
 
-    private boolean mInitialIndent;
+    private boolean initialIndent;
 
-    private boolean mEmitXQueryResultSequence;
+    private boolean emitXQueryResultSequence;
 
-    private boolean mSerializeTimestamp;
+    private boolean serializeTimestamp;
 
     private boolean mMetaData;
 
-    private long mMaxLevel;
+    private long maxLevel;
 
     /**
      * Constructor, setting the necessary stuff.
@@ -620,16 +620,16 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      */
     public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
-      mMaxLevel = -1;
-      mNodeKey = 0;
-      mResourceMgr = checkNotNull(resourceMgr);
-      mStream = checkNotNull(stream);
+      maxLevel = -1;
+      nodeKey = 0;
+      this.resourceMgr = checkNotNull(resourceMgr);
+      this.stream = checkNotNull(stream);
       if (revisions == null || revisions.length == 0) {
-        mVersion = mResourceMgr.getMostRecentRevisionNumber();
+        version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
-        mVersion = revisions[0];
-        mVersions = new int[revisions.length - 1];
-        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
+        version = revisions[0];
+        versions = new int[revisions.length - 1];
+        System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
       }
     }
 
@@ -645,23 +645,23 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
-      mMaxLevel = -1;
-      mResourceMgr = checkNotNull(resourceMgr);
-      mNodeKey = nodeKey;
-      mStream = checkNotNull(stream);
+      maxLevel = -1;
+      this.resourceMgr = checkNotNull(resourceMgr);
+      this.nodeKey = nodeKey;
+      this.stream = checkNotNull(stream);
       if (revisions == null || revisions.length == 0) {
-        mVersion = mResourceMgr.getMostRecentRevisionNumber();
+        version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
-        mVersion = revisions[0];
-        mVersions = new int[revisions.length - 1];
-        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
+        version = revisions[0];
+        versions = new int[revisions.length - 1];
+        System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
       }
       final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
-      mIndent = checkNotNull((Boolean) map.get(S_INDENT[0]));
-      mREST = checkNotNull((Boolean) map.get(S_REST[0]));
-      mID = checkNotNull((Boolean) map.get(S_ID[0]));
-      mIndentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
-      mDeclaration = checkNotNull((Boolean) map.get(S_XMLDECL[0]));
+      indent = checkNotNull((Boolean) map.get(S_INDENT[0]));
+      rest = checkNotNull((Boolean) map.get(S_REST[0]));
+      id = checkNotNull((Boolean) map.get(S_ID[0]));
+      indentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
+      declaration = checkNotNull((Boolean) map.get(S_XMLDECL[0]));
     }
 
     /**
@@ -671,7 +671,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this XMLSerializerBuilder reference
      */
     public XmlSerializerBuilder startNodeKey(final long nodeKey) {
-      mNodeKey = nodeKey;
+      this.nodeKey = nodeKey;
       return this;
     }
 
@@ -681,7 +681,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder withInitialIndent() {
-      mInitialIndent = true;
+      initialIndent = true;
       return this;
     }
 
@@ -691,7 +691,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder isXQueryResultSequence() {
-      mEmitXQueryResultSequence = true;
+      emitXQueryResultSequence = true;
       return this;
     }
 
@@ -701,7 +701,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder serializeTimestamp(boolean serializeTimestamp) {
-      mSerializeTimestamp = serializeTimestamp;
+      this.serializeTimestamp = serializeTimestamp;
       return this;
     }
 
@@ -711,7 +711,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder prettyPrint() {
-      mIndent = true;
+      indent = true;
       return this;
     }
 
@@ -721,7 +721,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitRESTful() {
-      mREST = true;
+      rest = true;
       return this;
     }
 
@@ -731,7 +731,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitRESTSequence() {
-      mRESTSequence = true;
+      restSequence = true;
       return this;
     }
 
@@ -741,7 +741,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitXMLDeclaration() {
-      mDeclaration = true;
+      declaration = true;
       return this;
     }
 
@@ -751,7 +751,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitIDs() {
-      mID = true;
+      id = true;
       return this;
     }
 
@@ -772,7 +772,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder maxLevel(final long maxLevel) {
-      mMaxLevel = maxLevel;
+      this.maxLevel = maxLevel;
       return this;
     }
 
@@ -785,10 +785,10 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     public XmlSerializerBuilder revisions(final int[] revisions) {
       checkNotNull(revisions);
 
-      mVersion = revisions[0];
+      version = revisions[0];
 
-      mVersions = new int[revisions.length - 1];
-      System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
+      versions = new int[revisions.length - 1];
+      System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
 
       return this;
     }
@@ -799,7 +799,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return a new {@link Serializer} instance
      */
     public XmlSerializer build() {
-      return new XmlSerializer(mResourceMgr, mNodeKey, this, mInitialIndent, mVersion, mVersions);
+      return new XmlSerializer(resourceMgr, nodeKey, this, initialIndent, version, versions);
     }
   }
 }

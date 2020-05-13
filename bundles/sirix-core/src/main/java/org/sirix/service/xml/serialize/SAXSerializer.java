@@ -121,9 +121,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   @Override
   protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
-    final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-        ? (int) mResMgr.getMostRecentRevisionNumber()
-        : mRevisions.length;
+    final int length = (revisions.length == 1 && revisions[0] < 0)
+        ? (int) resMgr.getMostRecentRevisionNumber()
+        : revisions.length;
 
     if (length > 1) {
       final AttributesImpl atts = new AttributesImpl();
@@ -138,9 +138,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   @Override
   protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
-    final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-        ? (int) mResMgr.getMostRecentRevisionNumber()
-        : mRevisions.length;
+    final int length = (revisions.length == 1 && revisions[0] < 0)
+        ? (int) resMgr.getMostRecentRevisionNumber()
+        : revisions.length;
 
     if (length > 1) {
       try {
@@ -274,9 +274,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
     try {
       mContHandler.startDocument();
 
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? (int) resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (length > 1) {
         final String ns = "https://sirix.io";
@@ -295,9 +295,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitEndDocument() {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? (int) resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (length > 1) {
         mContHandler.endElement("sdb", "sirix", "sdb:sirix");

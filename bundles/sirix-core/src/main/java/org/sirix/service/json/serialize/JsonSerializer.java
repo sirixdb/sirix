@@ -68,24 +68,24 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonSerializer.class));
 
   /** OutputStream to write to. */
-  private final Appendable mOut;
+  private final Appendable out;
 
   /** Indent output. */
-  private final boolean mIndent;
+  private final boolean indent;
 
   /** Number of spaces to indent. */
-  private final int mIndentSpaces;
+  private final int indentSpaces;
 
   /** Determines if serializing with initial indentation. */
-  private final boolean mWithInitialIndent;
+  private final boolean withInitialIndent;
 
-  private final boolean mEmitXQueryResultSequence;
+  private final boolean emitXQueryResultSequence;
 
-  private final boolean mSerializeTimestamp;
+  private final boolean serializeTimestamp;
 
-  private final boolean mWithMetaData;
+  private final boolean withMetaData;
 
-  private boolean mHadToAddBracket;
+  private boolean hadToAddBracket;
 
   private int currentIndent;
 
@@ -101,16 +101,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    */
   private JsonSerializer(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Builder builder,
       final boolean initialIndent, final @Nonnegative int revision, final int... revsions) {
-    super(resourceMgr, builder.mMaxLevel == -1
+    super(resourceMgr, builder.maxLevel == -1
         ? null
-        : new JsonMaxLevelVisitor(builder.mMaxLevel), nodeKey, revision, revsions);
-    mOut = builder.mStream;
-    mIndent = builder.mIndent;
-    mIndentSpaces = builder.mIndentSpaces;
-    mWithInitialIndent = builder.mInitialIndent;
-    mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
-    mSerializeTimestamp = builder.mSerializeTimestamp;
-    mWithMetaData = builder.mWithMetaData;
+        : new JsonMaxLevelVisitor(builder.maxLevel), nodeKey, revision, revsions);
+    out = builder.stream;
+    indent = builder.indent;
+    indentSpaces = builder.indentSpaces;
+    withInitialIndent = builder.tnitialIndent;
+    emitXQueryResultSequence = builder.emitXQueryResultSequence;
+    serializeTimestamp = builder.serializeTimestamp;
+    withMetaData = builder.withMetaData;
   }
 
   /**
@@ -129,20 +129,20 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT:
           emitMetaData(rtx);
 
-          if (mWithMetaData && shouldEmitChildren(hasChildren)) {
+          if (withMetaData && shouldEmitChildren(hasChildren)) {
             appendArrayStart(true);
           }
 
           appendObjectStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
+          if (!hasChildren || (visitor != null && currentLevel() + 1 >= maxLevel())) {
             appendObjectEnd(false);
 
-            if (mWithMetaData) {
+            if (withMetaData) {
               appendObjectEnd(true);
             }
 
-            if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
+            if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
               appendObjectSeparator();
             }
           }
@@ -152,26 +152,27 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendArrayStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
+          if (!hasChildren || (visitor != null && currentLevel() + 1 >= maxLevel())) {
             appendArrayEnd(false);
 
-            if (mWithMetaData) {
+            if (withMetaData) {
               appendObjectEnd(true);
             }
 
-            if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
+            if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
               appendObjectSeparator();
             }
           }
           break;
         case OBJECT_KEY:
-          if (mStartNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mStartNodeKey) {
+          if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey) {
             appendObjectStart(hasChildren);
-            mHadToAddBracket = true;
+            hadToAddBracket = true;
           }
 
-          if (mWithMetaData) {
-            if (rtx.hasLeftSibling() && !(mStartNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mStartNodeKey)) {
+          if (withMetaData) {
+            if (rtx.hasLeftSibling() && !(
+                startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
             appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
@@ -196,7 +197,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_BOOLEAN_VALUE:
           emitMetaData(rtx);
           appendObjectValue(Boolean.valueOf(rtx.getValue()).toString());
-          if (mWithMetaData) {
+          if (withMetaData) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -205,7 +206,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_NULL_VALUE:
           emitMetaData(rtx);
           appendObjectValue("null");
-          if (mWithMetaData) {
+          if (withMetaData) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -214,7 +215,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_NUMBER_VALUE:
           emitMetaData(rtx);
           appendObjectValue(rtx.getValue());
-          if (mWithMetaData) {
+          if (withMetaData) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -223,7 +224,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_STRING_VALUE:
           emitMetaData(rtx);
           appendObjectValue(quote(StringValue.escape(rtx.getValue())));
-          if (mWithMetaData) {
+          if (withMetaData) {
             appendObjectEnd(true);
           }
           printCommaIfNeeded(rtx);
@@ -238,11 +239,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private boolean shouldEmitChildren(boolean hasChildren) {
-    return (mVisitor == null && hasChildren) || (mVisitor != null && hasChildren && currentLevel() + 1 < maxLevel());
+    return (visitor == null && hasChildren) || (visitor != null && hasChildren && currentLevel() + 1 < maxLevel());
   }
 
   private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
-    if (mWithMetaData) {
+    if (withMetaData) {
       appendObjectStart(true)
               .appendObjectKey(quote("metadata"))
               .appendObjectStart(true)
@@ -274,7 +275,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private JsonMaxLevelVisitor castVisitor() {
-    return (JsonMaxLevelVisitor) mVisitor;
+    return (JsonMaxLevelVisitor) visitor;
   }
 
   private long currentLevel() {
@@ -285,14 +286,14 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected boolean isSubtreeGoingToBeVisited(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.isObjectKey())
       return true;
-    return mVisitor == null || currentLevel() + 1 < maxLevel();
+    return visitor == null || currentLevel() + 1 < maxLevel();
   }
 
   @Override
   protected boolean isSubtreeGoingToBePruned(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.isObjectKey())
       return false;
-    if (mVisitor == null) {
+    if (visitor == null) {
       return false;
     } else {
       return currentLevel() + 1 >= maxLevel();
@@ -302,7 +303,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private void printCommaIfNeeded(final JsonNodeReadOnlyTrx rtx) throws IOException {
     final boolean hasRightSibling = rtx.hasRightSibling();
 
-    if (hasRightSibling && rtx.getNodeKey() != mStartNodeKey)
+    if (hasRightSibling && rtx.getNodeKey() != startNodeKey)
       appendObjectSeparator();
   }
 
@@ -316,32 +317,32 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     try {
       switch (rtx.getKind()) {
         case ARRAY:
-          if (mWithMetaData) {
+          if (withMetaData) {
             appendArrayEnd(true).appendObjectEnd(true);
           } else {
             appendArrayEnd(shouldEmitChildren(rtx.hasChildren()));
           }
 
-          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
             appendObjectSeparator();
           }
           break;
         case OBJECT:
-          if (mWithMetaData) {
+          if (withMetaData) {
             appendArrayEnd(true).appendObjectEnd(true);
           } else {
             appendObjectEnd(shouldEmitChildren(rtx.hasChildren()));
           }
 
-          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
             appendObjectSeparator();
           }
           break;
         case OBJECT_KEY:
-          if (mWithMetaData || (mHadToAddBracket && rtx.getNodeKey() == mStartNodeKey)) {
+          if (withMetaData || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
             appendObjectEnd(true);
           }
-          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
             appendObjectSeparator();
           }
           break;
@@ -356,16 +357,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitStartDocument() {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (length > 1) {
         appendObjectStart(true);
 
-        if (mIndent) {
+        if (indent) {
           // mOut.append(CharsForSerializing.NEWLINE.getBytes());
-          mStack.push(Constants.NULL_ID_LONG);
+          stack.push(Constants.NULL_ID_LONG);
         }
 
         appendObjectKey(quote("sirix"));
@@ -379,13 +380,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitEndDocument() {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (length > 1) {
-        if (mIndent) {
-          mStack.pop();
+        if (indent) {
+          stack.pop();
         }
 
         appendArrayEnd(true).appendObjectEnd(true);
@@ -398,17 +399,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitRevisionStartNode(final @Nonnull JsonNodeReadOnlyTrx rtx) {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
-      if (mEmitXQueryResultSequence || length > 1) {
+      if (emitXQueryResultSequence || length > 1) {
 
         appendObjectStart(rtx.hasChildren())
                 .appendObjectKeyValue(quote("revisionNumber"), Integer.toString(rtx.getRevisionNumber()))
                 .appendObjectSeparator();
 
-        if (mSerializeTimestamp) {
+        if (serializeTimestamp) {
           appendObjectKeyValue(quote("revisionTimestamp"), quote(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp())))
                   .appendObjectSeparator();
         }
@@ -416,7 +417,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         appendObjectKey(quote("revision"));
 
         if (rtx.hasFirstChild())
-          mStack.push(Constants.NULL_ID_LONG);
+          stack.push(Constants.NULL_ID_LONG);
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -426,13 +427,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitRevisionEndNode(final @Nonnull JsonNodeReadOnlyTrx rtx) {
     try {
-      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? mResMgr.getMostRecentRevisionNumber()
-          : mRevisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? resMgr.getMostRecentRevisionNumber()
+          : revisions.length;
 
-      if (mEmitXQueryResultSequence || length > 1) {
+      if (emitXQueryResultSequence || length > 1) {
         if (rtx.moveToDocumentRoot().trx().hasFirstChild())
-          mStack.pop();
+          stack.pop();
         appendObjectEnd(rtx.hasChildren());
 
         if (hasMoreRevisionsToSerialize(rtx))
@@ -444,7 +445,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private boolean hasMoreRevisionsToSerialize(final JsonNodeReadOnlyTrx rtx) {
-    return rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1] || (mRevisions.length == 1 && mRevisions[0] == -1
+    return rtx.getRevisionNumber() < revisions[revisions.length - 1] || (revisions.length == 1 && revisions[0] == -1
         && rtx.getRevisionNumber() < rtx.getResourceManager().getMostRecentRevisionNumber());
   }
 
@@ -454,26 +455,26 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @throws IOException if can't indent output
    */
   private JsonSerializer indent() throws IOException {
-    if (mIndent) {
+    if (indent) {
       for (int i = 0; i < currentIndent; i++) {
-        mOut.append(" ");
+        out.append(" ");
       }
     }
     return this;
   }
 
   private JsonSerializer newLine() throws IOException {
-    if (mIndent) {
-      mOut.append("\n");
+    if (indent) {
+      out.append("\n");
       indent();
     }
     return this;
   }
 
   private JsonSerializer appendObjectStart(final boolean hasChildren) throws IOException {
-    mOut.append('{');
+    out.append('{');
     if (hasChildren) {
-      currentIndent += mIndentSpaces;
+      currentIndent += indentSpaces;
       newLine();
     }
     return this;
@@ -481,17 +482,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private JsonSerializer appendObjectEnd(final boolean hasChildren) throws IOException {
     if (hasChildren) {
-      currentIndent -= mIndentSpaces;
+      currentIndent -= indentSpaces;
       newLine();
     }
-    mOut.append('}');
+    out.append('}');
     return this;
   }
 
   private JsonSerializer appendArrayStart(final boolean hasChildren) throws IOException {
-    mOut.append('[');
+    out.append('[');
     if (hasChildren) {
-      currentIndent += mIndentSpaces;
+      currentIndent += indentSpaces;
       newLine();
     }
     return this;
@@ -499,41 +500,41 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private JsonSerializer appendArrayEnd(final boolean hasChildren) throws IOException {
     if (hasChildren) {
-      currentIndent -= mIndentSpaces;
+      currentIndent -= indentSpaces;
       newLine();
     }
-    mOut.append(']');
+    out.append(']');
     return this;
   }
 
   private JsonSerializer appendObjectKey(String key) throws IOException {
-    mOut.append(key);
-    if (mIndent) {
-      mOut.append(": ");
+    out.append(key);
+    if (indent) {
+      out.append(": ");
     } else {
-      mOut.append(":");
+      out.append(":");
     }
     return this;
   }
 
   private JsonSerializer appendObjectValue(String value) throws IOException {
-    mOut.append(value);
+    out.append(value);
     return this;
   }
 
   private JsonSerializer appendObjectKeyValue(String key, String value) throws IOException {
-    mOut.append(key);
-    if (mIndent) {
-      mOut.append(": ");
+    out.append(key);
+    if (indent) {
+      out.append(": ");
     } else {
-      mOut.append(":");
+      out.append(":");
     }
-    mOut.append(value);
+    out.append(value);
     return this;
   }
 
   private JsonSerializer appendObjectSeparator() throws IOException {
-    mOut.append(',');
+    out.append(',');
     newLine();
     return this;
   }
@@ -608,42 +609,42 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Intermediate boolean for indendation, not necessary.
      */
-    private boolean mIndent;
+    private boolean indent;
 
     /**
      * Intermediate number of spaces to indent, not necessary.
      */
-    private int mIndentSpaces = 2;
+    private int indentSpaces = 2;
 
     /** Stream to pipe to. */
-    private final Appendable mStream;
+    private final Appendable stream;
 
     /** Resource manager to use. */
-    private final JsonResourceManager mResourceMgr;
+    private final JsonResourceManager resourceMgr;
 
     /** Further revisions to serialize. */
-    private int[] mVersions;
+    private int[] versions;
 
     /** Revision to serialize. */
-    private int mVersion;
+    private int version;
 
     /** Node key of subtree to shredder. */
-    private long mNodeKey;
+    private long nodeKey;
 
     /** Determines if an initial indent is needed or not. */
-    private boolean mInitialIndent;
+    private boolean tnitialIndent;
 
     /** Determines if it's an XQuery result sequence. */
-    private boolean mEmitXQueryResultSequence;
+    private boolean emitXQueryResultSequence;
 
     /** Determines if a timestamp should be serialized or not. */
-    private boolean mSerializeTimestamp;
+    private boolean serializeTimestamp;
 
     /** Determines if SirixDB meta data should be serialized for JSON object key nodes or not. */
-    private boolean mWithMetaData;
+    private boolean withMetaData;
 
     /** Determines the maximum level to up to which to skip subtrees from serialization. */
-    private long mMaxLevel;
+    private long maxLevel;
 
     /**
      * Constructor, setting the necessary stuff.
@@ -653,16 +654,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param revisions revisions to serialize
      */
     public Builder(final JsonResourceManager resourceMgr, final Appendable stream, final int... revisions) {
-      mMaxLevel = -1;
-      mNodeKey = 0;
-      mResourceMgr = checkNotNull(resourceMgr);
-      mStream = checkNotNull(stream);
+      maxLevel = -1;
+      nodeKey = 0;
+      this.resourceMgr = checkNotNull(resourceMgr);
+      this.stream = checkNotNull(stream);
       if (revisions == null || revisions.length == 0) {
-        mVersion = mResourceMgr.getMostRecentRevisionNumber();
+        version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
-        mVersion = revisions[0];
-        mVersions = new int[revisions.length - 1];
-        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
+        version = revisions[0];
+        versions = new int[revisions.length - 1];
+        System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
       }
     }
 
@@ -678,20 +679,20 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
-      mMaxLevel = -1;
-      mResourceMgr = checkNotNull(resourceMgr);
-      mNodeKey = nodeKey;
-      mStream = checkNotNull(stream);
+      maxLevel = -1;
+      this.resourceMgr = checkNotNull(resourceMgr);
+      this.nodeKey = nodeKey;
+      this.stream = checkNotNull(stream);
       if (revisions == null || revisions.length == 0) {
-        mVersion = mResourceMgr.getMostRecentRevisionNumber();
+        version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
-        mVersion = revisions[0];
-        mVersions = new int[revisions.length - 1];
-        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
+        version = revisions[0];
+        versions = new int[revisions.length - 1];
+        System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
       }
       final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
-      mIndent = checkNotNull((Boolean) map.get(S_INDENT[0]));
-      mIndentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
+      indent = checkNotNull((Boolean) map.get(S_INDENT[0]));
+      indentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
     }
 
     /**
@@ -701,7 +702,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this XMLSerializerBuilder reference
      */
     public Builder startNodeKey(final long nodeKey) {
-      mNodeKey = nodeKey;
+      this.nodeKey = nodeKey;
       return this;
     }
 
@@ -712,7 +713,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this XMLSerializerBuilder reference
      */
     public Builder maxLevel(final long maxLevel) {
-      mMaxLevel = maxLevel;
+      this.maxLevel = maxLevel;
       return this;
     }
 
@@ -722,7 +723,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this {@link Builder} instance
      */
     public Builder withInitialIndent() {
-      mInitialIndent = true;
+      tnitialIndent = true;
       return this;
     }
 
@@ -732,7 +733,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this {@link Builder} instance
      */
     public Builder isXQueryResultSequence() {
-      mEmitXQueryResultSequence = true;
+      emitXQueryResultSequence = true;
       return this;
     }
 
@@ -742,7 +743,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this {@link Builder} instance
      */
     public Builder serializeTimestamp(boolean serializeTimestamp) {
-      mSerializeTimestamp = serializeTimestamp;
+      this.serializeTimestamp = serializeTimestamp;
       return this;
     }
 
@@ -752,7 +753,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this {@link Builder} instance
      */
     public Builder withMetaData(boolean withMetaData) {
-      mWithMetaData = withMetaData;
+      this.withMetaData = withMetaData;
       return this;
     }
 
@@ -762,7 +763,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return this {@link Builder} instance
      */
     public Builder prettyPrint() {
-      mIndent = true;
+      indent = true;
       return this;
     }
 
@@ -775,10 +776,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     public Builder revisions(final int[] revisions) {
       checkNotNull(revisions);
 
-      mVersion = revisions[0];
+      version = revisions[0];
 
-      mVersions = new int[revisions.length - 1];
-      System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
+      versions = new int[revisions.length - 1];
+      System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
 
       return this;
     }
@@ -789,7 +790,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @return a new {@link Serializer} instance
      */
     public JsonSerializer build() {
-      return new JsonSerializer(mResourceMgr, mNodeKey, this, mInitialIndent, mVersion, mVersions);
+      return new JsonSerializer(resourceMgr, nodeKey, this, tnitialIndent, version, versions);
     }
   }
 }

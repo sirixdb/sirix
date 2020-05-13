@@ -1,20 +1,17 @@
 package org.sirix.service;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.concurrent.Callable;
-import javax.annotation.Nonnegative;
-import org.sirix.api.Axis;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.visitor.NodeVisitor;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Constants;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.concurrent.Callable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -26,19 +23,19 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     implements Callable<Void> {
 
   /** Sirix {@link ResourceManager}. */
-  protected final ResourceManager<R, W> mResMgr;
+  protected final ResourceManager<R, W> resMgr;
 
   /** Stack for reading end element. */
-  protected final Deque<Long> mStack;
+  protected final Deque<Long> stack;
 
   /** Array with versions to print. */
-  protected final int[] mRevisions;
+  protected final int[] revisions;
 
   /** Root node key of subtree to shredder. */
-  protected final long mStartNodeKey;
+  protected final long startNodeKey;
 
   /** Optional visitor. */
-  protected final NodeVisitor mVisitor;
+  protected final NodeVisitor visitor;
 
   /**
    * Constructor.
@@ -49,14 +46,14 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    */
   public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor,
       final @Nonnegative int revision, final int... revisions) {
-    mVisitor = visitor;
-    mStack = new ArrayDeque<>();
-    mRevisions = revisions == null
+    this.visitor = visitor;
+    stack = new ArrayDeque<>();
+    this.revisions = revisions == null
         ? new int[1]
         : new int[revisions.length + 1];
     initialize(revision, revisions);
-    mResMgr = checkNotNull(resMgr);
-    mStartNodeKey = 0;
+    this.resMgr = checkNotNull(resMgr);
+    startNodeKey = 0;
   }
 
   /**
@@ -69,14 +66,14 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    */
   public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor, final @Nonnegative long key,
       final @Nonnegative int revision, final int... revisions) {
-    mVisitor = visitor;
-    mStack = new ArrayDeque<>();
-    mRevisions = revisions == null
+    this.visitor = visitor;
+    stack = new ArrayDeque<>();
+    this.revisions = revisions == null
         ? new int[1]
         : new int[revisions.length + 1];
     initialize(revision, revisions);
-    mResMgr = checkNotNull(resMgr);
-    mStartNodeKey = key;
+    this.resMgr = checkNotNull(resMgr);
+    startNodeKey = key;
   }
 
   /**
@@ -86,10 +83,10 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revisions revisions to serialize
    */
   private void initialize(final @Nonnegative int revision, final int... revisions) {
-    mRevisions[0] = revision;
+    this.revisions[0] = revision;
     if (revisions != null) {
       for (int i = 0; i < revisions.length; i++) {
-        mRevisions[i + 1] = revisions[i];
+        this.revisions[i + 1] = revisions[i];
       }
     }
   }
@@ -104,23 +101,23 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   public Void call() throws SirixException {
     emitStartDocument();
 
-    final int nrOfRevisions = mRevisions.length;
-    final int length = (nrOfRevisions == 1 && mRevisions[0] < 0)
-        ? mResMgr.getMostRecentRevisionNumber()
+    final int nrOfRevisions = revisions.length;
+    final int length = (nrOfRevisions == 1 && revisions[0] < 0)
+        ? resMgr.getMostRecentRevisionNumber()
         : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final R rtx = mResMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
+      try (final R rtx = resMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0)
           ? i
-          : mRevisions[i - 1])) {
+          : revisions[i - 1])) {
         emitRevisionStartNode(rtx);
 
-        rtx.moveTo(mStartNodeKey);
+        rtx.moveTo(startNodeKey);
 
         final VisitorDescendantAxis.Builder builder = VisitorDescendantAxis.newBuilder(rtx).includeSelf();
 
-        if (mVisitor != null) {
-          builder.visitor(mVisitor);
+        if (visitor != null) {
+          builder.visitor(visitor);
           setTrxForVisitor(rtx);
         }
 
@@ -136,13 +133,13 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
           // Emit all pending end elements.
           if (closeElements) {
-            while (!mStack.isEmpty() && mStack.peek() != rtx.getLeftSiblingKey()) {
-              rtx.moveTo(mStack.pop());
+            while (!stack.isEmpty() && stack.peek() != rtx.getLeftSiblingKey()) {
+              rtx.moveTo(stack.pop());
               emitEndNode(rtx);
               rtx.moveTo(key);
             }
-            if (!mStack.isEmpty()) {
-              rtx.moveTo(mStack.pop());
+            if (!stack.isEmpty()) {
+              rtx.moveTo(stack.pop());
               emitEndNode(rtx);
             }
             rtx.moveTo(key);
@@ -157,7 +154,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           // Push end element to stack if we are a start element with
           // children.
           if (!rtx.isDocumentRoot() && (rtx.hasFirstChild() && isSubtreeGoingToBeVisited(rtx))) {
-            mStack.push(rtx.getNodeKey());
+            stack.push(rtx.getNodeKey());
           }
 
           // Remember to emit all pending end elements from stack if
@@ -168,8 +165,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         }
 
         // Finally emit all pending end elements.
-        while (!mStack.isEmpty() && mStack.peek() != Constants.NULL_ID_LONG) {
-          rtx.moveTo(mStack.pop());
+        while (!stack.isEmpty() && stack.peek() != Constants.NULL_ID_LONG) {
+          rtx.moveTo(stack.pop());
           emitEndNode(rtx);
         }
 
@@ -196,28 +193,28 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Emit start tag.
    *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
+   * @param rtx read-only transaction
    */
   protected abstract void emitNode(R rtx);
 
   /**
    * Emit end tag.
    *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
+   * @param rtx read-only transaction
    */
   protected abstract void emitEndNode(R rtx);
 
   /**
    * Emit a start tag, which specifies a revision.
    *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
+   * @param rtx read-only transaction
    */
   protected abstract void emitRevisionStartNode(R rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
+   * @param rtx read-only transaction
    */
   protected abstract void emitRevisionEndNode(R rtx);
 
