@@ -71,10 +71,10 @@ public enum SerializationType {
       assert pageReferences != null;
       try {
         out.writeByte(pageReferences.size());
-        for (final PageReference pageReference : pageReferences) {
+        for (int i = 0, size = pageReferences.size(); i < size; i++) {
+          final PageReference pageReference = pageReferences.get(i);
+          final short offset = offsets.get(i);
           out.writeInt(pageReference.getLogKey());
-        }
-        for (final short offset : offsets) {
           out.writeShort(offset);
         }
       } catch (final IOException e) {
