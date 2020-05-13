@@ -70,6 +70,7 @@ public enum SerializationType {
       assert out != null;
       assert pageReferences != null;
       try {
+        out.writeByte(pageReferences.size());
         for (final PageReference pageReference : pageReferences) {
           out.writeInt(pageReference.getLogKey());
         }
