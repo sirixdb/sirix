@@ -43,15 +43,37 @@ class GetHandler(private val location: Path) {
                 val endResultSeqIndex =
                     ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
 
-                JsonGet(location).xquery(
-                    query,
-                    null,
-                    ctx,
-                    context,
-                    ctx.get("user") as User,
-                    startResultSeqIndex?.toLong(),
-                    endResultSeqIndex?.toLong()
-                )
+                with(acceptHeader) {
+                    when {
+                        contains("application/json") -> JsonGet(location).xquery(
+                            query,
+                            null,
+                            ctx,
+                            context,
+                            ctx.get("user") as User,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
+                        contains("application/xml") -> XmlGet(location).xquery(
+                            query,
+                            null,
+                            ctx,
+                            context,
+                            ctx.get("user") as User,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
+                        else -> JsonGet(location).xquery(
+                            query,
+                            null,
+                            ctx,
+                            context,
+                            ctx.get("user") as User,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
+                    }
+                }
             }
         } else if (databaseName != null && resourceName == null) {
             val buffer = StringBuilder()
