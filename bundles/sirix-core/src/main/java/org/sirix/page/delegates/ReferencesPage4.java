@@ -125,19 +125,20 @@ public final class ReferencesPage4 implements Page {
 
   @Override
   public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
-    boolean found = false;
     for (int i = 0, count = offsets.size(); i < count; i++) {
       if (offsets.get(i) == offset) {
         references.set(i, pageReference);
-        return true;
+        return false;
       }
     }
+
     if (offsets.size() < 4) {
       offsets.add((short) offset);
       references.add(pageReference);
-      return true;
+      return false;
     }
-    return false;
+
+    return true;
   }
 
   /**

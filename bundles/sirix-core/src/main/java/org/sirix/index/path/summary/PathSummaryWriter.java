@@ -141,7 +141,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
             ? name.getPrefix()
             : Utils.buildName(name)),
         new PathKindFilter(mPathSummaryReader, pathKind));
-    long retVal = nodeKey;
+    long retVal;
     if (axis.hasNext()) {
       axis.next();
       retVal = mPathSummaryReader.getNodeKey();

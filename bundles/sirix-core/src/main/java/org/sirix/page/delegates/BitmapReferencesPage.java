@@ -165,7 +165,7 @@ public final class BitmapReferencesPage implements Page {
     final int index = index(offset);
     references.set(index, pageReference);
     bitmap.set(index, true);
-    return references.size() == Constants.INP_REFERENCE_COUNT - 1;
+    return false;
   }
 
   private PageReference createNewReference(final int offset) {
