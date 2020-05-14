@@ -222,8 +222,12 @@ class JsonGet(private val location: Path) {
         val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
         val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
-        if (withMetaData != null)
-            serializerBuilder.withMetaData(withMetaData.toBoolean())
+        if (withMetaData != null) {
+            when (withMetaData) {
+                "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                else -> serializerBuilder.withMetaData(true)
+            }
+        }
 
         if (maxLevel != null)
             serializerBuilder.maxLevel(maxLevel.toLong())
