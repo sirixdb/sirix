@@ -1,5 +1,5 @@
 /**
-XmlInsertionMode * Copyright (c) 2018, Sirix
+ * Copyright (c) 2020, SirixDB
  *
  * All rights reserved.
  *
@@ -27,23 +27,25 @@ XmlInsertionMode * Copyright (c) 2018, Sirix
  */
 package org.sirix.xquery;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -68,14 +70,23 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
     try {
       if (sequence != null) {
         if (first) {
+          first = false;
           out.append("{\"rest\":[");
         }
 
-        var it = sequence.iterate();
+        Item item = null;
+        Iter it;
+        if (sequence instanceof Array || sequence instanceof Record) {
+          item = (Item) sequence;
+          it = null;
+        } else {
+          it = sequence.iterate();
+        }
 
-        Item item;
         try {
-          item = it.next();
+          if (item == null) {
+            item = it.next();
+          }
           while (item != null) {
             if (item instanceof StructuredDBItem) {
               @SuppressWarnings("unchecked")
@@ -88,10 +99,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
               serializer.call();
 
-              item = it.next();
-
-              if (item != null)
-                out.append(",");
+              item = printCommaIfNextItemExists(it);
             } else if (item instanceof Atomic) {
               if (((Atomic) item).type() == Type.STR) {
                 out.append("\"");
@@ -101,30 +109,37 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
                 out.append("\"");
               }
 
-              item = it.next();
-
-              if (item != null)
-                out.append(",");
+              item = printCommaIfNextItemExists(it);
             } else if ((item instanceof Array) || (item instanceof Record)) {
               final var out = new ByteArrayOutputStream();
               final var printWriter = new PrintWriter(out);
               new StringSerializer(printWriter).serialize(item);
               this.out.append(out.toString(StandardCharsets.UTF_8));
 
-              item = it.next();
-
-              if (item != null)
-                this.out.append(",");
+              item = printCommaIfNextItemExists(it);
             }
           }
         } finally {
-          it.close();
+          if (it != null) {
+            it.close();
+          }
         }
 
       }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  private Item printCommaIfNextItemExists(Iter it) throws IOException {
+    Item item = null;
+    if (it != null) {
+      item = it.next();
+
+      if (item != null)
+        out.append(",");
+    }
+    return item;
   }
 
   @Override
