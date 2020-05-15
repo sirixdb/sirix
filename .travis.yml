@@ -19,7 +19,7 @@ jobs:
       name: "Source Build"
       jdk: openjdk14
       install: skip
-      script: ./gradlew clean build --info --stacktrace
+      script: ./gradlew clean build --info --stacktrace --refresh-dependencies
       after_success:
         - ./gradlew jacocoRootReport coveralls
     - stage: deploy
