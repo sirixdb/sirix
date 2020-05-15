@@ -1,13 +1,8 @@
 package org.sirix.xquery.json;
 
 import java.math.BigDecimal;
-import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.atomic.Dbl;
-import org.brackit.xquery.atomic.Dec;
-import org.brackit.xquery.atomic.Flt;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.Int64;
-import org.brackit.xquery.atomic.Str;
+
+import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -31,7 +26,7 @@ public final class JsonItemFactory {
         return new AtomicJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
       case OBJECT_NULL_VALUE:
       case NULL_VALUE:
-        return null;
+        return new AtomicJsonDBItem(rtx, collection, new Null());
       case OBJECT_NUMBER_VALUE:
       case NUMBER_VALUE:
         final Number number = rtx.getNumberValue();

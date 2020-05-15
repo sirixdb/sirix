@@ -49,6 +49,10 @@ import org.sirix.page.interfaces.Page;
  */
 public final class FileWriter extends AbstractForwardingReader implements Writer {
 
+  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
+
+  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8;
+
   /** Random access to work on. */
   private final RandomAccessFile dataFile;
 
@@ -132,13 +136,22 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       buffer.putInt(serializedPage.length);
       buffer.put(serializedPage);
       buffer.position(0);
-      buffer.get(writtenPage, 0, writtenPage.length);
+      buffer.get(writtenPage);
 
       // Getting actual offset and appending to the end of the current file.
       final long fileSize = dataFile.length();
-      final long offset = fileSize == 0
+      long offset = fileSize == 0
           ? FileReader.FIRST_BEACON
           : fileSize;
+      if (type == SerializationType.DATA) {
+        if (page instanceof RevisionRootPage) {
+          if (offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
+            offset += REVISION_ROOT_PAGE_BYTE_ALIGN - (offset % REVISION_ROOT_PAGE_BYTE_ALIGN);
+          }
+        } else if (offset % PAGE_FRAGMENT_BYTE_ALIGN != 0) {
+          offset += PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN);
+        }
+      }
       dataFile.seek(offset);
       dataFile.write(writtenPage);
 
