@@ -1,6 +1,3 @@
-/**
- *
- */
 package org.sirix.io.bytepipe;
 
 import java.io.InputStream;
@@ -18,7 +15,7 @@ import java.util.List;
 public final class ByteHandlePipeline implements ByteHandler {
 
   /** Pipeline for all byte handlers. */
-  private final List<ByteHandler> mParts;
+  private final List<ByteHandler> byteHandlers;
 
   /**
    * Copy constructor.
@@ -26,9 +23,9 @@ public final class ByteHandlePipeline implements ByteHandler {
    * @param pipeline pipeline to copy
    */
   public ByteHandlePipeline(final ByteHandlePipeline pipeline) {
-    mParts = new ArrayList<>(pipeline.mParts.size());
-    for (final ByteHandler handler : pipeline.mParts) {
-      mParts.add(handler.getInstance());
+    byteHandlers = new ArrayList<>(pipeline.byteHandlers.size());
+    for (final ByteHandler handler : pipeline.byteHandlers) {
+      byteHandlers.add(handler.getInstance());
     }
   }
 
@@ -39,20 +36,18 @@ public final class ByteHandlePipeline implements ByteHandler {
    * @param parts to be stored, Order is important!
    */
   public ByteHandlePipeline(final ByteHandler... parts) {
-    mParts = new ArrayList<>();
+    byteHandlers = new ArrayList<>();
 
     if (parts != null) {
-      for (final ByteHandler part : parts) {
-        mParts.add(part);
-      }
+      Collections.addAll(byteHandlers, parts);
     }
   }
 
   @Override
   public OutputStream serialize(final OutputStream toSerialize) {
     OutputStream pipeData = toSerialize;
-    for (final ByteHandler part : mParts) {
-      pipeData = part.serialize(pipeData);
+    for (final ByteHandler byteHandler : byteHandlers) {
+      pipeData = byteHandler.serialize(pipeData);
     }
     return pipeData;
   }
@@ -60,7 +55,7 @@ public final class ByteHandlePipeline implements ByteHandler {
   @Override
   public InputStream deserialize(final InputStream toDeserialize) {
     InputStream pipeData = toDeserialize;
-    for (final ByteHandler part : mParts) {
+    for (final ByteHandler part : byteHandlers) {
       pipeData = part.deserialize(pipeData);
     }
     return pipeData;
@@ -72,7 +67,7 @@ public final class ByteHandlePipeline implements ByteHandler {
    * @return all components
    */
   public List<ByteHandler> getComponents() {
-    return Collections.unmodifiableList(mParts);
+    return Collections.unmodifiableList(byteHandlers);
   }
 
   @Override

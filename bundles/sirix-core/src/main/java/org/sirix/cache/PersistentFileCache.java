@@ -9,10 +9,10 @@ import org.sirix.page.interfaces.Page;
 
 public final class PersistentFileCache implements AutoCloseable {
   /** Write to a persistent file. */
-  private final Writer mWriter;
+  private final Writer writer;
 
   public PersistentFileCache(final Writer writer) {
-    mWriter = checkNotNull(writer);
+    this.writer = checkNotNull(writer);
   }
 
   public PageContainer get(PageReference reference, final PageReadOnlyTrx pageReadTrx) {
@@ -21,13 +21,13 @@ public final class PersistentFileCache implements AutoCloseable {
     if (reference.getPersistentLogKey() < 0)
       return PageContainer.emptyInstance();
 
-    final Page modifiedPage = mWriter.read(reference, pageReadTrx);
+    final Page modifiedPage = writer.read(reference, pageReadTrx);
     final Page completePage;
 
     if (modifiedPage instanceof KeyValuePage) {
       final long peristKey = reference.getPersistentLogKey();
       reference.setPersistentLogKey(peristKey + reference.getLength());
-      completePage = mWriter.read(reference, pageReadTrx);
+      completePage = writer.read(reference, pageReadTrx);
       reference.setPersistentLogKey(peristKey);
     } else {
       completePage = modifiedPage;
@@ -38,13 +38,13 @@ public final class PersistentFileCache implements AutoCloseable {
 
   public PersistentFileCache put(PageReference reference, PageContainer container) {
     reference.setPage(container.getModified());
-    mWriter.write(reference);
+    writer.write(reference);
 
     if (container.getModified() instanceof KeyValuePage) {
       final long offset = reference.getPersistentLogKey();
       int length = reference.getLength();
       reference.setPage(container.getComplete());
-      mWriter.write(reference);
+      writer.write(reference);
       length += reference.getLength();
       reference.setPersistentLogKey(offset);
       reference.setLength(length);
@@ -56,12 +56,12 @@ public final class PersistentFileCache implements AutoCloseable {
   }
 
   public PersistentFileCache truncate() {
-    mWriter.truncate();
+    writer.truncate();
     return this;
   }
 
   @Override
   public void close() {
-    mWriter.close();
+    writer.close();
   }
 }
