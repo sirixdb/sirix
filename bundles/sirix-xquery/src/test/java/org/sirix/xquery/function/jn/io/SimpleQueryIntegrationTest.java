@@ -3,6 +3,7 @@ package org.sirix.xquery.function.jn.io;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
+
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
@@ -61,8 +62,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testSimple() {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"bla\", \"blubb\"]')";
       new XQuery(chain, storeQuery).evaluate(ctx);
@@ -76,15 +77,15 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
-      assertEquals("bla", buf.toString());
+      assertEquals("\"bla\"", buf.toString());
     }
   }
 
   @Test
   public void testSimpleSecond() {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
@@ -104,8 +105,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testSimpleDeref() {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mSimpleJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
@@ -126,8 +127,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testComplexSecond() {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
@@ -148,8 +149,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   public void testArrays() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",[[\"bar\"]]]')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
@@ -162,7 +163,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
-      assertEquals("bar", buf.toString());
+      assertEquals("\"bar\"", buf.toString());
 
       // // Use XQuery to load a JSON database/resource.
       // System.out.println("Opening document again:");
@@ -181,8 +182,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelAllTimes() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -200,8 +201,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelFirst() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -219,8 +220,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelLast() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -238,8 +239,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelNext() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -257,8 +258,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelPrevious() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -276,8 +277,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelFuture() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -295,8 +296,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelFutureOrSelf() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -314,8 +315,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelPast() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
@@ -333,8 +334,8 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   @Test
   public void testTimeTravelPastOrSelf() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       setupRevisions(ctx, chain);
 
