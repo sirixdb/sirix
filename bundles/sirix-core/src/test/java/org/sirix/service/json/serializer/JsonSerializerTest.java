@@ -285,6 +285,29 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testJsonDocumentWithChildCountMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevel()
+      throws IOException {
+    JsonTestHelper.createTestDocument();
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyAndChildCountMetaData(true)
+                                                                        .startNodeKey(15)
+                                                                        .maxLevel(3)
+                                                                        .prettyPrint()
+                                                                        .build();
+      serializer.call();
+
+      final var expected =
+          Files.readString(JSON.resolve("test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+                           StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      assertEquals(expected, actual);
+    }
+  }
+
+  @Test
   public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevelThree() throws IOException {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
