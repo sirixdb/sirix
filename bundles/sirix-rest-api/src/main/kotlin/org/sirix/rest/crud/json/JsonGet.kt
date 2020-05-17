@@ -224,6 +224,7 @@ class JsonGet(private val location: Path) {
 
         if (withMetaData != null) {
             when (withMetaData) {
+                "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
                 "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
                 else -> serializerBuilder.withMetaData(true)
             }

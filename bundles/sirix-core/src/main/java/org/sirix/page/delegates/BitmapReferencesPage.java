@@ -46,17 +46,21 @@ import static com.google.common.base.Preconditions.checkArgument;
  */
 public final class BitmapReferencesPage implements Page {
 
-  /** Page references. */
+  /**
+   * Page references.
+   */
   private final List<PageReference> references;
 
-  /** The bitmap to use, which indexes are null/not null in the references array. */
+  /**
+   * The bitmap to use, which indexes are null/not null in the references array.
+   */
   private final BitSet bitmap;
 
   /**
    * Constructor to initialize instance.
    *
    * @param numberOfEntriesAtMax number of entries at maximum
-   * @param pageToCopy the page to copy references from
+   * @param pageToCopy           the page to copy references from
    */
   public BitmapReferencesPage(final int numberOfEntriesAtMax, final ReferencesPage4 pageToCopy) {
     checkArgument(numberOfEntriesAtMax >= 0);
@@ -82,9 +86,8 @@ public final class BitmapReferencesPage implements Page {
 
     final int initialSize;
 
-    if (referenceCount == Constants.INP_REFERENCE_COUNT
-        || referenceCount == Constants.PATHINP_REFERENCE_COUNT
-        || referenceCount == Constants.NDP_NODE_COUNT) {
+    if (referenceCount == Constants.UBPINP_REFERENCE_COUNT || referenceCount == Constants.INP_REFERENCE_COUNT
+        || referenceCount == Constants.PATHINP_REFERENCE_COUNT || referenceCount == Constants.NDP_NODE_COUNT) {
       /*
        * Currently backing array has an initial size of 8. Thus for the last layer of indirect pages
        * it has to resize the first time after 8 record pages, that is 512 * 8 records.
@@ -103,11 +106,10 @@ public final class BitmapReferencesPage implements Page {
    * Constructor to initialize instance.
    *
    * @param referenceCount number of references of page
-   * @param in input stream to read from
-   * @param type the serialization type
+   * @param in             input stream to read from
+   * @param type           the serialization type
    */
-  public BitmapReferencesPage(final @Nonnegative int referenceCount, final DataInput in,
-      final SerializationType type) {
+  public BitmapReferencesPage(final @Nonnegative int referenceCount, final DataInput in, final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
     bitmap = tuple.getBitmap();
@@ -198,8 +200,7 @@ public final class BitmapReferencesPage implements Page {
   public final <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
       @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
     for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT
-          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
+      if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageWriteTrx.commit(reference);
       }
     }
@@ -208,9 +209,9 @@ public final class BitmapReferencesPage implements Page {
   /**
    * Serialize page references into output.
    *
-   * @param out output stream
+   * @param out  output stream
    * @param type the type to serialize (transaction intent log or the data file
-   *        itself).
+   *             itself).
    */
   @Override
   public void serialize(final DataOutput out, final SerializationType type) {
@@ -234,10 +235,7 @@ public final class BitmapReferencesPage implements Page {
     final StringBuilder s = new StringBuilder();
 
     for (int i = 0; i < bitmap.length(); i++) {
-      s.append(
-          bitmap.get(i)
-              ? 1
-              : 0);
+      s.append(bitmap.get(i) ? 1 : 0);
     }
 
     return s.toString();

@@ -22,7 +22,9 @@ package org.sirix.xquery.compiler.optimizer.walker;
  * WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import org.brackit.xquery.XQuery;
 import org.brackit.xquery.compiler.AST;
+import org.brackit.xquery.compiler.CompileChain;
 import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.Walker;
 import org.brackit.xquery.module.StaticContext;
@@ -104,8 +106,8 @@ public class MultiChildStep extends Walker {
   }
 
   public static void main(String[] args) throws Exception {
-    // new XQuery(new DBCompileChain(null, null),
-    // "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
+     new XQuery(new CompileChain(null, null),
+                "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
     // new XQuery(new DBCompileChain(null, null),
     // "let $a := <x/> return $a/b/@aha");
   }

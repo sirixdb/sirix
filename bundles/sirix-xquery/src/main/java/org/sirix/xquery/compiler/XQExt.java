@@ -14,7 +14,9 @@ public class XQExt {
 
   public static final int ConstExpr = OFFSET + 1;
 
-  public static final String NAMES[] = new String[] {"MultiStepExpr", "ConstExpr"};
+  public static final int IndexExpr = OFFSET + 2;
+
+  public static final String NAMES[] = new String[] {"MultiStepExpr", "ConstExpr", "IndexExpr"};
 
   public static Object toName(int key) {
     return NAMES[key - OFFSET];

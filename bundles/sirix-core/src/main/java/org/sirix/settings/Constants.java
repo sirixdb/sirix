@@ -47,10 +47,10 @@ public final class Constants {
   // ----------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int INP_REFERENCE_COUNT = 256;
+  public static final int INP_REFERENCE_COUNT = 1024;
 
   /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
-  public static final int INP_REFERENCE_COUNT_EXPONENT = 8;
+  public static final int INP_REFERENCE_COUNT_EXPONENT = 10;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
