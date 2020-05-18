@@ -209,7 +209,6 @@ public final class JsonSerializerTest {
                                             StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
-      System.out.println(actual);
       JSONAssert.assertEquals(expected, actual, true);
     }
   }
@@ -347,11 +346,10 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected =
-          Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
+          Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
-      System.out.println(actual);
-      //      JSONAssert.assertEquals(expected, actual, true);
+      JSONAssert.assertEquals(expected, actual, true);
     }
   }
 
