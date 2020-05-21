@@ -16,10 +16,10 @@ import com.google.common.base.MoreObjects;
  */
 public final class SirixJsonStream implements Stream<JsonDBObject> {
   /** Sirix {@link Axis}. */
-  private final Axis mAxis;
+  private final Axis axis;
 
   /** {@link JsonDBCollection} the nodes belong to. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /**
    * Constructor.
@@ -28,15 +28,15 @@ public final class SirixJsonStream implements Stream<JsonDBObject> {
    * @param collection {@link JsonDBCollection} the nodes belong to
    */
   public SirixJsonStream(final Axis axis, final JsonDBCollection collection) {
-    mAxis = checkNotNull(axis);
-    mCollection = checkNotNull(collection);
+    this.axis = checkNotNull(axis);
+    this.collection = checkNotNull(collection);
   }
 
   @Override
   public JsonDBObject next() {
-    if (mAxis.hasNext()) {
-      mAxis.next();
-      return new JsonDBObject(mAxis.asJsonNodeReadTrx(), mCollection);
+    if (axis.hasNext()) {
+      axis.next();
+      return new JsonDBObject(axis.asJsonNodeReadTrx(), collection);
     }
     return null;
   }
@@ -46,6 +46,6 @@ public final class SirixJsonStream implements Stream<JsonDBObject> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", mAxis).toString();
+    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
   }
 }
