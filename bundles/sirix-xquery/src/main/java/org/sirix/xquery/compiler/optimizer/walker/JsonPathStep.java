@@ -16,16 +16,10 @@ public final class JsonPathStep extends Walker {
       return node;
     }
 
-    for (int i = 1; i < node.getChildCount(); i++) {
+    for (int i = 1, length = node.getChildCount(); i < length; i++) {
       AST step = node.getChild(i);
-      boolean childStep = ((step.getType() == XQ.StepExpr) && (getAxis(step) == XQ.CHILD));
-      boolean hasPredicate = (step.getChildCount() > 2);
     }
 
     return node;
-  }
-
-  private int getAxis(AST stepExpr) {
-    return stepExpr.getChild(0).getChild(0).getType();
   }
 }
