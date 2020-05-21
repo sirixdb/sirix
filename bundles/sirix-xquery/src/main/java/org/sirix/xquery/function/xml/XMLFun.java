@@ -1,30 +1,5 @@
-package org.sirix.xquery.function.sdb;
+package org.sirix.xquery.function.xml;
 
-import static org.sirix.xquery.function.xml.diff.Diff.DIFF;
-import static org.sirix.xquery.function.xml.index.SortByDocOrder.SORT;
-import static org.sirix.xquery.function.xml.index.create.CreateCASIndex.CREATE_CAS_INDEX;
-import static org.sirix.xquery.function.xml.index.create.CreateNameIndex.CREATE_NAME_INDEX;
-import static org.sirix.xquery.function.xml.index.create.CreatePathIndex.CREATE_PATH_INDEX;
-import static org.sirix.xquery.function.xml.index.find.FindCASIndex.FIND_CAS_INDEX;
-import static org.sirix.xquery.function.xml.index.find.FindNameIndex.FIND_NAME_INDEX;
-import static org.sirix.xquery.function.xml.index.find.FindPathIndex.FIND_PATH_INDEX;
-import static org.sirix.xquery.function.xml.io.Doc.DOC;
-import static org.sirix.xquery.function.xml.io.DocByPointInTime.OPEN;
-import static org.sirix.xquery.function.xml.io.Import.IMPORT;
-import static org.sirix.xquery.function.xml.io.Load.LOAD;
-import static org.sirix.xquery.function.xml.io.OpenRevisions.OPEN_REVISIONS;
-import static org.sirix.xquery.function.xml.io.Store.STORE;
-import static org.sirix.xquery.function.sdb.trx.Commit.COMMIT;
-import static org.sirix.xquery.function.xml.trx.GetAttributeCount.GET_ATTRIBUTE_COUNT;
-import static org.sirix.xquery.function.sdb.trx.GetChildCount.GET_CHILD_COUNT;
-import static org.sirix.xquery.function.sdb.trx.GetDescendantCount.GET_DESCENDANT_COUNT;
-import static org.sirix.xquery.function.sdb.trx.GetHash.HASH;
-import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECENT_REVISION;
-import static org.sirix.xquery.function.xml.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
-import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
-import static org.sirix.xquery.function.sdb.trx.GetRevisionTimestamp.TIMESTAMP;
-import static org.sirix.xquery.function.sdb.trx.LevelOrder.LEVEL_ORDER;
-import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -44,26 +19,28 @@ import org.sirix.xquery.function.xml.index.scan.ScanCASIndex;
 import org.sirix.xquery.function.xml.index.scan.ScanCASIndexRange;
 import org.sirix.xquery.function.xml.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.xml.index.scan.ScanPathIndex;
-import org.sirix.xquery.function.xml.io.Doc;
-import org.sirix.xquery.function.xml.io.DocByPointInTime;
-import org.sirix.xquery.function.xml.io.Import;
-import org.sirix.xquery.function.xml.io.Load;
-import org.sirix.xquery.function.xml.io.OpenRevisions;
-import org.sirix.xquery.function.xml.io.Serialize;
-import org.sirix.xquery.function.xml.io.Store;
-import org.sirix.xquery.function.sdb.trx.Commit;
-import org.sirix.xquery.function.sdb.trx.GetChildCount;
-import org.sirix.xquery.function.sdb.trx.GetDescendantCount;
-import org.sirix.xquery.function.sdb.trx.GetHash;
-import org.sirix.xquery.function.sdb.trx.GetMostRecentRevision;
+import org.sirix.xquery.function.xml.io.*;
+import org.sirix.xquery.function.sdb.trx.*;
+import org.sirix.xquery.function.xml.trx.GetAttributeCount;
 import org.sirix.xquery.function.xml.trx.GetNamespaceCount;
-import org.sirix.xquery.function.sdb.trx.GetNodeKey;
-import org.sirix.xquery.function.sdb.trx.GetPath;
-import org.sirix.xquery.function.sdb.trx.GetRevision;
-import org.sirix.xquery.function.sdb.trx.GetRevisionTimestamp;
-import org.sirix.xquery.function.sdb.trx.LevelOrder;
-import org.sirix.xquery.function.sdb.trx.Rollback;
-import org.sirix.xquery.function.sdb.trx.SelectNode;
+
+import static org.sirix.xquery.function.xml.diff.Diff.DIFF;
+import static org.sirix.xquery.function.xml.index.SortByDocOrder.SORT;
+import static org.sirix.xquery.function.xml.index.create.CreateCASIndex.CREATE_CAS_INDEX;
+import static org.sirix.xquery.function.xml.index.create.CreateNameIndex.CREATE_NAME_INDEX;
+import static org.sirix.xquery.function.xml.index.create.CreatePathIndex.CREATE_PATH_INDEX;
+import static org.sirix.xquery.function.xml.index.find.FindCASIndex.FIND_CAS_INDEX;
+import static org.sirix.xquery.function.xml.index.find.FindNameIndex.FIND_NAME_INDEX;
+import static org.sirix.xquery.function.xml.index.find.FindPathIndex.FIND_PATH_INDEX;
+import static org.sirix.xquery.function.xml.io.Doc.DOC;
+import static org.sirix.xquery.function.xml.io.DocByPointInTime.OPEN;
+import static org.sirix.xquery.function.xml.io.Import.IMPORT;
+import static org.sirix.xquery.function.xml.io.Load.LOAD;
+import static org.sirix.xquery.function.xml.io.OpenRevisions.OPEN_REVISIONS;
+import static org.sirix.xquery.function.xml.io.Store.STORE;
+import static org.sirix.xquery.function.xml.trx.GetAttributeCount.GET_ATTRIBUTE_COUNT;
+import static org.sirix.xquery.function.xml.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
+import static org.sirix.xquery.function.sdb.trx.LevelOrder.LEVEL_ORDER;
 
 /**
  * Function definitions.
@@ -71,20 +48,16 @@ import org.sirix.xquery.function.sdb.trx.SelectNode;
  * @author Johannes Lichtenberger
  *
  */
-public final class SDBFun {
+public final class XMLFun {
   /** Prefix for Sirix functions. */
-  public static final String SDB_PREFIX = "sdb";
+  public static final String XML_PREFIX = "xml";
 
   /** Namespace URI for Sirix functions. */
-  public static final String SDB_NSURI = "https://sirix.io";
+  public static final String XML_NSURI = "https://sirix.io/xml";
 
-  public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0001");
+  public static final QNm ERR_INDEX_NOT_FOUND = new QNm(XML_NSURI, XML_PREFIX, "SIRIXDBF0001");
 
-  public static final QNm ERR_INDEX_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0002");
-
-  public static final QNm ERR_FILE_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0003");
-
-  public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF004");
+  public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(XML_NSURI, XML_PREFIX, "SIRIXDBF002");
 
   public static void register() {
     // dummy function to cause static block
@@ -92,42 +65,11 @@ public final class SDBFun {
   }
 
   static {
-    Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
-
-    // get path
-    Functions.predefine(new GetPath(GetPath.GET_PATH, new Signature(SequenceType.STRING, SequenceType.NODE)));
-
-    // get nodeKey
-    Functions.predefine(new GetNodeKey(GetNodeKey.GET_NODEKEY,
-        new Signature(new SequenceType(AtomicType.INT, Cardinality.One), SequenceType.NODE)));
-
-    // move to
-    Functions.predefine(new SelectNode(SelectNode.SELECT_NODE,
-        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
-
-    // serialize
-    Functions.predefine(new Serialize());
+    Namespaces.predefine(XMLFun.XML_PREFIX, XMLFun.XML_NSURI);
 
     // sort by document order
     Functions.predefine(
         new SortByDocOrder(SORT, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
-
-    // get number of descendants
-    Functions.predefine(
-        new GetDescendantCount(GET_DESCENDANT_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // get number of descendants
-    Functions.predefine(
-        new GetDescendantCount(GET_DESCENDANT_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // get number of children
-    Functions.predefine(new GetChildCount(GET_CHILD_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // get hash
-    Functions.predefine(new GetHash(HASH, new Signature(SequenceType.STRING, SequenceType.NODE)));
-
-    // get timestamp
-    Functions.predefine(new GetRevisionTimestamp(TIMESTAMP, new Signature(SequenceType.ITEM, SequenceType.NODE)));
 
     // store
     Functions.predefine(new Store(false));
@@ -171,26 +113,13 @@ public final class SDBFun {
         new SequenceType(AtomicType.INT, Cardinality.One))));
     Functions.predefine(new LevelOrder(LEVEL_ORDER, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.NODE)));
 
-    // commit
-    Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // rollback
-    Functions.predefine(new Rollback(ROLLBACK, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // revision
-    Functions.predefine(new GetRevision(REVISION, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // most-recent-revision
-    Functions.predefine(
-        new GetMostRecentRevision(MOST_RECENT_REVISION, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
     // get-namespace-count
     Functions.predefine(
         new GetNamespaceCount(GET_NAMESPACE_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
     // get-attribute-count
     Functions.predefine(
-        new GetNamespaceCount(GET_ATTRIBUTE_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+        new GetAttributeCount(GET_ATTRIBUTE_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
     // find-name-index
     Functions.predefine(new FindNameIndex(FIND_NAME_INDEX,
