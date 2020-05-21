@@ -25,9 +25,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.xquery.function.sdb.trx;
+package org.sirix.xquery.function.xml.io;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -43,13 +42,14 @@ import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBNode;
 import junit.framework.TestCase;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public final class GetRevisionTimestampTest extends TestCase {
+public final class DocByPointInTimeTest extends TestCase {
   /** The {@link Holder} instance. */
   private Holder holder;
 
@@ -81,10 +81,16 @@ public final class GetRevisionTimestampTest extends TestCase {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
+      final String xq1 = "xml:open('" + dbName + "','" + resName + "', xs:dateTime(\"2219-05-01T00:00:00\"))";
+
+      // final String xq1 =
+      // "(xs:dateTime(\"2019-05-01T00:00:00-00:00\") - xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div
+      // xs:dayTimeDuration('PT0.001S')";
 
       final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
-      assertNotNull(query.evaluate(ctx));
+      final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
+
+      assertEquals(5, node.getTrx().getRevisionNumber());
     }
   }
 }

@@ -25,19 +25,26 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.xquery.function.sdb.trx;
+package org.sirix.xquery.function.xml.io;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.xdm.Iter;
+import org.brackit.xquery.xdm.Sequence;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
@@ -49,7 +56,7 @@ import junit.framework.TestCase;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public final class GetRevisionTimestampTest extends TestCase {
+public final class OpenRevisionsTest extends TestCase {
   /** The {@link Holder} instance. */
   private Holder holder;
 
@@ -68,9 +75,17 @@ public final class GetRevisionTimestampTest extends TestCase {
   }
 
   @Test
-  public void test() throws QueryException {
+  public void test() throws IOException, QueryException {
     XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
+
+    final Instant revisionTwoTimestamp;
+
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
+      revisionTwoTimestamp = rtx.getRevisionTimestamp();
+    }
+
+    final ZonedDateTime dateTime = ZonedDateTime.ofInstant(revisionTwoTimestamp, ZoneId.of("UTC"));
 
     final Path database = PATHS.PATH1.getFile();
 
@@ -81,10 +96,21 @@ public final class GetRevisionTimestampTest extends TestCase {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
+      final String xq1 = "xml:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
+          + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
+          + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
 
       final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
-      assertNotNull(query.evaluate(ctx));
+      final Sequence nodes = query.evaluate(ctx);
+
+      final Iter iter = nodes.iterate();
+
+      assertNotNull(iter.next());
+      assertNotNull(iter.next());
+      assertNotNull(iter.next());
+      assertNotNull(iter.next());
+      assertNotNull(iter.next());
+      assertNull(iter.next());
     }
   }
 }
