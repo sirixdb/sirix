@@ -166,7 +166,7 @@ class SirixVerticleXmlTest {
                 url = "$server/"
 
                 httpResponse =
-                    client.getAbs(url).addQueryParam("query", "sdb:diff('database','resource1',1,2)").putHeader(
+                    client.getAbs(url).addQueryParam("query", "xml:diff('database','resource1',1,2)").putHeader(
                         HttpHeaders.AUTHORIZATION.toString(),
                         "Bearer $accessToken"
                     ).putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
@@ -177,7 +177,7 @@ class SirixVerticleXmlTest {
 
                 val expectDiffString = """
                             <rest:sequence xmlns:rest="https://sirix.io/rest">
-                            let ${"$"}doc := sdb:doc('database','resource1', 1)
+                            let ${"$"}doc := xml:doc('database','resource1', 1)
                             return (
                               insert nodes <xml>foo<bar/></xml> as first into sdb:select-node(${"$"}doc, 3)
                             )
@@ -545,7 +545,7 @@ class SirixVerticleXmlTest {
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
                     .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(
-                        Buffer.buffer("{\"query\":\"sdb:doc('database','resource1')//bar\"}")
+                        Buffer.buffer("{\"query\":\"xml:doc('database','resource1')//bar\"}")
                     )
 
                 testContext.verify {
