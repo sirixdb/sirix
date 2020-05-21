@@ -47,30 +47,30 @@ import org.sirix.xquery.node.XmlDBNode;
  */
 public final class XmlDBSerializer implements Serializer, AutoCloseable {
 
-  private final PrintStream mOut;
+  private final PrintStream out;
 
-  private final boolean mEmitRESTful;
+  private final boolean emitRESTful;
 
-  private final boolean mPrettyPrint;
+  private final boolean prettyPrint;
 
-  private boolean mFirst;
+  private boolean first;
 
   public XmlDBSerializer(final PrintStream out, final boolean emitRESTful, final boolean prettyPrint) {
-    mOut = checkNotNull(out);
-    mEmitRESTful = emitRESTful;
-    mPrettyPrint = prettyPrint;
-    mFirst = true;
+    this.out = checkNotNull(out);
+    this.emitRESTful = emitRESTful;
+    this.prettyPrint = prettyPrint;
+    first = true;
   }
 
   @Override
   public void serialize(Sequence sequence) throws QueryException {
     if (sequence != null) {
-      if (mEmitRESTful && mFirst) {
-        mFirst = false;
-        if (mPrettyPrint) {
-          mOut.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
+      if (emitRESTful && first) {
+        first = false;
+        if (prettyPrint) {
+          out.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
-          mOut.print("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
+          out.print("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         }
       }
 
@@ -88,14 +88,14 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
               throw new QueryException(ErrorCode.ERR_SERIALIZE_ATTRIBUTE_OR_NAMESPACE_NODE);
             }
 
-            final OutputStream pos = new PrintStream(mOut);
+            final OutputStream pos = new PrintStream(out);
 
             XmlSerializer.XmlSerializerBuilder serializerBuilder =
                 new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceManager(), pos,
                     node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
-            if (mEmitRESTful)
+            if (emitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
-            if (mPrettyPrint)
+            if (prettyPrint)
               serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
             final XmlSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
             serializer.call();
@@ -103,10 +103,10 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
             first = true;
           } else if (item instanceof Atomic) {
             if (!first) {
-              mOut.print(" ");
+              out.print(" ");
             }
 
-            mOut.print(item.toString());
+            out.print(item.toString());
             first = false;
           } else {
             // TODO
@@ -120,8 +120,8 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
 
   @Override
   public void close() {
-    if (mEmitRESTful) {
-      mOut.print("</rest:sequence>");
+    if (emitRESTful) {
+      out.print("</rest:sequence>");
     }
   }
 }
