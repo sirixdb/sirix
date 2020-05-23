@@ -24,7 +24,7 @@ import org.sirix.xquery.node.XmlDBStore;
  *
  */
 public final class SirixCompileChain extends CompileChain implements AutoCloseable {
-  public static final boolean OPTIMIZE = Cfg.asBool("org.sirix.xquery.optimize.indexrewrite", false);
+  public static final boolean OPTIMIZE = Cfg.asBool("org.sirix.xquery.optimize.indexrewrite", true);
 
   static {
     // define function namespaces and functions in these namespaces
