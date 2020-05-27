@@ -7,6 +7,7 @@ import org.brackit.xquery.compiler.optimizer.walker.Walker;
 import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.sirix.access.Databases;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathNode;
@@ -34,17 +35,17 @@ public final class JsonPathStep extends Walker {
   }
 
   @Override
-  protected AST visit(AST node) {
-    if (node.getType() != XQ.DerefExpr) {
-      return node;
+  protected AST visit(AST astNode) {
+    if (astNode.getType() != XQ.DerefExpr) {
+      return astNode;
     }
 
-    if (node.getChild(0).getType() == XQ.DerefExpr || node.getChild(0).getType() == XQ.FunctionCall) {
+    if (astNode.getChild(0).getType() == XQ.DerefExpr || astNode.getChild(0).getType() == XQ.FunctionCall) {
       final var pathSegmentNames = new ArrayDeque<String>();
-      final var pathSegmentName = node.getChild(node.getChildCount() - 1).getStringValue();
+      final var pathSegmentName = astNode.getChild(astNode.getChildCount() - 1).getStringValue();
       pathSegmentNames.add(pathSegmentName);
 
-      final var newNode = getPathStep(node, pathSegmentNames);
+      final var newNode = getPathStep(astNode, pathSegmentNames);
 
       if (newNode.isPresent()) {
         final var newChildNode = newNode.get();
@@ -61,43 +62,57 @@ public final class JsonPathStep extends Walker {
           }
 
           final var path = LOCATION.resolve(databaseName);
+
           try (final var database = Databases.openJsonDatabase(path);
                final var resMgr = database.openResourceManager(resourceName);
                final var pathSummary = revision == -1 ? resMgr.openPathSummary() : resMgr.openPathSummary(revision)) {
-            int level = 0;
-            while (!pathSegmentNames.isEmpty()) {
+
+            if (!pathSegmentNames.isEmpty()) {
               final var pathSegmentNameToCheck = pathSegmentNames.removeLast();
+              var pathNodeKeys = initialPathSummaryNodeCheck(pathSummary, pathSegmentNameToCheck);
 
-              var pathNode = checkName(pathSummary, pathSegmentNameToCheck, NodeKind.OBJECT_KEY, level + 1);
-              if (pathNode.isEmpty()) {
-                final var data = findPathNodeBelowArrays(pathSummary, level, pathSegmentNameToCheck);
+              while (!pathNodeKeys.isEmpty() && !pathSegmentNames.isEmpty()) {
+                final var finalPathSegmentNameToCheck = pathSegmentNames.removeFirst();
 
-                pathNode = data.pathNode;
-                level = data.level;
+                final var pathNodeKeysToAdd =
+                    getSubsequentPathNodeKeys(pathSummary, pathNodeKeys, finalPathSegmentNameToCheck);
+
+                pathNodeKeys = new ArrayList<>();
+                pathNodeKeys.addAll(pathNodeKeysToAdd);
               }
 
-              if (pathNode.isEmpty()) {
-                final var parentASTNode = node.getParent();
-                parentASTNode.replaceChild(node.getChildIndex(), new AST(XQ.SequenceExpr));
+              if (pathNodeKeys.isEmpty()) {
+                final var parentASTNode = astNode.getParent();
+                parentASTNode.replaceChild(astNode.getChildIndex(), new AST(XQ.SequenceExpr));
               }
 
               if (pathSegmentNames.isEmpty()) {
-                final var foundPathNode = pathNode.get();
-                final var pathToFoundNode = foundPathNode.getPath(pathSummary);
-                System.out.println(pathToFoundNode);
+                boolean notFound = false;
+                final var foundIndexDefs = new ArrayList<>();
 
-                final var indexController = revision == -1
-                    ? resMgr.getRtxIndexController(resMgr.getMostRecentRevisionNumber())
-                    : resMgr.getRtxIndexController(revision);
+                for (final int pathNodeKey : pathNodeKeys) {
+                  final var foundPathNode = pathSummary.getPathNodeForPathNodeKey(pathNodeKey);
+                  final var pathToFoundNode = foundPathNode.getPath(pathSummary);
 
-                final var indexDef = indexController.getIndexes().findPathIndex(pathToFoundNode);
+                  final var indexController = revision == -1
+                      ? resMgr.getRtxIndexController(resMgr.getMostRecentRevisionNumber())
+                      : resMgr.getRtxIndexController(revision);
 
-                if (indexDef.isPresent()) {
-                  final var parentASTNode = node.getParent();
+                  final var indexDef = indexController.getIndexes().findPathIndex(pathToFoundNode);
+
+                  if (indexDef.isEmpty()) {
+                    notFound = true;
+                    break;
+                  }
+
+                  foundIndexDefs.add(indexDef.get());
+                }
+
+                if (!notFound) {
+                  final var parentASTNode = astNode.getParent();
                   final var indexExpr = new AST(XQExt.IndexExpr);
-                  indexExpr.setProperty("indexDef", indexDef.get());
-                  parentASTNode.replaceChild(node.getChildIndex(), indexExpr);
-                  return indexExpr;
+                  indexExpr.setProperty("indexDefs", foundIndexDefs);
+                  parentASTNode.replaceChild(astNode.getChildIndex(), indexExpr);
                 }
               }
             }
@@ -106,29 +121,43 @@ public final class JsonPathStep extends Walker {
       }
     }
 
-    return node;
+    return astNode;
   }
 
-  private Data findPathNodeBelowArrays(PathSummaryReader pathSummary, int level, String pathSegmentNameToCheck) {
-    Optional<PathNode> pathNode = checkName(pathSummary, "__array__", NodeKind.ARRAY, level + 1);
+  private List<Integer> getSubsequentPathNodeKeys(PathSummaryReader pathSummary, ArrayList<Integer> pathNodeKeys,
+      String finalPathSegmentNameToCheck) {
+    final var pathNodeKeysToAdd = new ArrayList<Integer>();
 
-    if (pathNode.isPresent()) {
-      level++;
-      pathNode = checkName(pathSummary, pathSegmentNameToCheck, NodeKind.OBJECT_KEY, level + 1);
+    pathNodeKeys.forEach(pathNodeKey -> {
+      final var descendantPathNodeKeys =
+          pathSummary.matchDescendants(new QNm(finalPathSegmentNameToCheck), pathNodeKey, IncludeSelf.NO);
 
-      if (pathNode.isEmpty()) {
-        return findPathNodeBelowArrays(pathSummary, ++level, pathSegmentNameToCheck);
+      for (int i = descendantPathNodeKeys.nextSetBit(0); i >= 0;
+          i = descendantPathNodeKeys.nextSetBit(i + 1)) {
+        // operate on index i here
+        pathNodeKeysToAdd.add(i);
+
+        if (i == Integer.MAX_VALUE) {
+          break; // or (i+1) would overflow
+        }
       }
-
-      return new Data(pathNode, ++level);
-    }
-
-    return new Data(Optional.empty(), 0);
+    });
+    return pathNodeKeysToAdd;
   }
 
-  private Optional<PathNode> checkName(PathSummaryReader pathSummary, String pathSegmentNameToCheck, NodeKind nodeKind,
-      int level) {
-    return pathSummary.matchLevel(new QNm(pathSegmentNameToCheck), level, nodeKind);
+  private ArrayList<Integer> initialPathSummaryNodeCheck(PathSummaryReader pathSummary, String pathSegmentNameToCheck) {
+    final var bitSet = pathSummary.match(new QNm(pathSegmentNameToCheck), 0);
+    var pathNodeKeys = new ArrayList<Integer>();
+
+    for (int i = bitSet.nextSetBit(0); i >= 0; i = bitSet.nextSetBit(i + 1)) {
+      // operate on index i here
+      pathNodeKeys.add(i);
+
+      if (i == Integer.MAX_VALUE) {
+        break; // or (i+1) would overflow
+      }
+    }
+    return pathNodeKeys;
   }
 
   private Optional<AST> getPathStep(AST node, Deque<String> pathNames) {
@@ -151,16 +180,5 @@ public final class JsonPathStep extends Walker {
     }
 
     return Optional.empty();
-  }
-
-  private static final class Data {
-    final Optional<PathNode> pathNode;
-
-    final int level;
-
-    private Data(Optional<PathNode> pathNode, int level) {
-      this.pathNode = pathNode;
-      this.level = level;
-    }
   }
 }
