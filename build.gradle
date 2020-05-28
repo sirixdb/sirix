@@ -202,8 +202,8 @@ subprojects {
         useJUnit()
         jvmArgs(['--enable-preview'])
 
-//        minHeapSize = '2g'
-//        maxHeapSize = '15g'
+        minHeapSize = '2g'
+        maxHeapSize = '9g'
     }
 }
 
