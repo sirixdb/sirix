@@ -3,6 +3,7 @@ package org.sirix.rest
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
+import io.vertx.core.http.HttpServer
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
@@ -45,20 +46,33 @@ class SirixVerticle : CoroutineVerticle() {
         val router = createRouter()
 
         // Start an HTTP/2 server
-        val server = vertx.createHttpServer(
-            httpServerOptionsOf()
-                .setSsl(true)
-                .setUseAlpn(true)
-                .setPemKeyCertOptions(
-                    PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString())
-                        .setCertPath(
-                            location.resolve("cert.pem").toString()
-                        )
-                )
-        )
+        if (config.getBoolean("use.http", false)) {
+            val server = vertx.createHttpServer(
+                httpServerOptionsOf()
+                    .setSsl(false)
+            )
 
+            listen(server, router, 8000)
+        } else {
+            val server = vertx.createHttpServer(
+                httpServerOptionsOf()
+                    .setSsl(true)
+                    .setUseAlpn(true)
+                    .setPemKeyCertOptions(
+                        PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString())
+                            .setCertPath(
+                                location.resolve("cert.pem").toString()
+                            )
+                    )
+            )
+
+            listen(server, router, 9443)
+        }
+    }
+
+    private suspend fun listen(server: HttpServer, router: Router, port: Int) {
         server.requestHandler { router.handle(it) }
-            .listenAwait(config.getInteger("https.port", 9443))
+            .listenAwait(config.getInteger("port", port))
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
@@ -96,14 +110,14 @@ class SirixVerticle : CoroutineVerticle() {
         allowedMethods.add(HttpMethod.PUT)
 
         this.route().handler(
-                CorsHandler.create(
-                        config.getString(
-                                "cors.allowedOriginPattern",
-                                "*"
-                        )
-                ).allowedHeaders(allowedHeaders).allowedMethods(allowedMethods).allowCredentials(
-                        config.getBoolean("cors.allowCredentials", false)
+            CorsHandler.create(
+                config.getString(
+                    "cors.allowedOriginPattern",
+                    "*"
                 )
+            ).allowedHeaders(allowedHeaders).allowedMethods(allowedMethods).allowCredentials(
+                config.getBoolean("cors.allowCredentials", false)
+            )
         )
 
         get("/user/authorize").coroutineHandler { rc ->
@@ -162,11 +176,11 @@ class SirixVerticle : CoroutineVerticle() {
 
         // "/"
         post("/").coroutineHandler {
-                    Auth(keycloak, AuthRole.VIEW).handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    GetHandler(location).handle(it)
-                }
+            Auth(keycloak, AuthRole.VIEW).handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            GetHandler(location).handle(it)
+        }
 
         get("/").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
@@ -233,31 +247,31 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/:database/:resource")
-                .consumes("application/xml")
-                .produces("application/xml")
-                .coroutineHandler {
-                    Auth(keycloak, AuthRole.MODIFY).handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    XmlUpdate(location).handle(it)
-                }
+            .consumes("application/xml")
+            .produces("application/xml")
+            .coroutineHandler {
+                Auth(keycloak, AuthRole.MODIFY).handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                XmlUpdate(location).handle(it)
+            }
         post("/:database/:resource")
-                .consumes("application/json")
-                .produces("application/json")
-                .coroutineHandler {
-                    Auth(keycloak, AuthRole.MODIFY).handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    JsonUpdate(location).handle(it)
-                }
+            .consumes("application/json")
+            .produces("application/json")
+            .coroutineHandler {
+                Auth(keycloak, AuthRole.MODIFY).handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                JsonUpdate(location).handle(it)
+            }
 
         post("/:database/:resource")
-                .coroutineHandler {
-                    Auth(keycloak, AuthRole.VIEW).handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    GetHandler(location).handle(it)
-                }
+            .coroutineHandler {
+                Auth(keycloak, AuthRole.VIEW).handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                GetHandler(location).handle(it)
+            }
 
         get("/:database/:resource").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)

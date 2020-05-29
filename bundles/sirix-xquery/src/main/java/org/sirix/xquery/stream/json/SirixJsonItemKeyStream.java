@@ -11,27 +11,27 @@ import org.sirix.xquery.json.JsonDBObject;
 
 public final class SirixJsonItemKeyStream implements Stream<JsonDBObject> {
 
-  private final Iterator<NodeReferences> mIter;
+  private final Iterator<NodeReferences> iter;
 
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
-  private final JsonNodeReadOnlyTrx mRtx;
+  private final JsonNodeReadOnlyTrx rtx;
 
   public SirixJsonItemKeyStream(final Iterator<NodeReferences> iter, final JsonDBCollection collection,
       final JsonNodeReadOnlyTrx rtx) {
-    mIter = checkNotNull(iter);
-    mCollection = checkNotNull(collection);
-    mRtx = checkNotNull(rtx);
+    this.iter = checkNotNull(iter);
+    this.collection = checkNotNull(collection);
+    this.rtx = checkNotNull(rtx);
   }
 
   @Override
   public JsonDBObject next() {
-    while (mIter.hasNext()) {
-      final NodeReferences nodeReferences = mIter.next();
+    while (iter.hasNext()) {
+      final NodeReferences nodeReferences = iter.next();
       final Set<Long> nodeKeys = nodeReferences.getNodeKeys();
       for (final long nodeKey : nodeKeys) {
-        mRtx.moveTo(nodeKey);
-        return new JsonDBObject(mRtx, mCollection);
+        rtx.moveTo(nodeKey);
+        return new JsonDBObject(rtx, collection);
       }
     }
     return null;

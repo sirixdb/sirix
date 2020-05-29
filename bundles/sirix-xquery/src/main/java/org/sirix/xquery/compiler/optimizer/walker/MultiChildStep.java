@@ -105,7 +105,7 @@ public class MultiChildStep extends Walker {
     snapshot();
   }
 
-  public static void main(String[] args) throws Exception {
+  public static void main(String[] args) {
      new XQuery(new CompileChain(null, null),
                 "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
     // new XQuery(new DBCompileChain(null, null),

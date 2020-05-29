@@ -1,6 +1,5 @@
 package org.sirix.xquery;
 
-import junit.framework.TestCase;
 import org.brackit.xquery.XQuery;
 import org.sirix.JsonTestHelper;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -9,13 +8,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 
-public abstract class AbstractJsonTest extends TestCase {
-  @Override
+import static org.junit.Assert.assertEquals;
+
+public abstract class AbstractJsonTest {
   protected void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @Override
   protected void tearDown() {
     JsonTestHelper.closeEverything();
   }

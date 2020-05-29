@@ -25,13 +25,13 @@ import org.sirix.api.NodeCursor;
 
 /**
  * <p>
- * Iterate over all children of kind ELEMENT or TEXT starting at a given node. Self is not included.
+ * Iterate over all children starting at a given node. Self is not included.
  * </p>
  */
 public final class ChildAxis extends AbstractAxis {
 
   /** Has another child node. */
-  private boolean mFirst;
+  private boolean first;
 
   /**
    * Constructor initializing internal state.
@@ -45,17 +45,17 @@ public final class ChildAxis extends AbstractAxis {
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
+    first = true;
   }
 
   @Override
   protected long nextKey() {
     final NodeCursor cursor = getCursor();
 
-    if (!mFirst && cursor.hasRightSibling()) {
+    if (!first && cursor.hasRightSibling()) {
       return cursor.getRightSiblingKey();
-    } else if (mFirst && cursor.hasFirstChild()) {
-      mFirst = false;
+    } else if (first && cursor.hasFirstChild()) {
+      first = false;
       return cursor.getFirstChildKey();
     }
 
