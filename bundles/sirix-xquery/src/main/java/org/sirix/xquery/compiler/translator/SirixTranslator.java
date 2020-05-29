@@ -27,6 +27,8 @@ import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
+import org.sirix.xquery.compiler.XQExt;
+import org.sirix.xquery.compiler.expression.IndexExpr;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
@@ -68,6 +70,17 @@ public final class SirixTranslator extends TopDownTranslator {
       fields[i - 1] = expr(node.getChild(i), true);
     }
     return new DerefExpr(record, fields);
+  }
+
+  protected Expr anyExpr(AST node) throws QueryException {
+    if (node.getType() == XQExt.IndexExpr) {
+      return indexExpr(node);
+    }
+    return super.anyExpr(node);
+  }
+
+  private Expr indexExpr(AST node) {
+    return new IndexExpr(node.getProperties());
   }
 
   @Override

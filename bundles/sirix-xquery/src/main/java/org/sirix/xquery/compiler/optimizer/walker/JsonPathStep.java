@@ -6,29 +6,22 @@ import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.Walker;
 import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
-import org.sirix.access.Databases;
+import org.sirix.index.IndexDef;
 import org.sirix.xquery.compiler.XQExt;
+import org.sirix.xquery.json.JsonDBStore;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.Optional;
+import java.util.*;
 
 public final class JsonPathStep extends Walker {
-  /**
-   * User home directory.
-   */
-  private static final String USER_HOME = System.getProperty("user.home");
 
-  /**
-   * Storage for databases: Sirix data in home directory.
-   */
-  private static final Path LOCATION = Paths.get("/tmp", "sirix", "json-path1");//Paths.get(USER_HOME, "sirix-data");
+  private static final int MIN_NODE_NUMBER = 50_000;
 
-  public JsonPathStep(StaticContext sctx) {
+  private final JsonDBStore jsonDBStore;
+
+  public JsonPathStep(final StaticContext sctx, final JsonDBStore jsonDBStore) {
     super(sctx);
+
+    this.jsonDBStore = jsonDBStore;
   }
 
   @Override
@@ -64,11 +57,14 @@ public final class JsonPathStep extends Walker {
           revision = -1;
         }
 
-        final var path = LOCATION.resolve(databaseName);
-
-        try (final var database = Databases.openJsonDatabase(path);
-             final var resMgr = database.openResourceManager(resourceName);
+        try (final var jsonCollection = jsonDBStore.lookup(databaseName);
+             final var resMgr = jsonCollection.getDatabase().openResourceManager(resourceName);
+             final var rtx = revision == -1 ? resMgr.beginNodeReadOnlyTrx() : resMgr.beginNodeReadOnlyTrx(revision);
              final var pathSummary = revision == -1 ? resMgr.openPathSummary() : resMgr.openPathSummary(revision)) {
+          if (rtx.getDescendantCount() < MIN_NODE_NUMBER) {
+            return astNode;
+          }
+
           var pathNodeKeysToRemove = new ArrayList<Integer>();
           var pathNodeKeys = new ArrayList<Integer>();
 
@@ -127,7 +123,7 @@ public final class JsonPathStep extends Walker {
           }
 
           boolean notFound = false;
-          final var foundIndexDefs = new ArrayList<>();
+          final var foundIndexDefs = new HashMap<IndexDef, List<org.brackit.xquery.util.path.Path<QNm>>>();
 
           for (final int pathNodeKey : pathNodeKeys) {
             final var foundPathNode = pathSummary.getPathNodeForPathNodeKey(pathNodeKey);
@@ -144,14 +140,19 @@ public final class JsonPathStep extends Walker {
               break;
             }
 
-            foundIndexDefs.add(indexDef.get());
+            foundIndexDefs.computeIfAbsent(indexDef.get(), (unused) -> new ArrayList<>()).add(pathToFoundNode);
           }
 
           if (!notFound) {
-            final var parentASTNode = astNode.getParent();
             final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
             indexExpr.setProperty("indexDefs", foundIndexDefs);
+            indexExpr.setProperty("databaseName", databaseName);
+            indexExpr.setProperty("resourceName", resourceName);
+            indexExpr.setProperty("revision", revision);
+
+            final var parentASTNode = astNode.getParent();
             parentASTNode.replaceChild(astNode.getChildIndex(), indexExpr);
+
             return indexExpr;
           }
         }

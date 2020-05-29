@@ -36,7 +36,7 @@ public final class SirixOptimizer extends TopDownOptimizer {
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
       // TODO add rules for index resolution here
 
-//      ast = new JsonPathStep(sctx).walk(ast);
+      ast = new JsonPathStep(sctx, jsonItemStore).walk(ast);
       return ast;
     }
   }

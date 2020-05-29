@@ -109,7 +109,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @return new {@link PageReadOnlyTrx} instance
    */
-  PageReadOnlyTrx beginPageReadTrx();
+  PageReadOnlyTrx beginPageReadOnlyTrx();
 
   /**
    * Begin a new {@link PageReadOnlyTrx}.
