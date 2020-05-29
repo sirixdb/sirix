@@ -20,10 +20,10 @@ import com.google.common.base.MoreObjects;
 public final class TemporalSirixJsonArrayStream implements Stream<JsonDBArray> {
 
   /** Temporal axis. */
-  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> mAxis;
+  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
 
   /** The {@link JsonDBCollection} reference. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /**
    * Constructor.
@@ -33,15 +33,15 @@ public final class TemporalSirixJsonArrayStream implements Stream<JsonDBArray> {
    */
   public TemporalSirixJsonArrayStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final JsonDBCollection collection) {
-    mAxis = checkNotNull(axis);
-    mCollection = checkNotNull(collection);
+    this.axis = checkNotNull(axis);
+    this.collection = checkNotNull(collection);
   }
 
   @Override
   public JsonDBArray next() {
-    if (mAxis.hasNext()) {
-      final var rtx = mAxis.next();
-      return new JsonDBArray(rtx, mCollection);
+    if (axis.hasNext()) {
+      final var rtx = axis.next();
+      return new JsonDBArray(rtx, collection);
     }
 
     return null;
@@ -52,6 +52,6 @@ public final class TemporalSirixJsonArrayStream implements Stream<JsonDBArray> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", mAxis).toString();
+    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
   }
 }

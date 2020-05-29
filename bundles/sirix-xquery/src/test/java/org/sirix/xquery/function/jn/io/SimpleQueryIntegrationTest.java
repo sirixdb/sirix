@@ -21,30 +21,30 @@ import junit.framework.TestCase;
 
 public final class SimpleQueryIntegrationTest extends TestCase {
 
-  private static final String mSimpleJson = "{\"sirix\":{\"revisionNumber\":1}}";
+  private static final String simpleJson = "{\"sirix\":{\"revisionNumber\":1}}";
 
-  private static final String mJson =
+  private static final String json =
       "{\"sirix\":[{\"revisionNumber\":1,\"revision\":{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}},{\"revisionNumber\":2,\"revision\":{\"tadaaa\":\"todooo\",\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}}]}";
 
-  private static final String mExpectedJson =
+  private static final String expectedJson =
       "[{\"revisionNumber\":1,\"revision\":{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}},{\"revisionNumber\":2,\"revision\":{\"tadaaa\":\"todooo\",\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}}]";
 
-  private static final String mExpectedAllTimesTimeTravelQueryResult =
+  private static final String expectedAllTimesTimeTravelQueryResult =
       "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private static final String mExpectedLastTimeTravelQueryResult =
+  private static final String expectedLastTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private static final String mExpectedNextTimeTravelQueryResult =
+  private static final String expectedNextTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private static final String mExpectedFutureTimeTravelQueryResult =
+  private static final String expectedFutureTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private static final String mExpectedPastTimeTravelQueryResult =
+  private static final String expectedPastTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private static final String mExpectedPastOrSelfTimeTravelQueryResult =
+  private static final String expectedPastOrSelfTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
   private Path sirixPath = PATHS.PATH1.getFile();
@@ -86,7 +86,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + json + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix";
@@ -98,7 +98,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
-      assertEquals(mExpectedJson, buf.toString());
+      assertEquals(expectedJson, buf.toString());
     }
   }
 
@@ -108,7 +108,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mSimpleJson + "')";
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + simpleJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix=>revisionNumber";
@@ -129,7 +129,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
     try (final var store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + json + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[0]]=>revisionNumber";
@@ -194,7 +194,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedAllTimesTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedAllTimesTimeTravelQueryResult, buf.toString());
     }
   }
 
@@ -232,7 +232,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedLastTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedLastTimeTravelQueryResult, buf.toString());
     }
   }
 
@@ -251,7 +251,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedNextTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedNextTimeTravelQueryResult, buf.toString());
     }
   }
 
@@ -289,7 +289,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedFutureTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedFutureTimeTravelQueryResult, buf.toString());
     }
   }
 
@@ -308,7 +308,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedAllTimesTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedAllTimesTimeTravelQueryResult, buf.toString());
     }
   }
 
@@ -327,7 +327,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedPastTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedPastTimeTravelQueryResult, buf.toString());
     }
   }
 
@@ -346,7 +346,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
-      assertEquals(mExpectedPastOrSelfTimeTravelQueryResult, buf.toString());
+      assertEquals(expectedPastOrSelfTimeTravelQueryResult, buf.toString());
     }
   }
 

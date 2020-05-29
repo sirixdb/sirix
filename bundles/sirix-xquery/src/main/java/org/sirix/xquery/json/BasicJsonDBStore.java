@@ -57,7 +57,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final Path location;
 
   /** Determines if a path summary should be built. */
-  private boolean buildPathSummary;
+  private final boolean buildPathSummary;
 
   /** Get a new builder instance. */
   public static Builder newBuilder() {
@@ -220,12 +220,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
         if (hasResourceWithName.isPresent()) {
           int i = database.listResources().size() + 1;
-          resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+          resourceName = "resource" + i;
         } else {
           resourceName = optionalResourceName;
         }
       } else {
-        resourceName = new StringBuilder(3).append("resource").append(database.listResources().size() + 1).toString();
+        resourceName = "resource" + (database.listResources().size() + 1);
       }
 
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
@@ -260,10 +260,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
       int numberOfResources = database.listResources().size();
       for (final var jsonReader : jsonReaders) {
         numberOfResources++;
-        final String resourceName = new StringBuilder("resource").append(String.valueOf(numberOfResources)).toString();
-        pool.submit(() -> {
-          return createResource(collName, database, jsonReader, resourceName);
-        });
+        final String resourceName = "resource" + numberOfResources;
+        pool.submit(() -> createResource(collName, database, jsonReader, resourceName));
       }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);
@@ -292,18 +290,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
       databases.add(database);
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int i = database.listResources().size() + 1;
-      try {
-        Str string = null;
+      try (jsonStrings) {
+        Str string;
         while ((string = jsonStrings.next()) != null) {
           final String currentString = string.stringValue();
-          final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
-          pool.submit(() -> {
-            return createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName);
-          });
+          final String resourceName = "resource" + i;
+          pool.submit(() -> createResource(collName,
+                                           database,
+                                           JsonShredder.createStringReader(currentString),
+                                           resourceName));
           i++;
         }
-      } finally {
-        jsonStrings.close();
       }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);
@@ -344,11 +341,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
       databases.add(database);
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int i = database.listResources().size() + 1;
-      try {
-        Path path = null;
+      try (paths) {
+        Path path;
         while ((path = paths.next()) != null) {
           final Path currentPath = path;
-          final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+          final String resourceName = "resource" + i;
           pool.submit(() -> {
             database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                          .storageType(storageType)
@@ -357,7 +354,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .buildPathSummary(true)
                                                          .build());
             try (final JsonResourceManager manager = database.openResourceManager(resourceName);
-                final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+                 final JsonNodeTrx wtx = manager.beginNodeTrx()) {
               final JsonDBCollection collection = new JsonDBCollection(collName, database);
               collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
@@ -366,8 +363,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
           });
           i++;
         }
-      } finally {
-        paths.close();
       }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);

@@ -15,8 +15,6 @@ dependencies {
     api implLibraries.caffeine
     api implLibraries.tink
 
-    compileOnly compileOnlyLibraries.autoValue
-
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
 
@@ -30,14 +28,9 @@ dependencies {
     testImplementation testLibraries.jsonassert
 }
 
-description = 'Sirix is a versioned, treebased storage system. It provides ' +
-        'an ID-less diff-algorithm to import differences between two versions. Furthermore ' +
-        'an ID-based diff-algorithm facilitates the comparison of versions stored within ' +
-        'Sirix. A GUI with several visualizations for comparing these versions visually is ' +
-        'available to aid an analyst. Versions are stored using well known versioning strategies (full, incremental, differential). ' +
-        'The architecture is especially well suited for flash-disks because of a COW-principle. In the future we aim to provide throughout security as ' +
-        'well as a replaced page-structure to speedup our architecture. A brackit(.org) binding will ' +
-        'enable XQuery and the XQuery Update Facility. Temporal XPath axis and possibly diff-functions will help analysts to gain quick knowledge from the stored data.'
+description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +
+        'lightweight buffer manager, stores everything in a huge persistent and durabel tree and allows efficient ' +
+        'reconstruction of every revision. Furthermore SirixDB implements change tracking, diffing and time travel queries.'
 
 jar {
     manifest {

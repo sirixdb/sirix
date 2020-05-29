@@ -20,14 +20,14 @@ import com.google.common.base.MoreObjects;
 public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArraySlice> {
 
   /** Temporal axis. */
-  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> mAxis;
+  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
 
   /** The {@link JsonDBCollection} reference. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
-  private final int mFromIndex;
+  private final int fromIndex;
 
-  private final int mToIndex;
+  private final int toIndex;
 
   /**
    * Constructor.
@@ -39,17 +39,17 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
    */
   public TemporalSirixJsonArraySliceStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final JsonDBCollection collection, final int fromIndex, final int toIndex) {
-    mAxis = checkNotNull(axis);
-    mCollection = checkNotNull(collection);
-    mFromIndex = fromIndex;
-    mToIndex = toIndex;
+    this.axis = checkNotNull(axis);
+    this.collection = checkNotNull(collection);
+    this.fromIndex = fromIndex;
+    this.toIndex = toIndex;
   }
 
   @Override
   public JsonDBArraySlice next() {
-    if (mAxis.hasNext()) {
-      final var rtx = mAxis.next();
-      return new JsonDBArraySlice(rtx, mCollection, mFromIndex, mToIndex);
+    if (axis.hasNext()) {
+      final var rtx = axis.next();
+      return new JsonDBArraySlice(rtx, collection, fromIndex, toIndex);
     }
 
     return null;
@@ -60,6 +60,6 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", mAxis).toString();
+    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
   }
 }

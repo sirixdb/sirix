@@ -17,10 +17,10 @@ import com.google.common.base.MoreObjects;
  */
 public final class SirixNodeStream implements Stream<XmlDBNode> {
   /** Sirix {@link Axis}. */
-  private final Axis mAxis;
+  private final Axis axis;
 
   /** {@link XmlDBCollection} the nodes belong to. */
-  private final XmlDBCollection mCollection;
+  private final XmlDBCollection collection;
 
   /**
    * Constructor.
@@ -29,15 +29,15 @@ public final class SirixNodeStream implements Stream<XmlDBNode> {
    * @param collection {@link XmlDBCollection} the nodes belong to
    */
   public SirixNodeStream(final Axis axis, final XmlDBCollection collection) {
-    mAxis = checkNotNull(axis);
-    mCollection = checkNotNull(collection);
+    this.axis = checkNotNull(axis);
+    this.collection = checkNotNull(collection);
   }
 
   @Override
   public XmlDBNode next() throws DocumentException {
-    if (mAxis.hasNext()) {
-      mAxis.next();
-      return new XmlDBNode(mAxis.asXdmNodeReadTrx(), mCollection);
+    if (axis.hasNext()) {
+      axis.next();
+      return new XmlDBNode(axis.asXdmNodeReadTrx(), collection);
     }
     return null;
   }
@@ -47,6 +47,6 @@ public final class SirixNodeStream implements Stream<XmlDBNode> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", mAxis).toString();
+    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
   }
 }

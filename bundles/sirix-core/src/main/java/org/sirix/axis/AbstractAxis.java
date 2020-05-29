@@ -50,19 +50,19 @@ import com.google.common.base.MoreObjects;
 public abstract class AbstractAxis implements Axis {
 
   /** Iterate over transaction exclusive to this step. */
-  protected final NodeCursor mNodeCursor;
+  protected final NodeCursor nodeCursor;
 
   /** Key of next node. */
-  private long mKey;
+  private long nextNodeKey;
 
   /** Key of node where axis started. */
-  private long mStartKey;
+  private long startNodeKey;
 
   /** Include self? */
-  private final IncludeSelf mIncludeSelf;
+  private final IncludeSelf includeSelf;
 
   /** Current state. */
-  private State mState = State.NOT_READY;
+  private State state = State.NOT_READY;
 
   /** State of the iterator. */
   private enum State {
@@ -86,8 +86,8 @@ public abstract class AbstractAxis implements Axis {
    * @throws NullPointerException if {@code nodeCursor} is {@code null}
    */
   public AbstractAxis(final NodeCursor nodeCursor) {
-    mNodeCursor = checkNotNull(nodeCursor);
-    mIncludeSelf = IncludeSelf.NO;
+    this.nodeCursor = checkNotNull(nodeCursor);
+    includeSelf = IncludeSelf.NO;
     reset(nodeCursor.getNodeKey());
   }
 
@@ -99,8 +99,8 @@ public abstract class AbstractAxis implements Axis {
    * @throws NullPointerException if {@code nodeCursor} or {@code includeSelf} is {@code null}
    */
   public AbstractAxis(final NodeCursor nodeCursor, final IncludeSelf includeSelf) {
-    mNodeCursor = checkNotNull(nodeCursor);
-    mIncludeSelf = checkNotNull(includeSelf);
+    this.nodeCursor = checkNotNull(nodeCursor);
+    this.includeSelf = checkNotNull(includeSelf);
     reset(nodeCursor.getNodeKey());
   }
 
@@ -136,8 +136,8 @@ public abstract class AbstractAxis implements Axis {
   @Override
   public final boolean hasNext() {
     // First check the state.
-    checkState(mState != State.FAILED);
-    switch (mState) {
+    checkState(state != State.FAILED);
+    switch (state) {
       case DONE:
         return false;
       case READY:
@@ -166,16 +166,16 @@ public abstract class AbstractAxis implements Axis {
    * @return {@code true} if next node key exists, {@code false} otherwise
    */
   private boolean tryToComputeNext() {
-    mState = State.FAILED; // temporary pessimism
+    state = State.FAILED; // temporary pessimism
     // Template method.
-    mKey = nextKey();
-    if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      mState = State.DONE;
+    nextNodeKey = nextKey();
+    if (nextNodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      state = State.DONE;
     }
-    if (mState == State.DONE) {
+    if (state == State.DONE) {
       return false;
     }
-    mState = State.READY;
+    state = State.READY;
     return true;
   }
 
@@ -217,17 +217,17 @@ public abstract class AbstractAxis implements Axis {
     if (!hasNext()) {
       throw new NoSuchElementException();
     }
-    mState = State.NOT_READY;
+    state = State.NOT_READY;
 
     // Move to next.
-    if (mKey >= 0) {
-      if (!mNodeCursor.moveTo(mKey).hasMoved()) {
-        throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
+    if (nextNodeKey >= 0) {
+      if (!nodeCursor.moveTo(nextNodeKey).hasMoved()) {
+        throw new IllegalStateException("Failed to move to nodeKey: " + nextNodeKey);
       }
     } else {
-      mNodeCursor.moveTo(mKey);
+      nodeCursor.moveTo(nextNodeKey);
     }
-    return mKey;
+    return nextNodeKey;
   }
 
   /**
@@ -245,44 +245,44 @@ public abstract class AbstractAxis implements Axis {
    */
   @Override
   public void reset(@Nonnegative final long nodeKey) {
-    mStartKey = nodeKey;
-    mKey = nodeKey;
-    mState = State.NOT_READY;
+    startNodeKey = nodeKey;
+    nextNodeKey = nodeKey;
+    state = State.NOT_READY;
   }
 
   @Override
   public XmlNodeReadOnlyTrx asXdmNodeReadTrx() {
-    if (mNodeCursor instanceof XmlNodeReadOnlyTrx) {
-      return (XmlNodeReadOnlyTrx) mNodeCursor;
+    if (nodeCursor instanceof XmlNodeReadOnlyTrx) {
+      return (XmlNodeReadOnlyTrx) nodeCursor;
     }
     throw new ClassCastException("Node cursor is no XDM node transaction.");
   }
 
   @Override
   public JsonNodeReadOnlyTrx asJsonNodeReadTrx() {
-    if (mNodeCursor instanceof JsonNodeReadOnlyTrx) {
-      return (JsonNodeReadOnlyTrx) mNodeCursor;
+    if (nodeCursor instanceof JsonNodeReadOnlyTrx) {
+      return (JsonNodeReadOnlyTrx) nodeCursor;
     }
     throw new ClassCastException("Node cursor is no JSON node transaction.");
   }
 
   @Override
   public PathSummaryReader asPathSummary() {
-    if (mNodeCursor instanceof PathSummaryReader) {
-      return (PathSummaryReader) mNodeCursor;
+    if (nodeCursor instanceof PathSummaryReader) {
+      return (PathSummaryReader) nodeCursor;
     }
     throw new ClassCastException("Node cursor is no path summary reader.");
   }
 
   @Override
   public NodeCursor getCursor() {
-    return mNodeCursor;
+    return nodeCursor;
   }
 
   @Override
   public NodeReadOnlyTrx getTrx() {
-    if (mNodeCursor instanceof NodeReadOnlyTrx) {
-      return (NodeReadOnlyTrx) mNodeCursor;
+    if (nodeCursor instanceof NodeReadOnlyTrx) {
+      return (NodeReadOnlyTrx) nodeCursor;
     }
     throw new ClassCastException("Node cursor is no transactional cursor.");
   }
@@ -295,8 +295,8 @@ public abstract class AbstractAxis implements Axis {
    */
   private final long resetToStartKey() {
     // No check because of IAxis Convention 4.
-    mNodeCursor.moveTo(mStartKey);
-    return mStartKey;
+    nodeCursor.moveTo(startNodeKey);
+    return startNodeKey;
   }
 
   /**
@@ -307,8 +307,8 @@ public abstract class AbstractAxis implements Axis {
    */
   protected final long resetToLastKey() {
     // No check because of IAxis Convention 4.
-    mNodeCursor.moveTo(mKey);
-    return mKey;
+    nodeCursor.moveTo(nextNodeKey);
+    return nextNodeKey;
   }
 
   @Override
@@ -316,17 +316,17 @@ public abstract class AbstractAxis implements Axis {
     if (!hasNext()) {
       throw new NoSuchElementException();
     }
-    return mKey;
+    return nextNodeKey;
   }
 
   @Override
   public final long getStartKey() {
-    return mStartKey;
+    return startNodeKey;
   }
 
   @Override
   public final IncludeSelf isSelfIncluded() {
-    return mIncludeSelf;
+    return includeSelf;
   }
 
   /**
@@ -337,17 +337,17 @@ public abstract class AbstractAxis implements Axis {
   @Override
   public final void foreach(final XmlNodeVisitor visitor) {
     checkNotNull(visitor);
-    if (mNodeCursor instanceof XmlNodeReadOnlyTrx) {
+    if (nodeCursor instanceof XmlNodeReadOnlyTrx) {
       while (hasNext()) {
         next();
-        ((XmlNodeReadOnlyTrx) mNodeCursor).acceptVisitor(visitor);
+        ((XmlNodeReadOnlyTrx) nodeCursor).acceptVisitor(visitor);
       }
     }
   }
 
   @Override
   public synchronized final long nextNode() {
-    synchronized (mNodeCursor) {
+    synchronized (nodeCursor) {
       long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
       if (hasNext()) {
         retVal = next();
@@ -358,6 +358,6 @@ public abstract class AbstractAxis implements Axis {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("trx", mNodeCursor).toString();
+    return MoreObjects.toStringHelper(this).add("trx", nodeCursor).toString();
   }
 }

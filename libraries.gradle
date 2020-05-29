@@ -3,9 +3,6 @@ ext {
     testLibraries = [:]
     compileOnlyLibraries = [:]
 }
-compileOnlyLibraries = [
-        autoValue: 'com.google.auto.value:auto-value:1.6.2'
-]
 implLibraries = [
         jcommander               : 'com.beust:jcommander:1.69',
         aspectjrt                : 'org.aspectj:aspectjrt:1.8.10',
