@@ -21,23 +21,24 @@ public final class PathIndexBuilder {
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(PathIndexBuilder.class));
 
-  private final Set<Path<QNm>> mPaths;
-  private final PathSummaryReader mPathSummaryReader;
+  private final Set<Path<QNm>> paths;
 
-  private final AVLTreeWriter<Long, NodeReferences> mAVLTreeWriter;
+  private final PathSummaryReader pathSummaryReader;
+
+  private final AVLTreeWriter<Long, NodeReferences> avlTreeWriter;
 
   public PathIndexBuilder(final AVLTreeWriter<Long, NodeReferences> avlTreeWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
-    mPathSummaryReader = pathSummaryReader;
-    mPaths = paths;
-    mAVLTreeWriter = avlTreeWriter;
+    this.pathSummaryReader = pathSummaryReader;
+    this.paths = paths;
+    this.avlTreeWriter = avlTreeWriter;
   }
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       final long PCR = pathNodeKey;
-      if (mPathSummaryReader.getPCRsForPaths(mPaths, true).contains(PCR) || mPaths.isEmpty()) {
-        final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(PCR, SearchMode.EQUAL);
+      if (pathSummaryReader.getPCRsForPaths(paths, true).contains(PCR) || paths.isEmpty()) {
+        final Optional<NodeReferences> textReferences = avlTreeWriter.get(PCR, SearchMode.EQUAL);
         if (textReferences.isPresent()) {
           setNodeReferences(node, textReferences.get(), PCR);
         } else {
@@ -52,7 +53,7 @@ public final class PathIndexBuilder {
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final long pathNodeKey)
       throws SirixIOException {
-    mAVLTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    avlTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 
 }

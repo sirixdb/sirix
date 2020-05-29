@@ -33,11 +33,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
@@ -46,12 +45,15 @@ import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.io.URIHandler;
 import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.TemporalNodeCollection;
+import org.sirix.service.json.shredder.JsonShredder;
+import org.sirix.xquery.json.BasicJsonDBStore;
+import org.sirix.xquery.json.JsonDBCollection;
+import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.node.BasicXmlDBStore;
 
 /**
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
- *
  */
 public final class Main {
 
@@ -83,10 +85,11 @@ public final class Main {
     }
   }
 
-  private static List<Option> options = new ArrayList<Option>();
+  private static List<Option> options = new ArrayList<>();
 
   static {
     options.add(new Option("-q", "query file [use '-' for stdin (default)]", true));
+    options.add(new Option("-fType", "default document type", true));
     options.add(new Option("-f", "default document", true));
     options.add(new Option("-p", "pretty print", false));
   }
@@ -94,32 +97,48 @@ public final class Main {
   public static void main(final String[] args) {
     try {
       final Config config = parseParams(args);
-      try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
-        final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+      try (final BasicXmlDBStore nodeStore = BasicXmlDBStore.newBuilder().build();
+           final BasicJsonDBStore jsonStore = BasicJsonDBStore.newBuilder().build()) {
+        final QueryContext ctx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(nodeStore,
+                                                                                                    jsonStore,
+                                                                                                    SirixQueryContext.CommitStrategy.AUTO);
 
         final String file = config.getValue("-f");
+        final String fileType = config.getValue("-fType");
+
+
         if (file != null) {
-          final URI uri = new URI(file);
-          final InputStream in = URIHandler.getInputStream(uri);
-          try {
-            final SubtreeParser parser = new DocumentParser(in);
-            final String name = uri.toURL().getFile();
-            final TemporalNodeCollection<?> coll = store.create(name, parser);
-            final Node<?> doc = coll.getDocument();
-            ctx.setContextItem(doc);
-          } finally {
-            in.close();
+          if ("json".equals(fileType)) {
+            try (final var reader = JsonShredder.createFileReader(Path.of(file))) {
+              final JsonDBCollection coll = jsonStore.create(file, Set.of(reader));
+              final JsonDBItem doc = coll.getDocument();
+              ctx.setContextItem(doc);
+            }
+          } else {
+            final URI uri = new URI(file);
+            final InputStream in = URIHandler.getInputStream(uri);
+            try {
+              final SubtreeParser parser = new DocumentParser(in);
+              final String name = uri.toURL().getFile();
+
+              final TemporalNodeCollection<?> coll = nodeStore.create(name, parser);
+              final Node<?> doc = coll.getDocument();
+              ctx.setContextItem(doc);
+            } finally {
+              in.close();
+            }
           }
         }
 
-        String query;
+        final String query;
+
         if (((config.isSet("-q")) && (!"-".equals(config.getValue("-q"))))) {
           query = readFile(config.getValue("-q"));
         } else {
           query = readStringFromScanner(System.in);
         }
 
-        final XQuery xq = new XQuery(SirixCompileChain.createWithNodeStore(store), query);
+        final XQuery xq = new XQuery(SirixCompileChain.createWithNodeAndJsonStore(nodeStore, jsonStore), query);
         if (config.isSet("-p")) {
           xq.prettyPrint();
         }
@@ -161,9 +180,7 @@ public final class Main {
       final String s = args[i];
       for (final Option o : options) {
         if (o.key.equals(s)) {
-          final String val = (o.hasValue)
-              ? args[++i]
-              : null;
+          final String val = (o.hasValue) ? args[++i] : null;
           config.setOption(o.key, val);
           valid = true;
           break;
@@ -178,22 +195,7 @@ public final class Main {
   }
 
   private static String readFile(final String file) throws IOException {
-    final FileInputStream fin = new FileInputStream(file);
-    try {
-      return readString(fin);
-    } finally {
-      fin.close();
-    }
-  }
-
-  private static String readString(final InputStream in) throws IOException {
-    int r;
-    final ByteArrayOutputStream payload = new ByteArrayOutputStream();
-    while ((r = in.read()) != -1) {
-      payload.write(r);
-    }
-    final String string = payload.toString(StandardCharsets.UTF_8.toString());
-    return string;
+    return Files.readString(Path.of(file));
   }
 
   private static void printUsage() {

@@ -11,6 +11,7 @@ import org.sirix.xquery.compiler.optimizer.SirixOptimizer;
 import org.sirix.xquery.compiler.translator.SirixTranslator;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
+import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.json.BasicJsonDBStore;
 import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.BasicXmlDBStore;
@@ -23,11 +24,12 @@ import org.sirix.xquery.node.XmlDBStore;
  *
  */
 public final class SirixCompileChain extends CompileChain implements AutoCloseable {
-  public static final boolean OPTIMIZE = Cfg.asBool("org.sirix.xquery.optimize.multichild", false);
+  public static final boolean OPTIMIZE = Cfg.asBool("org.sirix.xquery.optimize.indexrewrite", true);
 
   static {
     // define function namespaces and functions in these namespaces
     SDBFun.register();
+    XMLFun.register();
     JNFun.register();
   }
 

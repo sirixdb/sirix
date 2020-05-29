@@ -11,27 +11,27 @@ import org.sirix.xquery.node.XmlDBNode;
 
 public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
 
-  private final Iterator<NodeReferences> mIter;
+  private final Iterator<NodeReferences> iter;
 
-  private final XmlDBCollection mCollection;
+  private final XmlDBCollection collection;
 
-  private final XmlNodeReadOnlyTrx mRtx;
+  private final XmlNodeReadOnlyTrx rtx;
 
   public SirixNodeKeyStream(final Iterator<NodeReferences> iter, final XmlDBCollection collection,
       final XmlNodeReadOnlyTrx rtx) {
-    mIter = checkNotNull(iter);
-    mCollection = checkNotNull(collection);
-    mRtx = checkNotNull(rtx);
+    this.iter = checkNotNull(iter);
+    this.collection = checkNotNull(collection);
+    this.rtx = checkNotNull(rtx);
   }
 
   @Override
   public XmlDBNode next() {
-    while (mIter.hasNext()) {
-      final NodeReferences nodeReferences = mIter.next();
+    while (iter.hasNext()) {
+      final NodeReferences nodeReferences = iter.next();
       final Set<Long> nodeKeys = nodeReferences.getNodeKeys();
       for (final long nodeKey : nodeKeys) {
-        mRtx.moveTo(nodeKey);
-        return new XmlDBNode(mRtx, mCollection);
+        rtx.moveTo(nodeKey);
+        return new XmlDBNode(rtx, collection);
       }
     }
     return null;
