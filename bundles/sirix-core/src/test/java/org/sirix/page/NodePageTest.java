@@ -44,7 +44,6 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.xml.ElementNode;
-import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.HashBiMap;
 import com.google.common.hash.Hashing;
@@ -66,7 +65,7 @@ public final class NodePageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After

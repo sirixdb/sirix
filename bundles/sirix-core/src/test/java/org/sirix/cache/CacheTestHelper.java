@@ -26,7 +26,6 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
-import org.sirix.settings.Constants;
 
 import java.util.List;
 
@@ -53,7 +52,7 @@ public class CacheTestHelper {
    * @throws SirixException if setting up Sirix session fails
    */
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
-    PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadTrx();
+    PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadOnlyTrx();
     PAGES = new UnorderedKeyValuePage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final UnorderedKeyValuePage page =

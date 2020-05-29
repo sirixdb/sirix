@@ -53,7 +53,7 @@ public class PageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @AfterClass

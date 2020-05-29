@@ -35,22 +35,22 @@ public final class IndexDef implements Materializable {
 
   public static final QNm INDEX_TAG = new QNm("index");
 
-  private IndexType mType;
+  private IndexType type;
 
   // unique flag (for CAS indexes)
-  private boolean mUnique = false;
+  private boolean unique = false;
 
   // for CAS indexes
-  private Type mContentType;
+  private Type contentType;
 
   // populated when index is built
-  private int mID;
+  private int id;
 
-  private final Set<Path<QNm>> mPaths = new HashSet<>();
+  private final Set<Path<QNm>> paths = new HashSet<>();
 
-  private final Set<QNm> mExcluded = new HashSet<>();
+  private final Set<QNm> excluded = new HashSet<>();
 
-  private final Set<QNm> mIncluded = new HashSet<>();
+  private final Set<QNm> included = new HashSet<>();
 
   public IndexDef() {}
 
@@ -58,19 +58,19 @@ public final class IndexDef implements Materializable {
    * Name index.
    */
   IndexDef(final Set<QNm> included, final Set<QNm> excluded, final int indexDefNo) {
-    mType = IndexType.NAME;
-    mIncluded.addAll(included);
-    mExcluded.addAll(excluded);
-    mID = indexDefNo;
+    type = IndexType.NAME;
+    this.included.addAll(included);
+    this.excluded.addAll(excluded);
+    id = indexDefNo;
   }
 
   /**
    * Path index.
    */
   IndexDef(final Set<Path<QNm>> paths, final int indexDefNo) {
-    mType = IndexType.PATH;
-    mPaths.addAll(paths);
-    mID = indexDefNo;
+    type = IndexType.PATH;
+    this.paths.addAll(paths);
+    id = indexDefNo;
   }
 
   /**
@@ -78,11 +78,11 @@ public final class IndexDef implements Materializable {
    */
   IndexDef(final Type contentType, final Set<Path<QNm>> paths, final boolean unique,
       final int indexDefNo) {
-    mType = IndexType.CAS;
-    mContentType = checkNotNull(contentType);
-    mPaths.addAll(paths);
-    mUnique = unique;
-    mID = indexDefNo;
+    type = IndexType.CAS;
+    this.contentType = checkNotNull(contentType);
+    this.paths.addAll(paths);
+    this.unique = unique;
+    id = indexDefNo;
   }
 
   @Override
@@ -90,30 +90,30 @@ public final class IndexDef implements Materializable {
     final FragmentHelper tmp = new FragmentHelper();
 
     tmp.openElement(INDEX_TAG);
-    tmp.attribute(TYPE_ATTRIBUTE, new Una(mType.toString()));
-    tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(mID)));
+    tmp.attribute(TYPE_ATTRIBUTE, new Una(type.toString()));
+    tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(id)));
 
-    if (mContentType != null) {
-      tmp.attribute(CONTENT_TYPE_ATTRIBUTE, new Una(mContentType.toString()));
+    if (contentType != null) {
+      tmp.attribute(CONTENT_TYPE_ATTRIBUTE, new Una(contentType.toString()));
     }
 
-    if (mUnique) {
-      tmp.attribute(UNIQUE_ATTRIBUTE, new Una(Boolean.toString(mUnique)));
+    if (unique) {
+      tmp.attribute(UNIQUE_ATTRIBUTE, new Una(Boolean.toString(unique)));
     }
 
-    if (mPaths != null && !mPaths.isEmpty()) {
-      for (final Path<QNm> path : mPaths) {
+    if (paths != null && !paths.isEmpty()) {
+      for (final Path<QNm> path : paths) {
         tmp.openElement(PATH_TAG);
         tmp.content(path.toString()); // TODO
         tmp.closeElement();
       }
     }
 
-    if (!mExcluded.isEmpty()) {
+    if (!excluded.isEmpty()) {
       tmp.openElement(EXCLUDING_TAG);
 
       final StringBuilder buf = new StringBuilder();
-      for (final QNm s : mExcluded) {
+      for (final QNm s : excluded) {
         buf.append(s + ",");
       }
       // remove trailing ","
@@ -122,11 +122,11 @@ public final class IndexDef implements Materializable {
       tmp.closeElement();
     }
 
-    if (!mIncluded.isEmpty()) {
+    if (!included.isEmpty()) {
       tmp.openElement(INCLUDING_TAG);
 
       final StringBuilder buf = new StringBuilder();
-      for (final QNm incl : mIncluded) {
+      for (final QNm incl : included) {
         buf.append(incl + ",");
       }
       // remove trailing ","
@@ -155,22 +155,22 @@ public final class IndexDef implements Materializable {
 
     attribute = root.getAttribute(ID_ATTRIBUTE);
     if (attribute != null) {
-      mID = Integer.valueOf(attribute.getValue().stringValue());
+      id = Integer.valueOf(attribute.getValue().stringValue());
     }
 
     attribute = root.getAttribute(TYPE_ATTRIBUTE);
     if (attribute != null) {
-      mType = (IndexType.valueOf(attribute.getValue().stringValue()));
+      type = (IndexType.valueOf(attribute.getValue().stringValue()));
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);
     if (attribute != null) {
-      mContentType = (resolveType(attribute.getValue().stringValue()));
+      contentType = (resolveType(attribute.getValue().stringValue()));
     }
 
     attribute = root.getAttribute(UNIQUE_ATTRIBUTE);
     if (attribute != null) {
-      mUnique = (Boolean.valueOf(attribute.getValue().stringValue()));
+      unique = (Boolean.valueOf(attribute.getValue().stringValue()));
     }
 
     final Stream<? extends Node<?>> children = root.getChildren();
@@ -187,11 +187,11 @@ public final class IndexDef implements Materializable {
 
         if (childName.equals(PATH_TAG)) {
           final String path = value;
-          mPaths.add(Path.parse(path));
+          paths.add(Path.parse(path));
         } else if (childName.equals(INCLUDING_TAG)) {
           for (final String s : value.split(",")) {
             if (s.length() > 0) {
-              mIncluded.add(new QNm(s));
+              included.add(new QNm(s));
               // String includeString = s;
               // String[] tmp = includeString.split("@");
               // included.put(new QNm(tmp[0]),
@@ -201,7 +201,7 @@ public final class IndexDef implements Materializable {
         } else if (childName.equals(EXCLUDING_TAG)) {
           for (final String s : value.split(",")) {
             if (s.length() > 0)
-              mExcluded.add(new QNm(s));
+              excluded.add(new QNm(s));
           }
         }
         // }
@@ -223,39 +223,39 @@ public final class IndexDef implements Materializable {
   }
 
   public boolean isNameIndex() {
-    return mType == IndexType.NAME;
+    return type == IndexType.NAME;
   }
 
   public boolean isCasIndex() {
-    return mType == IndexType.CAS;
+    return type == IndexType.CAS;
   }
 
   public boolean isPathIndex() {
-    return mType == IndexType.PATH;
+    return type == IndexType.PATH;
   }
 
   public boolean isUnique() {
-    return mUnique;
+    return unique;
   }
 
   public int getID() {
-    return mID;
+    return id;
   }
 
   public IndexType getType() {
-    return mType;
+    return type;
   }
 
   public Set<Path<QNm>> getPaths() {
-    return Collections.unmodifiableSet(mPaths);
+    return Collections.unmodifiableSet(paths);
   }
 
   public Set<QNm> getIncluded() {
-    return Collections.unmodifiableSet(mIncluded);
+    return Collections.unmodifiableSet(included);
   }
 
   public Set<QNm> getExcluded() {
-    return Collections.unmodifiableSet(mExcluded);
+    return Collections.unmodifiableSet(excluded);
   }
 
   @Override
@@ -270,15 +270,15 @@ public final class IndexDef implements Materializable {
   }
 
   public Type getContentType() {
-    return mContentType;
+    return contentType;
   }
 
   @Override
   public int hashCode() {
-    int result = mID;
-    result = 31 * result + ((mType == null)
+    int result = id;
+    result = 31 * result + ((type == null)
         ? 0
-        : mType.hashCode());
+        : type.hashCode());
     return result;
   }
 
@@ -292,6 +292,6 @@ public final class IndexDef implements Materializable {
       return false;
 
     final IndexDef other = (IndexDef) obj;
-    return mID == other.mID && mType == other.mType;
+    return id == other.id && type == other.type;
   }
 }

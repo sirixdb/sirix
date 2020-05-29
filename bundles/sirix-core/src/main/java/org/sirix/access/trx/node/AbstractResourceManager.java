@@ -603,7 +603,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageReadOnlyTrx beginPageReadTrx() {
+  public PageReadOnlyTrx beginPageReadOnlyTrx() {
     return beginPageReadOnlyTrx(lastCommittedUberPage.get().getRevisionNumber());
   }
 
