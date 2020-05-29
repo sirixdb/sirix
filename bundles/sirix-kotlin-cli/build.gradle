@@ -1,0 +1,29 @@
+repositories {
+    
+}
+
+apply plugin: 'kotlin'
+
+dependencies {
+    implementation project(':sirix-core')
+    implementation project(':sirix-xquery')
+
+    implementation implLibraries.kotlinStdlib
+    implementation implLibraries.kotlinStdlibJdk8
+
+    implementation implLibraries.kotlinxCli
+
+    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitJupiterEngine
+    testImplementation testLibraries.junitVintageEngine
+    testImplementation testLibraries.junitPlatformLauncher
+    testImplementation testLibraries.junitPlatformRunner
+    testImplementation testLibraries.mockitoCore
+}
+
+test {
+    useJUnitPlatform()
+}
+
+
+description = 'Sirix CLI.'
