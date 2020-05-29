@@ -84,6 +84,10 @@ public final class IndexExpr implements Expr {
 
   @Override
   public Item evaluateToItem(QueryContext ctx, Tuple tuple) throws QueryException {
+    final var res = evaluate(ctx, tuple);
+    if (res instanceof Item) {
+      return (Item) res;
+    }
     return null;
   }
 
