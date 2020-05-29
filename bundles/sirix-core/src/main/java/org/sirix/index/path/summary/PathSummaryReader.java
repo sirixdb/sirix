@@ -47,37 +47,37 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Strong reference to currently selected node.
    */
-  private StructNode mCurrentNode;
+  private StructNode currentNode;
 
   /**
    * Page reader.
    */
-  private final PageReadOnlyTrx mPageReadTrx;
+  private final PageReadOnlyTrx pageReadTrx;
 
   /**
    * {@link ResourceManager} reference.
    */
-  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager;
 
   /**
    * Determines if path summary is closed or not.
    */
-  private boolean mClosed;
+  private boolean isClosed;
 
   /**
    * Mapping of a path node key to the path node/document root node.
    */
-  private final Map<Long, StructNode> mPathNodeMapping;
+  private final Map<Long, StructNode> pathNodeMapping;
 
   /**
    * Mapping of a {@link QNm} to a set of path nodes.
    */
-  private final Map<QNm, Set<PathNode>> mQNmMapping;
+  private final Map<QNm, Set<PathNode>> qnmMapping;
 
   /**
    * The path cache.
    */
-  private final Map<Path<QNm>, Set<Long>> mPathCache;
+  private final Map<Path<QNm>, Set<Long>> pathCache;
 
   private boolean mInit = true;
 
@@ -89,32 +89,32 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   private PathSummaryReader(final PageReadOnlyTrx pageReadTrx,
       final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager) {
-    mPathCache = new HashMap<>();
-    mPageReadTrx = pageReadTrx;
-    mClosed = false;
-    mResourceManager = resourceManager;
+    pathCache = new HashMap<>();
+    this.pageReadTrx = pageReadTrx;
+    isClosed = false;
+    this.resourceManager = resourceManager;
 
     final Optional<? extends DataRecord> node =
-        mPageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
+        this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
     if (node.isPresent()) {
-      mCurrentNode = (StructNode) node.get();
+      currentNode = (StructNode) node.get();
     } else {
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
 
-    mPathNodeMapping = new HashMap<>();
-    mQNmMapping = new HashMap<>();
+    pathNodeMapping = new HashMap<>();
+    qnmMapping = new HashMap<>();
     boolean first = true;
     for (final long nodeKey : new DescendantAxis(this, IncludeSelf.YES)) {
-      mPathNodeMapping.put(nodeKey, this.getStructuralNode());
+      pathNodeMapping.put(nodeKey, this.getStructuralNode());
 
       if (first) {
         first = false;
       } else {
         final Set<PathNode> pathNodes =
-            mQNmMapping.get(this.getName()) == null ? new HashSet<>() : mQNmMapping.get(this.getName());
+            qnmMapping.get(this.getName()) == null ? new HashSet<>() : qnmMapping.get(this.getName());
         pathNodes.add(this.getPathNode());
-        mQNmMapping.put(this.getName(), pathNodes);
+        qnmMapping.put(this.getName(), pathNodes);
       }
     }
 
@@ -123,7 +123,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public Optional<User> getUser() {
-    return mPageReadTrx.getActualRevisionRootPage().getUser();
+    return pageReadTrx.getActualRevisionRootPage().getUser();
   }
 
   @Override
@@ -133,7 +133,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public PageReadOnlyTrx getPageTrx() {
-    return mPageReadTrx;
+    return pageReadTrx;
   }
 
   /**
@@ -149,30 +149,27 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void putMapping(final @Nonnegative
-      long pathNodeKey, final StructNode node) {
-    mPathNodeMapping.put(pathNodeKey, node);
+  void putMapping(final @Nonnegative long pathNodeKey, final StructNode node) {
+    pathNodeMapping.put(pathNodeKey, node);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  StructNode removeMapping(final @Nonnegative
-      long pathNodeKey) {
-    return mPathNodeMapping.remove(pathNodeKey);
+  StructNode removeMapping(final @Nonnegative long pathNodeKey) {
+    return pathNodeMapping.remove(pathNodeKey);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
   void putQNameMapping(final PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<>() : mQNmMapping.get(name);
+    final Set<PathNode> pathNodes = qnmMapping.get(name) == null ? new HashSet<>() : qnmMapping.get(name);
     pathNodes.add(node);
-    mQNmMapping.put(name, pathNodes);
+    qnmMapping.put(name, pathNodes);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void removeQNameMapping(final @Nonnegative
-      PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<>() : mQNmMapping.get(name);
+  void removeQNameMapping(final @Nonnegative PathNode node, final QNm name) {
+    final Set<PathNode> pathNodes = qnmMapping.get(name) == null ? new HashSet<>() : qnmMapping.get(name);
     if (pathNodes.size() == 1) {
-      mQNmMapping.remove(name);
+      qnmMapping.remove(name);
     } else {
       pathNodes.remove(node);
     }
@@ -186,17 +183,16 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param includeSelf if current node should be included or not
    * @return a set with bits set for each matching path node (its {@code pathNodeKey})
    */
-  public BitSet matchDescendants(final QNm name, final @Nonnegative
-      long pathNodeKey, final IncludeSelf includeSelf) {
+  public BitSet matchDescendants(final QNm name, final @Nonnegative long pathNodeKey, final IncludeSelf includeSelf) {
     assertNotClosed();
-    final Set<PathNode> set = mQNmMapping.get(name);
+    final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
       return new BitSet(0);
     }
     moveTo(pathNodeKey);
     final BitSet matches = new BitSet();
     for (final long nodeKey : new FilterAxis<>(new DescendantAxis(this, includeSelf),
-        new PathNameFilter(this, name.toString()))) {
+                                               new PathNameFilter(this, name.toString()))) {
       matches.set((int) nodeKey);
     }
     return matches;
@@ -209,10 +205,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
-  public BitSet match(final QNm name, final @Nonnegative
-      int minLevel) {
+  public BitSet match(final QNm name, final @Nonnegative int minLevel) {
     assertNotClosed();
-    final Set<PathNode> set = mQNmMapping.get(name);
+    final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
       return new BitSet(0);
     }
@@ -223,6 +218,29 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     return matches;
+  }
+
+  /**
+   * Match a {@link QNm} with a specific level.
+   *
+   * @param name  the QName
+   * @param level minimum level
+   * @param nodeKind the node type
+   * @return a set with bits set for each matching path node
+   */
+  public Optional<PathNode> matchLevel(final QNm name, final @Nonnegative int level, NodeKind nodeKind) {
+    assertNotClosed();
+    final Set<PathNode> set = qnmMapping.get(name);
+    if (set == null) {
+      return Optional.empty();
+    }
+    for (final PathNode pathNode : set) {
+      if (pathNode.getLevel() == level && pathNode.getPathKind() == nodeKind) {
+        return Optional.of(pathNode);
+      }
+    }
+
+    return Optional.empty();
   }
 
   /**
@@ -250,8 +268,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param pathNodeKey path node key
    * @return path node corresponding to the provided key
    */
-  public PathNode getPathNodeForPathNodeKey(final @Nonnegative
-      long pathNodeKey) {
+  public PathNode getPathNodeForPathNodeKey(final @Nonnegative long pathNodeKey) {
     assertNotClosed();
 
     if (pathNodeKey < 0) {
@@ -259,18 +276,18 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     } else if (pathNodeKey == 0) {
       return null;
     }
-    return (PathNode) mPathNodeMapping.get(pathNodeKey);
+    return (PathNode) pathNodeMapping.get(pathNodeKey);
   }
 
   @Override
   public ImmutableNode getNode() {
     assertNotClosed();
-    if (mCurrentNode instanceof XmlDocumentRootNode) {
-      return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) mCurrentNode);
-    } else if (mCurrentNode instanceof JsonDocumentRootNode) {
-      return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) mCurrentNode);
+    if (currentNode instanceof XmlDocumentRootNode) {
+      return ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) currentNode);
+    } else if (currentNode instanceof JsonDocumentRootNode) {
+      return ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) currentNode);
     }
-    return ImmutablePathNode.of((PathNode) mCurrentNode);
+    return ImmutablePathNode.of((PathNode) currentNode);
   }
 
   /**
@@ -284,8 +301,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public Set<Long> getPCRsForPath(final Path<QNm> path, final boolean useCache) throws PathException {
     final Set<Long> pcrSet;
     if (useCache) {
-      if (mPathCache.containsKey(path) && mPathCache.get(path) != null) {
-        return mPathCache.get(path);
+      if (pathCache.containsKey(path) && pathCache.get(path) != null) {
+        return pathCache.get(path);
       } else {
         pcrSet = new HashSet<>();
       }
@@ -296,7 +313,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final boolean isAttributePattern = path.isAttribute();
     final int pathLength = path.getLength();
 
-    final long nodeKey = mCurrentNode.getNodeKey();
+    final long nodeKey = currentNode.getNodeKey();
     moveToDocumentRoot();
     for (final Axis axis = new DescendantAxis(this); axis.hasNext(); ) {
       axis.next();
@@ -320,7 +337,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
     moveTo(nodeKey);
     if (useCache) {
-      mPathCache.put(path, pcrSet);
+      pathCache.put(path, pcrSet);
     }
     return pcrSet;
   }
@@ -338,8 +355,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public PathNode getPathNode() {
     assertNotClosed();
-    if (mCurrentNode instanceof PathNode) {
-      return (PathNode) mCurrentNode;
+    if (currentNode instanceof PathNode) {
+      return (PathNode) currentNode;
     } else {
       return null;
     }
@@ -353,29 +370,29 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final PathNode node = getPathNodeForPathNodeKey(nodeKey);
 
       if (node != null) {
-        mCurrentNode = node;
+        currentNode = node;
         return Move.moved(this);
       }
     }
 
     // Remember old node and fetch new one.
-    final StructNode oldNode = mCurrentNode;
+    final StructNode oldNode = currentNode;
     Optional<? extends StructNode> newNode;
     try {
       // Immediately return node from item list if node key negative.
       @SuppressWarnings("unchecked")
       final Optional<? extends StructNode> node =
-          (Optional<? extends StructNode>) mPageReadTrx.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
+          (Optional<? extends StructNode>) pageReadTrx.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
       newNode = node;
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
     }
 
     if (newNode.isPresent()) {
-      mCurrentNode = newNode.get();
+      currentNode = newNode.get();
       return Move.moved(this);
     } else {
-      mCurrentNode = oldNode;
+      currentNode = oldNode;
       return Move.notMoved();
     }
   }
@@ -415,13 +432,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public void close() {
-    if (!mClosed) {
+    if (!isClosed) {
       // Immediately release all references.
-      mCurrentNode = null;
-      mClosed = true;
+      currentNode = null;
+      isClosed = true;
 
-      if (mPageReadTrx != null && !mPageReadTrx.isClosed()) {
-        mPageReadTrx.close();
+      if (pageReadTrx != null && !pageReadTrx.isClosed()) {
+        pageReadTrx.close();
       }
     }
   }
@@ -430,7 +447,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Make sure that the path summary is not yet closed when calling this method.
    */
   final void assertNotClosed() {
-    if (mClosed) {
+    if (isClosed) {
       throw new IllegalStateException("Path summary is already closed.");
     }
   }
@@ -446,11 +463,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return structural node
    */
   private StructNode getStructuralNode() {
-    if (mCurrentNode instanceof StructNode) {
-      return mCurrentNode;
-    } else {
-      return new NullNode(mCurrentNode);
+    if (currentNode instanceof StructNode) {
+      return currentNode;
     }
+    return new NullNode(currentNode);
   }
 
   @Override
@@ -461,27 +477,27 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return mPageReadTrx.getRevisionNumber();
+    return pageReadTrx.getRevisionNumber();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
+    return Instant.ofEpochMilli(pageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    return ((PathSummaryPage) mPageReadTrx.getActualRevisionRootPage()
-                                          .getPathSummaryPageReference()
-                                          .getPage()).getMaxNodeKey(0);
+    return ((PathSummaryPage) pageReadTrx.getActualRevisionRootPage()
+                                         .getPathSummaryPageReference()
+                                         .getPage()).getMaxNodeKey(0);
   }
 
   @Override
   public Move<? extends PathSummaryReader> moveToNextFollowing() {
     assertNotClosed();
-    while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
+    while (!getStructuralNode().hasRightSibling() && currentNode.hasParent()) {
       moveToParent();
     }
     return moveToRightSibling();
@@ -490,17 +506,17 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public QNm getName() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      final int uriKey = ((NameNode) mCurrentNode).getURIKey();
-      final String uri = uriKey == -1 || mPageReadTrx.getResourceManager() instanceof JsonResourceManager
+    if (currentNode instanceof NameNode) {
+      final int uriKey = ((NameNode) currentNode).getURIKey();
+      final String uri = uriKey == -1 || pageReadTrx.getResourceManager() instanceof JsonResourceManager
           ? ""
-          : mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
+          : pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
+      final int prefixKey = ((NameNode) currentNode).getPrefixKey();
       final String prefix =
-          prefixKey == -1 ? "" : mPageReadTrx.getName(prefixKey, ((PathNode) mCurrentNode).getPathKind());
-      final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
+          prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, ((PathNode) currentNode).getPathKind());
+      final int localNameKey = ((NameNode) currentNode).getLocalNameKey();
       final String localName =
-          localNameKey == -1 ? "" : mPageReadTrx.getName(localNameKey, ((PathNode) mCurrentNode).getPathKind());
+          localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
       return new QNm(uri, prefix, localName);
     } else {
       return null;
@@ -516,9 +532,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    if (mCurrentNode instanceof PathNode) {
-      final PathNode node = (PathNode) mCurrentNode;
-      return mPageReadTrx.getName(key, node.getPathKind());
+    if (currentNode instanceof PathNode) {
+      final PathNode node = (PathNode) currentNode;
+      return pageReadTrx.getName(key, node.getPathKind());
     } else {
       return "";
     }
@@ -526,13 +542,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public boolean isClosed() {
-    return mClosed;
+    return isClosed;
   }
 
   @Override
   public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
     assertNotClosed();
-    return mResourceManager;
+    return resourceManager;
   }
 
   @Override
@@ -590,14 +606,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 
-    if (mCurrentNode instanceof PathNode) {
-      final PathNode node = (PathNode) mCurrentNode;
-      helper.add("uri", mPageReadTrx.getName(node.getURIKey(), node.getPathKind()));
-      helper.add("prefix", mPageReadTrx.getName(node.getPrefixKey(), node.getPathKind()));
-      helper.add("localName", mPageReadTrx.getName(node.getLocalNameKey(), node.getPathKind()));
+    if (currentNode instanceof PathNode) {
+      final PathNode node = (PathNode) currentNode;
+      helper.add("uri", pageReadTrx.getName(node.getURIKey(), node.getPathKind()));
+      helper.add("prefix", pageReadTrx.getName(node.getPrefixKey(), node.getPathKind()));
+      helper.add("localName", pageReadTrx.getName(node.getLocalNameKey(), node.getPathKind()));
     }
 
-    helper.add("node", mCurrentNode);
+    helper.add("node", currentNode);
     return helper.toString();
   }
 
@@ -608,17 +624,16 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public int getLevel() {
     assertNotClosed();
-    if (mCurrentNode instanceof PathNode) {
+    if (currentNode instanceof PathNode) {
       return getPathNode().getLevel();
     }
     return 0;
   }
 
   @Override
-  public boolean hasNode(final @Nonnegative
-      long key) {
+  public boolean hasNode(final @Nonnegative long key) {
     assertNotClosed();
-    final long currNodeKey = mCurrentNode.getNodeKey();
+    final long currNodeKey = currentNode.getNodeKey();
     final boolean retVal = moveTo(key).hasMoved();
     final boolean movedBack = moveTo(currNodeKey).hasMoved();
     assert movedBack : "moveTo(currNodeKey) must succeed!";
@@ -628,7 +643,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean hasParent() {
     assertNotClosed();
-    return mCurrentNode.hasParent();
+    return currentNode.hasParent();
   }
 
   @Override
@@ -640,8 +655,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() == null ? false : true;
+    final long nodeKey = currentNode.getNodeKey();
+    final boolean retVal = moveToLastChild() != null;
     moveTo(nodeKey);
     return retVal;
   }
@@ -661,7 +676,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public long getNodeKey() {
     assertNotClosed();
-    return mCurrentNode.getNodeKey();
+    return currentNode.getNodeKey();
   }
 
   @Override
@@ -690,7 +705,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       while (getStructuralNode().hasRightSibling()) {
         moveToRightSibling();
       }
-      return mCurrentNode.getNodeKey();
+      return currentNode.getNodeKey();
     }
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
@@ -698,13 +713,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public long getParentKey() {
     assertNotClosed();
-    return mCurrentNode.getParentKey();
+    return currentNode.getParentKey();
   }
 
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    return mCurrentNode.getKind();
+    return currentNode.getKind();
   }
 
   @Override
@@ -716,8 +731,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public NodeKind getPathKind() {
     assertNotClosed();
-    if (mCurrentNode instanceof PathNode) {
-      return ((PathNode) mCurrentNode).getPathKind();
+    if (currentNode instanceof PathNode) {
+      return ((PathNode) currentNode).getPathKind();
     }
     return NodeKind.NULL;
   }
@@ -755,10 +770,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public NodeKind getParentKind() {
     assertNotClosed();
-    if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+    if (currentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       return NodeKind.XML_DOCUMENT;
     }
-    if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    if (currentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
     return NodeKind.PATH;
@@ -777,7 +792,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public int getReferences() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.XML_DOCUMENT) {
+    if (currentNode.getKind() == NodeKind.XML_DOCUMENT) {
       return 1;
     } else {
       return getPathNode().getReferences();
@@ -787,7 +802,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.XML_DOCUMENT) {
+    if (currentNode.getKind() == NodeKind.XML_DOCUMENT || currentNode == NodeKind.JSON_DOCUMENT) {
       return true;
     }
     return false;
@@ -825,12 +840,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public CommitCredentials getCommitCredentials() {
     assertNotClosed();
-    return mPageReadTrx.getCommitCredentials();
+    return pageReadTrx.getCommitCredentials();
   }
 
   public boolean isNameNode() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
+    if (currentNode instanceof NameNode) {
       return true;
     }
     return false;
@@ -838,16 +853,16 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   public int getLocalNameKey() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getLocalNameKey();
+    if (currentNode instanceof NameNode) {
+      return ((NameNode) currentNode).getLocalNameKey();
     }
     return -1;
   }
 
   public int getPrefixKey() {
     assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getPrefixKey();
+    if (currentNode instanceof NameNode) {
+      return ((NameNode) currentNode).getPrefixKey();
     }
     return -1;
   }

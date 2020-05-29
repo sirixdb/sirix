@@ -113,15 +113,17 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
 
   @Override
   public synchronized XmlIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, (unused) -> new XmlIndexController());
+    return rtxIndexControllers.computeIfAbsent(revision, (unused) -> createIndexController(revision));
   }
 
   @Override
   public synchronized XmlIndexController getWtxIndexController(final int revision) {
-    return wtxIndexControllers.computeIfAbsent(revision, unused -> {
-      final var controller = new XmlIndexController();
-      initializeIndexController(revision, controller);
-      return controller;
-    });
+    return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+  }
+
+  private XmlIndexController createIndexController(int revision) {
+    final var controller = new XmlIndexController();
+    initializeIndexController(revision, controller);
+    return controller;
   }
 }

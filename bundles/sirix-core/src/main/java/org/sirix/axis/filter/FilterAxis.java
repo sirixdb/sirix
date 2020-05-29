@@ -38,10 +38,10 @@ import org.sirix.axis.AbstractAxis;
 public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends AbstractAxis {
 
   /** Axis to test. */
-  private final Axis mAxis;
+  private final Axis axis;
 
   /** Test to apply to axis. */
-  private final List<Filter<R>> mAxisFilter;
+  private final List<Filter<R>> axisFilter;
 
   /**
    * Constructor initializing internal state.
@@ -54,17 +54,17 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
   @SafeVarargs
   public FilterAxis(final Axis axis, final Filter<R> firstAxisTest, final Filter<R>... axisTest) {
     super(axis.getCursor());
-    mAxis = axis;
-    mAxisFilter = new ArrayList<>();
-    mAxisFilter.add(firstAxisTest);
-    if (!mAxis.getCursor().equals(mAxisFilter.get(0).getTrx())) {
+    this.axis = axis;
+    axisFilter = new ArrayList<>();
+    axisFilter.add(firstAxisTest);
+    if (!this.axis.getCursor().equals(axisFilter.get(0).getTrx())) {
       throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
     }
 
     if (axisTest != null) {
       for (final var filter : axisTest) {
-        mAxisFilter.add(filter);
-        if (!mAxis.getCursor().equals(mAxisFilter.get(mAxisFilter.size() - 1).getTrx())) {
+        axisFilter.add(filter);
+        if (!this.axis.getCursor().equals(axisFilter.get(axisFilter.size() - 1).getTrx())) {
           throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
         }
       }
@@ -74,17 +74,17 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    if (mAxis != null) {
-      mAxis.reset(nodeKey);
+    if (axis != null) {
+      axis.reset(nodeKey);
     }
   }
 
   @Override
   protected long nextKey() {
-    while (mAxis.hasNext()) {
-      final long nodeKey = mAxis.next();
+    while (axis.hasNext()) {
+      final long nodeKey = axis.next();
       boolean filterResult = true;
-      for (final Filter<R> filter : mAxisFilter) {
+      for (final Filter<R> filter : axisFilter) {
         filterResult = filterResult && filter.filter();
         if (!filterResult) {
           break;
@@ -103,6 +103,6 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
    * @return the axis
    */
   public Axis getAxis() {
-    return mAxis;
+    return axis;
   }
 }

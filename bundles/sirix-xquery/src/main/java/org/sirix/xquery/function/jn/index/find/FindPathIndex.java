@@ -51,8 +51,7 @@ public final class FindPathIndex extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller =
-        (JsonIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

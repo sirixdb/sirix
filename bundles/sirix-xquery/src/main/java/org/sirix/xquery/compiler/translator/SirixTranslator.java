@@ -633,7 +633,7 @@ public final class SirixTranslator extends TopDownTranslator {
     /**
      * Determines if current node is included (-or-self part).
      */
-    private final IncludeSelf mSelf;
+    private final IncludeSelf self;
 
     /**
      * Map with PCR <=> matching nodes.
@@ -647,7 +647,7 @@ public final class SirixTranslator extends TopDownTranslator {
      */
     public DescOrSelf(final Axis axis) {
       super(axis);
-      mSelf = axis == Axis.DESCENDANT_OR_SELF ? IncludeSelf.YES : IncludeSelf.NO;
+      self = axis == Axis.DESCENDANT_OR_SELF ? IncludeSelf.YES : IncludeSelf.NO;
       mFilterMap = new HashMap<>();
     }
 
@@ -663,7 +663,7 @@ public final class SirixTranslator extends TopDownTranslator {
           final PathSummaryReader reader = rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber());
           if (matches == null) {
             reader.moveTo(pcr);
-            final int level = mSelf == IncludeSelf.YES ? reader.getLevel() : reader.getLevel() + 1;
+            final int level = self == IncludeSelf.YES ? reader.getLevel() : reader.getLevel() + 1;
             final QNm name = test.getQName();
             matches = reader.match(name, level);
             mFilterMap.put(pcr, matches);
@@ -681,7 +681,7 @@ public final class SirixTranslator extends TopDownTranslator {
             assert reader.getPathNode() != null;
             final int matchLevel = reader.getPathNode().getLevel();
             // Match at the same level.
-            if (mSelf == IncludeSelf.YES && matchLevel == level) {
+            if (self == IncludeSelf.YES && matchLevel == level) {
               reader.close();
               return new SirixNodeStream(new SelfAxis(rtx), dbNode.getCollection());
             }
@@ -754,7 +754,7 @@ public final class SirixTranslator extends TopDownTranslator {
               final int matchLevel = reader.getPathNode().getLevel();
 
               // Match at the same level.
-              if (mSelf == IncludeSelf.YES && matchLevel == level) {
+              if (self == IncludeSelf.YES && matchLevel == level) {
                 axisQueue.addLast(new SelfAxis(rtx));
               }
               // Match at the next level (single child-path).
@@ -810,7 +810,7 @@ public final class SirixTranslator extends TopDownTranslator {
     public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      return new SirixNodeStream(new DescendantAxis(rtx, mSelf), dbNode.getCollection());
+      return new SirixNodeStream(new DescendantAxis(rtx, self), dbNode.getCollection());
     }
   }
 
