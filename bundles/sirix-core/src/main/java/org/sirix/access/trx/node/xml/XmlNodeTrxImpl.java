@@ -162,6 +162,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /** Hashes node contents. */
   private XmlNodeHashing nodeHashing;
 
+  /** Flag to decide whether to store child count. */
+  private final boolean storeChildCount;
+
   /**
    * Constructor.
    *
@@ -193,6 +196,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
     indexController = resourceManager.getWtxIndexController(this.nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     pageTrx = (PageTrx<Long, DataRecord, UnorderedKeyValuePage>) this.nodeReadOnlyTrx.getPageTrx();
+    storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
 
     this.nodeFactory = Preconditions.checkNotNull(nodeFactory);
 
@@ -470,12 +474,12 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         (StructNode) pageTrx.prepareEntryForModification(fromNode.getParentKey(), PageKind.RECORDPAGE, -1);
     switch (insertPos) {
       case ASRIGHTSIBLING:
-        if (fromNode.getParentKey() != toNode.getParentKey()) {
+        if (fromNode.getParentKey() != toNode.getParentKey() && storeChildCount) {
           parent.decrementChildCount();
         }
         break;
       case ASFIRSTCHILD:
-        if (fromNode.getParentKey() != toNode.getNodeKey()) {
+        if (fromNode.getParentKey() != toNode.getNodeKey() && storeChildCount) {
           parent.decrementChildCount();
         }
         break;
@@ -1708,7 +1712,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       final StructNode strucNode = (StructNode) newNode;
       final StructNode parent =
           (StructNode) pageTrx.prepareEntryForModification(newNode.getParentKey(), PageKind.RECORDPAGE, -1);
-      parent.incrementChildCount();
+      if (storeChildCount) {
+        parent.incrementChildCount();
+      }
       if (!((StructNode) newNode).hasLeftSibling()) {
         parent.setFirstChildKey(newNode.getNodeKey());
       }
@@ -1793,10 +1799,14 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
-    parent.decrementChildCount();
+    if (storeChildCount) {
+      parent.decrementChildCount();
+    }
     if (concatenated) {
       parent.decrementDescendantCount();
-      parent.decrementChildCount();
+      if (storeChildCount) {
+        parent.decrementChildCount();
+      }
     }
     if (concatenated) {
       // Adjust descendant count.

@@ -201,6 +201,9 @@ public final class ResourceConfiguration {
   /** The name of the resource. */
   private String resourceName;
 
+  /** Determines whether resource child count should be tracked */
+  private boolean storeChildCount;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -231,6 +234,7 @@ public final class ResourceConfiguration {
     recordPersister = builder.persistenter;
     resourceName = builder.resource;
     nodeHashFunction = builder.hashFunction;
+    storeChildCount = builder.storeChildCount;
   }
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
@@ -323,6 +327,10 @@ public final class ResourceConfiguration {
     return resourcePath.resolve(ResourcePaths.CONFIG_BINARY.getPath());
   }
 
+  public boolean getStoreChildCount(){
+    return storeChildCount;
+  }
+
   /**
    * JSON names.
    */
@@ -381,7 +389,7 @@ public final class ResourceConfiguration {
 
   /**
    * Deserializing a Resource configuration from a JSON-file from the persistent storage.
-   *
+   * //todo add track child count parameter here
    * @param file where the resource lies in.
    * @return a complete {@link ResourceConfiguration} instance
    * @throws SirixIOException if an I/O error occurs
@@ -524,6 +532,9 @@ public final class ResourceConfiguration {
     /** Determines if a path summary should be build or not. */
     private boolean pathSummary;
 
+    /** Determines whether child count should be tracked or not. */
+    private boolean storeChildCount;
+
     /**
      * Constructor, setting the mandatory fields.
      *
@@ -533,7 +544,7 @@ public final class ResourceConfiguration {
     public Builder(final String resource) {
       this.resource = checkNotNull(resource);
       pathSummary = true;
-
+      storeChildCount = true;
       // final Path path =
       // mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(mResource);
 
@@ -647,6 +658,11 @@ public final class ResourceConfiguration {
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
       pathSummary = buildPathSummary;
+      return this;
+    }
+
+    public Builder storeChildCount(final boolean storeChildCount) {
+      this.storeChildCount = storeChildCount;
       return this;
     }
 
