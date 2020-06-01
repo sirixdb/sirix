@@ -6,6 +6,7 @@ import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.Walker;
 import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
+import org.brackit.xquery.util.path.Path;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.json.JsonDBStore;
@@ -14,7 +15,7 @@ import java.util.*;
 
 public final class JsonPathStep extends Walker {
 
-  private static final int MIN_NODE_NUMBER = 50_000;
+  private static final int MIN_NODE_NUMBER = 0;
 
   private final JsonDBStore jsonDBStore;
 
@@ -86,8 +87,6 @@ public final class JsonPathStep extends Walker {
             }
           }
 
-          final QNm arrayName = new QNm("__array__");
-
           for (final var pathNodeKey : pathNodeKeys) {
             final var currentPathSegmentNames = new ArrayDeque<>(pathSegmentNames);
             pathSummary.moveTo(pathNodeKey);
@@ -99,9 +98,9 @@ public final class JsonPathStep extends Walker {
             for (int i = pathSteps.size() - 1; i >= 0; i--) {
               final var step = pathSteps.get(i);
 
-              if (found && currentPathSegmentNames.isEmpty() && !arrayName.equals(step.getValue())) {
+              if (found && currentPathSegmentNames.isEmpty() && !Path.Axis.CHILD_ARRAY.equals(step.getAxis())) {
                 break;
-              } else if (step.getValue().equals(new QNm(pathSegment))) {
+              } else if (step.getAxis() == Path.Axis.CHILD && step.getValue().equals(new QNm(pathSegment))) {
                 found = true;
 
                 if (!currentPathSegmentNames.isEmpty()) {
@@ -119,7 +118,9 @@ public final class JsonPathStep extends Walker {
 
           if (pathNodeKeys.isEmpty()) {
             final var parentASTNode = astNode.getParent();
-            parentASTNode.replaceChild(astNode.getChildIndex(), new AST(XQ.SequenceExpr));
+            final var emptySequence = new AST(XQ.SequenceExpr);
+            parentASTNode.replaceChild(astNode.getChildIndex(), emptySequence);
+            return emptySequence;
           }
 
           boolean notFound = false;

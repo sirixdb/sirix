@@ -23,7 +23,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   public void testNesting2() throws IOException {
     final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[{\"key\":0},{\"value\":[{\"key\":{\"boolean\":true}},{\"newkey\":\"yes\"}]},{\"key\":\"hey\",\"value\":false}]')";
     final String indexQuery =
-        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '//*') return {\"revision\": sdb:commit($doc)}";
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "for $i in jn:doc('mycol.jn','mydoc.jn')=>value=>key=>boolean return { \"bla\": $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery, indexQuery, openQuery,"{\"bla\":true,\"nodekey\":12}");
   }
