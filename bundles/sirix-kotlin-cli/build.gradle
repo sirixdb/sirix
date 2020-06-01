@@ -1,8 +1,18 @@
-repositories {
-    
-}
+description = 'Sirix CLI.'
 
 apply plugin: 'kotlin'
+
+test {
+    useJUnitPlatform()
+}
+
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
+    kotlinOptions {
+        jvmTarget = "1.8"
+        freeCompilerArgs += ["-Xopt-in=kotlin.RequiresOptIn"]
+    }
+}
 
 dependencies {
     implementation project(':sirix-core')
@@ -19,11 +29,5 @@ dependencies {
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
+    testImplementation testLibraries.kotestAssertions
 }
-
-test {
-    useJUnitPlatform()
-}
-
-
-description = 'Sirix CLI.'
