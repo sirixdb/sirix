@@ -24,17 +24,13 @@ internal class CreateTest {
 
     @AfterEach
     fun tearDown() {
-        val sirixDbFile = File(sirixTestFile)
-        if (sirixDbFile.exists()) {
-            sirixDbFile.delete()
-        }
+        File(sirixTestFile).deleteRecursively()
     }
 
 
 
     @Test
     fun executeXml() {
-
         // GIVEN
         val create = Create(CliOptions(sirixTestFile, true), DatabaseType.XML)
 
@@ -47,7 +43,23 @@ internal class CreateTest {
         } catch (ex: SirixIOException) {
             fail(ex)
         }
-
-
     }
+
+
+    @Test
+    fun executeJSON() {
+        // GIVEN
+        val create = Create(CliOptions(sirixTestFile, true), DatabaseType.JSON)
+
+        // WHEN
+        create.execute()
+
+        // THEN
+        try {
+            assertEquals(DatabaseType.JSON, Databases.getDatabaseType(Paths.get(sirixTestFile)))
+        } catch (ex: SirixIOException) {
+            fail(ex)
+        }
+    }
+
 }
