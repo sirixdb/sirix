@@ -7,6 +7,8 @@ import kotlinx.cli.*
 import org.sirix.access.DatabaseType
 import org.sirix.cli.commands.CliCommand
 import org.sirix.cli.commands.Create
+import org.sirix.cli.parser.CreateSubcommand
+import org.sirix.cli.parser.ArgSubCommand
 
 
 fun main(args: Array<String>) {
@@ -19,18 +21,6 @@ fun main(args: Array<String>) {
     }
 }
 
-fun parseArgs1(args: Array<String>): CliCommand? {
-    val argParser = ArgParser("Sirix CLI")
-
-    val verbose by argParser.option(ArgType.Boolean,"verbose", "v" ,  "Run verbosely").default(value = false)
-    val file by argParser.option(ArgType.String, "file", "f",  "Sirix DB File").required()
-
-    argParser.parse(args)
-    val options = CliOptions(file, verbose)
-
-    return null
-}
-
 
 fun parseArgs(args: Array<String>): CliCommand? {
     val argParser = ArgParser("Sirix CLI")
@@ -39,27 +29,6 @@ fun parseArgs(args: Array<String>): CliCommand? {
     // Can not use default values when using subcommands at the moment.
     // See https://github.com/Kotlin/kotlinx.cli/issues/26
     val verbose by argParser.option(ArgType.Boolean,"verbose",  "v",   "Run verbosely")
-
-    // TODO Externalize class
-    class CreateSubcommand : ArgSubCommand("create", "Create a Sirix DB") {
-        val type by argument(ArgType.Choice(listOf("xml", "json")), "The Type of the Database")
-        val data by option(ArgType.String, "data ", "d", "Data to insert into the Database")
-
-
-        var dataBasetype: DatabaseType? = null
-
-        override fun execute() {
-            dataBasetype = DatabaseType.valueOf(type.toUpperCase())
-        }
-
-        override fun isValid(): Boolean {
-            return dataBasetype != null
-        }
-
-        override fun createCliCommand(options: CliOptions) : CliCommand {
-                return Create(options, dataBasetype!!)
-        }
-    }
 
     val subCommandList: Array<Subcommand> = arrayOf(CreateSubcommand())
     argParser.subcommands(*subCommandList)
@@ -79,10 +48,3 @@ fun parseArgs(args: Array<String>): CliCommand? {
 }
 
 
-abstract class ArgSubCommand(name: String, actionDescription: String) : Subcommand(name, actionDescription) {
-
-    abstract fun createCliCommand(options: CliOptions) : CliCommand
-
-    abstract fun isValid() : Boolean
-
-}
