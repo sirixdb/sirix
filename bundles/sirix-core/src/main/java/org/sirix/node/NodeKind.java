@@ -1776,12 +1776,16 @@ public enum NodeKind implements NodePersistenter {
     final var isValueNode = kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE
         || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NULL_VALUE;
 
+    final boolean storeChildCount = config.getStoreChildCount();
+
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
 
     if (!isValueNode) {
       putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getChildCount());
+      if (storeChildCount) {
+        putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getChildCount());
+      }
 
       if (config.hashType != HashType.NONE)
         putVarLong(sink, nodeDel.getDescendantCount() - nodeDel.getChildCount());
@@ -1791,6 +1795,7 @@ public enum NodeKind implements NodePersistenter {
   private static final StructNodeDelegate deserializeStructDel(final NodeKind kind, final NodeDelegate nodeDel,
       final DataInput source, final ResourceConfiguration config) throws IOException {
     final long currKey = nodeDel.getNodeKey();
+    final boolean storeChildNodes = config.getStoreChildCount();
 
     final var isValueNode = kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE
         || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NULL_VALUE;
@@ -1808,7 +1813,7 @@ public enum NodeKind implements NodePersistenter {
     else
       firstChild = currKey - getVarLong(source);
 
-    if (isValueNode)
+    if (isValueNode || !storeChildNodes)
       childCount = 0;
     else
       childCount = currKey - getVarLong(source);
