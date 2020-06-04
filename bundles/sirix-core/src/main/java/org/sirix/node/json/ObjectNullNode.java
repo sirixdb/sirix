@@ -33,6 +33,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableObjectNullNode;
 
 import java.math.BigInteger;
 
@@ -67,6 +68,6 @@ public final class ObjectNullNode extends AbstractNullNode {
 
   @Override
   public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return this.acceptVisitor(visitor);
+    return visitor.visit(ImmutableObjectNullNode.of(this));
   }
 }

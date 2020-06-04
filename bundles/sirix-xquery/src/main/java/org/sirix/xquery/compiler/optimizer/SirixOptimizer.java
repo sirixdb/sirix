@@ -8,8 +8,8 @@ import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.optimizer.Stage;
 import org.brackit.xquery.compiler.optimizer.TopDownOptimizer;
-import org.brackit.xquery.compiler.optimizer.walker.topdown.JoinRewriter;
 import org.brackit.xquery.module.StaticContext;
+import org.sirix.xquery.compiler.optimizer.walker.JsonCASStep;
 import org.sirix.xquery.compiler.optimizer.walker.JsonPathStep;
 import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.XmlDBStore;
@@ -36,6 +36,7 @@ public final class SirixOptimizer extends TopDownOptimizer {
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
       // TODO add rules for index resolution here
 
+      ast = new JsonCASStep(sctx, jsonItemStore).walk(ast);
       ast = new JsonPathStep(sctx, jsonItemStore).walk(ast);
       return ast;
     }
