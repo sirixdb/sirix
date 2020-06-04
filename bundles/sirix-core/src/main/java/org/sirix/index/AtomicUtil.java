@@ -1,15 +1,7 @@
 package org.sirix.index;
 
 import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Dbl;
-import org.brackit.xquery.atomic.Dec;
-import org.brackit.xquery.atomic.Flt;
-import org.brackit.xquery.atomic.Int;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.Int64;
-import org.brackit.xquery.atomic.Numeric;
-import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.exception.SirixException;
@@ -72,6 +64,9 @@ public final class AtomicUtil {
     if (type.instanceOf(Type.STR)) {
       return Calc.fromString(atomic.stringValue());
     }
+    if (type.instanceOf(Type.BOOL)) {
+      return atomic.booleanValue() ? new byte[] { (byte) 1 } : new byte[] { (byte) 0 };
+    }
     if (type.isNumeric()) {
       if (type.instanceOf(Type.DBL)) {
         return Calc.fromDouble(((Numeric) atomic).doubleValue());
@@ -101,6 +96,9 @@ public final class AtomicUtil {
     }
     if (type.instanceOf(Type.STR)) {
       return new Str(Calc.toString(b));
+    }
+    if (type.instanceOf(Type.BOOL)) {
+      return new Bool(b[0] == 1);
     }
     if (type.isNumeric()) {
       if (type.instanceOf(Type.DBL)) {

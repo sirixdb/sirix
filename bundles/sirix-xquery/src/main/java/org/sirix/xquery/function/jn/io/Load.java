@@ -1,10 +1,6 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.UncheckedIOException;
-import java.util.HashSet;
-import java.util.Set;
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -16,20 +12,20 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.FunctionConversionSequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.util.io.URIHandler;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
-import com.google.gson.stream.JsonReader;
+
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * <p>
@@ -37,7 +33,7 @@ import com.google.gson.stream.JsonReader;
  * </p>
  *
  * <pre>
- * <code>sdb:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as json-item()?</code>
+ * <code>jn:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as json-item()?</code>
  * </pre>
  *
  * @author Johannes Lichtenberger
@@ -86,9 +82,7 @@ public final class Load extends AbstractFunction {
       final Sequence resources = args[2];
       if (resources == null)
         throw new QueryException(new QNm("No sequence of resources specified!"));
-      final boolean createNew = args.length == 4
-          ? args[3].booleanValue()
-          : true;
+      final boolean createNew = args.length != 4 || args[3].booleanValue();
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
@@ -98,7 +92,7 @@ public final class Load extends AbstractFunction {
       } else {
         try {
           coll = store.lookup(collName);
-          add(store, coll, resName, resources);
+          add(coll, resName, resources);
         } catch (final DocumentException e) {
           // collection does not exist
           coll = create(store, collName, resName, resources);
@@ -111,7 +105,7 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBStore store, final JsonDBCollection coll, final String resName,
+  private static void add(final JsonDBCollection coll, final String resName,
       final Sequence resources) {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
@@ -123,19 +117,15 @@ public final class Load extends AbstractFunction {
       }
     } else if (resources instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
-      final Iter iter = seq.iterate();
-      int size = coll.getDatabase().listResources().size();
-      try {
-        for (Item item = null; (item = iter.next()) != null;) {
-          try (final JsonReader reader =
-              new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
+      try (final Iter iter = seq.iterate()) {
+        int size = coll.getDatabase().listResources().size();
+        for (Item item; (item = iter.next()) != null; ) {
+          try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
             coll.add("resource" + size++, reader);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
         }
-      } finally {
-        iter.close();
       }
     }
   }
@@ -151,21 +141,18 @@ public final class Load extends AbstractFunction {
       }
     } else if (resources instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
-      final Iter iter = seq.iterate();
-      try {
+      try (final Iter iter = seq.iterate()) {
         final Set<JsonReader> jsonReaders = new HashSet<>();
 
-        for (Item item = null; (item = iter.next()) != null;) {
+        for (Item item; (item = iter.next()) != null; ) {
           jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
         }
 
         final JsonDBCollection collection = store.create(collName, jsonReaders);
 
-        jsonReaders.forEach(reader -> closeReader(reader));
+        jsonReaders.forEach(this::closeReader);
 
         return collection;
-      } finally {
-        iter.close();
       }
     }
 

@@ -46,12 +46,12 @@ import com.google.common.base.Objects;
 public final class ArrayNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
   /** The path node key. */
-  private final long mPathNodeKey;
+  private final long pathNodeKey;
 
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Constructor
@@ -61,8 +61,8 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
    */
   public ArrayNode(final StructNodeDelegate structDel, final long pathNodeKey) {
     assert structDel != null;
-    mStructNodeDel = structDel;
-    mPathNodeKey = pathNodeKey;
+    structNodeDel = structDel;
+    this.pathNodeKey = pathNodeKey;
   }
 
   /**
@@ -72,10 +72,10 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
    * @param pathNodeKey the path node key
    */
   public ArrayNode(final BigInteger hashCode, final StructNodeDelegate structDel, final long pathNodeKey) {
-    mHash = hashCode;
+    hash = hashCode;
     assert structDel != null;
-    mStructNodeDel = structDel;
-    mPathNodeKey = pathNodeKey;
+    structNodeDel = structDel;
+    this.pathNodeKey = pathNodeKey;
   }
 
   @Override
@@ -87,35 +87,35 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("structDelegate", mStructNodeDel).toString();
+    return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDel).toString();
   }
 
   @Override
@@ -138,6 +138,6 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   }
 
   public long getPathNodeKey() {
-    return mPathNodeKey;
+    return pathNodeKey;
   }
 }

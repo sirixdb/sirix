@@ -85,10 +85,10 @@ public final class ScanCASIndex extends AbstractScanIndex {
     final SearchMode mode;
     switch (searchMode) {
       case -2:
-        mode = SearchMode.LESS;
+        mode = SearchMode.LOWER;
         break;
       case -1:
-        mode = SearchMode.LESS_OR_EQUAL;
+        mode = SearchMode.LOWER_OR_EQUAL;
         break;
       case 0:
         mode = SearchMode.EQUAL;

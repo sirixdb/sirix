@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -12,21 +11,18 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.sequence.FunctionConversionSequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
-import com.google.gson.stream.JsonReader;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <p>
@@ -83,9 +79,7 @@ public final class Store extends AbstractFunction {
       final Sequence nodes = args[2];
       if (nodes == null)
         throw new QueryException(new QNm("No sequence of nodes specified!"));
-      final boolean createNew = args.length == 4
-          ? args[3].booleanValue()
-          : true;
+      final boolean createNew = args.length != 4 || args[3].booleanValue();
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
@@ -94,7 +88,7 @@ public final class Store extends AbstractFunction {
       } else {
         try {
           final JsonDBCollection coll = store.lookup(collName);
-          add(store, coll, resName, nodes);
+          add(coll, resName, nodes);
         } catch (final DocumentException e) {
           // collection does not exist
           create(store, collName, resName, nodes);
@@ -107,28 +101,25 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBStore store, final JsonDBCollection coll, final String resName,
+  private static void add(final JsonDBCollection coll, final String resName,
       final Sequence nodes) {
     if (nodes instanceof Str) {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        coll.add(resName, JsonShredder.createStringReader(((Str) nodes).stringValue()));
+        coll.add(resName, reader);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (nodes instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
-      final Iter iter = seq.iterate();
-      int size = coll.getDatabase().listResources().size();
-      try {
-        for (Item item = null; (item = iter.next()) != null;) {
+      try (final Iter iter = seq.iterate()) {
+        int size = coll.getDatabase().listResources().size();
+        for (Item item; (item = iter.next()) != null; ) {
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
             coll.add("resource" + size++, reader);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
         }
-      } finally {
-        iter.close();
       }
     }
   }
@@ -143,17 +134,14 @@ public final class Store extends AbstractFunction {
       }
     } else if (nodes instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
-      final Iter iter = seq.iterate();
-      try {
+      try (final Iter iter = seq.iterate()) {
         final List<Str> list = new ArrayList<>();
 
-        for (Item item = null; (item = iter.next()) != null;) {
+        for (Item item; (item = iter.next()) != null; ) {
           list.add((Str) item);
         }
 
-        store.createFromJsonStrings(collName, new ArrayStream<>(list.toArray(new Str[list.size()])));
-      } finally {
-        iter.close();
+        store.createFromJsonStrings(collName, new ArrayStream<>(list.toArray(new Str[0])));
       }
     }
   }

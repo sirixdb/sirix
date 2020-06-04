@@ -25,7 +25,6 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
 
@@ -87,10 +86,10 @@ public final class ScanCASIndex extends AbstractScanIndex {
     final SearchMode mode;
     switch (searchMode) {
       case -2:
-        mode = SearchMode.LESS;
+        mode = SearchMode.LOWER;
         break;
       case -1:
-        mode = SearchMode.LESS_OR_EQUAL;
+        mode = SearchMode.LOWER_OR_EQUAL;
         break;
       case 0:
         mode = SearchMode.EQUAL;
