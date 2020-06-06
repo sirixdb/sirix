@@ -143,6 +143,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     comparator = comparisonKindChild.getStringValue();
     final var derefPredicateChild = comparisonPredicateChild.getChild(1);
     final var typeKindChild = comparisonPredicateChild.getChild(2);
+
+    if (!(typeKindChild.getValue() instanceof Atomic)) {
+      return astNode;
+    }
+
     atomic = (Atomic) typeKindChild.getValue();
 
     if (derefPredicateChild.getType() != XQ.DerefExpr) {
