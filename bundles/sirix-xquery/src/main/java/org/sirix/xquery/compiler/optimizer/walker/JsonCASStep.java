@@ -78,8 +78,13 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
                                                                          Bits.BIT_PREFIX,
                                                                          "array-values").equals(parent.getValue()));
 
-    final var filterExpr = parent.getParent();
-    filterExpr.getParent().replaceChild(filterExpr.getChildIndex(), indexExpr);
+    if (parent.getType() == XQ.FilterExpr) {
+      parent.getParent().replaceChild(parent.getChildIndex(), indexExpr);
+    } else {
+      final var filterExpr = parent.getParent();
+      filterExpr.getParent().replaceChild(filterExpr.getChildIndex(), indexExpr);
+    }
+
 
     return indexExpr;
   }
@@ -144,7 +149,9 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    if (leftChild.getType() == XQ.ArrayAccess) {
+    if (leftChild.getType() == XQ.DerefExpr) {
+      return getAst(astNode, derefPredicateChild, leftChild);
+    } else if (leftChild.getType() == XQ.ArrayAccess) {
       if (leftChild.getChild(0).getType() != XQ.DerefExpr || leftChild.getChild(1).getType() != XQ.SequenceExpr) {
         return astNode;
       }

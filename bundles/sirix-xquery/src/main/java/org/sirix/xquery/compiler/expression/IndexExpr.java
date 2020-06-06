@@ -73,14 +73,13 @@ public final class IndexExpr implements Expr {
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
       final var paths = entrySet.getValue();
 
-      if (hasArrayInPath == false) {
-        hasArrayInPath = paths.stream().anyMatch(path -> path.steps().stream().anyMatch(isArrayStep()));
-      }
-
       final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
 
       switch (indexType) {
         case PATH -> {
+          if (hasArrayInPath == false) {
+            hasArrayInPath = paths.stream().anyMatch(path -> path.steps().stream().anyMatch(isArrayStep()));
+          }
           final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getPageTrx(),
                                                                                                 entrySet.getKey(),
                                                                                                 indexController.createPathFilter(
@@ -90,20 +89,34 @@ public final class IndexExpr implements Expr {
           nodeReferencesIterator.forEachRemaining(currentNodeReferences -> finalNodeKeys.addAll(currentNodeReferences.getNodeKeys()));
         }
         case CAS -> {
+          final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
+          final var predicateLevel = indexDefToPredicateLevel.get(entrySet.getKey());
+
+          if (hasArrayInPath == false) {
+            hasArrayInPath = paths.stream().anyMatch(path -> {
+              final var steps = new ArrayList<>(path.steps());
+
+              for (int i = 0; i < predicateLevel; i++) {
+                steps.remove(steps.size() - 1);
+              }
+
+              return steps.stream().anyMatch(isArrayStep());
+            });
+          }
           final var atomic = (Atomic) properties.get("atomic");
           final var comparisonType = (String) properties.get("comparator");
 
           final SearchMode searchMode;
 
-          if ("ValueCompGT".equals(comparisonType)) {
+          if ("ValueCompGT".equals(comparisonType) || "GeneralCompGT".equals(comparisonType)) {
             searchMode = SearchMode.GREATER;
-          } else if ("ValueCompLT".equals(comparisonType)) {
+          } else if ("ValueCompLT".equals(comparisonType) || "GeneralCompLT".equals(comparisonType)) {
             searchMode = SearchMode.LOWER;
-          } else if ("ValueCompEQ".equals(comparisonType)) {
+          } else if ("ValueCompEQ".equals(comparisonType) || "GeneralCompEQ".equals(comparisonType)) {
             searchMode = SearchMode.EQUAL;
-          } else if ("ValueCompGE".equals(comparisonType)) {
+          } else if ("ValueCompGE".equals(comparisonType) || "GeneralCompGE".equals(comparisonType)) {
             searchMode = SearchMode.GREATER_OR_EQUAL;
-          } else if ("ValueCompLE".equals(comparisonType)) {
+          } else if ("ValueCompLE".equals(comparisonType) || "GeneralCompLE".equals(comparisonType)) {
             searchMode = SearchMode.LOWER_OR_EQUAL;
           } else {
             throw new IllegalStateException("Unexpected value: " + comparisonType);
