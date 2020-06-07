@@ -8,7 +8,4 @@ abstract class CliCommand(protected val options: CliOptions) {
 
     abstract fun execute()
 
-
-
-
 }

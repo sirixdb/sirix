@@ -1,35 +1,41 @@
 package org.sirix.cli.commands
 
-import org.sirix.access.DatabaseConfiguration
-import org.sirix.access.DatabaseType
-import org.sirix.access.Databases
+import org.sirix.access.ResourceConfiguration
+import org.sirix.api.Database
 import org.sirix.cli.CliOptions
-import java.nio.file.Paths
 import kotlin.system.exitProcess
 
-class Create(options: CliOptions, private val type: DatabaseType) : CliCommand(options) {
 
+abstract class Create(options: CliOptions, private val dataOptions: DataCommandOptions?) : CliCommand(options) {
+
+
+    protected abstract fun createDatabase(): Boolean
+
+    protected abstract fun insertData()
 
     @Throws(IllegalStateException::class)
     override fun execute() {
 
-        val path = Paths.get(options.file)
-
-        var isValid = when(type) {
-            DatabaseType.XML -> Databases.createXmlDatabase(DatabaseConfiguration(path))
-            DatabaseType.JSON -> Databases.createJsonDatabase(DatabaseConfiguration(path))
-            else -> throw IllegalStateException("Unknown DatabaseType '$type'!")
-        }
-
-        if(isValid) {
-            cliPrinter.prnLnV("Database '${options.file}' type '$type' created." )
+        if (createDatabase()) {
+            cliPrinter.prnLnV("Database '${options.file}' created.")
         } else {
-            cliPrinter.prnLnV("Database '${options.file}' type '$type' not created!" )
+            cliPrinter.prnLnV("Database '${options.file}' not created!")
             exitProcess(1)
         }
 
-
+        if (dataOptions != null) {
+            insertData()
+            cliPrinter.prnLnV("Data inserted")
+        }
     }
 
+
+    protected fun createOrRemoveAndCreateResource(database: Database<*>) {
+        val resConfig = ResourceConfiguration.Builder(dataOptions!!.resourceName).build()
+        if (!database.createResource(resConfig)) {
+            database.removeResource(dataOptions.resourceName)
+            database.createResource(resConfig)
+        }
+    }
 
 }

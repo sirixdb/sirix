@@ -39,6 +39,7 @@ testLibraries = [
         testng               : 'org.testng:testng:7.1.0',
         junitJupiterApi      : 'org.junit.jupiter:junit-jupiter-api:5.6.0',
         junitJupiterEngine   : 'org.junit.jupiter:junit-jupiter-engine:5.6.0',
+        junitJupiterParams   : 'org.junit.jupiter:junit-jupiter-params:5.6.0',
         junitVintageEngine   : 'org.junit.vintage:junit-vintage-engine:5.6.0',
         junitPlatformLauncher: 'org.junit.platform:junit-platform-launcher:1.6.0',
         junitPlatformRunner  : 'org.junit.platform:junit-platform-runner:1.6.0',

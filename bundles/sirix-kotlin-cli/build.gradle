@@ -26,6 +26,8 @@ dependencies {
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine
+    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore

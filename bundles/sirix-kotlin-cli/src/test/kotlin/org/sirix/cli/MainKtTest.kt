@@ -26,7 +26,7 @@ internal class MainKtTest {
     @Test
     fun testCreateCommand() {
         // GIVEN
-        val args: Array<String> = arrayOf("-f", "/tmp/sirix.db", "create", "xml")
+        val args: Array<String> = arrayOf("-f", "/tmp/sirix.db", "create", "xml", "-un", "testuser", "-uid", "55cc0eb9-d142-41f7-b76b-3f01e41417a9", "-r","testnode","-d", "<xml><foo>Test</foo></xml")
 
         // WHEN
         val cliCommand = parseArgs(args)
