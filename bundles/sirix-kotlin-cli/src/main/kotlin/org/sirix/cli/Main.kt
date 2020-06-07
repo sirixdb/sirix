@@ -2,13 +2,10 @@
 package org.sirix.cli
 
 
-import com.google.inject.internal.cglib.core.`$ClassInfo`
 import kotlinx.cli.*
-import org.sirix.access.DatabaseType
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.commands.Create
 import org.sirix.cli.parser.CreateSubcommand
-import org.sirix.cli.parser.ArgSubCommand
+import org.sirix.cli.parser.AbstractArgSubCommand
 
 
 fun main(args: Array<String>) {
@@ -37,7 +34,7 @@ fun parseArgs(args: Array<String>): CliCommand? {
     val options = CliOptions(file, verbose ?: false)
 
     subCommandList.forEach {
-        val asc: ArgSubCommand  = it as ArgSubCommand
+        val asc: AbstractArgSubCommand  = it as AbstractArgSubCommand
         if (asc.isValid()) {
             return asc.createCliCommand(options)
         }
