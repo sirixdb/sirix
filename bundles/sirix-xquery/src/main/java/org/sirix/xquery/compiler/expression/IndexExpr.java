@@ -3,13 +3,15 @@ package org.sirix.xquery.compiler.expression;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.Tuple;
-import org.brackit.xquery.array.DArray;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.sequence.BaseIter;
+import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.ExprUtil;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Expr;
 import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
@@ -69,6 +71,7 @@ public final class IndexExpr implements Expr {
     boolean hasArrayInPath = false;
     final var indexType = (IndexType) properties.get("indexType");
     final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
+    final var arrayIndexes = (Map<String, Integer>) properties.get("arrayIndexes");
 
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
       final var paths = entrySet.getValue();
@@ -77,7 +80,7 @@ public final class IndexExpr implements Expr {
 
       switch (indexType) {
         case PATH -> {
-          if (hasArrayInPath == false) {
+          if (!hasArrayInPath) {
             hasArrayInPath = paths.stream().anyMatch(path -> path.steps().stream().anyMatch(isArrayStep()));
           }
           final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getPageTrx(),
@@ -85,14 +88,66 @@ public final class IndexExpr implements Expr {
                                                                                                 indexController.createPathFilter(
                                                                                                     pathStrings,
                                                                                                     rtx));
+
           final var finalNodeKeys = nodeKeys;
-          nodeReferencesIterator.forEachRemaining(currentNodeReferences -> finalNodeKeys.addAll(currentNodeReferences.getNodeKeys()));
+
+          try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
+            nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
+              final var currNodeKeys = new HashSet<>(currentNodeReferences.getNodeKeys());
+              if (arrayIndexes != null && !arrayIndexes.isEmpty()) {
+                currentNodeReferences.getNodeKeys().forEach(nodeKey -> {
+                  rtx.moveTo(nodeKey);
+                  pathSummary.moveTo(rtx.getPathNodeKey());
+                  final var path = pathSummary.getPath();
+                  final var steps = path.steps();
+
+                  for (int i = steps.size() - 1; i >= 0; i--) {
+                    final var step = steps.get(i);
+
+                    if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
+                      final int currentIndex = i;
+                      int j = i - 1;
+                      while (steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
+                        j--;
+                        i--;
+                      }
+
+                      final Integer index = arrayIndexes.get(steps.get(j).getValue().getLocalName());
+
+                      if (index == null) {
+                        while (j < currentIndex) {
+                          j++;
+                          rtx.moveToParent();
+                        }
+                      } else {
+                        boolean hasMoved = true;
+                        for (int k = 0; k < index && hasMoved; k++) {
+                          hasMoved = rtx.moveToLeftSibling().hasMoved();
+                        }
+                        if (!hasMoved || rtx.hasLeftSibling()) {
+                          currNodeKeys.remove(nodeKey);
+                          break;
+                        }
+                        rtx.moveToParent();
+                      }
+                    }
+
+                    rtx.moveToParent();
+                    if (rtx.isObject() && i - 1 > 0 && steps.get(i-1).getAxis() == Path.Axis.CHILD) {
+                      rtx.moveToParent();
+                    }
+                  }
+                });
+              }
+              finalNodeKeys.addAll(currNodeKeys);
+            });
+          }
         }
         case CAS -> {
           final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
           final var predicateLevel = indexDefToPredicateLevel.get(entrySet.getKey());
 
-          if (hasArrayInPath == false) {
+          if (!hasArrayInPath) {
             hasArrayInPath = paths.stream().anyMatch(path -> {
               final var steps = new ArrayList<>(path.steps());
 
@@ -145,33 +200,29 @@ public final class IndexExpr implements Expr {
     final var jsonItemFactory = new JsonItemFactory();
 
     switch (indexType) {
-      case PATH -> {
-        nodeKeys.forEach(nodeKey -> {
-          rtx.moveTo(nodeKey).trx().moveToFirstChild();
+      case PATH -> nodeKeys.forEach(nodeKey -> {
+        rtx.moveTo(nodeKey).trx().moveToFirstChild();
+        sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+      });
+      case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
+        final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
+        final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
+        final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
+        nodeKeysOfIndex.forEach(nodeKey -> {
+          // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
+          // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
+          rtx.moveTo(nodeKey);
+          rtx.moveToParent();
+          for (int i = 0; i < predicateLevel; i++) {
+            rtx.moveToParent();
+
+            if (rtx.isObject() && i + 1 < predicateLevel) {
+              rtx.moveToParent();
+            }
+          }
           sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
         });
-      }
-      case CAS -> {
-        indexDefsToPaths.keySet().forEach(indexDef -> {
-          final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
-          final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
-          final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
-          nodeKeysOfIndex.forEach(nodeKey -> {
-            // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
-            // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
-            rtx.moveTo(nodeKey);
-            rtx.moveToParent();
-            for (int i = 0; i < predicateLevel; i++) {
-              rtx.moveToParent();
-
-              if (rtx.isObject() && i + 1 < predicateLevel) {
-                rtx.moveToParent();
-              }
-            }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
-          });
-        });
-      }
+      });
       case NAME -> {
       }
       default -> throw new QueryException(JNFun.ERR_INVALID_INDEX_TYPE, "Index type not known: " + indexType);
@@ -181,14 +232,37 @@ public final class IndexExpr implements Expr {
       return null;
     }
 
-    final var hasBitArrayValuesFunction =
-        indexType == IndexType.CAS ? (boolean) properties.get("hasBitArrayValuesFunction") : false;
+    return new LazySequence() {
+      @Override
+      public Iter iterate() {
+        return new BaseIter() {
+          int i;
 
-    if (sequence.size() == 1 && (!hasArrayInPath || hasBitArrayValuesFunction)) {
-      return ExprUtil.asItem(sequence.get(0));
-    }
+          @Override
+          public Item next() {
+            if (i < sequence.size()) {
+              final var item = sequence.get(i++);
 
-    return new DArray(sequence.toArray(new Sequence[] {}));
+              return item.evaluateToItem(ctx, tuple);
+            }
+            return null;
+          }
+
+          @Override
+          public void close() {
+          }
+        };
+      }
+    };
+
+//    final var hasBitArrayValuesFunction =
+//        indexType == IndexType.CAS ? (boolean) properties.get("hasBitArrayValuesFunction") : false;
+//
+//    if (sequence.size() == 1 && (!hasArrayInPath || (arrayIndexes != null && !arrayIndexes.isEmpty()) || hasBitArrayValuesFunction)) {
+//      return ExprUtil.asItem(sequence.get(0));
+//    }
+//
+//    return new DArray(sequence.toArray(new Sequence[] {}));
   }
 
   private Predicate<Path.Step<QNm>> isArrayStep() {
@@ -197,11 +271,7 @@ public final class IndexExpr implements Expr {
 
   @Override
   public Item evaluateToItem(QueryContext ctx, Tuple tuple) throws QueryException {
-    final var res = evaluate(ctx, tuple);
-    if (res instanceof Item) {
-      return (Item) res;
-    }
-    return null;
+    return ExprUtil.asItem(evaluate(ctx, tuple));
   }
 
   @Override
