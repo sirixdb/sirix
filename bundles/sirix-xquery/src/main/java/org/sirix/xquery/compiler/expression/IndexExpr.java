@@ -74,15 +74,10 @@ public final class IndexExpr implements Expr {
     final var arrayIndexes = (Map<String, Integer>) properties.get("arrayIndexes");
 
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
-      final var paths = entrySet.getValue();
-
       final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
 
       switch (indexType) {
         case PATH -> {
-          if (!hasArrayInPath) {
-            hasArrayInPath = paths.stream().anyMatch(path -> path.steps().stream().anyMatch(isArrayStep()));
-          }
           final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getPageTrx(),
                                                                                                 entrySet.getKey(),
                                                                                                 indexController.createPathFilter(
@@ -144,20 +139,6 @@ public final class IndexExpr implements Expr {
           }
         }
         case CAS -> {
-          final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
-          final var predicateLevel = indexDefToPredicateLevel.get(entrySet.getKey());
-
-          if (!hasArrayInPath) {
-            hasArrayInPath = paths.stream().anyMatch(path -> {
-              final var steps = new ArrayList<>(path.steps());
-
-              for (int i = 0; i < predicateLevel; i++) {
-                steps.remove(steps.size() - 1);
-              }
-
-              return steps.stream().anyMatch(isArrayStep());
-            });
-          }
           final var atomic = (Atomic) properties.get("atomic");
           final var comparisonType = (String) properties.get("comparator");
 
@@ -254,19 +235,6 @@ public final class IndexExpr implements Expr {
         };
       }
     };
-
-//    final var hasBitArrayValuesFunction =
-//        indexType == IndexType.CAS ? (boolean) properties.get("hasBitArrayValuesFunction") : false;
-//
-//    if (sequence.size() == 1 && (!hasArrayInPath || (arrayIndexes != null && !arrayIndexes.isEmpty()) || hasBitArrayValuesFunction)) {
-//      return ExprUtil.asItem(sequence.get(0));
-//    }
-//
-//    return new DArray(sequence.toArray(new Sequence[] {}));
-  }
-
-  private Predicate<Path.Step<QNm>> isArrayStep() {
-    return step -> Path.Axis.CHILD_ARRAY.equals(step.getAxis()) || Path.Axis.DESC_ARRAY.equals(step.getAxis());
   }
 
   @Override
