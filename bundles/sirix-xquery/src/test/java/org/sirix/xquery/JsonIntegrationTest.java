@@ -190,7 +190,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting13").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
     final String indexQuery =
-        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', ('/sirix/[]/revision/tada/[]/foo/[]/baz','/sirix/[]/revision/tada/[]/[]/foo/[]/baz')) return {\"revision\": sdb:commit($doc)}";
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[.=>foo=>baz = 'bar'] return $result";
     test(storeQuery,
