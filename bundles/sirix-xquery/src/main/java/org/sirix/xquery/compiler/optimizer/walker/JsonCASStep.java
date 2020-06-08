@@ -1,6 +1,7 @@
 package org.sirix.xquery.compiler.optimizer.walker;
 
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.Bits;
@@ -37,7 +38,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     final var pathSteps = pathToFoundNode.steps();
     int level = 0;
 
-    for (int i = pathSteps.size() - 1; i >= 0 && pathSegment != null; i--) {
+    for (int i = pathSteps.size() - 1; i >= 0; i--) {
       final var step = pathSteps.get(i);
 
       if (Path.Axis.CHILD_ARRAY.equals(step.getAxis())) {
@@ -50,6 +51,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
         } else {
           pathSegment = predicateSegmentNames.removeFirst();
         }
+      } else if (pathSegment == null) {
+        if (pathSteps.get(i + 1).getAxis() == Path.Axis.CHILD_ARRAY) {
+          level--;
+        }
+        break;
       }
     }
 
@@ -100,6 +106,24 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames, Map<String, Integer> arrayIndexes) {
     for (int i = 0, length = node.getChildCount(); i < length; i++) {
       final var step = node.getChild(i);
+
+      if (step.getType() == XQ.ArrayAccess) {
+        if (step.getChildCount() == 2) {
+          final var derefAstNode = step.getChild(0);
+
+          if (derefAstNode.getType() != XQ.DerefExpr) {
+            return Optional.empty();
+          }
+
+          final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
+          pathNames.add(pathSegmentName);
+
+          final var indexAstNode = step.getChild(1);
+          arrayIndexes.put(pathSegmentName, ((Int32) indexAstNode.getValue()).intValue());
+
+          return getPredicatePathStep(derefAstNode, pathNames, arrayIndexes);
+        }
+      }
 
       if (step.getType() == XQ.DerefExpr) {
         final var pathSegmentName = step.getChild(step.getChildCount() - 1).getStringValue();

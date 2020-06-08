@@ -14,6 +14,7 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
@@ -84,59 +85,7 @@ public final class IndexExpr implements Expr {
                                                                                                     pathStrings,
                                                                                                     rtx));
 
-          final var finalNodeKeys = nodeKeys;
-
-          try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
-            nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
-              final var currNodeKeys = new HashSet<>(currentNodeReferences.getNodeKeys());
-              if (arrayIndexes != null && !arrayIndexes.isEmpty()) {
-                currentNodeReferences.getNodeKeys().forEach(nodeKey -> {
-                  rtx.moveTo(nodeKey);
-                  pathSummary.moveTo(rtx.getPathNodeKey());
-                  final var path = pathSummary.getPath();
-                  final var steps = path.steps();
-
-                  for (int i = steps.size() - 1; i >= 0; i--) {
-                    final var step = steps.get(i);
-
-                    if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
-                      final int currentIndex = i;
-                      int j = i - 1;
-                      while (steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
-                        j--;
-                        i--;
-                      }
-
-                      final Integer index = arrayIndexes.get(steps.get(j).getValue().getLocalName());
-
-                      if (index == null) {
-                        while (j < currentIndex) {
-                          j++;
-                          rtx.moveToParent();
-                        }
-                      } else {
-                        boolean hasMoved = true;
-                        for (int k = 0; k < index && hasMoved; k++) {
-                          hasMoved = rtx.moveToLeftSibling().hasMoved();
-                        }
-                        if (!hasMoved || rtx.hasLeftSibling()) {
-                          currNodeKeys.remove(nodeKey);
-                          break;
-                        }
-                        rtx.moveToParent();
-                      }
-                    }
-
-                    rtx.moveToParent();
-                    if (rtx.isObject() && i - 1 > 0 && steps.get(i-1).getAxis() == Path.Axis.CHILD) {
-                      rtx.moveToParent();
-                    }
-                  }
-                });
-              }
-              finalNodeKeys.addAll(currNodeKeys);
-            });
-          }
+          checkIfIndexNodeIsApplicable(manager, rtx, arrayIndexes, nodeReferencesIterator, nodeKeys);
         }
         case CAS -> {
           final var atomic = (Atomic) properties.get("atomic");
@@ -164,8 +113,7 @@ public final class IndexExpr implements Expr {
           final Iterator<NodeReferences> nodeReferencesIterator =
               indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
 
-          final var finalNodeKeys = nodeKeys;
-          nodeReferencesIterator.forEachRemaining(currentNodeReferences -> finalNodeKeys.addAll(currentNodeReferences.getNodeKeys()));
+          checkIfIndexNodeIsApplicable(manager, rtx, arrayIndexes, nodeReferencesIterator, nodeKeys);
 
           indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
 
@@ -235,6 +183,62 @@ public final class IndexExpr implements Expr {
         };
       }
     };
+  }
+
+  private void checkIfIndexNodeIsApplicable(JsonResourceManager manager, JsonNodeReadOnlyTrx rtx,
+      Map<String, Integer> arrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
+      List<Long> nodeKeys) {
+    try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
+      nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
+        final var currNodeKeys = new HashSet<>(currentNodeReferences.getNodeKeys());
+        if (arrayIndexes != null && !arrayIndexes.isEmpty()) {
+          currentNodeReferences.getNodeKeys().forEach(nodeKey -> {
+            rtx.moveTo(nodeKey);
+            pathSummary.moveTo(rtx.getPathNodeKey());
+            final var path = pathSummary.getPath();
+            final var steps = path.steps();
+
+            for (int i = steps.size() - 1; i >= 0; i--) {
+              final var step = steps.get(i);
+
+              if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
+                final int currentIndex = i;
+                int j = i - 1;
+                while (steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
+                  j--;
+                  i--;
+                }
+
+                final Integer index = arrayIndexes.get(steps.get(j).getValue().getLocalName());
+
+                if (index == null) {
+                  while (j < currentIndex) {
+                    j++;
+                    rtx.moveToParent();
+                  }
+                } else {
+                  boolean hasMoved = true;
+                  for (int k = 0; k < index && hasMoved; k++) {
+                    hasMoved = rtx.moveToLeftSibling().hasMoved();
+                  }
+                  if (!hasMoved || rtx.hasLeftSibling()) {
+                    currNodeKeys.remove(nodeKey);
+                    break;
+                  }
+                  rtx.moveToParent();
+                }
+              }
+
+              rtx.moveToParent();
+              if (rtx.isObject() && i - 1 > 0 && steps.get(i-1).getAxis() == Path.Axis.CHILD) {
+                rtx.moveToParent();
+              }
+            }
+          });
+        }
+        nodeKeys.addAll(currNodeKeys);
+      });
+    }
   }
 
   @Override
