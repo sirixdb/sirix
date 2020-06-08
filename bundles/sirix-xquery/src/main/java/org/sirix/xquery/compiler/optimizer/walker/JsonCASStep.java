@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+// TODO: Range queries
 public final class JsonCASStep extends AbstractJsonPathWalker {
 
   private String comparator;
@@ -61,7 +62,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
   @Override
   AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
-      Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels) {
+      Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels, Map<String, Integer> arrayIndexes) {
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
     indexExpr.setProperty("indexDefs", foundIndexDefs);
@@ -96,14 +97,14 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames) {
+  Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames, Map<String, Integer> arrayIndexes) {
     for (int i = 0, length = node.getChildCount(); i < length; i++) {
       final var step = node.getChild(i);
 
       if (step.getType() == XQ.DerefExpr) {
         final var pathSegmentName = step.getChild(step.getChildCount() - 1).getStringValue();
         pathNames.add(pathSegmentName);
-        return getPredicatePathStep(step, pathNames);
+        return getPredicatePathStep(step, pathNames, arrayIndexes);
       }
 
       if (step.getType() == XQ.ContextItemExpr) {
