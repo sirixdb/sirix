@@ -37,7 +37,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "for $i in jn:doc('mycol.jn','mydoc.jn')=>value=>key[[]][.=>boolean] return { $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')=>value=>key[.=>boolean] return { $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery, indexQuery, openQuery, "{\"boolean\":true,\"nodekey\":10}");
   }
 
