@@ -34,7 +34,7 @@ abstract class AbstractJsonPathWalker extends Walker {
     if (!foundDerefAncestor && (astNode.getChild(0).getType() == XQ.DerefExpr
         || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
       final var pathSegmentNames = new ArrayDeque<String>();
-      final var arrayIndexes = new HashMap<String, Integer>();
+      final var arrayIndexes = new HashMap<String, Deque<Integer>>();
 
       if (predicateNode != null) {
         final var pathSegmentName = predicateNode.getChild(astNode.getChildCount() - 1).getStringValue();
@@ -46,7 +46,6 @@ abstract class AbstractJsonPathWalker extends Walker {
       }
 
       final var predicateSegmentNames = new ArrayDeque<>(pathSegmentNames);
-      final var predicateArrayIndexes = new HashMap<String, Integer>(arrayIndexes);
 
       final var pathSegmentName = astNode.getChild(astNode.getChildCount() - 1).getStringValue();
       pathSegmentNames.add(pathSegmentName);
@@ -182,7 +181,7 @@ abstract class AbstractJsonPathWalker extends Walker {
 
   abstract AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevel,
-      Map<String, Integer> arrayIndexes);
+      Map<String, Deque<Integer>> arrayIndexes);
 
   abstract Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
       IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController);
@@ -202,25 +201,25 @@ abstract class AbstractJsonPathWalker extends Walker {
     return foundDerefAncestor;
   }
 
-  abstract Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames, Map<String, Integer> arrayIndexes);
+  abstract Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames,
+      Map<String, Deque<Integer>> arrayIndexes);
 
-  Optional<AST> getPathStep(AST node, Deque<String> pathNames, Map<String, Integer> arrayIndexes) {
+  Optional<AST> getPathStep(AST node, Deque<String> pathNames, Map<String, Deque<Integer>> arrayIndexes) {
     for (int i = 0, length = node.getChildCount(); i < length; i++) {
       final var step = node.getChild(i);
 
       if (step.getType() == XQ.ArrayAccess) {
         if (step.getChildCount() == 2) {
-          final var derefAstNode = step.getChild(0);
+          final var arrayAstNode = processArrayAccess(null, arrayIndexes, step);
 
-          if (derefAstNode.getType() != XQ.DerefExpr) {
-            return Optional.empty();
-          }
+          final var derefAstNode = arrayAstNode.getChild(0);
+          final var indexAstNode = arrayAstNode.getChild(1);
 
           final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
           pathNames.add(pathSegmentName);
 
-          final var indexAstNode = step.getChild(1);
-          arrayIndexes.put(pathSegmentName, ((Int32) indexAstNode.getValue()).intValue());
+          arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>())
+                      .add(((Int32) indexAstNode.getValue()).intValue());
 
           return getPathStep(derefAstNode, pathNames, arrayIndexes);
         }
@@ -238,5 +237,28 @@ abstract class AbstractJsonPathWalker extends Walker {
     }
 
     return Optional.empty();
+  }
+
+  protected AST processArrayAccess(String pathNameForIndexes, Map<String, Deque<Integer>> arrayIndexes, AST astNode) {
+    if (astNode.getType() == XQ.ArrayAccess) {
+      var firstChildAstNode = astNode.getChild(0);
+      final var indexAstNode = astNode.getChild(1);
+
+      if (firstChildAstNode.getType() == XQ.ArrayAccess) {
+        if (pathNameForIndexes == null) {
+          var clonedAstNode = firstChildAstNode.copyTree();
+          while (clonedAstNode.getChild(0).getType() == XQ.ArrayAccess) {
+            clonedAstNode = clonedAstNode.getChild(0);
+          }
+          final var derefAstNode = clonedAstNode.getChild(0);
+          pathNameForIndexes = derefAstNode.getChild(1).getStringValue();
+        }
+
+        arrayIndexes.computeIfAbsent(pathNameForIndexes, (unused) -> new ArrayDeque<>())
+                    .add(((Int32) indexAstNode.getValue()).intValue());
+        return processArrayAccess(pathNameForIndexes, arrayIndexes, firstChildAstNode);
+      }
+    }
+    return astNode;
   }
 }

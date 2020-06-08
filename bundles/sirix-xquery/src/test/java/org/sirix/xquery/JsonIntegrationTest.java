@@ -198,4 +198,18 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting13").resolve("expectedOutput")));
   }
+
+  @Test
+  public void testNesting14() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting14").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[4]]=>foo[[1]]=>baz";
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting14").resolve("expectedOutput")));
+  }
 }
