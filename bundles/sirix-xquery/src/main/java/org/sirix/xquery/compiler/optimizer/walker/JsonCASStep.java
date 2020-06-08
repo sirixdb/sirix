@@ -15,10 +15,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.json.JsonDBStore;
 
-import java.util.Deque;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 // TODO: Range queries
 public final class JsonCASStep extends AbstractJsonPathWalker {
@@ -68,7 +65,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
   @Override
   AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
-      Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels, Map<String, Integer> arrayIndexes) {
+      Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels,
+      Map<String, Deque<Integer>> arrayIndexes) {
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
     indexExpr.setProperty("indexDefs", foundIndexDefs);
@@ -92,7 +90,6 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
       filterExpr.getParent().replaceChild(filterExpr.getChildIndex(), indexExpr);
     }
 
-
     return indexExpr;
   }
 
@@ -103,23 +100,22 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames, Map<String, Integer> arrayIndexes) {
+  Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames, Map<String, Deque<Integer>> arrayIndexes) {
     for (int i = 0, length = node.getChildCount(); i < length; i++) {
       final var step = node.getChild(i);
 
       if (step.getType() == XQ.ArrayAccess) {
         if (step.getChildCount() == 2) {
-          final var derefAstNode = step.getChild(0);
+          final var arrayAstNode = processArrayAccess(null, arrayIndexes, step);
 
-          if (derefAstNode.getType() != XQ.DerefExpr) {
-            return Optional.empty();
-          }
+          final var derefAstNode = arrayAstNode.getChild(0);
+          final var indexAstNode = arrayAstNode.getChild(1);
 
           final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
           pathNames.add(pathSegmentName);
 
-          final var indexAstNode = step.getChild(1);
-          arrayIndexes.put(pathSegmentName, ((Int32) indexAstNode.getValue()).intValue());
+          arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>())
+                      .add(((Int32) indexAstNode.getValue()).intValue());
 
           return getPredicatePathStep(derefAstNode, pathNames, arrayIndexes);
         }

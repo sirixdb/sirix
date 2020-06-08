@@ -27,7 +27,6 @@ import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonItemFactory;
 
 import java.util.*;
-import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toSet;
@@ -69,10 +68,9 @@ public final class IndexExpr implements Expr {
         revision == -1 ? manager.beginNodeReadOnlyTrx() : manager.beginNodeReadOnlyTrx(revision);
     var nodeKeys = new ArrayList<Long>();
 
-    boolean hasArrayInPath = false;
     final var indexType = (IndexType) properties.get("indexType");
     final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
-    final var arrayIndexes = (Map<String, Integer>) properties.get("arrayIndexes");
+    final var arrayIndexes = (Map<String, Deque<Integer>>) properties.get("arrayIndexes");
 
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
       final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
@@ -186,11 +184,11 @@ public final class IndexExpr implements Expr {
   }
 
   private void checkIfIndexNodeIsApplicable(JsonResourceManager manager, JsonNodeReadOnlyTrx rtx,
-      Map<String, Integer> arrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
-      List<Long> nodeKeys) {
+      Map<String, Deque<Integer>> arrayIndexes, Iterator<NodeReferences> nodeReferencesIterator, List<Long> nodeKeys) {
     try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
         final var currNodeKeys = new HashSet<>(currentNodeReferences.getNodeKeys());
+        // if array indexes are given (only some might be specified we have to drop false positive nodes
         if (arrayIndexes != null && !arrayIndexes.isEmpty()) {
           currentNodeReferences.getNodeKeys().forEach(nodeKey -> {
             rtx.moveTo(nodeKey);
@@ -198,39 +196,54 @@ public final class IndexExpr implements Expr {
             final var path = pathSummary.getPath();
             final var steps = path.steps();
 
+            outer:
             for (int i = steps.size() - 1; i >= 0; i--) {
               final var step = steps.get(i);
 
               if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
                 final int currentIndex = i;
                 int j = i - 1;
+                // nested child arrays
                 while (steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
                   j--;
                   i--;
                 }
 
-                final Integer index = arrayIndexes.get(steps.get(j).getValue().getLocalName());
+                final Deque<Integer> tempIndexes = arrayIndexes.get(steps.get(j).getValue().getLocalName());
+                final Deque<Integer> indexes = tempIndexes == null ? null : new ArrayDeque<>(tempIndexes);
 
-                if (index == null) {
+                if (indexes == null) {
+                  // no array indexes given
                   while (j < currentIndex) {
                     j++;
                     rtx.moveToParent();
                   }
                 } else {
-                  boolean hasMoved = true;
-                  for (int k = 0; k < index && hasMoved; k++) {
-                    hasMoved = rtx.moveToLeftSibling().hasMoved();
+                  // at least some array indexes are given for the specific object key node
+                  int y = 0;
+                  for (int m = 0, length = currentIndex - j - indexes.size(); m < length; m++) {
+                    // for instance =>foo[[0]]=>bar   in a path /foo/[]/[]/[]/bar meaning at least one index is not specified
+                    y++;
+                    rtx.moveToParent();
                   }
-                  if (!hasMoved || rtx.hasLeftSibling()) {
-                    currNodeKeys.remove(nodeKey);
-                    break;
+                  for (int l = currentIndex, length = j + y; l > length; l--) {
+                    // remaining with array indexes specified
+                    final Integer index = indexes.pop();
+                    boolean hasMoved = true;
+                    for (int k = 0; k < index && hasMoved; k++) {
+                      hasMoved = rtx.moveToLeftSibling().hasMoved();
+                    }
+                    if (!hasMoved || rtx.hasLeftSibling()) {
+                      currNodeKeys.remove(nodeKey);
+                      break outer;
+                    }
+                    rtx.moveToParent();
                   }
-                  rtx.moveToParent();
                 }
               }
 
               rtx.moveToParent();
-              if (rtx.isObject() && i - 1 > 0 && steps.get(i-1).getAxis() == Path.Axis.CHILD) {
+              if (rtx.isObject() && i - 1 > 0 && steps.get(i - 1).getAxis() == Path.Axis.CHILD) {
                 rtx.moveToParent();
               }
             }
