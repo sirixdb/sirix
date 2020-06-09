@@ -32,8 +32,7 @@ import org.sirix.xquery.stream.json.TemporalSirixJsonArraySliceStream;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
-public final class JsonDBArraySlice extends AbstractArray
-    implements TemporalJsonDBItem<JsonDBArraySlice>, Array, JsonDBItem {
+public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBArraySlice.class));
@@ -56,6 +55,10 @@ public final class JsonDBArraySlice extends AbstractArray
 
   private final int toIndex;
 
+  /**
+   * Cached values.
+   */
+  private List<Sequence> values;
 
   /**
    * Constructor.
@@ -67,6 +70,7 @@ public final class JsonDBArraySlice extends AbstractArray
    */
   public JsonDBArraySlice(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final int fromIndex,
       final int toIndex) {
+    super(rtx, collection, new JsonItemFactory());
     this.collection = Preconditions.checkNotNull(collection);
     this.rtx = Preconditions.checkNotNull(rtx);
     isWtx = this.rtx instanceof JsonNodeTrx;
@@ -90,72 +94,6 @@ public final class JsonDBArraySlice extends AbstractArray
 
     this.fromIndex = fromIndex;
     this.toIndex = toIndex;
-  }
-
-  @Override
-  public JsonResourceManager getResourceManager() {
-    return rtx.getResourceManager();
-  }
-
-  @Override
-  public long getNodeKey() {
-    moveRtx();
-
-    return rtx.getNodeKey();
-  }
-
-  private final void moveRtx() {
-    rtx.moveTo(nodeKey);
-  }
-
-  @Override
-  public JsonDBCollection getCollection() {
-    return collection;
-  }
-
-  @Override
-  public JsonNodeReadOnlyTrx getTrx() {
-    return rtx;
-  }
-
-  @Override
-  public JsonDBArraySlice getNext() {
-    moveRtx();
-
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
-    return moveTemporalAxis(axis);
-  }
-
-  private JsonDBArraySlice moveTemporalAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis) {
-    if (axis.hasNext()) {
-      final var rtx = axis.next();
-      return new JsonDBArraySlice(rtx, collection, fromIndex, toIndex);
-    }
-
-    return null;
-  }
-
-  @Override
-  public JsonDBArraySlice getPrevious() {
-    moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new PreviousAxis<>(rtx.getResourceManager(), rtx);
-    return moveTemporalAxis(axis);
-  }
-
-  @Override
-  public JsonDBArraySlice getFirst() {
-    moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new FirstAxis<>(rtx.getResourceManager(), rtx);
-    return moveTemporalAxis(axis);
-  }
-
-  @Override
-  public JsonDBArraySlice getLast() {
-    moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
-    return moveTemporalAxis(axis);
   }
 
   @Override
@@ -186,139 +124,27 @@ public final class JsonDBArraySlice extends AbstractArray
   }
 
   @Override
-  public boolean isNextOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (this == other)
-      return false;
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
-  }
-
-  @Override
-  public boolean isPreviousOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (this == other)
-      return false;
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
-  }
-
-  @Override
-  public boolean isFutureOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (this == other)
-      return false;
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
-  }
-
-  @Override
-  public boolean isFutureOrSelfOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (this == other)
-      return true;
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
-  }
-
-  @Override
-  public boolean isEarlierOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (this == other)
-      return false;
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
-  }
-
-  @Override
-  public boolean isEarlierOrSelfOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (this == other)
-      return true;
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
-  }
-
-  @Override
-  public boolean isLastOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
-
-    return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
-  }
-
-  @Override
-  public boolean isFirstOf(final JsonDBArraySlice other) {
-    moveRtx();
-
-    if (!(other instanceof JsonDBArraySlice))
-      return false;
-
-    final JsonDBArraySlice otherNode = other;
-    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
-
-    // Revision 0 is just the bootstrap revision and not accessed over here.
-    return otherTrx.getRevisionNumber() == 1;
-  }
-
-  @Override
-  public ItemType itemType() {
-    return ArrayType.ARRAY;
-  }
-
-  @Override
-  public Atomic atomize() {
-    throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The atomized value of array items is undefined");
-  }
-
-  @Override
-  public boolean booleanValue() {
-    throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The boolean value of array items is undefined");
+  protected JsonDBArraySlice createInstance(JsonNodeReadOnlyTrx rtx, JsonDBCollection collection) {
+    return new JsonDBArraySlice(rtx, collection, fromIndex, toIndex);
   }
 
   @Override
   public List<Sequence> values() {
     moveRtx();
 
-    final List<Sequence> values = new ArrayList<Sequence>();
+    if (values == null) {
+      values = getValues();
+    }
 
-    for (int i = 0, length = len(); i < length; i++)
-      values.add(at(i));
+    return values;
+  }
+
+  private List<Sequence> getValues() {
+    final var values = new ArrayList<Sequence>();
+
+    for (int i = 0, length = len(); i < length; i++) {
+      values.add(at(fromIndex + i));
+    }
 
     return values;
   }
@@ -347,7 +173,11 @@ public final class JsonDBArraySlice extends AbstractArray
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", numericIndex.intValue());
     }
 
-    return getSequenceAtIndex(rtx, ii);
+    if (values == null) {
+      return getSequenceAtIndex(rtx, ii);
+    }
+
+    return values.get(ii);
   }
 
   @Override
@@ -357,7 +187,11 @@ public final class JsonDBArraySlice extends AbstractArray
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", index);
     }
 
-    return getSequenceAtIndex(rtx, ii);
+    if (values == null) {
+      return getSequenceAtIndex(rtx, ii);
+    }
+
+    return values.get(index);
   }
 
   @Override

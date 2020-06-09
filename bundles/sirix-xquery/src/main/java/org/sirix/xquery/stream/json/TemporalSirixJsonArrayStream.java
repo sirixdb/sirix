@@ -6,6 +6,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
+import org.sirix.xquery.json.AbstractJsonDBArray;
 import org.sirix.xquery.json.JsonDBArray;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.node.XmlDBCollection;

@@ -66,7 +66,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   @Override
   AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels,
-      Map<String, Deque<Integer>> arrayIndexes) {
+      Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames) {
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
     indexExpr.setProperty("indexDefs", foundIndexDefs);
@@ -76,6 +76,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     indexExpr.setProperty("predicateLevel", predicateLevels);
     indexExpr.setProperty("atomic", atomic);
     indexExpr.setProperty("comparator", comparator);
+    indexExpr.setProperty("arrayIndexes", arrayIndexes);
+    indexExpr.setProperty("pathSegmentNames", pathSegmentNames);
 
     final var parent = astNode.getParent();
     indexExpr.setProperty("hasBitArrayValuesFunction",

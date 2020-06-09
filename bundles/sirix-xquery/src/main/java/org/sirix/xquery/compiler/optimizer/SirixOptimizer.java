@@ -38,6 +38,7 @@ public final class SirixOptimizer extends TopDownOptimizer {
 
       ast = new JsonCASStep(sctx, jsonItemStore).walk(ast);
       ast = new JsonPathStep(sctx, jsonItemStore).walk(ast);
+
       return ast;
     }
   }
