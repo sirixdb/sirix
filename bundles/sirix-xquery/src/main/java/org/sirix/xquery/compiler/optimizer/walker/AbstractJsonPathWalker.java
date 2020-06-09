@@ -4,7 +4,7 @@ import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
-import org.brackit.xquery.compiler.optimizer.walker.Walker;
+import org.brackit.xquery.compiler.optimizer.walker.topdown.ScopeWalker;
 import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
@@ -13,18 +13,23 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.node.NodeKind;
+import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.json.JsonDBStore;
 
 import java.util.*;
+import java.util.function.Function;
 
-abstract class AbstractJsonPathWalker extends Walker {
+abstract class AbstractJsonPathWalker extends ScopeWalker {
 
   private static final int MIN_NODE_NUMBER = 0;
 
   private final JsonDBStore jsonDBStore;
 
+  private final StaticContext sctx;
+
   public AbstractJsonPathWalker(StaticContext sctx, JsonDBStore jsonDBStore) {
     super(sctx);
+    this.sctx = sctx;
     this.jsonDBStore = jsonDBStore;
   }
 
@@ -57,15 +62,24 @@ abstract class AbstractJsonPathWalker extends Walker {
 
       final var newChildNode = newNode.get();
 
-      if (isDocumentNodeFunction(newChildNode)) {
-        final var databaseName = newChildNode.getChild(0).getStringValue();
-        final var resourceName = newChildNode.getChild(1).getStringValue();
-
+      if (isDocumentNodeFunction(newChildNode) || isIndexExpr(newChildNode)) {
+        final String databaseName;
+        final String resourceName;
         final int revision;
-        if (newChildNode.getChildCount() > 2) {
-          revision = (int) newChildNode.getChild(2).getValue();
+
+        if (isDocumentNodeFunction(newChildNode)) {
+          databaseName = newChildNode.getChild(0).getStringValue();
+          resourceName = newChildNode.getChild(1).getStringValue();
+
+          if (newChildNode.getChildCount() > 2) {
+            revision = (int) newChildNode.getChild(2).getValue();
+          } else {
+            revision = -1;
+          }
         } else {
-          revision = -1;
+          databaseName = (String) newChildNode.getProperty("databaseName");
+          resourceName = (String) newChildNode.getProperty("resourceName");
+          revision = (Integer) newChildNode.getProperty("revision");
         }
 
         try (final var jsonCollection = jsonDBStore.lookup(databaseName);
@@ -125,6 +139,8 @@ abstract class AbstractJsonPathWalker extends Walker {
             }
           }
 
+          pathSegmentNames.addFirst(pathSegmentNameToCheck);
+
           pathNodeKeys.removeIf(pathNodeKeysToRemove::contains);
 
           if (pathNodeKeys.isEmpty()) {
@@ -169,7 +185,8 @@ abstract class AbstractJsonPathWalker extends Walker {
                                    revision,
                                    foundIndexDefsToPaths,
                                    foundIndexDefsToPredicateLevels,
-                                   arrayIndexes);
+                                   arrayIndexes,
+                                   pathSegmentNames);
           }
         }
       }
@@ -177,11 +194,15 @@ abstract class AbstractJsonPathWalker extends Walker {
     return null;
   }
 
+  private boolean isIndexExpr(AST newChildNode) {
+    return newChildNode.getType() == XQExt.IndexExpr;
+  }
+
   abstract int getPredicateLevel(Path<QNm> pathToFoundNode, Deque<String> predicateSegmentNames);
 
   abstract AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevel,
-      Map<String, Deque<Integer>> arrayIndexes);
+      Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames);
 
   abstract Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
       IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController);
@@ -234,9 +255,66 @@ abstract class AbstractJsonPathWalker extends Walker {
       if (step.getType() == XQ.FunctionCall) {
         return Optional.of(step);
       }
+
+      if (step.getType() == XQ.VariableRef) {
+        final Optional<AST> optionalLetBindNode = getScopes().stream().filter(currentScope -> {
+          if (currentScope.getType() == XQ.LetBind || currentScope.getType() == XQ.ForBind) {
+            final AST varNode = currentScope.getChild(0).getChild(0);
+            if (step.getValue().equals(varNode.getValue())) {
+              return true;
+            }
+            return false;
+          }
+          return false;
+        }).findFirst();
+
+        return optionalLetBindNode.map(returnFunctionCallNodeIfPresent(pathNames, arrayIndexes));
+      }
     }
 
     return Optional.empty();
+  }
+
+  private Function<AST, AST> returnFunctionCallNodeIfPresent(Deque<String> pathNames,
+      Map<String, Deque<Integer>> arrayIndexes) {
+    return node -> {
+      if (node.getType() == XQ.LetBind) {
+        final AST varNode = node.getChild(1);
+
+        if (varNode.getType() == XQ.FunctionCall) {
+          return varNode;
+        }
+        return null;
+      } else {
+        final var stepNode = node.getChild(1);
+
+        if (stepNode.getType() == XQ.DerefExpr) {
+          final var firstPathNames = new ArrayDeque<String>();
+          final var firstArrayIndexes = new HashMap<String, Deque<Integer>>();
+
+          final var pathSegmentName = stepNode.getChild(stepNode.getChildCount() - 1).getStringValue();
+          firstPathNames.add(pathSegmentName);
+
+          final var astNode = getPathStep(stepNode, firstPathNames, firstArrayIndexes);
+
+          return astNode.map(currAstNode -> {
+            pathNames.addAll(firstPathNames);
+            arrayIndexes.putAll(firstArrayIndexes);
+            return currAstNode;
+          }).orElse(null);
+        } else if (stepNode.getType() == XQExt.IndexExpr) {
+          final Deque<String> indexPathSegmentNames = (Deque<String>) stepNode.getProperty("pathSegmentNames");
+          final Map<String, Deque<Integer>> indexArrayIndexes =
+              (Map<String, Deque<Integer>>) stepNode.getProperty("arrayIndexes");
+
+          pathNames.addAll(indexPathSegmentNames);
+          arrayIndexes.putAll(indexArrayIndexes);
+          return stepNode;
+        }
+
+        return null;
+      }
+    };
   }
 
   protected AST processArrayAccess(String pathNameForIndexes, Map<String, Deque<Integer>> arrayIndexes, AST astNode) {

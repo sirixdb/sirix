@@ -305,7 +305,7 @@ public final class JsonDBObject extends AbstractItem
   public Sequence get(QNm field) {
     moveRtx();
 
-    final var axis = new FilterAxis<JsonNodeReadOnlyTrx>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));;
+    final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
 
     if (axis.hasNext()) {
       axis.next();

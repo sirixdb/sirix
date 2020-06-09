@@ -1,14 +1,12 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.file.Path;
-
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Sequence;
 import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.shredder.JsonShredder;
@@ -17,9 +15,15 @@ import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
 import org.sirix.xquery.json.JsonDBObject;
-import junit.framework.TestCase;
 
-public final class SimpleQueryIntegrationTest extends TestCase {
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+public final class SimpleQueryIntegrationTest {
 
   private static final String simpleJson = "{\"sirix\":{\"revisionNumber\":1}}";
 
@@ -49,12 +53,12 @@ public final class SimpleQueryIntegrationTest extends TestCase {
 
   private Path sirixPath = PATHS.PATH1.getFile();
 
-  @Override
-  protected void setUp() throws Exception {
+  @BeforeEach
+  protected void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @Override
+  @AfterEach
   protected void tearDown() {
     JsonTestHelper.closeEverything();
   }
@@ -98,6 +102,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
+
       assertEquals(expectedJson, buf.toString());
     }
   }
@@ -120,6 +125,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
+
       assertEquals("1", buf.toString());
     }
   }
@@ -141,6 +147,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
+
       assertEquals("1", buf.toString());
     }
   }
@@ -163,6 +170,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.serialize(seq);
       }
+
       assertEquals("\"bar\"", buf.toString());
 
       // // Use XQuery to load a JSON database/resource.
@@ -194,6 +202,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedAllTimesTimeTravelQueryResult, buf.toString());
     }
   }
@@ -213,6 +222,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(JsonDocumentCreator.JSON, buf.toString());
     }
   }
@@ -232,6 +242,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedLastTimeTravelQueryResult, buf.toString());
     }
   }
@@ -251,6 +262,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedNextTimeTravelQueryResult, buf.toString());
     }
   }
@@ -270,6 +282,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(JsonDocumentCreator.JSON, buf.toString());
     }
   }
@@ -289,6 +302,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedFutureTimeTravelQueryResult, buf.toString());
     }
   }
@@ -308,6 +322,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedAllTimesTimeTravelQueryResult, buf.toString());
     }
   }
@@ -327,6 +342,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedPastTimeTravelQueryResult, buf.toString());
     }
   }
@@ -346,6 +362,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       try (final var serializer = new StringSerializer(buf)) {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
+
       assertEquals(expectedPastOrSelfTimeTravelQueryResult, buf.toString());
     }
   }
@@ -464,20 +481,20 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   // }
   // }
   //
-  // @Test
-  // public void testTwitter() throws IOException {
-  // try (final var store = BasicJsonDBStore.newBuilder().build();
-  // final var ctx = SirixQueryContext.createWithJsonStore(store);
-  // final var chain = SirixCompileChain.createWithJsonStore(store)) {
-  // final var twitterFilePath = JSON.resolve("twitter.json").toString();
-  // final var storeQuery = "let $created := jn:load('mycol.jn','mydoc.jn','" + twitterFilePath
-  // + "')=>statuses[[0]]=>created_at return xs:dateTime($created)";
-  //
-  // final var buf = IOUtils.createBuffer();
-  // final var serializer = new StringSerializer(buf);
-  // new XQuery(chain, storeQuery).serialize(ctx, serializer);
-  //
-  // assertEquals("2018-08-16T21:10:50:557000", buf.toString());
-  // }
-  // }
+//   @Test
+//   public void testTwitter() throws IOException {
+//   try (final var store = BasicJsonDBStore.newBuilder().build();
+//   final var ctx = SirixQueryContext.createWithJsonStore(store);
+//   final var chain = SirixCompileChain.createWithJsonStore(store)) {
+//   final var twitterFilePath = JSON.resolve("twitter.json").toString();
+//   final var storeQuery = "let $created := jn:load('mycol.jn','mydoc.jn','" + twitterFilePath
+//   + "')=>statuses[[0]]=>created_at return xs:dateTime($created)";
+//
+//   final var buf = IOUtils.createBuffer();
+//   final var serializer = new StringSerializer(buf);
+//   new XQuery(chain, storeQuery).serialize(ctx, serializer);
+//
+//   assertEquals("2018-08-16T21:10:50:557000", buf.toString());
+//   }
+//   }
 }

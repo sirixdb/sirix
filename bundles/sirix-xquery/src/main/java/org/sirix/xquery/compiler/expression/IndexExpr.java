@@ -21,6 +21,7 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.path.json.JsonPCRCollector;
+import org.sirix.node.NodeKind;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
@@ -192,6 +193,10 @@ public final class IndexExpr implements Expr {
         if (arrayIndexes != null && !arrayIndexes.isEmpty()) {
           currentNodeReferences.getNodeKeys().forEach(nodeKey -> {
             rtx.moveTo(nodeKey);
+            if (rtx.isStringValue() || rtx.isNumberValue() || rtx.isBooleanValue() || rtx.isNullValue()) {
+              rtx.moveToParent();
+            }
+
             pathSummary.moveTo(rtx.getPathNodeKey());
             final var path = pathSummary.getPath();
             final var steps = path.steps();
