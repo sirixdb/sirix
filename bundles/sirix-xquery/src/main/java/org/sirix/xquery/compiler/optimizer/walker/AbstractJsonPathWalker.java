@@ -260,61 +260,71 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         final Optional<AST> optionalLetBindNode = getScopes().stream().filter(currentScope -> {
           if (currentScope.getType() == XQ.LetBind || currentScope.getType() == XQ.ForBind) {
             final AST varNode = currentScope.getChild(0).getChild(0);
-            if (step.getValue().equals(varNode.getValue())) {
-              return true;
-            }
-            return false;
+            return step.getValue().equals(varNode.getValue());
           }
           return false;
         }).findFirst();
 
-        return optionalLetBindNode.map(returnFunctionCallNodeIfPresent(pathNames, arrayIndexes));
+        return optionalLetBindNode.map(returnFunctionCallOrIndexExprNodeIfPresent(pathNames, arrayIndexes));
       }
     }
 
     return Optional.empty();
   }
 
-  private Function<AST, AST> returnFunctionCallNodeIfPresent(Deque<String> pathNames,
+  private Function<AST, AST> returnFunctionCallOrIndexExprNodeIfPresent(Deque<String> pathNames,
       Map<String, Deque<Integer>> arrayIndexes) {
     return node -> {
       if (node.getType() == XQ.LetBind) {
-        final AST varNode = node.getChild(1);
-
-        if (varNode.getType() == XQ.FunctionCall) {
-          return varNode;
-        }
-        return null;
-      } else {
-        final var stepNode = node.getChild(1);
-
-        if (stepNode.getType() == XQ.DerefExpr) {
-          final var firstPathNames = new ArrayDeque<String>();
-          final var firstArrayIndexes = new HashMap<String, Deque<Integer>>();
-
-          final var pathSegmentName = stepNode.getChild(stepNode.getChildCount() - 1).getStringValue();
-          firstPathNames.add(pathSegmentName);
-
-          final var astNode = getPathStep(stepNode, firstPathNames, firstArrayIndexes);
-
-          return astNode.map(currAstNode -> {
-            pathNames.addAll(firstPathNames);
-            arrayIndexes.putAll(firstArrayIndexes);
-            return currAstNode;
-          }).orElse(null);
-        } else if (stepNode.getType() == XQExt.IndexExpr) {
-          final Deque<String> indexPathSegmentNames = (Deque<String>) stepNode.getProperty("pathSegmentNames");
-          final Map<String, Deque<Integer>> indexArrayIndexes =
-              (Map<String, Deque<Integer>>) stepNode.getProperty("arrayIndexes");
-
-          pathNames.addAll(indexPathSegmentNames);
-          arrayIndexes.putAll(indexArrayIndexes);
-          return stepNode;
-        }
-
-        return null;
+        return processLetBind(pathNames, arrayIndexes, node);
+      } else if (node.getType() == XQ.ForBind) {
+        return processForBind(pathNames, arrayIndexes, node);
       }
+
+      return null;
     };
+  }
+
+  private AST processForBind(Deque<String> pathNames, Map<String, Deque<Integer>> arrayIndexes, AST node) {
+    final var stepNode = node.getChild(1);
+
+    if (stepNode.getType() == XQ.DerefExpr) {
+      final var firstPathNames = new ArrayDeque<String>();
+      final var firstArrayIndexes = new HashMap<String, Deque<Integer>>();
+
+      final var pathSegmentName = stepNode.getChild(stepNode.getChildCount() - 1).getStringValue();
+      firstPathNames.add(pathSegmentName);
+
+      final var astNode = getPathStep(stepNode, firstPathNames, firstArrayIndexes);
+
+      return astNode.map(currAstNode -> {
+        pathNames.addAll(firstPathNames);
+        arrayIndexes.putAll(firstArrayIndexes);
+        return currAstNode;
+      }).orElse(null);
+    } else if (stepNode.getType() == XQExt.IndexExpr) {
+      final Deque<String> indexPathSegmentNames = (Deque<String>) stepNode.getProperty("pathSegmentNames");
+      final Map<String, Deque<Integer>> indexArrayIndexes =
+          (Map<String, Deque<Integer>>) stepNode.getProperty("arrayIndexes");
+
+      pathNames.addAll(indexPathSegmentNames);
+      arrayIndexes.putAll(indexArrayIndexes);
+      return stepNode;
+    }
+
+    return null;
+  }
+
+  private AST processLetBind(Deque<String> pathSegmentNames, Map<String, Deque<Integer>> arrayIndexes, AST astNode) {
+    final AST varNode = astNode.getChild(1);
+
+    if (varNode.getType() == XQ.FunctionCall) {
+      return varNode;
+    } else if (varNode.getType() == XQ.DerefExpr) {
+      return getPathStep(astNode, pathSegmentNames, arrayIndexes).orElse(null);
+    }
+
+    return null;
   }
 
   protected AST processArrayAccess(String pathNameForIndexes, Map<String, Deque<Integer>> arrayIndexes, AST astNode) {
