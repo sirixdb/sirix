@@ -282,4 +282,46 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting18").resolve("expectedOutput")));
   }
+
+  @Test
+  public void testNesting19() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting19").resolve("trade-apis.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('foo')) return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        """
+            for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"
+            let $j := $i=>get
+            let $l := $j=>parameters=>name
+            return for $k in $l
+                   where $k eq 'keyword'
+                   return { "result": $i, "nodekey": sdb:nodekey($i) }
+                   """.stripIndent();
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting19").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testNesting20() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting20").resolve("trade-apis.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search','/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name')) return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        """
+            for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"
+            let $j := $i=>get
+            let $l := $j=>parameters=>name
+            return for $k in $l
+                   where $k eq 'keyword'
+                   return { "result": $i, "nodekey": sdb:nodekey($i) }
+                   """.stripIndent();
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting20").resolve("expectedOutput")));
+  }
 }
