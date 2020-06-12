@@ -1,17 +1,15 @@
-package org.sirix.xquery.compiler.optimizer;
+package org.sirix.xquery.compiler.optimizer.walker.json;
 
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.topdown.ScopeWalker;
-import org.brackit.xquery.module.StaticContext;
 import org.sirix.xquery.json.JsonDBStore;
 
 public class JsonObjectKeyNameStep extends ScopeWalker {
-  private final StaticContext sctx;
+
   private final JsonDBStore jsonItemStore;
 
-  public JsonObjectKeyNameStep(StaticContext sctx, JsonDBStore jsonItemStore) {
-    this.sctx = sctx;
+  public JsonObjectKeyNameStep(JsonDBStore jsonItemStore) {
     this.jsonItemStore = jsonItemStore;
   }
 
@@ -20,8 +18,6 @@ public class JsonObjectKeyNameStep extends ScopeWalker {
     if (astNode.getType() != XQ.DerefExpr) {
       return astNode;
     }
-
-
 
     return astNode;
   }

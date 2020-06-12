@@ -1,10 +1,10 @@
-package org.sirix.xquery.compiler.optimizer.walker;
+package org.sirix.xquery.compiler.optimizer.walker.json;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
-import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -19,8 +19,8 @@ import java.util.Optional;
 
 public final class JsonPathStep extends AbstractJsonPathWalker {
 
-  public JsonPathStep(final StaticContext sctx, final JsonDBStore jsonDBStore) {
-    super(sctx, jsonDBStore);
+  public JsonPathStep(final JsonDBStore jsonDBStore) {
+    super(jsonDBStore);
   }
 
   @Override
@@ -34,18 +34,12 @@ public final class JsonPathStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    final AST replacedASTNode = replaceAstIfIndexApplicable(astNode, null);
-
-    if (replacedASTNode != null) {
-      return replacedASTNode;
-    }
-
-    return astNode;
+    return replaceAstIfIndexApplicable(astNode, null, null);
   }
 
   @Override
   Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
-      IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController) {
+      IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, Type type) {
     return indexController.getIndexes().findPathIndex(pathToFoundNode);
   }
 

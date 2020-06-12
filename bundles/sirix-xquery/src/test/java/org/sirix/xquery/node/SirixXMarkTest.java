@@ -1,7 +1,5 @@
 package org.sirix.xquery.node;
 
-import java.io.FileNotFoundException;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XMarkTest;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.node.parser.DocumentParser;
@@ -20,31 +18,31 @@ import org.sirix.xquery.SirixCompileChain;
 public final class SirixXMarkTest extends XMarkTest {
 
   /** Sirix database store. */
-  private BasicXmlDBStore mStore;
+  private BasicXmlDBStore xmlStore;
 
   @Override
-  protected NodeStore createStore() throws Exception {
-    mStore = BasicXmlDBStore.newBuilder().build();
-    return mStore;
+  protected NodeStore createStore() {
+    xmlStore = BasicXmlDBStore.newBuilder().build();
+    return xmlStore;
   }
 
   @Override
-  protected XQuery xquery(final String query) throws QueryException {
-    return new XQuery(SirixCompileChain.createWithNodeStore(mStore), query);
+  protected XQuery xquery(final String query) {
+    return new XQuery(SirixCompileChain.createWithNodeStore(xmlStore), query);
   }
 
   @Override
-  protected NodeCollection<?> createDoc(final DocumentParser parser) throws DocumentException {
-    return mStore.create("testCollection", parser);
+  protected NodeCollection<?> createDoc(final DocumentParser parser) {
+    return xmlStore.create("testCollection", parser);
   }
 
   @Override
-  public void setUp() throws Exception, FileNotFoundException {
+  public void setUp() throws Exception {
     super.setUp();
   }
 
   @After
   public void commit() throws DocumentException {
-    mStore.close();
+    xmlStore.close();
   }
 }

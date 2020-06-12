@@ -20,8 +20,8 @@ import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
+import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.path.json.JsonPCRCollector;
-import org.sirix.node.NodeKind;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
@@ -90,33 +90,59 @@ public final class IndexExpr implements Expr {
           final var atomic = (Atomic) properties.get("atomic");
           final var comparisonType = (String) properties.get("comparator");
 
-          final SearchMode searchMode;
-
-          if ("ValueCompGT".equals(comparisonType) || "GeneralCompGT".equals(comparisonType)) {
-            searchMode = SearchMode.GREATER;
-          } else if ("ValueCompLT".equals(comparisonType) || "GeneralCompLT".equals(comparisonType)) {
-            searchMode = SearchMode.LOWER;
-          } else if ("ValueCompEQ".equals(comparisonType) || "GeneralCompEQ".equals(comparisonType)) {
-            searchMode = SearchMode.EQUAL;
-          } else if ("ValueCompGE".equals(comparisonType) || "GeneralCompGE".equals(comparisonType)) {
-            searchMode = SearchMode.GREATER_OR_EQUAL;
-          } else if ("ValueCompLE".equals(comparisonType) || "GeneralCompLE".equals(comparisonType)) {
-            searchMode = SearchMode.LOWER_OR_EQUAL;
+          final Atomic atomicUpperBound;
+          if (properties.containsKey("upperBoundAtomic")) {
+            atomicUpperBound = (Atomic) properties.get("upperBoundAtomic");
           } else {
-            throw new IllegalStateException("Unexpected value: " + comparisonType);
+            atomicUpperBound = null;
           }
 
-          final var casFilter =
-              new CASFilter(new HashSet<>(entrySet.getValue()), atomic, searchMode, new JsonPCRCollector(rtx));
+          final String comparisonUpperBound;
+          if (properties.containsKey("upperBoundComparator")) {
+            comparisonUpperBound = (String) properties.get("upperBoundComparator");
+          } else {
+            comparisonUpperBound = null;
+          }
 
-          final Iterator<NodeReferences> nodeReferencesIterator =
-              indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
+          if (atomicUpperBound != null && comparisonUpperBound != null) {
+            final SearchMode searchMode = getSearchMode(comparisonType);
+            final SearchMode searchModeUpperBound = getSearchMode(comparisonUpperBound);
 
-          checkIfIndexNodeIsApplicable(manager, rtx, arrayIndexes, nodeReferencesIterator, nodeKeys);
+            if ((searchMode != SearchMode.GREATER && searchMode != SearchMode.GREATER_OR_EQUAL)
+                || (searchModeUpperBound != SearchMode.LOWER && searchModeUpperBound != SearchMode.LOWER_OR_EQUAL)) {
+              throw new QueryException(JNFun.ERR_INVALID_ARGUMENT, new QNm("Search mode not supported."));
+            }
 
-          indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
+            final var casFilter = new CASFilterRange(new HashSet<>(entrySet.getValue()),
+                                                     atomic,
+                                                     atomicUpperBound,
+                                                     searchMode == SearchMode.GREATER_OR_EQUAL,
+                                                     searchModeUpperBound == SearchMode.LOWER_OR_EQUAL,
+                                                     new JsonPCRCollector(rtx));
 
-          nodeKeys = new ArrayList<>();
+            final Iterator<NodeReferences> nodeReferencesIterator =
+                indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
+
+            checkIfIndexNodeIsApplicable(manager, rtx, arrayIndexes, nodeReferencesIterator, nodeKeys);
+
+            indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
+
+            nodeKeys = new ArrayList<>();
+          } else {
+            final SearchMode searchMode = getSearchMode(comparisonType);
+
+            final var casFilter =
+                new CASFilter(new HashSet<>(entrySet.getValue()), atomic, searchMode, new JsonPCRCollector(rtx));
+
+            final Iterator<NodeReferences> nodeReferencesIterator =
+                indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
+
+            checkIfIndexNodeIsApplicable(manager, rtx, arrayIndexes, nodeReferencesIterator, nodeKeys);
+
+            indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
+
+            nodeKeys = new ArrayList<>();
+          }
         }
         case NAME -> {
         }
@@ -182,6 +208,26 @@ public final class IndexExpr implements Expr {
         };
       }
     };
+  }
+
+  private SearchMode getSearchMode(String comparisonType) {
+    final SearchMode searchMode;
+
+    if ("ValueCompGT".equals(comparisonType) || "GeneralCompGT".equals(comparisonType)) {
+      searchMode = SearchMode.GREATER;
+    } else if ("ValueCompLT".equals(comparisonType) || "GeneralCompLT".equals(comparisonType)) {
+      searchMode = SearchMode.LOWER;
+    } else if ("ValueCompEQ".equals(comparisonType) || "GeneralCompEQ".equals(comparisonType)) {
+      searchMode = SearchMode.EQUAL;
+    } else if ("ValueCompGE".equals(comparisonType) || "GeneralCompGE".equals(comparisonType)) {
+      searchMode = SearchMode.GREATER_OR_EQUAL;
+    } else if ("ValueCompLE".equals(comparisonType) || "GeneralCompLE".equals(comparisonType)) {
+      searchMode = SearchMode.LOWER_OR_EQUAL;
+    } else {
+      throw new IllegalStateException("Unexpected value: " + comparisonType);
+    }
+
+    return searchMode;
   }
 
   private void checkIfIndexNodeIsApplicable(JsonResourceManager manager, JsonNodeReadOnlyTrx rtx,
