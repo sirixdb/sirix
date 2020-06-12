@@ -76,7 +76,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
+  AST replaceFoundAST(AST astNode, RevisionData revisionData,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels,
       Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames) {
     if (!noAndComparison) {
@@ -96,9 +96,9 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
     indexExpr.setProperty("indexDefs", foundIndexDefs);
-    indexExpr.setProperty("databaseName", databaseName);
-    indexExpr.setProperty("resourceName", resourceName);
-    indexExpr.setProperty("revision", revision);
+    indexExpr.setProperty("databaseName", revisionData.databaseName());
+    indexExpr.setProperty("resourceName", revisionData.resourceName());
+    indexExpr.setProperty("revision", revisionData.revision());
     indexExpr.setProperty("predicateLevel", predicateLevels);
     indexExpr.setProperty("atomic", atomic);
     indexExpr.setProperty("comparator", comparator);
@@ -211,7 +211,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     final var predicateChildAstNode = predicateAstNode.getChild(0);
 
     if (predicateChildAstNode.getType() == XQ.AndExpr) {
-      processComparisonAstNode(astNode, leftChild, predicateChildAstNode.getChild(0));
+      processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(0));
 
       if (firstInAndComparison) {
         return null;
@@ -222,7 +222,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
         return null;
       }
 
-      final var node = processComparisonAstNode(astNode, leftChild, predicateChildAstNode.getChild(1));
+      final var node = processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(1));
 
       if (!"ValueCompLT".equals(upperBoundComparator) && !"GeneralCompLT".equals(upperBoundComparator) && !"ValueCompLE"
           .equals(upperBoundComparator) && !"GeneralCompLE".equals(upperBoundComparator)) {
@@ -235,10 +235,10 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
     // no and-comparison
     noAndComparison = true;
-    return processComparisonAstNode(astNode, leftChild, predicateChildAstNode);
+    return processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode);
   }
 
-  private AST processComparisonAstNode(AST astNode, AST leftChild, AST predicateChildAstNode) {
+  private AST processPredicateChildAstNode(AST astNode, AST leftChild, AST predicateChildAstNode) {
     if (predicateChildAstNode.getChildCount() != 3) {
       return astNode;
     }

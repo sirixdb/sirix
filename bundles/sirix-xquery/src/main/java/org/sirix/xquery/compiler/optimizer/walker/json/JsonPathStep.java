@@ -50,15 +50,15 @@ public final class JsonPathStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  AST replaceFoundAST(AST astNode, String databaseName, String resourceName, int revision,
+  AST replaceFoundAST(AST astNode, RevisionData revisionData,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels,
       Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames) {
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
     indexExpr.setProperty("indexDefs", foundIndexDefs);
-    indexExpr.setProperty("databaseName", databaseName);
-    indexExpr.setProperty("resourceName", resourceName);
-    indexExpr.setProperty("revision", revision);
+    indexExpr.setProperty("databaseName", revisionData.databaseName());
+    indexExpr.setProperty("resourceName", revisionData.resourceName());
+    indexExpr.setProperty("revision", revisionData.revision());
     indexExpr.setProperty("arrayIndexes", arrayIndexes);
     indexExpr.setProperty("pathSegmentNames", pathSegmentNames);
 
