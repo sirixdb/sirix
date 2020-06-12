@@ -41,35 +41,22 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       return null;
     }
 
-    final var pathSegmentNames = new ArrayDeque<String>();
-    final var arrayIndexes = new HashMap<String, Deque<Integer>>();
+    final var pathData = traversePath(astNode, predicateNode);
 
-    if (predicateNode != null) {
-      final var pathSegmentName = predicateNode.getChild(1).getStringValue();
-      pathSegmentNames.add(pathSegmentName);
-      final var predicateLeafNode = getPredicatePathStep(predicateNode, pathSegmentNames, arrayIndexes);
-      if (predicateLeafNode.isEmpty()) {
-        return null;
-      }
-    }
+    final var node = pathData.node();
+    final var pathSegmentNames = pathData.pathSegmentNames();
+    final var arrayIndexes = pathData.arrayIndexes();
+    final var predicateSegmentNames = pathData.predicateNames();
 
-    final var predicateSegmentNames = new ArrayDeque<>(pathSegmentNames);
-
-    final var pathSegmentName = astNode.getChild(1).getStringValue();
-    pathSegmentNames.add(pathSegmentName);
-    final var newNode = getPathStep(astNode, pathSegmentNames, arrayIndexes);
-
-    if (newNode.isEmpty() || pathSegmentNames.size() <= 1) {
+    if (node == null || pathSegmentNames.size() <= 1) {
       return astNode;
     }
 
-    final var newChildNode = newNode.get();
-
-    if (!(isDocumentNodeFunction(newChildNode) || isIndexExpr(newChildNode))) {
+    if (!(isDocumentNodeFunction(node) || isIndexExpr(node))) {
       return astNode;
     }
 
-    final RevisionData revisionData = getRevisionData(newChildNode);
+    final RevisionData revisionData = getRevisionData(node);
 
     try (final var jsonCollection = jsonDBStore.lookup(revisionData.databaseName());
          final var resMgr = jsonCollection.getDatabase().openResourceManager(revisionData.resourceName());
@@ -128,7 +115,30 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
                                pathSegmentNames);
       }
     }
+
     return null;
+  }
+
+  protected PathData traversePath(final AST node, final AST predicateNode) {
+    final var pathSegmentNames = new ArrayDeque<String>();
+    final var arrayIndexes = new HashMap<String, Deque<Integer>>();
+
+    if (predicateNode != null) {
+      final var pathSegmentName = predicateNode.getChild(1).getStringValue();
+      pathSegmentNames.add(pathSegmentName);
+      final var predicateLeafNode = getPredicatePathStep(predicateNode, pathSegmentNames, arrayIndexes);
+      if (predicateLeafNode.isEmpty()) {
+        return null;
+      }
+    }
+
+    final var predicateSegmentNames = new ArrayDeque<>(pathSegmentNames);
+
+    final var pathSegmentName = node.getChild(1).getStringValue();
+    pathSegmentNames.add(pathSegmentName);
+    final var newNode = getPathStep(node, pathSegmentNames, arrayIndexes);
+
+    return new PathData(pathSegmentNames, arrayIndexes, predicateSegmentNames, newNode.get());
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,
@@ -256,7 +266,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         || new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open").equals(newChildNode.getValue());
   }
 
-  private boolean findDerefAncestor(AST astNode) {
+  protected boolean findDerefAncestor(AST astNode) {
     boolean foundDerefAncestor = false;
     AST ancestor = astNode.getParent();
     while (ancestor != null && !foundDerefAncestor) {
