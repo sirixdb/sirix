@@ -89,20 +89,8 @@ public final class IndexExpr implements Expr {
         case CAS -> {
           final var atomic = (Atomic) properties.get("atomic");
           final var comparisonType = (String) properties.get("comparator");
-
-          final Atomic atomicUpperBound;
-          if (properties.containsKey("upperBoundAtomic")) {
-            atomicUpperBound = (Atomic) properties.get("upperBoundAtomic");
-          } else {
-            atomicUpperBound = null;
-          }
-
-          final String comparisonUpperBound;
-          if (properties.containsKey("upperBoundComparator")) {
-            comparisonUpperBound = (String) properties.get("upperBoundComparator");
-          } else {
-            comparisonUpperBound = null;
-          }
+          final Atomic atomicUpperBound = (Atomic) properties.get("upperBoundAtomic");
+          final String comparisonUpperBound = (String) properties.get("upperBoundComparator");
 
           if (atomicUpperBound != null && comparisonUpperBound != null) {
             final SearchMode searchMode = getSearchMode(comparisonType);

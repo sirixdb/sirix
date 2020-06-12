@@ -20,24 +20,15 @@ import java.util.stream.Collectors;
 
 public final class JsonCASStep extends AbstractJsonPathWalker {
 
-  private String comparator;
-
-  private Atomic atomic;
-
-  private String upperBoundComparator;
-
-  private Atomic upperBoundAtomic;
+  private ComparatorData comparatorData;
+  
+  private Deque<String> pathSegmentNames;
 
   private Map<String, Deque<Integer>> arrayIndexes;
 
-  private Deque<String> pathSegmentNames;
-
-  private boolean firstInAndComparison = true;
-
-  private boolean noAndComparison;
-
   public JsonCASStep(final JsonDBStore jsonDBStore) {
     super(jsonDBStore);
+    comparatorData = new ComparatorData();
   }
 
   @Override
@@ -76,21 +67,12 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  AST replaceFoundAST(AST astNode, RevisionData revisionData,
-      Map<IndexDef, List<Path<QNm>>> foundIndexDefs, Map<IndexDef, Integer> predicateLevels,
-      Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames) {
-    if (!noAndComparison) {
-      if (firstInAndComparison) {
-        firstInAndComparison = false;
-        this.arrayIndexes = arrayIndexes;
-        this.pathSegmentNames = pathSegmentNames;
-        return null;
-      } else {
-        if (this.arrayIndexes != null && this.pathSegmentNames != null && checkIfDifferentPathsAreCompared(arrayIndexes,
-                                                                                                           pathSegmentNames)) {
-          return null;
-        }
-      }
+  AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
+      Map<IndexDef, Integer> predicateLevels, Map<String, Deque<Integer>> arrayIndexes,
+      Deque<String> pathSegmentNames) {
+    if (this.arrayIndexes != null && this.pathSegmentNames != null
+        && checkIfDifferentPathsAreCompared(arrayIndexes, pathSegmentNames)) {
+      return null;
     }
 
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
@@ -100,13 +82,10 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     indexExpr.setProperty("resourceName", revisionData.resourceName());
     indexExpr.setProperty("revision", revisionData.revision());
     indexExpr.setProperty("predicateLevel", predicateLevels);
-    indexExpr.setProperty("atomic", atomic);
-    indexExpr.setProperty("comparator", comparator);
-
-    if (!noAndComparison) {
-      indexExpr.setProperty("upperBoundAtomic", upperBoundAtomic);
-      indexExpr.setProperty("upperBoundComparator", upperBoundComparator);
-    }
+    indexExpr.setProperty("atomic", comparatorData.getAtomic());
+    indexExpr.setProperty("comparator", comparatorData.getComparator());
+    indexExpr.setProperty("upperBoundAtomic", comparatorData.getUpperBoundAtomic());
+    indexExpr.setProperty("upperBoundComparator", comparatorData.getUpperBoundComparator());
 
     indexExpr.setProperty("arrayIndexes", arrayIndexes);
     indexExpr.setProperty("pathSegmentNames", pathSegmentNames);
@@ -140,6 +119,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     if (!(new ArrayList<>(this.pathSegmentNames).equals(new ArrayList<>(pathSegmentNames)))) {
       return true;
     }
+
     return false;
   }
 
@@ -211,19 +191,17 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     final var predicateChildAstNode = predicateAstNode.getChild(0);
 
     if (predicateChildAstNode.getType() == XQ.AndExpr) {
-      processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(0));
+      processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(0), true, false);
 
-      if (firstInAndComparison) {
-        return null;
-      }
-
+      final var comparator = comparatorData.getComparator();
       if (!"ValueCompGT".equals(comparator) && !"GeneralCompGT".equals(comparator) && !"ValueCompGE".equals(comparator)
           && !"GeneralCompGE".equals(comparator)) {
         return null;
       }
 
-      final var node = processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(1));
+      final var node = processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(1), false, false);
 
+      final var upperBoundComparator = comparatorData.getUpperBoundComparator();
       if (!"ValueCompLT".equals(upperBoundComparator) && !"GeneralCompLT".equals(upperBoundComparator) && !"ValueCompLE"
           .equals(upperBoundComparator) && !"GeneralCompLE".equals(upperBoundComparator)) {
         return null;
@@ -233,23 +211,17 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
     }
 
-    // no and-comparison
-    noAndComparison = true;
-    return processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode);
+    return processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode, false, true);
   }
 
-  private AST processPredicateChildAstNode(AST astNode, AST leftChild, AST predicateChildAstNode) {
+  private AST processPredicateChildAstNode(AST astNode, AST leftChild, AST predicateChildAstNode, boolean firstInAndComparison, boolean noAndComparison) {
     if (predicateChildAstNode.getChildCount() != 3) {
       return astNode;
     }
 
     final var comparisonKindChild = predicateChildAstNode.getChild(0);
 
-    if (firstInAndComparison || noAndComparison) {
-      comparator = comparisonKindChild.getStringValue();
-    } else {
-      upperBoundComparator = comparisonKindChild.getStringValue();
-    }
+    final var comparator = comparisonKindChild.getStringValue();
 
     final var derefPredicateChild = predicateChildAstNode.getChild(1);
     final var typeKindChild = predicateChildAstNode.getChild(2);
@@ -258,14 +230,15 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    final Type atomicType;
+    final var atomic = (Atomic) typeKindChild.getValue();
+    final var atomicType = atomic.type();
 
     if (firstInAndComparison || noAndComparison) {
-      atomic = (Atomic) typeKindChild.getValue();
-      atomicType = atomic.type();
+      comparatorData.setAtomic(atomic);
+      comparatorData.setComparator(comparator);
     } else {
-      upperBoundAtomic = (Atomic) typeKindChild.getValue();
-      atomicType = upperBoundAtomic.type();
+      comparatorData.setUpperBoundAtomic(atomic);
+      comparatorData.setUpperBoundComparator(comparator);
     }
 
     if (derefPredicateChild.getType() != XQ.DerefExpr) {
@@ -273,14 +246,22 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     }
 
     if (leftChild.getType() == XQ.DerefExpr) {
-      return getAst(astNode, derefPredicateChild, leftChild, atomicType);
+      if (noAndComparison || !firstInAndComparison) {
+        return getAst(astNode, derefPredicateChild, leftChild, atomicType);
+      } else {
+        return processFirstInAndComparison(leftChild, derefPredicateChild);
+      }
     } else if (leftChild.getType() == XQ.ArrayAccess) {
       if (leftChild.getChild(0).getType() != XQ.DerefExpr || leftChild.getChild(1).getType() != XQ.SequenceExpr) {
         return astNode;
       }
 
       final var derefNode = leftChild.getChild(0);
-      return getAst(astNode, derefPredicateChild, derefNode, atomicType);
+      if (noAndComparison || !firstInAndComparison) {
+        return getAst(astNode, derefPredicateChild, derefNode, atomicType);
+      } else {
+        return processFirstInAndComparison(derefNode, derefPredicateChild);
+      }
     } else if (leftChild.getType() == XQ.FunctionCall) {
       if (!new QNm(Bits.BIT_NSURI, Bits.BIT_PREFIX, "array-values").equals(astNode.getChild(0).getValue())) {
         return astNode;
@@ -291,10 +272,36 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
       }
 
       final var derefNode = leftChild.getChild(0);
-      return getAst(astNode, derefPredicateChild, derefNode, atomicType);
+      if (noAndComparison || !firstInAndComparison) {
+        return getAst(astNode, derefPredicateChild, derefNode, atomicType);
+      } else {
+        return processFirstInAndComparison(derefNode, derefPredicateChild);
+      }
     }
 
     return astNode;
+  }
+
+  private AST processFirstInAndComparison(AST astNode, AST derefPredicateChild) {
+    boolean foundDerefAncestor = findDerefAncestor(astNode);
+
+    if (foundDerefAncestor || !(astNode.getChild(0).getType() == XQ.DerefExpr
+        || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
+      return null;
+    }
+
+    final var pathData = traversePath(astNode, derefPredicateChild);
+
+    final var node = pathData.node();
+
+    if (node == null) {
+      return astNode;
+    }
+
+    pathSegmentNames = pathData.pathSegmentNames();
+    arrayIndexes = pathData.arrayIndexes();
+
+    return node;
   }
 
   private AST getAst(AST astNode, AST predicateChild, AST derefNode, Type type) {
