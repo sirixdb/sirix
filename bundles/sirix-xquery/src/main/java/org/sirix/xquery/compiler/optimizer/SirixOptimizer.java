@@ -9,8 +9,9 @@ import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.optimizer.Stage;
 import org.brackit.xquery.compiler.optimizer.TopDownOptimizer;
 import org.brackit.xquery.module.StaticContext;
-import org.sirix.xquery.compiler.optimizer.walker.JsonCASStep;
-import org.sirix.xquery.compiler.optimizer.walker.JsonPathStep;
+import org.sirix.xquery.compiler.optimizer.walker.json.JsonCASStep;
+import org.sirix.xquery.compiler.optimizer.walker.json.JsonObjectKeyNameStep;
+import org.sirix.xquery.compiler.optimizer.walker.json.JsonPathStep;
 import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.XmlDBStore;
 
@@ -34,9 +35,9 @@ public final class SirixOptimizer extends TopDownOptimizer {
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-      ast = new JsonCASStep(sctx, jsonItemStore).walk(ast);
-      ast = new JsonPathStep(sctx, jsonItemStore).walk(ast);
-      ast = new JsonObjectKeyNameStep(sctx, jsonItemStore).walk(ast);
+      ast = new JsonCASStep(jsonItemStore).walk(ast);
+      ast = new JsonPathStep(jsonItemStore).walk(ast);
+      ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);
 
       return ast;
     }

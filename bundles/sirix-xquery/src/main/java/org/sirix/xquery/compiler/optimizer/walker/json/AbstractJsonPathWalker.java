@@ -1,4 +1,4 @@
-package org.sirix.xquery.compiler.optimizer.walker;
+package org.sirix.xquery.compiler.optimizer.walker.json;
 
 import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
@@ -6,8 +6,9 @@ import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.topdown.ScopeWalker;
 import org.brackit.xquery.function.json.JSONFun;
-import org.brackit.xquery.module.StaticContext;
+import org.brackit.xquery.util.Cfg;
 import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -21,19 +22,16 @@ import java.util.function.Function;
 
 abstract class AbstractJsonPathWalker extends ScopeWalker {
 
-  private static final int MIN_NODE_NUMBER = 0;
+  private static final int MIN_NODE_NUMBER =
+      Cfg.asInt("org.sirix.xquery.optimize.min.node.number", 0);
 
   private final JsonDBStore jsonDBStore;
 
-  private final StaticContext sctx;
-
-  public AbstractJsonPathWalker(StaticContext sctx, JsonDBStore jsonDBStore) {
-    super(sctx);
-    this.sctx = sctx;
+  public AbstractJsonPathWalker(JsonDBStore jsonDBStore) {
     this.jsonDBStore = jsonDBStore;
   }
 
-  protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode) {
+  protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type) {
     boolean foundDerefAncestor = findDerefAncestor(astNode);
 
     if (!foundDerefAncestor && (astNode.getChild(0).getType() == XQ.DerefExpr
@@ -163,7 +161,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
                 ? resMgr.getRtxIndexController(resMgr.getMostRecentRevisionNumber())
                 : resMgr.getRtxIndexController(revision);
 
-            final var indexDef = findIndex(pathToFoundNode, indexController);
+            final var indexDef = findIndex(pathToFoundNode, indexController, type);
 
             if (indexDef.isEmpty()) {
               notFound = true;
@@ -205,7 +203,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames);
 
   abstract Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
-      IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController);
+      IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, Type type);
 
   boolean isDocumentNodeFunction(AST newChildNode) {
     return new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "doc").equals(newChildNode.getValue())
