@@ -4,7 +4,7 @@ import org.sirix.access.User
 import org.sirix.cli.CliOptions
 import org.sirix.service.json.serialize.StringValue
 
-class DumpResourceHistoryCommand(options: CliOptions, val resourceName: String, private val user: User?): CliCommand(options) {
+class DumpResourceHistory(options: CliOptions, val resourceName: String, private val user: User?): CliCommand(options) {
 
     override fun execute() {
 

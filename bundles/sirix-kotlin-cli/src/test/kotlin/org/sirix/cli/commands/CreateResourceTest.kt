@@ -9,7 +9,7 @@ import org.sirix.cli.commands.CliCommandTestConstants.Companion.RESOURCE_LIST
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-internal class CreateResourceCommandTest: CliCommandTest() {
+internal class CreateResourceTest: CliCommandTest() {
 
     companion object {
         @JvmField

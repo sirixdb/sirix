@@ -11,11 +11,11 @@ import org.sirix.cli.commands.CliCommandTestConstants.Companion.TEST_USER
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-internal class DropResourceCommandTest: CliCommandTest() {
+internal class DropResourceTest: CliCommandTest() {
 
     companion object {
         @JvmField
-        val LOGGER: Logger = LoggerFactory.getLogger(DropResourceCommandTest::class.java)
+        val LOGGER: Logger = LoggerFactory.getLogger(DropResourceTest::class.java)
     }
 
 
@@ -26,7 +26,7 @@ internal class DropResourceCommandTest: CliCommandTest() {
 
     @AfterEach
     fun tearDown() {
-        super.removeTestDatabase(CreateResourceCommandTest.LOGGER)
+        super.removeTestDatabase(CreateResourceTest.LOGGER)
     }
 
 
@@ -42,7 +42,7 @@ internal class DropResourceCommandTest: CliCommandTest() {
         }
 
         val dropResourceList = RESOURCE_LIST.filterIndexed { index, s -> (index % 2) == 0}
-        val dropResourceCommand = DropResourceCommand(giveACliOptions(), dropResourceList, TEST_USER)
+        val dropResourceCommand = DropResource(giveACliOptions(), dropResourceList, TEST_USER)
 
         // WHEN
         dropResourceCommand.execute()
