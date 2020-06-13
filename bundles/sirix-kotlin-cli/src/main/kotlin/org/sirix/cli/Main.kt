@@ -9,6 +9,7 @@ import org.sirix.cli.parser.AbstractArgSubCommand
 import org.sirix.cli.parser.CreateResourceSubCommand
 import org.sirix.cli.parser.DropSubCommand
 import org.sirix.cli.parser.DropResourceSubCommand
+import org.sirix.cli.parser.DumpResourceHistorySubCommand
 
 
 fun main(args: Array<String>) {
@@ -33,19 +34,19 @@ fun parseArgs(args: Array<String>): CliCommand? {
     val subCommandList: Array<Subcommand> = arrayOf(CreateSubcommand(),
                                                     DropSubCommand(),
                                                     CreateResourceSubCommand(),
-                                                    DropResourceSubCommand())
+                                                    DropResourceSubCommand(),
+                                                    DumpResourceHistorySubCommand())
     argParser.subcommands(*subCommandList)
     argParser.parse(args)
 
     val options = CliOptions(file, verbose ?: false)
 
     subCommandList.forEach {
-        val asc: AbstractArgSubCommand  = it as AbstractArgSubCommand
+        val asc: AbstractArgSubCommand = it as AbstractArgSubCommand
         if (asc.wasExecuted()) {
             return asc.createCliCommand(options)
         }
     }
-
 
     return null
 }

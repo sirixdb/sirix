@@ -4,7 +4,7 @@ import org.sirix.access.ResourceConfiguration
 import org.sirix.access.User
 import org.sirix.cli.CliOptions
 
-class CreateResourceCommand(options: CliOptions, private val resourceNames: List<kotlin.String>, private val user: User?) : CliCommand(options) {
+class CreateResource(options: CliOptions, private val resourceNames: List<kotlin.String>, private val user: User?) : CliCommand(options) {
 
     override fun execute() {
 

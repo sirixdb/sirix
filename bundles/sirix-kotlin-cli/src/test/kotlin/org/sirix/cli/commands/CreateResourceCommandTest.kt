@@ -31,7 +31,7 @@ internal class CreateResourceCommandTest: CliCommandTest() {
 
         // GIVEN
         createXmlDatabase()
-        val createResourceCommand = CreateResourceCommand(giveACliOptions(), RESOURCE_LIST, CliCommandTestConstants.TEST_USER)
+        val createResourceCommand = CreateResource(giveACliOptions(), RESOURCE_LIST, CliCommandTestConstants.TEST_USER)
 
         // WHEN
         createResourceCommand.execute()
@@ -49,7 +49,7 @@ internal class CreateResourceCommandTest: CliCommandTest() {
     fun happyPathJson() {
         // GIVEN
         createJsonDatabase()
-        val createResourceCommand = CreateResourceCommand(giveACliOptions(), RESOURCE_LIST, CliCommandTestConstants.TEST_USER)
+        val createResourceCommand = CreateResource(giveACliOptions(), RESOURCE_LIST, CliCommandTestConstants.TEST_USER)
 
         // WHEN
         createResourceCommand.execute()

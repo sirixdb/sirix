@@ -19,12 +19,12 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
         val database = openXmlDatabase(dataOptions!!.user)
 
         createOrRemoveAndCreateResource(database)
-        val manager = database.openResourceManager(dataOptions!!.resourceName)
+        val manager = database.openResourceManager(dataOptions.resourceName)
         manager.use {
             val wtx = manager.beginNodeTrx()
             wtx.use {
                 wtx.insertSubtreeAsFirstChild(eventStream())
-                if (dataOptions.commitMessage != null) {
+                if (dataOptions.commitMessage.isNotEmpty()) {
                     wtx.commit(dataOptions.commitMessage)
                 }
             }
@@ -34,8 +34,8 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
 
     private fun eventStream(): XMLEventReader {
         if (dataOptions!!.data.isNotEmpty()) {
-            return XmlShredder.createStringReader(dataOptions!!.data)
-        } else if (dataOptions!!.datafile.isNotEmpty()) {
+            return XmlShredder.createStringReader(dataOptions.data)
+        } else if (dataOptions.datafile.isNotEmpty()) {
             return XmlShredder.createFileReader(FileInputStream(dataOptions.datafile))
         }
         throw IllegalStateException("At least data or datafile has to be set!")
