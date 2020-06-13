@@ -16,11 +16,11 @@ import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 
-internal class DumpResourceHistoryCommandTest: CliCommandTest() {
+internal class DumpResourceHistoryTest: CliCommandTest() {
 
     companion object {
         @JvmField
-        val LOGGER: Logger = LoggerFactory.getLogger(DumpResourceHistoryCommandTest::class.java)
+        val LOGGER: Logger = LoggerFactory.getLogger(DumpResourceHistoryTest::class.java)
     }
 
     @BeforeEach
@@ -50,7 +50,7 @@ internal class DumpResourceHistoryCommandTest: CliCommandTest() {
                 }
             }
         }
-        val dumpResourceHistoryCommand = DumpResourceHistoryCommand(giveACliOptions(), TEST_RESOURCE, TEST_USER)
+        val dumpResourceHistoryCommand = DumpResourceHistory(giveACliOptions(), TEST_RESOURCE, TEST_USER)
 
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
