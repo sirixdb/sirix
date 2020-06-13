@@ -1,5 +1,7 @@
+@file:UseExperimental(ExperimentalCli::class)
 package org.sirix.cli.parser
 
+import kotlinx.cli.ExperimentalCli
 import kotlinx.cli.Subcommand
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.CliCommand
