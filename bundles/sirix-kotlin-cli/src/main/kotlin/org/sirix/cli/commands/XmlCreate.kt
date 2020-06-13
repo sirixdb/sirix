@@ -2,8 +2,6 @@ package org.sirix.cli.commands
 
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
-import org.sirix.api.Database
-import org.sirix.api.xml.XmlResourceManager
 import org.sirix.cli.CliOptions
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.FileInputStream
@@ -18,7 +16,7 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
     }
 
     override fun insertData() {
-        val database = openDatabase()
+        val database = openXmlDatabase(dataOptions!!.user)
 
         createOrRemoveAndCreateResource(database)
         val manager = database.openResourceManager(dataOptions!!.resourceName)
@@ -43,17 +41,5 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
         throw IllegalStateException("At least data or datafile has to be set!")
     }
 
-
-    private fun openDatabase(): Database<XmlResourceManager> {
-        val path = Paths.get(options.file)
-        return when {
-            dataOptions!!.user != null -> {
-                Databases.openXmlDatabase(path, dataOptions.user)
-            }
-            else -> {
-                Databases.openXmlDatabase(path)
-            }
-        }
-    }
 
 }

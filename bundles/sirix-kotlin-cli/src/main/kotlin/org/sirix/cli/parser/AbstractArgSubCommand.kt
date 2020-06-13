@@ -6,8 +6,15 @@ import org.sirix.cli.commands.CliCommand
 
 abstract class AbstractArgSubCommand(name: String, actionDescription: String) : Subcommand(name, actionDescription) {
 
+    protected var executed: Boolean = false
+
+    override fun execute() {
+        executed = true
+    }
+
+    fun wasExecuted() : Boolean {
+        return executed
+    }
+
     abstract fun createCliCommand(options: CliOptions) : CliCommand
-
-    abstract fun isValid() : Boolean
-
 }

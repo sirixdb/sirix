@@ -6,6 +6,9 @@ import kotlinx.cli.*
 import org.sirix.cli.commands.CliCommand
 import org.sirix.cli.parser.CreateSubcommand
 import org.sirix.cli.parser.AbstractArgSubCommand
+import org.sirix.cli.parser.CreateResourceSubCommand
+import org.sirix.cli.parser.DropSubCommand
+import org.sirix.cli.parser.DropResourceSubCommand
 
 
 fun main(args: Array<String>) {
@@ -27,7 +30,10 @@ fun parseArgs(args: Array<String>): CliCommand? {
     // See https://github.com/Kotlin/kotlinx.cli/issues/26
     val verbose by argParser.option(ArgType.Boolean,"verbose",  "v",   "Run verbosely")
 
-    val subCommandList: Array<Subcommand> = arrayOf(CreateSubcommand())
+    val subCommandList: Array<Subcommand> = arrayOf(CreateSubcommand(),
+                                                    DropSubCommand(),
+                                                    CreateResourceSubCommand(),
+                                                    DropResourceSubCommand())
     argParser.subcommands(*subCommandList)
     argParser.parse(args)
 
@@ -35,7 +41,7 @@ fun parseArgs(args: Array<String>): CliCommand? {
 
     subCommandList.forEach {
         val asc: AbstractArgSubCommand  = it as AbstractArgSubCommand
-        if (asc.isValid()) {
+        if (asc.wasExecuted()) {
             return asc.createCliCommand(options)
         }
     }

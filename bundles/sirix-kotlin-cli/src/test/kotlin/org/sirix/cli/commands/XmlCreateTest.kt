@@ -9,38 +9,21 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
-import org.sirix.access.User
-import org.sirix.cli.CliOptions
 import org.sirix.exception.SirixIOException
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
-import java.io.File
-import java.nio.file.Paths
-import java.util.*
 
-internal class XmlCreateTest {
+internal class XmlCreateTest: CliCommandTest() {
 
-    val LOGGER: Logger = LoggerFactory.getLogger(XmlCreateTest::class.java)
+    companion object {
+        @JvmField
+        val LOGGER: Logger = LoggerFactory.getLogger(XmlCreateTest::class.java)
+    }
 
-    val TEST_XML_DATA: String = "<xml><foo>Test</foo></xml>"
-
-    val JSON_DATA: String = "{\"json\": \"Test\"}"
-
-    val TEST_USER: User = User("testuser", UUID.fromString("091a12f2-e0dc-4795-abde-4b6b9c2932d1"))
-
-    val TEST_RESOURCE: String = "resource1"
-
-    val TEST_MESSAGE: String = "This is a test commit Message."
-
-    var sirixTestFile = ""
-
-
-
-
-    private fun dataCommandOptions() = listOf(DataCommandOptions(TEST_RESOURCE, TEST_XML_DATA, "", TEST_MESSAGE, TEST_USER),
-            DataCommandOptions(TEST_RESOURCE, "", testFilePath(), TEST_MESSAGE, TEST_USER)
+    private fun dataCommandOptions() = listOf(DataCommandOptions(CliCommandTestConstants.TEST_RESOURCE, CliCommandTestConstants.TEST_XML_DATA, "", CliCommandTestConstants.TEST_MESSAGE, CliCommandTestConstants.TEST_USER),
+            DataCommandOptions(CliCommandTestConstants.TEST_RESOURCE, "", testFilePath(), CliCommandTestConstants.TEST_MESSAGE, CliCommandTestConstants.TEST_USER)
     )
 
 
@@ -48,19 +31,14 @@ internal class XmlCreateTest {
         return {}::class.java.getResource("/org/sirix/cli/commands/test_data.xml").path
     }
 
-
-
     @BeforeEach
     fun setUp() {
-        sirixTestFile = getTestFileCompletePath("create_test_sirix-" + UUID.randomUUID() + ".db")
+        super.createSirixTestFileName()
     }
 
     @AfterEach
     fun tearDown() {
-        LOGGER.info("Removing test Database\n$sirixTestFile")
-        if(!File(sirixTestFile).deleteRecursively()) {
-            LOGGER.error("Can not delete test Database!\n$sirixTestFile")
-        }
+        super.removeTestDatabase(LOGGER)
     }
 
     @ParameterizedTest
@@ -68,7 +46,7 @@ internal class XmlCreateTest {
     fun executeData(dataCommandOptions: DataCommandOptions) {
 
         // GIVEN
-        val create = XmlCreate(CliOptions(sirixTestFile, true), dataCommandOptions)
+        val create = XmlCreate(giveACliOptions(), dataCommandOptions)
 
         // WHEN
         create.execute()
@@ -76,21 +54,22 @@ internal class XmlCreateTest {
         // THEN
 
         try {
-            assertEquals(DatabaseType.XML, Databases.getDatabaseType(Paths.get(sirixTestFile)))
+            assertEquals(DatabaseType.XML, Databases.getDatabaseType(path()))
         } catch (ex: SirixIOException) {
             fail(ex)
         }
 
-        val database = Databases.openXmlDatabase(Paths.get(sirixTestFile))
-        assertTrue(database.existsResource(TEST_RESOURCE))
+        val database = Databases.openXmlDatabase(path())
         database.use{
-            val manager = database.openResourceManager(TEST_RESOURCE)
+            assertTrue(database.existsResource(CliCommandTestConstants.TEST_RESOURCE))
+
+            val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
             manager.use {
                 val out = ByteArrayOutputStream()
                 XmlSerializer.XmlSerializerBuilder(manager, out).build().call()
 
                 val s = String (out.toByteArray())
-                assertEquals(TEST_XML_DATA, s)
+                assertEquals(CliCommandTestConstants.TEST_XML_DATA, s)
             }
         }
     }
