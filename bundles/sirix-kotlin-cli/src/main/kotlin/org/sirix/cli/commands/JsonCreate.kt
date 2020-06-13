@@ -3,8 +3,6 @@ package org.sirix.cli.commands
 import com.google.gson.stream.JsonReader
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
-import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
 import org.sirix.cli.CliOptions
 import org.sirix.service.json.shredder.JsonShredder
 import java.nio.file.Paths
@@ -17,7 +15,7 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
     }
 
     override fun insertData() {
-        val database = openDatabase()
+        val database = openJsonDatabase(dataOptions!!.user)
 
         createOrRemoveAndCreateResource(database)
         val manager = database.openResourceManager(dataOptions!!.resourceName)
@@ -42,17 +40,5 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
         throw IllegalStateException("At least data or datafile has to be set!")
     }
 
-
-    private fun openDatabase(): Database<JsonResourceManager> {
-        val path = Paths.get(options.file)
-        return when {
-            dataOptions!!.user != null -> {
-                Databases.openJsonDatabase(path, dataOptions.user)
-            }
-            else -> {
-                Databases.openJsonDatabase(path)
-            }
-        }
-    }
 
 }

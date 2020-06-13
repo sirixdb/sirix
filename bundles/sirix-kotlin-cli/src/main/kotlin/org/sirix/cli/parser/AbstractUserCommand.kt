@@ -11,6 +11,7 @@ abstract class AbstractUserCommand(name: String, actionDescription: String) : Ab
     var  user : User? = null
 
     override fun execute() {
+        super.execute()
         if(username != null) {
             user = User(username, userId)
         }
