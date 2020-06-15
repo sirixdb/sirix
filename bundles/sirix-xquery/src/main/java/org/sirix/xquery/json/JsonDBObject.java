@@ -302,6 +302,36 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
+  public Record replace(QNm field, Sequence value) {
+    return null;
+  }
+
+  @Override
+  public Record rename(QNm field, QNm newFieldName) {
+    return null;
+  }
+
+  @Override
+  public Record insert(QNm field, Sequence value) {
+    return null;
+  }
+
+  @Override
+  public Record remove(QNm field) {
+    return null;
+  }
+
+  @Override
+  public Record remove(IntNumeric index) {
+    return null;
+  }
+
+  @Override
+  public Record remove(int index) {
+    return null;
+  }
+
+  @Override
   public Sequence get(QNm field) {
     moveRtx();
 

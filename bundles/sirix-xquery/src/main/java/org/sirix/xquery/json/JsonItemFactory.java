@@ -1,11 +1,10 @@
 package org.sirix.xquery.json;
 
-import java.math.BigDecimal;
-
 import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+
+import java.math.BigDecimal;
 
 public final class JsonItemFactory {
   public JsonItemFactory() {}
