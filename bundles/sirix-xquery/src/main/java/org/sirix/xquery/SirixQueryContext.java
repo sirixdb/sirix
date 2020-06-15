@@ -22,8 +22,10 @@ import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.NodeCollection;
 import org.brackit.xquery.xdm.node.NodeFactory;
 import org.brackit.xquery.xdm.type.ItemType;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.xquery.json.BasicJsonDBStore;
+import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
@@ -115,24 +117,48 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
           : queryContextDelegate.getUpdateList().list();
 
       if (!updateList.isEmpty()) {
-        final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
-          if (sequence instanceof XmlDBNode) {
-            return ((XmlDBNode) sequence).getTrx().getResourceManager().getNodeTrx();
-          }
-
-          return Optional.empty();
-        };
-
-        final var trxIDs = new HashSet<Long>();
-
-        updateList.stream()
-                  .map(UpdateOp::getTarget)
-                  .map(mapDBNodeToWtx)
-                  .flatMap(Optional::stream)
-                  .filter(trx -> trxIDs.add(trx.getId()))
-                  .forEach(XmlNodeTrx::commit);
+        commitJsonTrx(updateList);
+        commitXmlTrx(updateList);
       }
     }
+  }
+
+  private void commitXmlTrx(List<UpdateOp> updateList) {
+    final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
+      if (sequence instanceof XmlDBNode) {
+        return ((XmlDBNode) sequence).getTrx().getResourceManager().getNodeTrx();
+      }
+
+      return Optional.empty();
+    };
+
+    final var trxIDs = new HashSet<Long>();
+
+    updateList.stream()
+              .map(UpdateOp::getTarget)
+              .map(mapDBNodeToWtx)
+              .flatMap(Optional::stream)
+              .filter(trx -> trxIDs.add(trx.getId()))
+              .forEach(XmlNodeTrx::commit);
+  }
+
+  private void commitJsonTrx(List<UpdateOp> updateList) {
+    final Function<Sequence, Optional<JsonNodeTrx>> mapDBNodeToWtx = sequence -> {
+      if (sequence instanceof JsonDBItem) {
+        return ((JsonDBItem) sequence).getTrx().getResourceManager().getNodeTrx();
+      }
+
+      return Optional.empty();
+    };
+
+    final var trxIDs = new HashSet<Long>();
+
+    updateList.stream()
+              .map(UpdateOp::getTarget)
+              .map(mapDBNodeToWtx)
+              .flatMap(Optional::stream)
+              .filter(trx -> trxIDs.add(trx.getId()))
+              .forEach(JsonNodeTrx::commit);
   }
 
   @Override
