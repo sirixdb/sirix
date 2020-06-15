@@ -5,7 +5,6 @@ import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.Array;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.temporal.AllTimeAxis;
 import org.sirix.axis.temporal.FutureAxis;
@@ -22,9 +21,6 @@ public final class JsonDBArray extends AbstractJsonDBArray<JsonDBArray>
   /** Collection this node is part of. */
   private final JsonDBCollection collection;
 
-  /** Determines if write-transaction is present. */
-  private final boolean isWtx;
-
   /**
    * Constructor.
    *
@@ -35,7 +31,6 @@ public final class JsonDBArray extends AbstractJsonDBArray<JsonDBArray>
     super(rtx, collection, new JsonItemFactory());
     this.collection = Preconditions.checkNotNull(collection);
     this.rtx = Preconditions.checkNotNull(rtx);
-    isWtx = this.rtx instanceof JsonNodeTrx;
 
     if (this.rtx.isDocumentRoot()) {
       this.rtx.moveToFirstChild();

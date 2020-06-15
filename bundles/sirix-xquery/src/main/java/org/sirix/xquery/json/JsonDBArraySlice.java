@@ -46,9 +46,6 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
   /** Collection this node is part of. */
   private final JsonDBCollection collection;
 
-  /** Determines if write-transaction is present. */
-  private final boolean isWtx;
-
   private final JsonItemFactory jsonUtil;
 
   private final int fromIndex;
@@ -73,10 +70,10 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     super(rtx, collection, new JsonItemFactory());
     this.collection = Preconditions.checkNotNull(collection);
     this.rtx = Preconditions.checkNotNull(rtx);
-    isWtx = this.rtx instanceof JsonNodeTrx;
 
-    if (this.rtx.isDocumentRoot())
+    if (this.rtx.isDocumentRoot()) {
       this.rtx.moveToFirstChild();
+    }
 
     assert this.rtx.isArray();
 
