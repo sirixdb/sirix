@@ -4,7 +4,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import org.brackit.xquery.BrackitQueryContext;
 import org.brackit.xquery.QueryContext;
@@ -118,7 +117,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       if (!updateList.isEmpty()) {
         final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
           if (sequence instanceof XmlDBNode) {
-            return ((XmlDBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
+            return ((XmlDBNode) sequence).getTrx().getResourceManager().getNodeTrx();
           }
 
           return Optional.empty();

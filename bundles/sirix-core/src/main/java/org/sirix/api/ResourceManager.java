@@ -102,7 +102,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @return The single node writer if available.
    */
-  Optional<W> getNodeWriteTrx();
+  Optional<W> getNodeTrx();
 
   /**
    * Begin a new {@link PageReadOnlyTrx}.

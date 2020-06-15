@@ -53,8 +53,8 @@ public final class Commit extends AbstractFunction {
       boolean newTrxOpened = false;
       NodeTrx wtx = null;
       try {
-        if (manager.getNodeWriteTrx().isPresent()) {
-          wtx = manager.getNodeWriteTrx().get();
+        if (manager.getNodeTrx().isPresent()) {
+          wtx = manager.getNodeTrx().get();
         } else {
           newTrxOpened = true;
           wtx = manager.beginNodeTrx();

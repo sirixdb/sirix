@@ -65,7 +65,7 @@ public final class CreatePathIndex extends AbstractFunction {
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
     final XmlResourceManager manager = rtx.getResourceManager();
 
-    final Optional<XmlNodeTrx> optionalWriteTrx = manager.getNodeWriteTrx();
+    final Optional<XmlNodeTrx> optionalWriteTrx = manager.getNodeTrx();
     final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
 
     if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {

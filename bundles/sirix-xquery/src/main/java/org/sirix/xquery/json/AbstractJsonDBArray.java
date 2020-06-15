@@ -3,9 +3,10 @@ package org.sirix.xquery.json;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.array.AbstractArray;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Int64;
-import org.brackit.xquery.atomic.IntNumeric;
+import org.brackit.xquery.atomic.*;
+import org.brackit.xquery.util.ExprUtil;
+import org.brackit.xquery.util.serialize.StringSerializer;
+import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.type.ArrayType;
@@ -20,8 +21,14 @@ import org.sirix.axis.temporal.FirstAxis;
 import org.sirix.axis.temporal.LastAxis;
 import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PreviousAxis;
+import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.StructuredDBItem;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,6 +59,12 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    */
   private List<Sequence> values;
 
+  private enum Op {
+    Replace,
+
+    Insert
+  }
+
   AbstractJsonDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
       final JsonItemFactory jsonItemFactory) {
     if (rtx.isDocumentRoot()) {
@@ -81,6 +94,91 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   @Override
   public JsonNodeReadOnlyTrx getTrx() {
     return rtx;
+  }
+
+  @Override
+  public Array replaceAt(int index, Sequence value) {
+    modify(index, value, Op.Replace);
+    return this;
+  }
+
+  private void modify(int index, Sequence value, final Op op) {
+    final JsonNodeTrx trx = getReadWriteTrx();
+    if (index > trx.getChildCount()) {
+      trx.close();
+      throw new IllegalStateException("Index " + index + " is out of range.");
+    }
+    moveToIndex(index, trx);
+
+    final var leftSiblingNodeKey = trx.getLeftSiblingKey();
+    if (op == Op.Replace) {
+      trx.remove();
+    }
+    trx.moveTo(leftSiblingNodeKey);
+
+    final Item item = ExprUtil.asItem(value);
+
+    final String json;
+    try (final var out = new ByteArrayOutputStream()) {
+      final var serializer = new StringSerializer(new PrintStream(out));
+      serializer.serialize(item);
+      json = new String(out.toByteArray(), StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+
+    trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json));
+
+    values = null;
+  }
+
+  private void moveToIndex(int index, JsonNodeTrx trx) {
+    // must have children
+
+    trx.moveToFirstChild();
+
+    for (int i = 1; i <= index; i++) {
+      trx.moveToRightSibling();
+    }
+  }
+
+  private JsonNodeTrx getReadWriteTrx() {
+    final JsonResourceManager resourceManager = rtx.getResourceManager();
+    final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
+    trx.moveTo(nodeKey);
+    return trx;
+  }
+
+  @Override
+  public Array replaceAt(IntNumeric index, Sequence value) {
+    return replaceAt(index.intValue(), value);
+  }
+
+  @Override
+  public Array insert(int index, Sequence value) {
+    modify(index, value, Op.Insert);
+    return this;
+  }
+
+  @Override
+  public Array insert(IntNumeric index, Sequence value) {
+    modify(index.intValue(), value, Op.Insert);
+    return this;
+  }
+
+  @Override
+  public Array remove(IntNumeric index) {
+    return remove(index.intValue());
+  }
+
+  @Override
+  public Array remove(int index) {
+    final JsonNodeTrx trx = getReadWriteTrx();
+    moveToIndex(index, trx);
+
+    trx.remove();
+
+    return this;
   }
 
   @Override

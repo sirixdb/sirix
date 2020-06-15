@@ -80,7 +80,7 @@ public final class Import extends AbstractFunction {
 
       try (final XmlNodeTrx wtx = doc.getTrx()
                                      .getResourceManager()
-                                     .getNodeWriteTrx()
+                                     .getNodeTrx()
                                      .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
         final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {

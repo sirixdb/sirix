@@ -677,7 +677,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized Optional<W> getNodeWriteTrx() {
+  public synchronized Optional<W> getNodeTrx() {
     assertNotClosed();
 
     return nodeTrxMap.values().stream().filter(rtx -> rtx instanceof NodeTrx).map(rtx -> (W) rtx).findAny();
