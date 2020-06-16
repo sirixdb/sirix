@@ -54,6 +54,30 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testRemoveFromObject() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"foo": "bar", "baz": true}')
+        """;
+    final String updateQuery = """
+          delete json jn:doc('mycol.jn','mydoc.jn')=>foo
+        """;
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "{\"baz\":true}");
+  }
+
+  @Test
+  public void testRenameFieldInObject() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"foo": "bar", "baz": true}')
+        """;
+    final String updateQuery = """
+          rename json jn:doc('mycol.jn','mydoc.jn')=>foo as "buzz"
+        """;
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "{\"buzz\":\"bar\",\"baz\":true}");
+  }
+
+  @Test
   public void testArrayIteration() throws IOException {
     final String storeQuery =
         "jn:store('mycol.jn','mydoc.jn','[{\"key\":0,\"value\":true},{\"key\":\"hey\",\"value\":false}]')";

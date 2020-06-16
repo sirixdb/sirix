@@ -367,16 +367,19 @@ public final class JsonDBObject extends AbstractItem
     return json;
   }
 
-  private void findField(QNm field, JsonNodeTrx trx) {
+  private boolean findField(QNm field, JsonNodeTrx trx) {
     trx.moveToFirstChild();
 
-    while (trx.hasRightSibling()) {
-      trx.moveToRightSibling();
+    boolean isFound = false;
 
+    do {
       if (trx.getName().equals(field)) {
+        isFound = true;
         break;
       }
-    }
+    } while (trx.moveToRightSibling().hasMoved());
+
+    return isFound;
   }
 
   @Override
@@ -384,9 +387,11 @@ public final class JsonDBObject extends AbstractItem
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
 
-      findField(field, trx);
+      final var foundField = findField(field, trx);
 
-      trx.setObjectKeyName(newFieldName.getLocalName());
+      if (foundField) {
+        trx.setObjectKeyName(newFieldName.getLocalName());
+      }
     }
     return this;
   }
@@ -432,9 +437,11 @@ public final class JsonDBObject extends AbstractItem
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
 
-      findField(field, trx);
+      final var isFound = findField(field, trx);
 
-      trx.remove();
+      if (isFound) {
+        trx.remove();
+      }
     }
     return this;
   }
