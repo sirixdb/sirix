@@ -13,10 +13,7 @@ import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
 import org.brackit.xquery.xdm.type.ItemType;
 import org.brackit.xquery.xdm.type.RecordType;
-import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
-import org.sirix.access.trx.node.json.objectvalue.NullValue;
-import org.sirix.access.trx.node.json.objectvalue.NumberValue;
-import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import org.sirix.access.trx.node.json.objectvalue.*;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -34,11 +31,9 @@ import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.service.json.shredder.JsonShredder;
-import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.SirixJsonStream;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectStream;
-import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
 import java.io.ByteArrayOutputStream;
@@ -51,11 +46,6 @@ public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /**
-   * {@link LogWrapper} reference.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBObject.class));
-
-  /**
    * Sirix transaction.
    */
   private final JsonNodeReadOnlyTrx rtx;
@@ -66,22 +56,14 @@ public final class JsonDBObject extends AbstractItem
   private final long nodeKey;
 
   /**
-   * Kind of node.
-   */
-  private final org.sirix.node.NodeKind kind;
-
-  /**
    * Collection this node is part of.
    */
   private final JsonDBCollection collection;
 
-  private JsonItemFactory jsonUtil;
-
-  private enum Op {
-    Insert,
-
-    Replace
-  }
+  /**
+   * The factory to create new JSON items.
+   */
+  private final JsonItemFactory jsonItemFactory;
 
   /**
    * Constructor.
@@ -98,8 +80,7 @@ public final class JsonDBObject extends AbstractItem
     }
 
     nodeKey = this.rtx.getNodeKey();
-    kind = this.rtx.getKind();
-    jsonUtil = new JsonItemFactory();
+    jsonItemFactory = new JsonItemFactory();
   }
 
   @Override
@@ -116,10 +97,8 @@ public final class JsonDBObject extends AbstractItem
 
   /**
    * Move the transaction to {@code nodeKey}.
-   *
-   * @return new read transaction instance which is moved to {@code nodeKey}
    */
-  private final void moveRtx() {
+  private void moveRtx() {
     rtx.moveTo(nodeKey);
   }
 
@@ -328,29 +307,53 @@ public final class JsonDBObject extends AbstractItem
   @Override
   public Record replace(QNm field, Sequence value) {
     if (rtx.hasChildren()) {
-      modify(field, value, Op.Replace);
+      modify(field, value);
     }
     return this;
   }
 
-  private void modify(QNm field, Sequence value, Op op) {
+  private void modify(QNm field, Sequence value) {
     final var trx = getReadWriteTrx();
 
-    findField(field, trx);
+    final var foundNode = findField(field, trx);
 
-    final var leftSiblingKey = trx.getLeftSiblingKey();
-    if (op == Op.Replace) {
-      trx.remove();
+    if (!foundNode) {
+      return;
     }
-    trx.moveTo(leftSiblingKey);
 
-    insertAsRightSibling(value, trx);
+    if (value instanceof Array) {
+      trx.replaceObjectRecordValue(field.getLocalName(), new ArrayValue());
+      insertSubtree(value, trx);
+    } else if (value instanceof Record) {
+      trx.replaceObjectRecordValue(field.getLocalName(), new ObjectValue());
+      insertSubtree(value, trx);
+    } else if (value instanceof Str) {
+      trx.replaceObjectRecordValue(field.getLocalName(), new StringValue(((Str) value).stringValue()));
+    } else if (value instanceof Null) {
+      trx.replaceObjectRecordValue(field.getLocalName(), new NullValue());
+    } else if (value instanceof Bool) {
+      trx.replaceObjectRecordValue(field.getLocalName(), new BooleanValue(value.booleanValue()));
+    } else if (value instanceof Numeric) {
+      if (value instanceof Int) {
+        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int) value).intValue()));
+      } else if (value instanceof Int32) {
+        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int32) value).intValue()));
+      } else if (value instanceof Int64) {
+        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int64) value).longValue()));
+      } else if (value instanceof Flt) {
+        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Flt) value).floatValue()));
+      } else if (value instanceof Dbl) {
+        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Dbl) value).doubleValue()));
+      } else if (value instanceof Dec) {
+        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Dec) value).decimalValue()));
+      }
+    }
   }
 
-  private void insertAsRightSibling(Sequence value, JsonNodeTrx trx) {
-    final String json = serializeItem(value);
-
-    trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json));
+  private void insertSubtree(Sequence value, JsonNodeTrx trx) {
+    var json = serializeItem(value);
+    json = json.substring(1, json.length() - 1);
+    trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
   }
 
   private String serializeItem(Sequence value) {
@@ -398,8 +401,17 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record insert(QNm field, Sequence value) {
+    if (get(field) != null) {
+      return this;
+    }
     final var trx = getReadWriteTrx();
 
+    insert(field, value, trx);
+
+    return this;
+  }
+
+  private void insert(QNm field, Sequence value, JsonNodeTrx trx) {
     if (value instanceof Atomic) {
       final var fieldName = field.getLocalName();
       if (value instanceof Str) {
@@ -428,8 +440,6 @@ public final class JsonDBObject extends AbstractItem
 
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
     }
-
-    return this;
   }
 
   @Override
@@ -465,7 +475,7 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return jsonUtil.getSequence(rtx.moveToFirstChild().trx(), collection);
+      return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
     }
 
     return null;
@@ -490,7 +500,7 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return jsonUtil.getSequence(rtx.moveToFirstChild().trx(), collection);
+      return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
     }
 
     return null;
@@ -542,7 +552,6 @@ public final class JsonDBObject extends AbstractItem
 
     try (final var stream = new SirixJsonStream(axis, collection)) {
       for (int i = 0; i < index && stream.next() != null; i++) {
-        ;
       }
       final var jsonItem = stream.next();
 

@@ -4,17 +4,12 @@ import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.array.AbstractArray;
 import org.brackit.xquery.atomic.*;
-import org.brackit.xquery.util.ExprUtil;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.type.ArrayType;
 import org.brackit.xquery.xdm.type.ItemType;
-import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
-import org.sirix.access.trx.node.json.objectvalue.NullValue;
-import org.sirix.access.trx.node.json.objectvalue.NumberValue;
-import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -25,7 +20,6 @@ import org.sirix.axis.temporal.FirstAxis;
 import org.sirix.axis.temporal.LastAxis;
 import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PreviousAxis;
-import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.StructuredDBItem;
 
 import java.io.ByteArrayOutputStream;
@@ -59,6 +53,11 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private final JsonItemFactory jsonItemFactory;
 
   /**
+   * Provides utility methods to process JSON item sequences.
+   */
+  private final JsonItemSequence jsonItemSequence;
+
+  /**
    * Cached values.
    */
   private List<Sequence> values;
@@ -80,6 +79,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     this.nodeKey = rtx.getNodeKey();
     this.collection = collection;
     this.jsonItemFactory = jsonItemFactory;
+    jsonItemSequence = new JsonItemSequence();
   }
 
   @Override
@@ -117,97 +117,21 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     moveToIndex(index, trx);
 
     if (op == Op.Replace || op == Op.Insert) {
-      final var leftSiblingNodeKey = trx.getLeftSiblingKey();
+      final long ancorNodeKey;
+      if (trx.hasLeftSibling()) {
+        ancorNodeKey = trx.getLeftSiblingKey();
+      } else {
+        ancorNodeKey = trx.getParentKey();
+      }
       if (op == Op.Replace) {
         trx.remove();
       }
-      trx.moveTo(leftSiblingNodeKey);
+      trx.moveTo(ancorNodeKey);
     }
 
-    final Item item = ExprUtil.asItem(value);
-
-    if (value instanceof Atomic) {
-      if (value instanceof Str) {
-        final var str = ((Str) value).stringValue();
-        if (trx.getNodeKey() == nodeKey) {
-          trx.insertStringValueAsRightSibling(str);
-        } else {
-          trx.insertStringValueAsFirstChild(str);
-        }
-      } else if (value instanceof Null) {
-        if (trx.getNodeKey() == nodeKey) {
-          trx.insertNullValueAsFirstChild();
-        } else {
-          trx.insertNullValueAsRightSibling();
-        }
-      } else if (value instanceof Numeric) {
-        if (value instanceof Int) {
-          if (trx.getNodeKey() == nodeKey) {
-            trx.insertNumberValueAsFirstChild(((Int) value).intValue());
-          } else {
-            trx.insertNumberValueAsRightSibling(((Int) value).intValue());
-          }
-        } else if (value instanceof Int32) {
-          if (trx.getNodeKey() == nodeKey) {
-            trx.insertNumberValueAsFirstChild(((Int32) value).intValue());
-          } else {
-            trx.insertNumberValueAsRightSibling(((Int32) value).intValue());
-          }
-        } else if (value instanceof Int64) {
-          if (trx.getNodeKey() == nodeKey) {
-            trx.insertNumberValueAsFirstChild(((Int64) value).longValue());
-          } else {
-            trx.insertNumberValueAsRightSibling(((Int64) value).longValue());
-          }
-        } else if (value instanceof Flt) {
-          if (trx.getNodeKey() == nodeKey) {
-            trx.insertNumberValueAsFirstChild(((Flt) value).floatValue());
-          } else {
-            trx.insertNumberValueAsRightSibling(((Flt) value).floatValue());
-          }
-        } else if (value instanceof Dbl) {
-          if (trx.getNodeKey() == nodeKey) {
-            trx.insertNumberValueAsFirstChild(((Dbl) value).doubleValue());
-          } else {
-            trx.insertNumberValueAsRightSibling(((Dbl) value).doubleValue());
-          }
-        } else if (value instanceof Dec) {
-          if (trx.getNodeKey() == nodeKey) {
-            trx.insertNumberValueAsFirstChild(((Dec) value).decimalValue());
-          } else {
-            trx.insertNumberValueAsRightSibling(((Dec) value).decimalValue());
-          }
-        }
-      } else if (value instanceof Bool) {
-        if (trx.getNodeKey() == nodeKey) {
-          trx.insertBooleanValueAsFirstChild(value.booleanValue());
-        } else {
-          trx.insertBooleanValueAsRightSibling(value.booleanValue());
-        }
-      }
-    } else {
-      final String json = serializeItem(item);
-
-      if (trx.getNodeKey() == nodeKey) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
-      } else {
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json));
-      }
-    }
+    jsonItemSequence.insert(value, trx, nodeKey);
 
     values = null;
-  }
-
-  private String serializeItem(Item item) {
-    final String json;
-    try (final var out = new ByteArrayOutputStream()) {
-      final var serializer = new StringSerializer(new PrintStream(out));
-      serializer.serialize(item);
-      json = new String(out.toByteArray(), StandardCharsets.UTF_8);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
-    return json;
   }
 
   private void moveToIndex(int index, JsonNodeTrx trx) {
