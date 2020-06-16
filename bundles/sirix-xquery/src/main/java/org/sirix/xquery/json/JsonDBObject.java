@@ -41,6 +41,8 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -65,6 +67,8 @@ public final class JsonDBObject extends AbstractItem
    */
   private final JsonItemFactory jsonItemFactory;
 
+  private final Map<QNm, Sequence> fields;
+
   /**
    * Constructor.
    *
@@ -81,6 +85,7 @@ public final class JsonDBObject extends AbstractItem
 
     nodeKey = this.rtx.getNodeKey();
     jsonItemFactory = new JsonItemFactory();
+    fields = new HashMap<>();
   }
 
   @Override
@@ -308,6 +313,7 @@ public final class JsonDBObject extends AbstractItem
   public Record replace(QNm field, Sequence value) {
     if (rtx.hasChildren()) {
       modify(field, value);
+      fields.put(field, value);
     }
     return this;
   }
@@ -394,6 +400,8 @@ public final class JsonDBObject extends AbstractItem
 
       if (foundField) {
         trx.setObjectKeyName(newFieldName.getLocalName());
+        fields.remove(field);
+        fields.put(newFieldName, jsonItemFactory.getSequence(trx.moveToFirstChild().trx(), collection));
       }
     }
     return this;
@@ -407,6 +415,8 @@ public final class JsonDBObject extends AbstractItem
     final var trx = getReadWriteTrx();
 
     insert(field, value, trx);
+
+    fields.put(field, value);
 
     return this;
   }
@@ -470,15 +480,17 @@ public final class JsonDBObject extends AbstractItem
   public Sequence get(QNm field) {
     moveRtx();
 
-    final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
+    return fields.computeIfAbsent(field, (unused) -> {
+      final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
 
-    if (axis.hasNext()) {
-      axis.next();
+      if (axis.hasNext()) {
+        axis.next();
 
-      return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
-    }
+        return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
+      }
 
-    return null;
+      return null;
+    });
   }
 
   @Override
