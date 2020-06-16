@@ -12,6 +12,16 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testReplaceInArray() throws IOException {
+    final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",true,false,null]')";
+    final String updateQuery = """
+          replace json value of jn:doc('mycol.jn','mydoc.jn')[[1]] with "yes"
+        """;
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "[\"foo\",\"yes\",false,null]");
+  }
+
+  @Test
   public void testRemoveFromArray() throws IOException {
     final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",true,false,null]')";
     final String updateQuery = """
@@ -75,6 +85,16 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """;
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
     test(storeQuery, updateQuery, openQuery, "{\"buzz\":\"bar\",\"baz\":true}");
+  }
+
+  @Test
+  public void testReplaceInObject() throws IOException {
+    final String storeQuery = "jn:store('mycol.jn','mydoc.jn','{\"foo\": \"bar\", \"baz\": true}')";
+    final String updateQuery = """
+          replace json value of jn:doc('mycol.jn','mydoc.jn')=>baz with "yes"
+        """;
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "{\"foo\":\"bar\",\"baz\":\"yes\"}");
   }
 
   @Test
