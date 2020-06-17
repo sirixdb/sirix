@@ -61,7 +61,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -69,8 +68,10 @@ public final class JsonShredderTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
       try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                     //                                                     .buildPathSummary(true)
-                                                     .hashKind(HashType.NONE).useTextCompression(false).build());
+                                                     .buildPathSummary(true)
+                                                     .hashKind(HashType.NONE)
+                                                     .useTextCompression(false)
+                                                     .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
              final var trx = manager.beginNodeTrx()) {
           //          final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath), InsertPosition.AS_FIRST_CHILD).build();
@@ -117,8 +118,9 @@ public final class JsonShredderTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       try (final Writer writer = new StringWriter()) {
@@ -148,8 +150,9 @@ public final class JsonShredderTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       try (final Writer writer = new StringWriter()) {
@@ -240,8 +243,9 @@ public final class JsonShredderTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
@@ -257,8 +261,9 @@ public final class JsonShredderTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
