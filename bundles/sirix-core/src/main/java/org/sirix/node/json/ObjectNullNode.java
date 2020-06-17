@@ -47,16 +47,6 @@ public final class ObjectNullNode extends AbstractNullNode {
    *
    * @param structNodeDelegate {@link StructNodeDelegate} to be set
    */
-  public ObjectNullNode(final BigInteger hashCode, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate);
-    setHash(hashCode);
-  }
-
-  /**
-   * Constructor.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   */
   public ObjectNullNode(final StructNodeDelegate structNodeDelegate) {
     super(structNodeDelegate);
   }

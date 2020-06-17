@@ -52,6 +52,9 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
 
   @Override
   public BigInteger getHash() {
+    if (hashCode == null) {
+      hashCode = computeHash();
+    }
     return hashCode;
   }
 

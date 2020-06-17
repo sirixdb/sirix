@@ -35,7 +35,7 @@ public abstract class AbstractNodeHashing {
   /**
    * The page write trx.
    */
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
 
   /**
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
@@ -307,7 +307,6 @@ public abstract class AbstractNodeHashing {
         setAddDescendants(startNode, node, descendantCount);
       }
       node.setHash(newHash);
-
     } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()).hasMoved());
     setCurrentNode(startNode);
   }

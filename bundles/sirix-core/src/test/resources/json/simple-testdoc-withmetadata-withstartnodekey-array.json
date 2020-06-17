@@ -1,7 +1,7 @@
 {
   "metadata": {
     "nodeKey": 6,
-    "hash": 110771152613898421390800264822812274235,
+    "hash": "5355bf7b92f168acac0aef30336f6e3b",
     "type": "ARRAY",
     "descendantCount": 2,
     "childCount": 2
@@ -10,7 +10,7 @@
     {
       "metadata": {
         "nodeKey": 7,
-        "hash": 273324736240740398689686531563358137637,
+        "hash": "603961873abb84ed27cb4dd3c04048e0",
         "type": "STRING_VALUE"
       },
       "value": "it works, again"
@@ -18,7 +18,7 @@
     {
       "metadata": {
         "nodeKey": 8,
-        "hash": 179134588728683365444054649768456054945,
+        "hash": "86c4111d226afe47545d8b08ca7168a1",
         "type": "BOOLEAN_VALUE"
       },
       "value": true
