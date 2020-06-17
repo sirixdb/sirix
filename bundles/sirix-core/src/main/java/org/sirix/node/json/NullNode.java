@@ -49,27 +49,8 @@ public final class NullNode extends AbstractNullNode {
    *
    * @param structNodeDelegate {@link StructNodeDelegate} to be set
    */
-  public NullNode(final BigInteger hashCode, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate);
-    setHash(hashCode);
-  }
-
-  /**
-   * Constructor.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   */
   public NullNode(final StructNodeDelegate structNodeDelegate) {
     super(structNodeDelegate);
-  }
-
-  @Override
-  public BigInteger computeHash() {
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(getNodeDelegate().computeHash());
-
-    return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override

@@ -51,17 +51,6 @@ public final class StringNode extends AbstractStringNode {
    * @param valueNodeDelegate delegate for {@link ValueNode} implementation
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public StringNode(final BigInteger hashCode, final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
-    super(valueNodeDelegate, structNodeDelegate);
-    setHash(hashCode);
-  }
-
-  /**
-   * Constructor.
-   *
-   * @param valueNodeDelegate delegate for {@link ValueNode} implementation
-   * @param structNodeDelegate delegate for {@link StructNode} implementation
-   */
   public StringNode(final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
     super(valueNodeDelegate, structNodeDelegate);
   }

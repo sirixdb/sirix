@@ -39,6 +39,9 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
 
   @Override
   public BigInteger getHash() {
+    if (hashCode == null) {
+      hashCode = computeHash();
+    }
     return hashCode;
   }
 
