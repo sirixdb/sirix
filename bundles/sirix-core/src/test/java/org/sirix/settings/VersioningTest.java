@@ -42,23 +42,23 @@ import org.sirix.exception.SirixException;
 public class VersioningTest {
 
   /** {@link Database} instance. */
-  private Database<XmlResourceManager> mDatabase;
+  private Database<XmlResourceManager> database;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
     Databases.createXmlDatabase(new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile()));
-    mDatabase = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
   }
 
   @After
   public void tearDown() throws SirixException {
-    mDatabase.close();
+    database.close();
   }
 
   @Test
   public void testIncremental() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -68,7 +68,7 @@ public class VersioningTest {
 
   @Test
   public void testIncremental1() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -78,7 +78,7 @@ public class VersioningTest {
 
   @Test
   public void testIncremental2() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -88,7 +88,7 @@ public class VersioningTest {
 
   @Test
   public void testDifferential() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -98,7 +98,7 @@ public class VersioningTest {
 
   @Test
   public void testDifferential1() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -108,7 +108,7 @@ public class VersioningTest {
 
   @Test
   public void testFull() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -118,7 +118,7 @@ public class VersioningTest {
 
   @Test
   public void testFull1() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -128,7 +128,7 @@ public class VersioningTest {
 
   @Test
   public void testFull2() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -138,7 +138,7 @@ public class VersioningTest {
 
   @Test
   public void testSlidingSnapshot() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -148,7 +148,7 @@ public class VersioningTest {
 
   @Test
   public void testSlidingSnapshot1() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -158,7 +158,7 @@ public class VersioningTest {
 
   @Test
   public void testSlidingSnapshot2() throws SirixException {
-    mDatabase.createResource(
+    database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                                  .hashKind(HashType.NONE)
                                                                  .revisionsToRestore(3)
@@ -172,7 +172,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test() throws SirixException {
-    try (final XmlResourceManager manager = mDatabase.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
       try (final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -210,7 +210,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test1() throws SirixException {
-    try (final XmlResourceManager manager = mDatabase.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
       XmlNodeTrx wtx = manager.beginNodeTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -260,7 +260,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test2() throws SirixException {
-    try (final XmlResourceManager manager = mDatabase.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
       XmlNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();

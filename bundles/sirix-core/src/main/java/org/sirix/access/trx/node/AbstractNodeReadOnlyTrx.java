@@ -30,7 +30,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * A skeletal implementation of a read-only node transaction.
  * @param <T> the type of node cursor
  */
-public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
+public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
   private final long id;
@@ -47,7 +47,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    * @param pageReadTransaction the underlying read-only page transaction
    * @param documentNode the document root node
    */
-  public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
+  public AbstractNodeReadOnlyTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
       final @Nonnull ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
     id = trxId;

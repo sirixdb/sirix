@@ -103,8 +103,8 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public long pageKey(@Nonnegative long recordKey) {
-    return delegate().pageKey(recordKey);
+  public long pageKey(@Nonnegative long recordKey, @Nonnull PageKind pageKind) {
+    return delegate().pageKey(recordKey, pageKind);
   }
 
   @Override

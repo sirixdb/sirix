@@ -222,6 +222,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private boolean canRemoveValue;
 
+  private int beforeBulkInsertionRevisionNumber;
+
+  private final boolean isAutoCommitting;
+
   /**
    * Constructor.
    *
@@ -259,8 +263,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     this.maxNodeCount = maxNodeCount;
     this.modificationCount = 0L;
 
+    if (maxNodeCount > 0 || maxTime > 0) {
+      isAutoCommitting = true;
+    } else {
+      isAutoCommitting = false;
+    }
+
     if (maxTime > 0) {
-      threadPool.scheduleAtFixedRate(this::commit, maxTime, maxTime, timeUnit);
+      threadPool.scheduleWithFixedDelay(() -> commit("autoCommit"), maxTime, maxTime, timeUnit);
     }
 
     // Synchronize commit and other public methods if needed.
@@ -338,12 +348,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(reader);
     assert insertionPosition != null;
 
-    if (hashType != HashType.NONE && (maxNodeCount != 0 || lock != null)) {
-      throw new IllegalStateException("Calling insertSubtree() with auto-commit and setting hashes is not allowed,"
-                                          + " as the hashes are calculated after the insertion, which is not possible.");
-    }
-
-    acquireLock();
     try {
       final var peekedJsonToken = reader.peek();
 
@@ -383,6 +387,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
 
       checkAccessAndCommit();
+      beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
       nodeHashing.setBulkInsert(true);
       var nodeKey = getCurrentNode().getNodeKey();
       final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
@@ -408,16 +413,18 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
 
-      adaptHashesInPostorderTraversal();
+      // bulk inserts will be disabled for auto-commits after the first commit
+      if (nodeHashing.isBulkInsert()) {
+        adaptHashesInPostorderTraversal();
+      }
+
+      nodeHashing.setBulkInsert(false);
 
       if (doImplicitCommit) {
         commit();
       }
-      nodeHashing.setBulkInsert(false);
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
-    } finally {
-      unLock();
     }
     return this;
   }
@@ -672,7 +679,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       indexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (getParentKind() != NodeKind.OBJECT_KEY && nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
@@ -751,7 +758,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key or an arry node!");
 
-      checkAccessAndCommit();
+      if (kind != NodeKind.OBJECT_KEY) {
+        checkAccessAndCommit();
+      }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
 
@@ -849,7 +858,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key or array node!");
 
-      checkAccessAndCommit();
+      if (kind != NodeKind.OBJECT_KEY) {
+        checkAccessAndCommit();
+      }
 
       final StructNode structNode = (StructNode) getCurrentNode();
       final long pathNodeKey = getPathNodeKey(structNode);
@@ -952,7 +963,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
-      checkAccessAndCommit();
+      if (kind != NodeKind.OBJECT_KEY) {
+        checkAccessAndCommit();
+      }
 
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long pathNodeKey = getPathNodeKey(currentNode);
@@ -1023,7 +1036,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
-      checkAccessAndCommit();
+      if (kind != NodeKind.OBJECT_KEY) {
+        checkAccessAndCommit();
+      }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
 
@@ -1549,7 +1564,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     nodeFactory = null;
     nodeFactory = new JsonNodeFactoryImpl(hashFunction, pageWriteTrx);
+    final boolean isBulkInsert = nodeHashing.isBulkInsert();
     nodeHashing = new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageWriteTrx);
+    nodeHashing.setBulkInsert(isBulkInsert);
 
     updateOperationsUnordered.clear();
     updateOperationsOrdered.clear();
@@ -1686,8 +1703,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    */
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
-    if ((maxNodeCount > 0) && (modificationCount > maxNodeCount)) {
-      commit();
+    if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
+      commit("autoCommit");
     }
   }
 
@@ -1737,8 +1754,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof JsonNodeTrxImpl) {
-      final JsonNodeTrxImpl wtx = (JsonNodeTrxImpl) obj;
+    if (obj instanceof JsonNodeTrxImpl wtx) {
       return Objects.equal(nodeReadOnlyTrx, wtx.nodeReadOnlyTrx);
     }
     return false;
@@ -1813,9 +1829,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   public void serializeUpdateDiffs() {
     final int revisionNumber = getRevisionNumber();
-    if (revisionNumber - 1 > 0) {
+    if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
       final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager,
-                                                        revisionNumber - 1,
+                                                        beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+                                                            ? beforeBulkInsertionRevisionNumber
+                                                            : revisionNumber - 1,
                                                         revisionNumber,
                                                         storeDeweyIDs()
                                                             ? updateOperationsOrdered.values()

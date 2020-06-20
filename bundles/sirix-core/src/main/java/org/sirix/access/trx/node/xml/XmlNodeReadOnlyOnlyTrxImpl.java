@@ -24,7 +24,7 @@ package org.sirix.access.trx.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.AbstractNodeReadTrx;
+import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.ItemList;
 import org.sirix.api.Move;
@@ -68,7 +68,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
  */
-public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeReadOnlyTrx>
+public final class XmlNodeReadOnlyOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx>
     implements InternalXmlNodeReadOnlyTrx {
 
   /** Resource manager this write transaction is bound to. */
@@ -91,7 +91,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
    * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeReadOnlyOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     this.resourceManager = checkNotNull(resourceManager);
@@ -275,8 +275,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XmlNodeReadOnlyTrxImpl) {
-      final XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) obj;
+    if (obj instanceof XmlNodeReadOnlyOnlyTrxImpl) {
+      final XmlNodeReadOnlyOnlyTrxImpl rtx = (XmlNodeReadOnlyOnlyTrxImpl) obj;
       return currentNode.getNodeKey() == rtx.currentNode.getNodeKey()
           && pageReadOnlyTrx.getRevisionNumber() == rtx.pageReadOnlyTrx.getRevisionNumber();
     }
