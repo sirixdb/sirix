@@ -416,9 +416,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // bulk inserts will be disabled for auto-commits after the first commit
       if (nodeHashing.isBulkInsert()) {
         adaptHashesInPostorderTraversal();
+        nodeHashing.setBulkInsert(false);
       }
-
-      nodeHashing.setBulkInsert(false);
 
       if (doImplicitCommit) {
         commit();
