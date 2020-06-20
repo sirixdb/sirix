@@ -68,7 +68,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
  */
-public final class XmlNodeReadOnlyOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx>
+public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx>
     implements InternalXmlNodeReadOnlyTrx {
 
   /** Resource manager this write transaction is bound to. */
@@ -91,7 +91,7 @@ public final class XmlNodeReadOnlyOnlyTrxImpl extends AbstractNodeReadOnlyTrx<Xm
    * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XmlNodeReadOnlyOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     this.resourceManager = checkNotNull(resourceManager);
@@ -275,8 +275,8 @@ public final class XmlNodeReadOnlyOnlyTrxImpl extends AbstractNodeReadOnlyTrx<Xm
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XmlNodeReadOnlyOnlyTrxImpl) {
-      final XmlNodeReadOnlyOnlyTrxImpl rtx = (XmlNodeReadOnlyOnlyTrxImpl) obj;
+    if (obj instanceof XmlNodeReadOnlyTrxImpl) {
+      final XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) obj;
       return currentNode.getNodeKey() == rtx.currentNode.getNodeKey()
           && pageReadOnlyTrx.getRevisionNumber() == rtx.pageReadOnlyTrx.getRevisionNumber();
     }

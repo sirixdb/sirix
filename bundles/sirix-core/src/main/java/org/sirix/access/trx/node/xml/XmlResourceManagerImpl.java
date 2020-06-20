@@ -85,7 +85,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
 
   @Override
   public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
-    return new XmlNodeReadOnlyOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
+    return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
   }
 
   @Override
@@ -93,7 +93,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
       int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
-        new XmlNodeReadOnlyOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);
+        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);
 
     // Node factory.
     final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageWriteTrx);
