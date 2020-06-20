@@ -1,11 +1,12 @@
 package org.sirix.access.trx.node.json;
 
 import com.google.common.base.MoreObjects;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.AbstractNodeReadTrx;
+import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
@@ -16,6 +17,7 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
+import org.sirix.diff.JsonDiffSerializer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
@@ -37,12 +39,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeReadOnlyTrx>
+public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx>
     implements InternalJsonNodeReadOnlyTrx {
 
   /**
@@ -82,8 +86,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     final var revisionNumber = pageReadOnlyTrx instanceof PageTrx ? getRevisionNumber() - 1 : getRevisionNumber();
     final var updateOperationsFile = resourceManager.getResourceConfig()
                                                     .getResource()
-                                                    .resolve(
-                                                        ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                                     .resolve(
                                                         "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber
                                                             + ".json");
@@ -95,12 +98,48 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       final var jsonObject = jsonElement.getAsJsonObject();
       final var diffs = jsonObject.getAsJsonArray("diffs");
 
-      diffs.forEach(diff -> diffTuples.add(diff.getAsJsonObject()));
+      diffs.forEach(serializeJsonFragmentIfNeeded(diffTuples));
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
 
     return diffTuples;
+  }
+
+  private Consumer<JsonElement> serializeJsonFragmentIfNeeded(final List<JsonObject> diffTuples) {
+    return diff -> {
+      final var diffObject = diff.getAsJsonObject();
+
+      final JsonObject diffTupleObject;
+      if (diffObject.has("insert")) {
+        diffTupleObject = diffObject.getAsJsonObject("insert");
+      } else if (diffObject.has("replace")) {
+        diffTupleObject = diffObject.getAsJsonObject("replace");
+      } else {
+        diffTupleObject = null;
+      }
+
+      if (diffTupleObject != null) {
+        if ("jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
+          final var nodeKey = diffTupleObject.get("nodeKey").getAsLong();
+          final var currentNodeKey = getNodeKey();
+          moveTo(nodeKey);
+
+          final int revisionNumber;
+
+          if (pageReadOnlyTrx instanceof PageTrx) {
+            revisionNumber = getRevisionNumber() - 1;
+          } else {
+            revisionNumber = getRevisionNumber();
+          }
+
+          JsonDiffSerializer.serialize(revisionNumber, getResourceManager(), this, diffTupleObject);
+          moveTo(currentNodeKey);
+        }
+      }
+
+      diffTuples.add(diff.getAsJsonObject());
+    };
   }
 
   @Override
@@ -109,7 +148,32 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
     final var updateOperations = getUpdateOperations();
 
-    final var filteredUpdateOperations = updateOperations.stream().filter(updateOperation -> {
+    final var filteredAndSortedUpdateOperations = updateOperations.stream()
+                                                                  .filter(filterAncestorOperations(rootDeweyId,
+                                                                                                   maxDepth))
+                                                                  .sorted(sortByDeweyID())
+                                                                  .collect(Collectors.toList());
+
+    return filteredAndSortedUpdateOperations;
+  }
+
+  private Comparator<JsonObject> sortByDeweyID() {
+    return Comparator.comparing(updateOperation -> {
+      if (updateOperation.has("insert")) {
+        return getDeweyID(updateOperation, "insert");
+      } else if (updateOperation.has("delete")) {
+        return getDeweyID(updateOperation, "delete");
+      } else if (updateOperation.has("update")) {
+        return getDeweyID(updateOperation, "update");
+      } else if (updateOperation.has("replace")) {
+        return getDeweyID(updateOperation, "replace");
+      }
+      throw new IllegalStateException(updateOperation + " not known.");
+    });
+  }
+
+  private Predicate<JsonObject> filterAncestorOperations(SirixDeweyID rootDeweyId, long maxDepth) {
+    return updateOperation -> {
       if (updateOperation.has("insert")) {
         return isDescendatOrSelfOf(rootDeweyId, updateOperation, "insert", maxDepth);
       } else if (updateOperation.has("delete")) {
@@ -121,22 +185,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       } else {
         throw new IllegalStateException(updateOperation + " not known.");
       }
-    }).collect(Collectors.toList());
-
-    filteredUpdateOperations.sort(Comparator.comparing(updateOperation -> {
-      if (updateOperation.has("insert")) {
-        return getDeweyID(updateOperation, "insert");
-      } else if (updateOperation.has("delete")) {
-        return getDeweyID(updateOperation, "delete");
-      } else if (updateOperation.has("update")) {
-        return getDeweyID(updateOperation, "update");
-      } else if (updateOperation.has("replace")) {
-        return getDeweyID(updateOperation, "replace");
-      }
-      throw new IllegalStateException(updateOperation + " not known.");
-    }));
-
-    return filteredUpdateOperations;
+    };
   }
 
   private SirixDeweyID getDeweyID(final JsonObject updateOperation, final String operation) {
@@ -144,15 +193,13 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     return new SirixDeweyID(opAsJsonObject.getAsJsonPrimitive("deweyID").getAsString());
   }
 
-  private boolean isDescendatOrSelfOf(final SirixDeweyID rootDeweyId, final JsonObject updateOperation, final String operation, final long maxDepth) {
+  private boolean isDescendatOrSelfOf(final SirixDeweyID rootDeweyId, final JsonObject updateOperation,
+      final String operation, final long maxDepth) {
     final var opAsJsonObject = updateOperation.getAsJsonObject(operation);
 
     final var deweyId = new SirixDeweyID(opAsJsonObject.getAsJsonPrimitive("deweyID").getAsString());
 
-    if (deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() <= maxDepth) {
-      return true;
-    }
-    return false;
+    return deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() <= maxDepth;
   }
 
   @Override
@@ -188,7 +235,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT_STRING_VALUE, STRING_VALUE -> new String(((ValueNode) currentNode).getRawValue(),
-          Constants.DEFAULT_ENCODING);
+                                                           Constants.DEFAULT_ENCODING);
       case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) currentNode).getValue());
       case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) currentNode).getValue());
       case OBJECT_NULL_VALUE, NULL_VALUE -> "null";

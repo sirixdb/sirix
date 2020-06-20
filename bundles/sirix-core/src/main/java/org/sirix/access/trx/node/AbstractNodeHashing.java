@@ -284,6 +284,14 @@ public abstract class AbstractNodeHashing {
         : startNode.getHash();
     BigInteger newHash;
     BigInteger possibleOldHash = BigInteger.ZERO;
+
+    if (startNode.getKind() == NodeKind.STRING_VALUE || startNode.getKind() == NodeKind.OBJECT_STRING_VALUE
+        || startNode.getKind() == NodeKind.BOOLEAN_VALUE || startNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
+        || startNode.getKind() == NodeKind.NUMBER_VALUE || startNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || startNode.getKind() == NodeKind.NULL_VALUE || startNode.getKind() == NodeKind.OBJECT_NULL_VALUE) {
+      nodeReadOnlyTrx.moveTo(startNode.getParentKey());
+    }
+
     // go the path to the root
     do {
       final Node node =

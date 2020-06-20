@@ -101,17 +101,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * The transaction-ID.
    */
-  private long trxId;
+  private final long trxId;
 
   /**
    * Cached name page of this revision.
    */
-  private RevisionRootPage rootPage;
+  private final RevisionRootPage rootPage;
 
   /**
    * {@link NamePage} reference.
    */
-  private NamePage namePage;
+  private final NamePage namePage;
 
   /**
    * Caches the most recently read record page.
@@ -215,22 +215,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return Optional.empty();
     }
 
-    final long recordPageKey = pageKey(nodeKey);
+    final long recordPageKey = pageKey(nodeKey, pageKind);
 
-    final Optional<Page> page;
-
-    switch (pageKind) {
-      case RECORDPAGE:
-      case PATHSUMMARYPAGE:
-      case PATHPAGE:
-      case CASPAGE:
-      case NAMEPAGE:
-        page = getRecordPage(new IndexLogKey(pageKind, recordPageKey, index, revisionNumber));
-        break;
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException();
-    }
+    // $CASES-OMITTED$
+    final Optional<Page> page = switch (pageKind) {
+      case RECORDPAGE, PATHSUMMARYPAGE, PATHPAGE, CASPAGE, NAMEPAGE -> getRecordPage(new IndexLogKey(pageKind,
+                                                                                                     recordPageKey,
+                                                                                                     index,
+                                                                                                     revisionNumber));
+      default -> throw new IllegalStateException();
+    };
 
     return page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(nodeKey)).flatMap(this::checkItemIfDeleted);
   }
@@ -271,8 +265,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Override
   public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) {
     checkArgument(revisionKey >= 0 && revisionKey <= resourceManager.getMostRecentRevisionNumber(),
-        "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
-        resourceManager.getMostRecentRevisionNumber());
+                  "%s must be >= 0 and <= last stored revision (%s)!",
+                  revisionKey,
+                  resourceManager.getMostRecentRevisionNumber());
     if (trxIntentLog == null) {
       final Cache<Integer, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
       RevisionRootPage revisionRootPage = cache.get(revisionKey);
@@ -284,16 +279,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     } else {
       // The indirect page reference either fails horribly or returns a non null
       // instance.
-      final PageReference reference = getReferenceToLeafOfSubtree(uberPage.getIndirectPageReference(), revisionKey, -1,
-          PageKind.UBERPAGE);
+      final PageReference reference =
+          getReferenceToLeafOfSubtree(uberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
 
-      RevisionRootPage page = null;
-
-      if (trxIntentLog != null) {
-        // Try to get it from the transaction log if it's present.
-        final PageContainer cont = trxIntentLog.get(reference, this);
-        page = cont == null ? null : (RevisionRootPage) cont.getComplete();
-      }
+      // Try to get it from the transaction log if it's present.
+      final PageContainer cont = trxIntentLog.get(reference, this);
+      RevisionRootPage page = cont == null ? null : (RevisionRootPage) cont.getComplete();
 
       if (page == null) {
         assert reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
@@ -367,10 +358,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       //      }
     }
 
-    final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(
-        checkNotNull(indexLogKey.getRecordPageKey()), indexLogKey.getIndex(), checkNotNull(indexLogKey.getIndexType()));
+    final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(indexLogKey.getRecordPageKey(),
+                                                                                   indexLogKey.getIndex(),
+                                                                                   checkNotNull(indexLogKey.getIndexType()));
 
-    if (!pageReferenceToRecordPage.isPresent()) {
+    if (pageReferenceToRecordPage.isEmpty()) {
       return Optional.empty();
     }
 
@@ -379,16 +371,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final var page = pageReferenceToRecordPage.get().getPage();
 
       if (page != null) {
-        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-            indexLogKey.getRecordPageKey(), page);
+        mostRecentlyReadRecordPage =
+            new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
         return Optional.of(page);
       }
 
       final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
 
       if (recordPageFromBuffer != null) {
-        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-            indexLogKey.getRecordPageKey(), recordPageFromBuffer);
+        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
+                                                    indexLogKey.getIndexType(),
+                                                    indexLogKey.getRecordPageKey(),
+                                                    recordPageFromBuffer);
         return Optional.of(recordPageFromBuffer);
       }
     }
@@ -410,8 +404,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.get().setPage(completePage);
     }
 
-    mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-        indexLogKey.getRecordPageKey(), completePage);
+    mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
+                                                indexLogKey.getIndexType(),
+                                                indexLogKey.getRecordPageKey(),
+                                                completePage);
 
     return Optional.of(completePage);
   }
@@ -426,8 +422,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   final Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
       final PageKind pageKind) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, pageKind, indexNumber);
-    return Optional.ofNullable(
-        getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, pageKind));
+    return Optional.ofNullable(getReferenceToLeafOfSubtree(pageReferenceToSubtree,
+                                                           recordPageKey,
+                                                           indexNumber,
+                                                           pageKind));
   }
 
   /**
@@ -458,15 +456,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPreviousPageFragments(
       T page) {
-    return page.getPreviousReferenceKeys()
-               .stream()
-               .map(pageFragmentKey -> {
-                 try (final var pageTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
-                   return (T) pageTrx.getReader().read(new PageReference().setKey(pageFragmentKey.getKey()), pageTrx);
-                 }
-               })
-               .sorted(Comparator.<T, Integer>comparing(currentPage -> currentPage.getRevision()).reversed())
-               .collect(Collectors.toList());
+    return page.getPreviousReferenceKeys().stream().map(pageFragmentKey -> {
+      try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
+        return (T) pageReadOnlyTrx.getReader()
+                                  .read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
+      }
+    }).sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed()).collect(Collectors.toList());
   }
 
   /**
@@ -479,30 +474,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   PageReference getPageReference(final RevisionRootPage revisionRoot, final PageKind pageKind, final int index) {
     assert revisionRoot != null;
-    PageReference ref = null;
-
-    switch (pageKind) {
-      case RECORDPAGE:
-        ref = revisionRoot.getIndirectPageReference();
-        break;
-      case CASPAGE:
-        ref = getCASPage(revisionRoot).getIndirectPageReference(index);
-        break;
-      case PATHPAGE:
-        ref = getPathPage(revisionRoot).getIndirectPageReference(index);
-        break;
-      case NAMEPAGE:
-        ref = getNamePage(revisionRoot).getIndirectPageReference(index);
-        break;
-      case PATHSUMMARYPAGE:
-        ref = getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
-        break;
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
-    }
-
-    return ref;
+    // $CASES-OMITTED$
+    return switch (pageKind) {
+      case RECORDPAGE -> revisionRoot.getIndirectPageReference();
+      case CASPAGE -> getCASPage(revisionRoot).getIndirectPageReference(index);
+      case PATHPAGE -> getPathPage(revisionRoot).getIndirectPageReference(index);
+      case NAMEPAGE -> getNamePage(revisionRoot).getIndirectPageReference(index);
+      case PATHSUMMARYPAGE -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
+      default -> throw new IllegalStateException(
+          "Only defined for node, path summary, text value and attribute value pages!");
+    };
   }
 
   /**
@@ -554,7 +535,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(startReference);
     checkArgument(pageKey >= 0, "page key must be >= 0!");
-    int offset = 0;
+    int offset;
     long levelKey = pageKey;
     final int[] inpLevelPageCountExp = uberPage.getPageCountExp(pageKind);
     final int maxHeight = getCurrentMaxIndirectPageTreeLevel(pageKind, indexNumber, null);
@@ -583,11 +564,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public long pageKey(final @Nonnegative long recordKey) {
+  public long pageKey(@Nonnegative final long recordKey, @Nonnull final PageKind pageKind) {
     assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must not be negative!");
 
-    return recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    switch (pageKind) {
+      case PATHSUMMARYPAGE:
+        return recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
+      case UBERPAGE:
+        return recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
+      default:
+        return recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    }
   }
 
   @Override
@@ -596,29 +584,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int maxLevel;
     final RevisionRootPage currentRevisionRootPage = revisionRootPage == null ? rootPage : revisionRootPage;
 
-    switch (pageKind) {
-      case UBERPAGE:
-        maxLevel = uberPage.getCurrentMaxLevelOfIndirectPages();
-        break;
-      case RECORDPAGE:
-        maxLevel = currentRevisionRootPage.getCurrentMaxLevelOfIndirectPages();
-        break;
-      case CASPAGE:
-        maxLevel = getCASPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-        break;
-      case PATHPAGE:
-        maxLevel = getPathPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-        break;
-      case NAMEPAGE:
-        maxLevel = getNamePage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-        break;
-      case PATHSUMMARYPAGE:
-        maxLevel = getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-        break;
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
-    }
+    // $CASES-OMITTED$
+    maxLevel = switch (pageKind) {
+      case UBERPAGE -> uberPage.getCurrentMaxLevelOfIndirectPages();
+      case RECORDPAGE -> currentRevisionRootPage.getCurrentMaxLevelOfIndirectPages();
+      case CASPAGE -> getCASPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case PATHPAGE -> getPathPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case NAMEPAGE -> getNamePage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case PATHSUMMARYPAGE -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      default -> throw new IllegalStateException(
+          "Only defined for node, path summary, text value and attribute value pages!");
+    };
 
     return maxLevel;
   }
@@ -644,8 +620,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (!isClosed) {
       pageReader.close();
 
-      if (!resourceManager.getNodeReadTrxByTrxId(trxId).isPresent())
+      if (resourceManager.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceManager.closePageReadTransaction(trxId);
+      }
 
       isClosed = true;
     }
@@ -726,7 +703,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         return false;
       RecordPage that = (RecordPage) o;
       return index == that.index && recordPageKey == that.recordPageKey && pageKind == that.pageKind && Objects.equals(
-          page, that.page);
+          page,
+          that.page);
     }
 
     @Override

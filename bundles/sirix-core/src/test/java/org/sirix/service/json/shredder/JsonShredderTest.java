@@ -25,6 +25,7 @@ import org.sirix.api.Database;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.settings.VersioningType;
 import org.skyscreamer.jsonassert.JSONAssert;
 
 public final class JsonShredderTest {
@@ -54,8 +55,14 @@ public final class JsonShredderTest {
          final var rtx = manager.beginNodeReadOnlyTrx()) {
       final var axis = new DescendantAxis(rtx);
 
-      axis.forEach((unused) -> {
-      });
+      int count = 0;
+
+      for (final long nodeKey : axis) {
+        if (count % 1_000_000l == 0) {
+          System.out.println(nodeKey);
+        }
+        count++;
+      }
 
       System.out.println("done");
     }
@@ -69,18 +76,14 @@ public final class JsonShredderTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
       try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                      .buildPathSummary(true)
                                                      .hashKind(HashType.NONE)
                                                      .useTextCompression(false)
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx()) {
-          //          final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath), InsertPosition.AS_FIRST_CHILD).build();
-          //          shredder.call();
-          //          trx.commit();
+             final var trx = manager.beginNodeTrx(10_000_000)) {
           trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
-
-          System.out.println();
         }
       }
     } catch (Error e) {
