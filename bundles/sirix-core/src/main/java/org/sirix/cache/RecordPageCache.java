@@ -13,7 +13,7 @@ import javax.annotation.Nonnull;
 
 public final class RecordPageCache implements Cache<PageReference, Page> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> mPageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
 
   public RecordPageCache() {
     final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
@@ -21,32 +21,32 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
       key.setPage(null);
     };
 
-    mPageCache = Caffeine.newBuilder()
-                         .maximumSize(1_000)
-                         .expireAfterWrite(20, TimeUnit.SECONDS)
-                         .expireAfterAccess(20, TimeUnit.SECONDS)
-                         .removalListener(removalListener)
-                         .build();
+    pageCache = Caffeine.newBuilder()
+                        .maximumSize(1_000)
+                        .expireAfterWrite(5, TimeUnit.SECONDS)
+                        .expireAfterAccess(5, TimeUnit.SECONDS)
+                        .removalListener(removalListener)
+                        .build();
   }
 
   @Override
   public void clear() {
-    mPageCache.invalidateAll();
+    pageCache.invalidateAll();
   }
 
   @Override
   public Page get(PageReference key) {
-    return mPageCache.getIfPresent(key);
+    return pageCache.getIfPresent(key);
   }
 
   @Override
   public void put(PageReference key, @Nonnull Page value) {
-    mPageCache.put(key, value);
+    pageCache.put(key, value);
   }
 
   @Override
   public void putAll(Map<? extends PageReference, ? extends Page> map) {
-    mPageCache.putAll(map);
+    pageCache.putAll(map);
   }
 
   @Override
@@ -56,12 +56,12 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
 
   @Override
   public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
-    return mPageCache.getAllPresent(keys);
+    return pageCache.getAllPresent(keys);
   }
 
   @Override
   public void remove(PageReference key) {
-    mPageCache.invalidate(key);
+    pageCache.invalidate(key);
   }
 
   @Override

@@ -10,38 +10,38 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> mPageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
 
   public PageCache() {
     RemovalListener<PageReference, Page> removalListener =
         (PageReference key, Page value, RemovalCause cause) -> key.setPage(null);
 
-    mPageCache = Caffeine.newBuilder()
-                         .maximumSize(5_000)
-                         .expireAfterWrite(5, TimeUnit.MINUTES)
-                         .expireAfterAccess(5, TimeUnit.MINUTES)
-                         .removalListener(removalListener)
-                         .build();
+    pageCache = Caffeine.newBuilder()
+                        .maximumSize(5_000)
+                        .expireAfterWrite(5, TimeUnit.SECONDS)
+                        .expireAfterAccess(5, TimeUnit.SECONDS)
+                        .removalListener(removalListener)
+                        .build();
   }
 
   @Override
   public void clear() {
-    mPageCache.invalidateAll();
+    pageCache.invalidateAll();
   }
 
   @Override
   public Page get(PageReference key) {
-    return mPageCache.getIfPresent(key);
+    return pageCache.getIfPresent(key);
   }
 
   @Override
   public void put(PageReference key, Page value) {
-    mPageCache.put(key, value);
+    pageCache.put(key, value);
   }
 
   @Override
   public void putAll(Map<? extends PageReference, ? extends Page> map) {
-    mPageCache.putAll(map);
+    pageCache.putAll(map);
   }
 
   @Override
@@ -51,12 +51,12 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
-    return mPageCache.getAllPresent(keys);
+    return pageCache.getAllPresent(keys);
   }
 
   @Override
   public void remove(PageReference key) {
-    mPageCache.invalidate(key);
+    pageCache.invalidate(key);
   }
 
   @Override
