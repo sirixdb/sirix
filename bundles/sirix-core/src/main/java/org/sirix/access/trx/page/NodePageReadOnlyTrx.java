@@ -620,6 +620,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (!isClosed) {
       pageReader.close();
 
+      if (resourceBufferManager != null) {
+        ((BufferManagerImpl) resourceBufferManager).close();
+      }
+
       if (resourceManager.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceManager.closePageReadTransaction(trxId);
       }
