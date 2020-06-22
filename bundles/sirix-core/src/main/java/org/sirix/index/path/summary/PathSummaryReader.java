@@ -515,9 +515,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    return ((PathSummaryPage) pageReadTrx.getActualRevisionRootPage()
-                                         .getPathSummaryPageReference()
-                                         .getPage()).getMaxNodeKey(0);
+    final var pageReference = pageReadTrx.getActualRevisionRootPage()
+                                         .getPathSummaryPageReference();
+
+    if (pageReference.getPage() == null) {
+      pageReference.setPage(pageReadTrx.getReader().read(pageReference, pageReadTrx));
+    }
+
+    return ((PathSummaryPage) pageReference.getPage()).getMaxNodeKey(0);
   }
 
   @Override
