@@ -131,11 +131,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   /**
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *
-   * @param recordPageKey base key assigned to this node page
-   * @param pageKind      the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
-   *                      ATTRIBUTEVALUEPAGE)
+   * @param recordPageKey       base key assigned to this node page
+   * @param pageKind            the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
+   *                            ATTRIBUTEVALUEPAGE)
    * @param previousPageRefKeys previous page-fragment reference keys
-   * @param pageReadTrx   the page reading transaction
+   * @param pageReadTrx         the page reading transaction
    */
   public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
       final List<PageFragmentKey> previousPageRefKeys, final PageReadOnlyTrx pageReadTrx) {
@@ -210,8 +210,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final DataRecord record = recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key,
-          null, this.pageReadTrx);
+      final DataRecord record =
+          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, null, this.pageReadTrx);
       records.put(key, record);
     }
 
@@ -246,8 +246,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final DataRecord record = recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key,
-          deweyId, pageReadTrx);
+      final DataRecord record =
+          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, deweyId, pageReadTrx);
       records.put(key, record);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -332,10 +332,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     SerializationType.serializeBitSet(out, entriesBitmap);
 
     final var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    final var overlongEntriesSortedByKey = references.entrySet()
-                                                     .stream()
-                                                     .sorted(Entry.comparingByKey())
-                                                     .collect(toList());
+    final var overlongEntriesSortedByKey =
+        references.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
     for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
       final var pageOffset = pageReadTrx.recordPageOffset(entry.getKey());
       overlongEntriesBitmap.set(pageOffset);
@@ -413,7 +411,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     if (obj instanceof UnorderedKeyValuePage) {
       final UnorderedKeyValuePage other = (UnorderedKeyValuePage) obj;
       return recordPageKey == other.recordPageKey && Objects.equal(records, other.records) && Objects.equal(references,
-          other.references);
+                                                                                                            other.references);
     }
     return false;
   }
@@ -453,10 +451,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       if (slots.get(recordID) == null) {
         // Must be either a normal record or one which requires an
         // Overflow page.
-        final var output = new ByteArrayOutputStream();
-        final var out = new DataOutputStream(output);
-        recordPersister.serialize(out, record, pageReadTrx);
-        final var data = output.toByteArray();
+        final byte[] data;
+        try (final var output = new ByteArrayOutputStream(); final var out = new DataOutputStream(output)) {
+          recordPersister.serialize(out, record, pageReadTrx);
+          data = output.toByteArray();
+        }
+
         if (data.length > PageConstants.MAX_RECORD_SIZE) {
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(data));
@@ -527,7 +527,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   @SuppressWarnings("unchecked")
   @Override
   public <C extends KeyValuePage<Long, DataRecord>> C newInstance(final long recordPageKey,
-      @Nonnull final PageKind pageKind, final List<PageFragmentKey> previousPageRefKeys, @Nonnull final PageReadOnlyTrx pageReadTrx) {
+      @Nonnull final PageKind pageKind, final List<PageFragmentKey> previousPageRefKeys,
+      @Nonnull final PageReadOnlyTrx pageReadTrx) {
     return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, previousPageRefKeys, pageReadTrx);
   }
 

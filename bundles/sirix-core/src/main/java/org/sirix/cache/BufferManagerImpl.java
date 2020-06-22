@@ -39,4 +39,12 @@ public final class BufferManagerImpl implements BufferManager {
   public Cache<Integer, RevisionRootPage> getRevisionRootPageCache() {
     return revisionRootPageCache;
   }
+
+  @Override
+  public void close() {
+    pageCache.clear();
+    recordPageCache.clear();
+    unorderedKeyValuePageCache.clear();
+    revisionRootPageCache.clear();
+  }
 }

@@ -1556,6 +1556,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceManager.closeNodePageWriteTransaction(getId());
+    pageWriteTrx = null;
     pageWriteTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageWriteTrx);
@@ -1564,6 +1565,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     nodeFactory = null;
     nodeFactory = new JsonNodeFactoryImpl(hashFunction, pageWriteTrx);
     final boolean isBulkInsert = nodeHashing.isBulkInsert();
+    nodeHashing = null;
     nodeHashing = new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageWriteTrx);
     nodeHashing.setBulkInsert(isBulkInsert);
 

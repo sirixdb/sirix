@@ -480,9 +480,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) {
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
-    if (pageRtx != null)
+    if (pageRtx != null) {
       // assert pageRtx != null : "Must be in the page trx map!";
       pageRtx.close();
+    }
   }
 
   /**

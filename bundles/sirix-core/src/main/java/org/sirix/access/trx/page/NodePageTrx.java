@@ -284,8 +284,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     if (reference == null)
       return;
 
-    //    mLog.setEvict(false);
-
     final PageContainer container = log.get(reference, this);
 
     log.remove(reference);
@@ -398,8 +396,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
 
       pageRtx.resourceManager.setLastCommittedUberPage(lastUberPage);
 
-      if (!isBoundToNodeTrx)
+      if (!isBoundToNodeTrx) {
         pageRtx.resourceManager.closePageWriteTransaction(pageRtx.getTrxId());
+      }
 
       log.close();
       pageRtx.close();
