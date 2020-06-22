@@ -389,6 +389,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       checkAccessAndCommit();
       beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
       nodeHashing.setBulkInsert(true);
+      if (isAutoCommitting) {
+        nodeHashing.setAutoCommit(true);
+      }
       var nodeKey = getCurrentNode().getNodeKey();
       final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
 
@@ -414,10 +417,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
 
       // bulk inserts will be disabled for auto-commits after the first commit
-      if (nodeHashing.isBulkInsert()) {
+      if (!isAutoCommitting) {
         adaptHashesInPostorderTraversal();
-        nodeHashing.setBulkInsert(false);
       }
+
+      nodeHashing.setBulkInsert(false);
 
       if (doImplicitCommit) {
         commit();
