@@ -41,6 +41,7 @@ public abstract class AbstractNodeHashing {
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
    */
   private boolean bulkInsert;
+  private boolean autoCommit;
 
   /**
    * Constructor.
@@ -61,13 +62,18 @@ public abstract class AbstractNodeHashing {
     return this;
   }
 
+  public AbstractNodeHashing setAutoCommit(boolean value) {
+    this.autoCommit = value;
+    return this;
+  }
+
   /**
    * Adapting the structure with a hash for all ancestors only with insert.
    *
    * @throws SirixIOException if an I/O error occurs
    */
   public void adaptHashesWithAdd() {
-    if (!bulkInsert) {
+    if (!bulkInsert || autoCommit) {
       switch (hashType) {
         case ROLLING:
           rollingAdd();
@@ -87,7 +93,7 @@ public abstract class AbstractNodeHashing {
    * @throws SirixIOException if an I/O error occurs
    */
   public void adaptHashesWithRemove() {
-    if (!bulkInsert) {
+    if (!bulkInsert || autoCommit) {
       switch (hashType) {
         case ROLLING:
           rollingRemove();
@@ -108,7 +114,7 @@ public abstract class AbstractNodeHashing {
    * @throws SirixIOException if an I/O error occurs
    */
   public void adaptHashedWithUpdate(final BigInteger oldHash) {
-    if (!bulkInsert) {
+    if (!bulkInsert || autoCommit) {
       switch (hashType) {
         case ROLLING:
           rollingUpdate(oldHash);
@@ -355,7 +361,9 @@ public abstract class AbstractNodeHashing {
         final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
 
         // Set start node.
-        final BigInteger hashToAdd = startNode.computeHash();
+        final BigInteger hashToAdd = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
+            ? startNode.computeHash()
+            : startNode.getHash().add(startNode.computeHash());
         Node node =
             (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setHash(hashToAdd);
