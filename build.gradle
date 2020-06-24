@@ -82,11 +82,11 @@ subprojects {
     }
 
     compileJava {
-        options.compilerArgs += ["--enable-preview"]
+        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
     }
 
     compileTestJava {
-        options.compilerArgs += ["--enable-preview"]
+        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
     }
 
     tasks.withType(JavaCompile).each {
@@ -200,10 +200,10 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
-        jvmArgs(['--enable-preview'])
+        jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
 
 //        minHeapSize = '2g'
-//        maxHeapSize = '9g'
+//        maxHeapSize = '7g'
     }
 }
 
