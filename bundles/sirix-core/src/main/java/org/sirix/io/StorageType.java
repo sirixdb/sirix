@@ -28,17 +28,16 @@ import org.sirix.io.memorymapped.MemoryMappedStorage;
 import org.sirix.io.ram.RAMStorage;
 
 /**
- * Utility methods for the storage. Those methods included common deletion procedures as well as
- * common checks. Furthermore, specific serialization are summarized upon this enum.
+ * Specific backend types are specified in this enum.
  *
- * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  *
  */
 public enum StorageType {
   /** In memory backend. */
   IN_MEMORY {
     @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       return new RAMStorage(resourceConf);
     }
   },

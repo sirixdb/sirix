@@ -23,9 +23,7 @@ package org.sirix.io.memorymapped;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import jdk.incubator.foreign.MemoryAddress;
-import jdk.incubator.foreign.MemoryHandles;
-import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.*;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -118,27 +116,28 @@ public final class MemoryMappedFileReader implements Reader {
       final VarHandle intVarHandle = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
       final MemoryAddress baseAddress = dataFileSegment.baseAddress();
 
-      final int dataLength;
-      switch (type) {
-        case DATA:
-          dataLength = (int) intVarHandle.get(baseAddress.addOffset(reference.getKey()));
-          break;
-        case TRANSACTION_INTENT_LOG:
-          dataLength = (int) intVarHandle.get(baseAddress.addOffset(reference.getPersistentLogKey()));
-          break;
-        default:
-          // Must not happen.
-          throw new AssertionError();
-      }
+      // Must not happen.
+      final MemoryAddress baseAddressPlusOffsetPlusInt;
+      final int dataLength = switch (type) {
+        case DATA -> {
+          baseAddressPlusOffsetPlusInt = baseAddress.addOffset(reference.getKey() + 4);
+          yield (int) intVarHandle.get(baseAddress.addOffset(reference.getKey()));
+        }
+        case TRANSACTION_INTENT_LOG -> {
+          baseAddressPlusOffsetPlusInt = baseAddress.addOffset(reference.getPersistentLogKey() + 4);
+          yield (int) intVarHandle.get(baseAddress.addOffset(reference.getPersistentLogKey()));
+        }
+        default -> throw new AssertionError();
+      };
 
       reference.setLength(dataLength + MemoryMappedFileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
-      final VarHandle byteVarHandle = MemoryHandles.varHandle(byte.class, ByteOrder.nativeOrder());
+      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE).varHandle(byte.class, MemoryLayout.PathElement
+          .sequenceElement());
 
       for (int i = 0; i < dataLength; i++) {
-        // 4 (dataLength) + 1 = 5 in offset, as the loop starts with 0 we have to add one to the offset
-        page[i] = (byte) byteVarHandle.get(baseAddress.addOffset(5 + i), i);
+        page[i] = (byte) byteVarHandle.get(baseAddressPlusOffsetPlusInt, (long) i);
       }
 
       // Perform byte operations.
