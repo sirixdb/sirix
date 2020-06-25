@@ -168,7 +168,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       }
 
       pageReference.setLength(writtenPage.length);
-      pageReference.setHash(reader.hashFunction.hashBytes(writtenPage).asBytes());
+      pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
         revisionsOffsetFile.seek(revisionsOffsetFile.length());

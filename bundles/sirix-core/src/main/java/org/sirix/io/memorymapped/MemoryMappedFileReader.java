@@ -170,7 +170,7 @@ public final class MemoryMappedFileReader implements Reader {
     try {
       final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
       final MemoryAddress revisionFileSegmentBaseAddress = dataFileSegment.baseAddress();
-      final MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
+      MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
 
       final long dataFileOffset = (long) longVarHandle.get(revisionFileSegmentBaseAddress.addOffset(revision * 8));
 
@@ -178,12 +178,15 @@ public final class MemoryMappedFileReader implements Reader {
 
       final int dataLength = (int) intVarHandle.get(dataFileSegmentBaseAddress.addOffset(dataFileOffset));
 
-      final VarHandle byteVarHandle = MemoryHandles.varHandle(byte.class, ByteOrder.nativeOrder());
+      dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(dataFileOffset + 5);
+
+      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE).varHandle(byte.class, MemoryLayout.PathElement
+          .sequenceElement());
 
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {
-        page[i] = (byte) byteVarHandle.get(dataFileSegmentBaseAddress.addOffset(dataFileOffset + 5 + i));
+        page[i] = (byte) byteVarHandle.get(dataFileSegmentBaseAddress, (long) i);
       }
 
       // Perform byte operations.
