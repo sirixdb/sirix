@@ -36,6 +36,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -44,6 +45,8 @@ import java.nio.file.Path;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
+ * Reader, to read from a memory-mapped file.
+ *
  * @author Johannes Lichtenberger
  */
 public final class MemoryMappedFileReader implements Reader {
@@ -71,12 +74,12 @@ public final class MemoryMappedFileReader implements Reader {
   /**
    * Data segment.
    */
-  private final MemorySegment dataFileSegment;
+  private final Path dataFile;
 
   /**
    * Revisions offset segment.
    */
-  private final MemorySegment revisionsOffsetSegment;
+  private final Path revisionsOffsetFile;
 
   /**
    * The type of data to serialize.
@@ -94,17 +97,12 @@ public final class MemoryMappedFileReader implements Reader {
    * @param dataFile            the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
    * @param handler             {@link ByteHandler} instance
-   * @throws SirixIOException if something bad happens
    */
   public MemoryMappedFileReader(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
-      final SerializationType type, final PagePersister pagePersistenter) throws IOException {
+      final SerializationType type, final PagePersister pagePersistenter) {
     hashFunction = Hashing.sha256();
-    dataFileSegment =
-        MemorySegment.mapFromPath(checkNotNull(dataFile), dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
-    revisionsOffsetSegment =
-        type == SerializationType.DATA ? MemorySegment.mapFromPath(checkNotNull(revisionsOffsetFile),
-                                                                   revisionsOffsetFile.toFile().length(),
-                                                                   FileChannel.MapMode.READ_ONLY) : null;
+    this.dataFile = checkNotNull(dataFile);
+    this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
@@ -112,7 +110,9 @@ public final class MemoryMappedFileReader implements Reader {
 
   @Override
   public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
-    try {
+    try (final MemorySegment dataFileSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
+                                                                         dataFile.toFile().length(),
+                                                                         FileChannel.MapMode.READ_ONLY)) {
       final VarHandle intVarHandle = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
       final MemoryAddress baseAddress = dataFileSegment.baseAddress();
 
@@ -120,10 +120,16 @@ public final class MemoryMappedFileReader implements Reader {
       final MemoryAddress baseAddressPlusOffsetPlusInt;
       final int dataLength = switch (type) {
         case DATA -> {
+          if (reference.getKey() < 0) {
+            throw new SirixIOException("Reference key is not valid: " + reference.getKey());
+          }
           baseAddressPlusOffsetPlusInt = baseAddress.addOffset(reference.getKey() + 4);
           yield (int) intVarHandle.get(baseAddress.addOffset(reference.getKey()));
         }
         case TRANSACTION_INTENT_LOG -> {
+          if (reference.getLogKey() < 0) {
+            throw new SirixIOException("Reference log key is not valid: " + reference.getKey());
+          }
           baseAddressPlusOffsetPlusInt = baseAddress.addOffset(reference.getPersistentLogKey() + 4);
           yield (int) intVarHandle.get(baseAddress.addOffset(reference.getPersistentLogKey()));
         }
@@ -133,8 +139,8 @@ public final class MemoryMappedFileReader implements Reader {
       reference.setLength(dataLength + MemoryMappedFileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
-      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE).varHandle(byte.class, MemoryLayout.PathElement
-          .sequenceElement());
+      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
+                                                  .varHandle(byte.class, MemoryLayout.PathElement.sequenceElement());
 
       for (int i = 0; i < dataLength; i++) {
         page[i] = (byte) byteVarHandle.get(baseAddressPlusOffsetPlusInt, (long) i);
@@ -155,10 +161,16 @@ public final class MemoryMappedFileReader implements Reader {
     final PageReference uberPageReference = new PageReference();
 
     // Read primary beacon.
-    final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
-    final MemoryAddress baseAddress = dataFileSegment.baseAddress();
+    try (final MemorySegment dataFileSegment = MemorySegment.mapFromPath(dataFile,
+                                                                         dataFile.toFile().length(),
+                                                                         FileChannel.MapMode.READ_ONLY)) {
+      final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
+      final MemoryAddress baseAddress = dataFileSegment.baseAddress();
 
-    uberPageReference.setKey((long) longVarHandle.get(baseAddress));
+      uberPageReference.setKey((long) longVarHandle.get(baseAddress));
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
 
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
@@ -167,9 +179,14 @@ public final class MemoryMappedFileReader implements Reader {
 
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
-    try {
+    try (final MemorySegment dataFileSegment = MemorySegment.mapFromPath(dataFile,
+                                                                         dataFile.toFile().length(),
+                                                                         FileChannel.MapMode.READ_ONLY);
+         final MemorySegment revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
+                                                                             revisionsOffsetFile.toFile().length(),
+                                                                             FileChannel.MapMode.READ_ONLY)) {
       final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
-      final MemoryAddress revisionFileSegmentBaseAddress = dataFileSegment.baseAddress();
+      final MemoryAddress revisionFileSegmentBaseAddress = revisionFileSegment.baseAddress();
       MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
 
       final long dataFileOffset = (long) longVarHandle.get(revisionFileSegmentBaseAddress.addOffset(revision * 8));
@@ -178,10 +195,10 @@ public final class MemoryMappedFileReader implements Reader {
 
       final int dataLength = (int) intVarHandle.get(dataFileSegmentBaseAddress.addOffset(dataFileOffset));
 
-      dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(dataFileOffset + 5);
+      dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(dataFileOffset + 4);
 
-      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE).varHandle(byte.class, MemoryLayout.PathElement
-          .sequenceElement());
+      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
+                                                  .varHandle(byte.class, MemoryLayout.PathElement.sequenceElement());
 
       final byte[] page = new byte[dataLength];
 
@@ -194,16 +211,12 @@ public final class MemoryMappedFileReader implements Reader {
 
       // Return reader required to instantiate and deserialize page.
       return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, type);
-    } catch (IOException e) {
+    } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @Override
-  public void close() throws SirixIOException {
-    if (revisionsOffsetSegment != null) {
-      revisionsOffsetSegment.close();
-    }
-    dataFileSegment.close();
+  public void close() {
   }
 }

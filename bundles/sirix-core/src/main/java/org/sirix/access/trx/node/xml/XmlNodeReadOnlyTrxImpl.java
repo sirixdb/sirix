@@ -56,6 +56,7 @@ import org.sirix.utils.NamePageHash;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
@@ -130,7 +131,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       } else {
         newNode = getPageTransaction().getRecord(nodeKey, PageKind.RECORDPAGE, -1);
       }
-    } catch (final SirixIOException e) {
+    } catch (final SirixIOException | UncheckedIOException e) {
       newNode = Optional.empty();
     }
 

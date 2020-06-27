@@ -33,6 +33,7 @@ import org.sirix.page.SerializationType;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -77,7 +78,7 @@ public final class FileStorage implements IOStorage {
           new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
           new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
-      throw new SirixIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -102,7 +103,7 @@ public final class FileStorage implements IOStorage {
           new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw"),
           new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
-      throw new SirixIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -131,12 +132,12 @@ public final class FileStorage implements IOStorage {
   }
 
   @Override
-  public boolean exists() throws SirixIOException {
+  public boolean exists() {
     final Path storage = getDataFilePath();
     try {
       return Files.exists(storage) && Files.size(storage) > 0;
     } catch (final IOException e) {
-      throw new SirixIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 

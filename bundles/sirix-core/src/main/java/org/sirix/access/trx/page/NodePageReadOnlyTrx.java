@@ -133,7 +133,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   public NodePageReadOnlyTrx(final long trxId,
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
-      final @Nullable TransactionIntentLog trxIntentLog, final @Nonnull BufferManager resourceBufferManager,
+      final @Nullable TransactionIntentLog trxIntentLog, final BufferManager resourceBufferManager,
       final @Nonnull RevisionRootPageReader revisionRootPageReader) {
     checkArgument(revision >= 0, "Revision must be >= 0.");
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
@@ -286,7 +286,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final PageContainer cont = trxIntentLog.get(reference, this);
       RevisionRootPage page = cont == null ? null : (RevisionRootPage) cont.getComplete();
 
-      if (page == null) {
+      if (page == null && reference != null) {
         assert reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
             || reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
         page = (RevisionRootPage) loadIndirectPage(reference);
@@ -568,14 +568,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must not be negative!");
 
-    switch (pageKind) {
-      case PATHSUMMARYPAGE:
-        return recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
-      case UBERPAGE:
-        return recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      default:
-        return recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
-    }
+    return switch (pageKind) {
+      case PATHSUMMARYPAGE -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
+      case UBERPAGE -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
+      default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    };
   }
 
   @Override
