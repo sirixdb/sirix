@@ -91,10 +91,10 @@ public final class XmlNodeReadOnlyTrxImplTest {
     assertEquals(holder.getXmlNodeReadTrx().hasFirstChild(), holder.getXmlNodeReadTrx().moveToFirstChild().hasMoved());
     assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(false, holder.getXmlNodeReadTrx().moveTo(Integer.MAX_VALUE).hasMoved());
-    assertEquals(false, holder.getXmlNodeReadTrx().moveTo(Integer.MIN_VALUE).hasMoved());
-    assertEquals(false, holder.getXmlNodeReadTrx().moveTo(Long.MAX_VALUE).hasMoved());
-    assertEquals(false, holder.getXmlNodeReadTrx().moveTo(Long.MIN_VALUE).hasMoved());
+    assertFalse(holder.getXmlNodeReadTrx().moveTo(Integer.MAX_VALUE).hasMoved());
+    assertFalse(holder.getXmlNodeReadTrx().moveTo(Integer.MIN_VALUE).hasMoved());
+    assertFalse(holder.getXmlNodeReadTrx().moveTo(Long.MAX_VALUE).hasMoved());
+    assertFalse(holder.getXmlNodeReadTrx().moveTo(Long.MIN_VALUE).hasMoved());
     assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
 
     assertEquals(holder.getXmlNodeReadTrx().hasRightSibling(), holder.getXmlNodeReadTrx().moveToRightSibling().hasMoved());

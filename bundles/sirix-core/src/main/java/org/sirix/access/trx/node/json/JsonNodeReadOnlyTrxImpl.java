@@ -216,7 +216,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
       } else {
         newNode = pageReadOnlyTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
       }
-    } catch (final SirixIOException e) {
+    } catch (final SirixIOException | UncheckedIOException e) {
       newNode = Optional.empty();
     }
 

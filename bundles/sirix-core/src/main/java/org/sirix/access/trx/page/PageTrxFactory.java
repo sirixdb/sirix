@@ -84,7 +84,7 @@ public final class PageTrxFactory {
     // Deserialize index definitions.
     final Path indexes =
         resourceManager.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                        .resolve(String.valueOf(lastStoredRevision) + ".xml");
+                                                        .resolve(lastStoredRevision + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());

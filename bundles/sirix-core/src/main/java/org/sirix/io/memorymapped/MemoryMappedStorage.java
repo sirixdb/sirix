@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -32,13 +32,14 @@ import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Factory to provide File access as a backend.
+ * Storage, to provide offheap memory mapped access.
  *
- * @author Sebastian Graf, University of Konstanz.
+ * @author Johannes Lichtenberger
  *
  */
 public final class MemoryMappedStorage implements IOStorage {
@@ -67,16 +68,26 @@ public final class MemoryMappedStorage implements IOStorage {
   }
 
   @Override
-  public Reader createReader() throws SirixIOException {
+  public Reader createReader() {
     try {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
+      createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
+
       return new MemoryMappedFileReader(dataFilePath,
                                         revisionsOffsetFilePath,
-                                        new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
+                                        new ByteHandlePipeline(byteHandlerPipeline),
+                                        SerializationType.DATA,
+                                        new PagePersister());
     } catch (final IOException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
+    if (!Files.exists(revisionsOffsetFilePath)) {
+      Files.createFile(revisionsOffsetFilePath);
     }
   }
 
@@ -92,16 +103,20 @@ public final class MemoryMappedStorage implements IOStorage {
   }
 
   @Override
-  public Writer createWriter() throws SirixIOException {
+  public Writer createWriter() {
     try {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
+      createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
+
       return new MemoryMappedFileWriter(dataFilePath,
                                         revisionsOffsetFilePath,
-                                        new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
+                                        new ByteHandlePipeline(byteHandlerPipeline),
+                                        SerializationType.DATA,
+                                        new PagePersister());
     } catch (final IOException e) {
-      throw new SirixIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -125,17 +140,16 @@ public final class MemoryMappedStorage implements IOStorage {
    * @return the concrete storage for this database
    */
   private Path getRevisionFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-               .resolve(REVISIONS_FILENAME);
+    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
   }
 
   @Override
-  public boolean exists() throws SirixIOException {
+  public boolean exists() {
     final Path storage = getDataFilePath();
     try {
       return Files.exists(storage) && Files.size(storage) > 0;
     } catch (final IOException e) {
-      throw new SirixIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 

@@ -32,7 +32,6 @@ import org.sirix.page.interfaces.Page;
 
 import java.io.*;
 import java.lang.invoke.VarHandle;
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -40,7 +39,7 @@ import java.nio.file.Path;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * File Writer for providing read/write access for file as a Sirix backend.
+ * Writer to read/write to a memory mapped file.
  *
  * @author Johannes Lichtenberger
  */
@@ -53,7 +52,7 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
   /**
    * Random access to work on.
    */
-  private final MemorySegment dataFileSegment;
+  private final Path dataFile;
 
   /**
    * {@link MemoryMappedFileReader} reference for this writer.
@@ -62,7 +61,7 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
 
   private final SerializationType type;
 
-  private final MemorySegment revisionsOffsetSegment;
+  private final Path revisionsOffsetFile;
 
   private final PagePersister pagePersister;
 
@@ -76,14 +75,10 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
    * @param pagePersister       transforms in-memory pages into byte-arrays and back
    */
   public MemoryMappedFileWriter(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
-      final SerializationType serializationType, final PagePersister pagePersister) throws IOException {
-    dataFileSegment =
-        MemorySegment.mapFromPath(checkNotNull(dataFile), dataFile.toFile().length(), FileChannel.MapMode.READ_WRITE);
+      final SerializationType serializationType, final PagePersister pagePersister) {
+    this.dataFile = checkNotNull(dataFile);
     type = checkNotNull(serializationType);
-    revisionsOffsetSegment =
-        type == SerializationType.DATA ? MemorySegment.mapFromPath(checkNotNull(revisionsOffsetFile),
-                                                                   revisionsOffsetFile.toFile().length(),
-                                                                   FileChannel.MapMode.READ_WRITE) : null;
+    this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
     this.pagePersister = checkNotNull(pagePersister);
     reader = new MemoryMappedFileReader(dataFile, revisionsOffsetFile, handler, serializationType, pagePersister);
   }
@@ -95,12 +90,11 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
     while (uberPage.getRevisionNumber() != revision) {
       uberPage = (UberPage) reader.read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
       if (uberPage.getRevisionNumber() == revision) {
-        // FIXME
-        //        try {
-        //          //dataFileSegment.setLength(uberPage.getPreviousUberPageKey());
-        //        } catch (final IOException e) {
-        //          throw new UncheckedIOException(e);
-        //        }
+        try(final RandomAccessFile file = new RandomAccessFile(dataFile.toFile(), "rw")) {
+          file.setLength(uberPage.getPreviousUberPageKey());
+        } catch (final IOException e) {
+          throw new SirixIOException(e);
+        }
         break;
       }
     }
@@ -132,7 +126,7 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
       }
 
       // Getting actual offset and appending to the end of the current file.
-      final long fileSize = dataFileSegment.byteSize();
+      final long fileSize = dataFile.toFile().length();
       long offset = fileSize == 0 ? MemoryMappedFileReader.FIRST_BEACON : fileSize;
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage) {
@@ -144,43 +138,52 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
         }
       }
 
-      MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress().addOffset(offset);
+      try (final MemorySegment dataSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
+                                                                       offset + 4 + serializedPage.length,
+                                                                       FileChannel.MapMode.READ_WRITE)) {
+        MemoryAddress dataFileSegmentBaseAddress = dataSegment.baseAddress().addOffset(offset);
 
-      final VarHandle intVarHandle = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
-      intVarHandle.set(dataFileSegmentBaseAddress, serializedPage.length);
+        final VarHandle intVarHandle = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+        intVarHandle.set(dataFileSegmentBaseAddress, serializedPage.length);
 
-      dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(4);
+        dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(4);
 
-      final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
-                                                  .varHandle(byte.class, MemoryLayout.PathElement.sequenceElement());
+        final VarHandle byteVarHandle = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
+                                                    .varHandle(byte.class, MemoryLayout.PathElement.sequenceElement());
 
-      for (int i = 0; i < serializedPage.length; i++) {
-        byteVarHandle.set(dataFileSegmentBaseAddress, (long) i, serializedPage[i]);
+        for (int i = 0; i < serializedPage.length; i++) {
+          byteVarHandle.set(dataFileSegmentBaseAddress, (long) i, serializedPage[i]);
+        }
+
+        // Remember page coordinates.
+        switch (type) {
+          case DATA:
+            pageReference.setKey(offset);
+            break;
+          case TRANSACTION_INTENT_LOG:
+            pageReference.setPersistentLogKey(offset);
+            break;
+          default:
+            // Must not happen.
+        }
+
+        pageReference.setLength(serializedPage.length + 4);
+        pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
+
+        if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
+          try (final MemorySegment revisionOffsetSegment = MemorySegment.mapFromPath(checkNotNull(revisionsOffsetFile),
+                                                                                     revisionsOffsetFile.toFile()
+                                                                                                        .length() + 8,
+                                                                                     FileChannel.MapMode.READ_WRITE)) {
+            final MemoryAddress revisionFileSegmentBaseAddress = revisionOffsetSegment.baseAddress();
+            final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
+
+            longVarHandle.set(revisionFileSegmentBaseAddress.addOffset(revisionOffsetSegment.byteSize() - 8), offset);
+          }
+        }
+
+        return this;
       }
-
-      // Remember page coordinates.
-      switch (type) {
-        case DATA:
-          pageReference.setKey(offset);
-          break;
-        case TRANSACTION_INTENT_LOG:
-          pageReference.setPersistentLogKey(offset);
-          break;
-        default:
-          // Must not happen.
-      }
-
-      pageReference.setLength(serializedPage.length + 4);
-      pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
-
-      if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
-        final MemoryAddress revisionFileSegmentBaseAddress = revisionsOffsetSegment.baseAddress();
-        final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
-
-        longVarHandle.set(revisionFileSegmentBaseAddress.addOffset(revisionsOffsetSegment.byteSize()), offset);
-      }
-
-      return this;
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -188,25 +191,25 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
 
   @Override
   public void close() {
-    if (dataFileSegment != null) {
-      dataFileSegment.close();
-    }
-    if (revisionsOffsetSegment != null) {
-      revisionsOffsetSegment.close();
-    }
     if (reader != null) {
       reader.close();
     }
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
+  public Writer writeUberPageReference(final PageReference pageReference) {
     write(pageReference);
 
-    final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
-    final MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
+    try (final MemorySegment dataSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
+                                                                     dataFile.toFile().length(),
+                                                                     FileChannel.MapMode.READ_WRITE)) {
+      final VarHandle longVarHandle = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
+      final MemoryAddress dataFileSegmentBaseAddress = dataSegment.baseAddress();
 
-    longVarHandle.set(dataFileSegmentBaseAddress, pageReference.getKey());
+      longVarHandle.set(dataFileSegmentBaseAddress, pageReference.getKey());
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
 
     return this;
   }
