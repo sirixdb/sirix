@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -39,7 +39,7 @@ public interface IOStorage {
    * @return an {@link Writer} instance
    * @throws SirixIOException if the initialization fails
    */
-  Writer createWriter() throws SirixIOException;
+  Writer createWriter();
 
   /**
    * Getting a reader.
@@ -47,14 +47,14 @@ public interface IOStorage {
    * @return an {@link Reader} instance
    * @throws SirixIOException if the initialization fails
    */
-  Reader createReader() throws SirixIOException;
+  Reader createReader();
 
   /**
    * Closing this storage.
    * 
    * @throws SirixIOException if an I/O error occurs
    */
-  void close() throws SirixIOException;
+  void close();
 
   /**
    * Check if storage exists.
@@ -62,7 +62,7 @@ public interface IOStorage {
    * @return true if storage holds data, false otherwise
    * @throws SirixIOException if storage is not accessible
    */
-  boolean exists() throws SirixIOException;
+  boolean exists();
 
   /**
    * Get the byte handler pipeline.
