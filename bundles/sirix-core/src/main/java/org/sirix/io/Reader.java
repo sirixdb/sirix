@@ -45,7 +45,7 @@ public interface Reader extends AutoCloseable {
    * @return a {@link PageReference} with link to the first reference
    * @throws SirixIOException if something bad happens
    */
-  PageReference readUberPageReference() throws SirixIOException;
+  PageReference readUberPageReference();
 
   /**
    * Getting a reference for the given pointer.
@@ -55,7 +55,7 @@ public interface Reader extends AutoCloseable {
    * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
    */
-  Page read(PageReference key, @Nullable PageReadOnlyTrx pageReadTrx) throws SirixIOException;
+  Page read(PageReference key, @Nullable PageReadOnlyTrx pageReadTrx);
 
   /**
    * Closing the storage.
@@ -63,7 +63,7 @@ public interface Reader extends AutoCloseable {
    * @throws SirixIOException if something bad happens while access
    */
   @Override
-  void close() throws SirixIOException;
+  void close();
 
   /**
    * Read the revision root page.

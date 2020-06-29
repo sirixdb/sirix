@@ -75,7 +75,7 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
    * @param pagePersister       transforms in-memory pages into byte-arrays and back
    */
   public MemoryMappedFileWriter(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
-      final SerializationType serializationType, final PagePersister pagePersister) {
+      final SerializationType serializationType, final PagePersister pagePersister) throws IOException {
     this.dataFile = checkNotNull(dataFile);
     type = checkNotNull(serializationType);
     this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
@@ -224,5 +224,11 @@ public final class MemoryMappedFileWriter extends AbstractForwardingReader imple
     // TODO
 
     return this;
+  }
+
+  @Override
+  public String toString() {
+    return "MemoryMappedFileWriter{" + "dataFile=" + dataFile + ", reader=" + reader + ", type=" + type
+        + ", revisionsOffsetFile=" + revisionsOffsetFile + ", pagePersister=" + pagePersister + '}';
   }
 }
