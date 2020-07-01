@@ -88,6 +88,7 @@ public final class FileReader implements Reader {
       final PagePersister pagePersistenter) {
     hashFunction = Hashing.sha256();
     this.dataFile = checkNotNull(dataFile);
+
     this.revisionsOffsetFile = type == SerializationType.DATA
         ? checkNotNull(revisionsOffsetFile)
         : null;
@@ -166,7 +167,7 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public void close() throws SirixIOException {
+  public void close() {
     try {
       if (revisionsOffsetFile != null) {
         revisionsOffsetFile.close();

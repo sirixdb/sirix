@@ -69,7 +69,7 @@ public final class FileStorage implements IOStorage {
   }
 
   @Override
-  public Reader createReader() throws SirixIOException {
+  public Reader createReader() {
     try {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
@@ -94,7 +94,7 @@ public final class FileStorage implements IOStorage {
   }
 
   @Override
-  public Writer createWriter() throws SirixIOException {
+  public Writer createWriter() {
     try {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();

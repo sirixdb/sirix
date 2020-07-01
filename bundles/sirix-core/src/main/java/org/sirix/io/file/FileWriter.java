@@ -98,7 +98,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
         try {
           dataFile.setLength(uberPage.getPreviousUberPageKey());
         } catch (final IOException e) {
-          throw new UncheckedIOException(e);
+          throw new SirixIOException(e);
         }
         break;
       }
@@ -114,7 +114,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    * @throws SirixIOException if errors during writing occur
    */
   @Override
-  public FileWriter write(final PageReference pageReference) throws SirixIOException {
+  public FileWriter write(final PageReference pageReference) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -182,7 +182,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public void close() throws SirixIOException {
+  public void close() {
     try {
       if (dataFile != null) {
         dataFile.close();
@@ -199,7 +199,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
+  public Writer writeUberPageReference(final PageReference pageReference) {
     try {
       write(pageReference);
       dataFile.seek(0);
@@ -221,8 +221,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     try {
       dataFile.setLength(0);
 
-      if (revisionsOffsetFile != null)
+      if (revisionsOffsetFile != null) {
         revisionsOffsetFile.setLength(0);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
