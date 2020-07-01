@@ -68,10 +68,10 @@ public final class Constants {
   // -------------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int PATHINP_REFERENCE_COUNT = 256;
+  public static final int PATHINP_REFERENCE_COUNT = 1024;
 
   /** 2^PATHINP_REFERENCE_COUNT_EXPONENT = PATHINP_REFERENCE_COUNT. */
-  public static final int PATHINP_REFERENCE_COUNT_EXPONENT = 8;
+  public static final int PATHINP_REFERENCE_COUNT_EXPONENT = 10;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
@@ -88,10 +88,10 @@ public final class Constants {
   // -------------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int UBPINP_REFERENCE_COUNT = 256;
+  public static final int UBPINP_REFERENCE_COUNT = 1024;
 
   /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
-  public static final int UBPINP_REFERENCE_COUNT_EXPONENT = 8;
+  public static final int UBPINP_REFERENCE_COUNT_EXPONENT = 10;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
@@ -114,10 +114,10 @@ public final class Constants {
   // -------------------------------------------------------------
 
   /** Maximum node count per node page. */
-  public static final int NDP_NODE_COUNT = 256;
+  public static final int NDP_NODE_COUNT = 1024;
 
   /** 2^NDP_NODE_COUNT_EXPONENT = NDP_NODE_COUNT. */
-  public static final int NDP_NODE_COUNT_EXPONENT = 8;
+  public static final int NDP_NODE_COUNT_EXPONENT = 10;
 
   // --- Reference Page
   // -------------------------------------------------------------

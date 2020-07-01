@@ -33,6 +33,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableObjectNullNode;
 
 import java.math.BigInteger;
 
@@ -40,16 +41,6 @@ import java.math.BigInteger;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ObjectNullNode extends AbstractNullNode {
-
-  /**
-   * Constructor.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   */
-  public ObjectNullNode(final BigInteger hashCode, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate);
-    setHash(hashCode);
-  }
 
   /**
    * Constructor.
@@ -67,6 +58,6 @@ public final class ObjectNullNode extends AbstractNullNode {
 
   @Override
   public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return this.acceptVisitor(visitor);
+    return visitor.visit(ImmutableObjectNullNode.of(this));
   }
 }

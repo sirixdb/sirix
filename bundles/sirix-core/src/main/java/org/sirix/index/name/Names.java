@@ -24,26 +24,26 @@ import com.google.common.collect.HashBiMap;
 public final class Names {
 
   /** Map the hash of a name the node key. */
-  private final Map<Integer, Long> mCountNodeMap;
+  private final Map<Integer, Long> countNodeMap;
 
   /** Map the hash of a name to its name. */
-  private final Map<Integer, byte[]> mNameMap;
+  private final Map<Integer, byte[]> nameMap;
 
   /** Map which is used to count the occurences of a name mapping. */
-  private final Map<Integer, Integer> mCountNameMapping;
+  private final Map<Integer, Integer> countNameMapping;
 
-  private long mMaxNodeKey;
+  private long maxNodeKey;
 
-  private int mIndexNumber;
+  private int indexNumber;
 
   /**
    * Constructor creating a new index structure.
    */
   private Names(final int indexNumber) {
-    mIndexNumber = indexNumber;
-    mCountNodeMap = new HashMap<>();
-    mNameMap = new HashMap<>();
-    mCountNameMapping = new HashMap<>();
+    this.indexNumber = indexNumber;
+    countNodeMap = new HashMap<>();
+    nameMap = new HashMap<>();
+    countNameMapping = new HashMap<>();
   }
 
   /**
@@ -54,12 +54,12 @@ public final class Names {
    * @param maxNodeKey the maximum node key
    */
   private Names(final PageReadOnlyTrx pageReadTrx, final int indexNumber, final long maxNodeKey) {
-    mIndexNumber = indexNumber;
-    mMaxNodeKey = maxNodeKey;
+    this.indexNumber = indexNumber;
+    this.maxNodeKey = maxNodeKey;
     // It's okay, we don't allow to store more than Integer.MAX key value pairs.
-    mCountNodeMap = new HashMap<>((int) maxNodeKey + 1);
-    mNameMap = HashBiMap.create((int) maxNodeKey + 1);
-    mCountNameMapping = new HashMap<>((int) maxNodeKey + 1);
+    countNodeMap = new HashMap<>((int) maxNodeKey + 1);
+    nameMap = HashBiMap.create((int) maxNodeKey + 1);
+    countNameMapping = new HashMap<>((int) maxNodeKey + 1);
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1, l = maxNodeKey; i < l; i += 2) {
@@ -72,7 +72,7 @@ public final class Names {
 
         final int key = hashEntryNode.getKey();
 
-        mNameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
+        nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
 
         final long nodeKeyOfCountNode = i + 1;
 
@@ -83,8 +83,8 @@ public final class Names {
             (HashCountEntryNode) countNode.orElseThrow(() -> new IllegalStateException(
                 "Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode));
 
-        mCountNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
-        mCountNodeMap.put(key, nodeKeyOfCountNode);
+        countNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
+        countNodeMap.put(key, nodeKeyOfCountNode);
       }
     }
   }
@@ -95,21 +95,21 @@ public final class Names {
    * @param key the key to remove
    */
   public void removeName(final int key, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
-    final Integer prevValue = mCountNameMapping.get(key);
+    final Integer prevValue = countNameMapping.get(key);
     if (prevValue != null) {
-      final long countNodeKey = mCountNodeMap.get(key);
+      final long countNodeKey = countNodeMap.get(key);
 
       if (prevValue - 1 == 0) {
-        mNameMap.remove(key);
-        mCountNameMapping.remove(key);
+        nameMap.remove(key);
+        countNameMapping.remove(key);
 
-        pageTrx.removeEntry(countNodeKey - 1, PageKind.NAMEPAGE, mIndexNumber);
-        pageTrx.removeEntry(countNodeKey, PageKind.NAMEPAGE, mIndexNumber);
+        pageTrx.removeEntry(countNodeKey - 1, PageKind.NAMEPAGE, indexNumber);
+        pageTrx.removeEntry(countNodeKey, PageKind.NAMEPAGE, indexNumber);
       } else {
-        mCountNameMapping.put(key, prevValue - 1);
+        countNameMapping.put(key, prevValue - 1);
 
         final HashCountEntryNode hashCountEntryNode =
-            (HashCountEntryNode) pageTrx.prepareEntryForModification(countNodeKey, PageKind.NAMEPAGE, mIndexNumber);
+            (HashCountEntryNode) pageTrx.prepareEntryForModification(countNodeKey, PageKind.NAMEPAGE, indexNumber);
         hashCountEntryNode.decrementValue();
       }
     }
@@ -137,7 +137,7 @@ public final class Names {
     assert pageTrx != null;
 
     final int key = name.hashCode();
-    final byte[] previousByteValue = mNameMap.get(key);
+    final byte[] previousByteValue = nameMap.get(key);
 
     final String previousStringValue;
     if (previousByteValue != null) {
@@ -149,35 +149,35 @@ public final class Names {
     if (previousStringValue == null || !previousStringValue.equals(name)) {
       final int newKey;
 
-      if (mNameMap.containsKey(key)) {
+      if (nameMap.containsKey(key)) {
         newKey = getNewKey(key);
       } else {
         newKey = key;
       }
 
-      mMaxNodeKey++;
+      maxNodeKey++;
 
-      final HashEntryNode hashEntryNode = new HashEntryNode(mMaxNodeKey, newKey, name);
-      final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(mMaxNodeKey + 1, 1);
+      final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, newKey, name);
+      final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(maxNodeKey + 1, 1);
 
-      pageTrx.createEntry(mMaxNodeKey++, hashEntryNode, PageKind.NAMEPAGE, mIndexNumber);
+      pageTrx.createEntry(maxNodeKey++, hashEntryNode, PageKind.NAMEPAGE, indexNumber);
 
-      mCountNodeMap.put(newKey, mMaxNodeKey);
-      pageTrx.createEntry(mMaxNodeKey, hashCountEntryNode, PageKind.NAMEPAGE, mIndexNumber);
+      countNodeMap.put(newKey, maxNodeKey);
+      pageTrx.createEntry(maxNodeKey, hashCountEntryNode, PageKind.NAMEPAGE, indexNumber);
 
-      mNameMap.put(newKey, checkNotNull(getBytes(name)));
-      mCountNameMapping.put(newKey, 1);
+      nameMap.put(newKey, checkNotNull(getBytes(name)));
+      countNameMapping.put(newKey, 1);
 
       return newKey;
     } else {
-      final int previousIntegerValue = mCountNameMapping.get(key);
+      final int previousIntegerValue = countNameMapping.get(key);
 
-      mCountNameMapping.put(key, previousIntegerValue + 1);
+      countNameMapping.put(key, previousIntegerValue + 1);
 
-      final long nodeKey = mCountNodeMap.get(key);
+      final long nodeKey = countNodeMap.get(key);
 
       final HashCountEntryNode hashCountEntryNode =
-          (HashCountEntryNode) pageTrx.prepareEntryForModification(nodeKey, PageKind.NAMEPAGE, mIndexNumber);
+          (HashCountEntryNode) pageTrx.prepareEntryForModification(nodeKey, PageKind.NAMEPAGE, indexNumber);
       hashCountEntryNode.incrementValue();
 
       return key;
@@ -187,12 +187,12 @@ public final class Names {
   private int getNewKey(final int key) {
     int newKey = key;
 
-    while (mNameMap.containsKey(newKey) && newKey <= Integer.MAX_VALUE)
+    while (nameMap.containsKey(newKey) && newKey <= Integer.MAX_VALUE)
       newKey++;
 
     if (newKey == Integer.MAX_VALUE) {
       newKey = 0;
-      while (mNameMap.containsKey(newKey) && newKey < key)
+      while (nameMap.containsKey(newKey) && newKey < key)
         newKey++;
     }
 
@@ -209,7 +209,7 @@ public final class Names {
    * @return the string the key maps to, or {@code null} if no mapping exists
    */
   public String getName(final int key) {
-    final byte[] name = mNameMap.get(key);
+    final byte[] name = nameMap.get(key);
     if (name == null) {
       return null;
     }
@@ -223,7 +223,7 @@ public final class Names {
    * @return number of nodes with the same name
    */
   public int getCount(final int key) {
-    Integer names = mCountNameMapping.get(key);
+    Integer names = countNameMapping.get(key);
     if (names == null) {
       names = 0;
     }
@@ -237,7 +237,7 @@ public final class Names {
    * @return the byte-array representing the string the key maps to
    */
   public byte[] getRawName(final int key) {
-    return mNameMap.get(key);
+    return nameMap.get(key);
   }
 
   /**

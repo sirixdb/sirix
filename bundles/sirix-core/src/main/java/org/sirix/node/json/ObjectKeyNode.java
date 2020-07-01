@@ -52,15 +52,15 @@ import com.google.common.hash.HashCode;
 public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode, ImmutableNameNode {
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
-  private int mNameKey;
+  private int nameKey;
 
-  private final String mName;
+  private final String name;
 
-  private long mPathNodeKey;
+  private long pathNodeKey;
 
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Constructor
@@ -72,10 +72,10 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
       final long pathNodeKey) {
     assert structDel != null;
     assert name != null;
-    mStructNodeDel = structDel;
-    mNameKey = nameKey;
-    mName = name;
-    mPathNodeKey = pathNodeKey;
+    structNodeDel = structDel;
+    this.nameKey = nameKey;
+    this.name = name;
+    this.pathNodeKey = pathNodeKey;
   }
 
   /**
@@ -89,12 +89,12 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
    */
   public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
-    mHash = hashCode;
+    hash = hashCode;
     assert structDel != null;
-    mStructNodeDel = structDel;
-    mNameKey = nameKey;
-    mName = name;
-    mPathNodeKey = pathNodeKey;
+    structNodeDel = structDel;
+    this.nameKey = nameKey;
+    this.name = name;
+    this.pathNodeKey = pathNodeKey;
   }
 
   @Override
@@ -104,14 +104,14 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public BigInteger computeHash() {
-    final HashFunction hashFunction = mStructNodeDel.getNodeDelegate().getHashFunction();
-    assert mName != null;
-    final HashCode hashCode = hashFunction.hashString(mName, Constants.DEFAULT_ENCODING);
+    final HashFunction hashFunction = structNodeDel.getNodeDelegate().getHashFunction();
+    assert name != null;
+    final HashCode hashCode = hashFunction.hashString(name, Constants.DEFAULT_ENCODING);
 
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(new BigInteger(1, hashCode.asBytes()));
 
     return Node.to128BitsAtMaximumBigInteger(result);
@@ -119,20 +119,20 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   public int getNameKey() {
-    return mNameKey;
+    return nameKey;
   }
 
   public void setNameKey(final int nameKey) {
-    mNameKey = nameKey;
+    this.nameKey = nameKey;
   }
 
   @Override
@@ -143,15 +143,15 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("name", mName)
-                      .add("nameKey", mNameKey)
-                      .add("structDelegate", mStructNodeDel)
+                      .add("name", name)
+                      .add("nameKey", nameKey)
+                      .add("structDelegate", structNodeDel)
                       .toString();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mName, mNameKey, delegate());
+    return Objects.hashCode(name, nameKey, delegate());
   }
 
   @Override
@@ -160,27 +160,27 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
       return false;
 
     final ObjectKeyNode other = (ObjectKeyNode) obj;
-    return Objects.equal(mName, other.mName) && mNameKey == other.mNameKey
+    return Objects.equal(name, other.name) && nameKey == other.nameKey
         && Objects.equal(delegate(), other.delegate());
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   public ObjectKeyNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
-    mPathNodeKey = pathNodeKey;
+    this.pathNodeKey = pathNodeKey;
     return this;
   }
 
   @Override public int getLocalNameKey() {
-    return mNameKey;
+    return nameKey;
   }
 
   @Override public int getPrefixKey() {
@@ -192,10 +192,10 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   public long getPathNodeKey() {
-    return mPathNodeKey;
+    return pathNodeKey;
   }
 
   public QNm getName() {
-    return new QNm(mName);
+    return new QNm(name);
   }
 }

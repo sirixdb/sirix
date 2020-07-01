@@ -13,12 +13,12 @@ import org.junit.After;
  */
 public class NodeAxisTest extends AxisTest {
   @Override
-  protected NodeStore createStore() throws Exception {
+  protected NodeStore createStore() {
     return BasicXmlDBStore.newBuilder().build();
   }
 
   @After
-  public void tearDown() throws DocumentException {
+  public void tearDown() {
     ((BasicXmlDBStore) store).close();
   }
 }

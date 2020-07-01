@@ -40,6 +40,6 @@ public final class GetNodeKey extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(doc.getTrx().getNodeKey());
+    return new Int64(doc.getNodeKey());
   }
 }

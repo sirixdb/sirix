@@ -27,6 +27,8 @@ import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
+import org.sirix.xquery.compiler.XQExt;
+import org.sirix.xquery.compiler.expression.IndexExpr;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
@@ -68,6 +70,17 @@ public final class SirixTranslator extends TopDownTranslator {
       fields[i - 1] = expr(node.getChild(i), true);
     }
     return new DerefExpr(record, fields);
+  }
+
+  protected Expr anyExpr(AST node) throws QueryException {
+    if (node.getType() == XQExt.IndexExpr) {
+      return indexExpr(node);
+    }
+    return super.anyExpr(node);
+  }
+
+  private Expr indexExpr(AST node) {
+    return new IndexExpr(node.getProperties());
   }
 
   @Override
@@ -605,7 +618,7 @@ public final class SirixTranslator extends TopDownTranslator {
           // No matches.
           if (matches.cardinality() == 0) {
             reader.close();
-            return new EmptyStream<XmlDBNode>();
+            return new EmptyStream<>();
           }
           reader.close();
         } catch (final SirixException e) {
@@ -711,8 +724,8 @@ public final class SirixTranslator extends TopDownTranslator {
             }
           }
           // Matches on same level.
+          final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
           if (onSameLevel) {
-            final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
             for (int j = level, nodeLevel = getLevel(dbNode); j > nodeLevel; j--) {
               // Build an immutable set and turn it into a list for sorting.
               final Builder<QNm> pathNodeQNmBuilder = ImmutableSet.builder();
@@ -721,7 +734,7 @@ public final class SirixTranslator extends TopDownTranslator {
                 for (int k = level; k > j; k--) {
                   reader.moveToParent();
                 }
-                pathNodeQNmBuilder.add(reader.getName());
+                pathNodeQNmBuilder.add(Objects.requireNonNull(reader.getName()));
               }
               final List<QNm> pathNodeQNmsList = pathNodeQNmBuilder.build().asList();
               final QNm name = pathNodeQNmsList.get(0);
@@ -747,10 +760,10 @@ public final class SirixTranslator extends TopDownTranslator {
           } else {
             // Matches on different levels.
             // TODO: Use ConcurrentUnionAxis.
-            final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
             level = getLevel(dbNode);
             for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
               reader.moveTo(i);
+              assert reader.getPathNode() != null;
               final int matchLevel = reader.getPathNode().getLevel();
 
               // Match at the same level.

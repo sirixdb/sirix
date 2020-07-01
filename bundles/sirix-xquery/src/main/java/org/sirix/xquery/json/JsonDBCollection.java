@@ -38,10 +38,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
   /** Sirix database. */
-  private final Database<JsonResourceManager> mDatabase;
+  private final Database<JsonResourceManager> database;
 
   /** Unique ID. */
-  private final int mID;
+  private final int id;
 
   /**
    * Constructor.
@@ -51,12 +51,12 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    */
   public JsonDBCollection(final String name, final Database<JsonResourceManager> database) {
     super(Preconditions.checkNotNull(name));
-    mDatabase = Preconditions.checkNotNull(database);
-    mID = ID_SEQUENCE.incrementAndGet();
+    this.database = Preconditions.checkNotNull(database);
+    id = ID_SEQUENCE.incrementAndGet();
   }
 
   public Transaction beginTransaction() {
-    return mDatabase.beginTransaction();
+    return database.beginTransaction();
   }
 
   @Override
@@ -68,12 +68,12 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       return false;
 
     final JsonDBCollection coll = (JsonDBCollection) other;
-    return mDatabase.equals(coll.mDatabase);
+    return database.equals(coll.database);
   }
 
   @Override
   public int hashCode() {
-    return mDatabase.hashCode();
+    return database.hashCode();
   }
 
   /**
@@ -82,7 +82,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * @return unique ID
    */
   public int getID() {
-    return mID;
+    return id;
   }
 
   /**
@@ -91,7 +91,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * @return Sirix {@link Database}
    */
   public Database<JsonResourceManager> getDatabase() {
-    return mDatabase;
+    return database;
   }
 
   @Override
@@ -105,7 +105,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
-    final JsonResourceManager resource = mDatabase.openResourceManager(resName);
+    final JsonResourceManager resource = database.openResourceManager(resName);
 
     JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
@@ -127,7 +127,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
-    final JsonResourceManager resource = mDatabase.openResourceManager(resName);
+    final JsonResourceManager resource = database.openResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
         : revision;
@@ -140,7 +140,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   @Override
   public void delete() {
     try {
-      Databases.removeDatabase(mDatabase.getDatabaseConfig().getFile());
+      Databases.removeDatabase(database.getDatabaseConfig().getFile());
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -149,21 +149,21 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   @Override
   public void remove(final long documentID) {
     if (documentID >= 0) {
-      final String resource = mDatabase.getResourceName((int) documentID);
+      final String resource = database.getResourceName((int) documentID);
       if (resource != null) {
-        mDatabase.removeResource(resource);
+        database.removeResource(resource);
       }
     }
   }
 
   @Override
   public JsonDBItem getDocument(final @Nonnegative int revision) {
-    final List<Path> resources = mDatabase.listResources();
+    final List<Path> resources = database.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final JsonResourceManager manager = mDatabase.openResourceManager(resources.get(0).getFileName().toString());
+      final JsonResourceManager manager = database.openResourceManager(resources.get(0).getFileName().toString());
       final int version = revision == -1
           ? manager.getMostRecentRevisionNumber()
           : revision;
@@ -190,15 +190,15 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBItem add(final String resourceName, final JsonReader reader) {
     try {
       String resName = resourceName;
-      for (final Path resource : mDatabase.listResources()) {
+      for (final Path resource : database.listResources()) {
         final String existingResourceName = resource.getFileName().toString();
         if (existingResourceName.equals(resourceName)) {
           resName = existingResourceName + "1";
           break;
         }
       }
-      mDatabase.createResource(ResourceConfiguration.newBuilder(resName).useDeweyIDs(true).build());
-      final JsonResourceManager manager = mDatabase.openResourceManager(resName);
+      database.createResource(ResourceConfiguration.newBuilder(resName).useDeweyIDs(true).build());
+      final JsonResourceManager manager = database.openResourceManager(resName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader);
       }
@@ -213,12 +213,12 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   @Override
   public void close() throws SirixException {
-    mDatabase.close();
+    database.close();
   }
 
   @Override
   public long getDocumentCount() {
-    return mDatabase.listResources().size();
+    return database.listResources().size();
   }
 
   @Override
@@ -238,13 +238,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   @Override
   public Stream<JsonDBItem> getDocuments() {
-    final List<Path> resources = mDatabase.listResources();
+    final List<Path> resources = database.listResources();
     final List<JsonDBItem> documents = new ArrayList<>(resources.size());
 
     resources.forEach(resourcePath -> {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
+        final JsonResourceManager resource = database.openResourceManager(resourceName);
         final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
 
         if (rtx.moveToFirstChild().hasMoved()) {
@@ -271,13 +271,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   private JsonDBItem add(final JsonReader reader) {
     try {
       final String resourceName =
-          new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
-      mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                    .useDeweyIDs(true)
-                                                    .useTextCompression(true)
-                                                    .buildPathSummary(true)
-                                                    .build());
-      final JsonResourceManager manager = mDatabase.openResourceManager(resourceName);
+          new StringBuilder(2).append("resource").append(database.listResources().size() + 1).toString();
+      database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                   .useDeweyIDs(true)
+                                                   .useTextCompression(true)
+                                                   .buildPathSummary(true)
+                                                   .build());
+      final JsonResourceManager manager = database.openResourceManager(resourceName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader);
       }

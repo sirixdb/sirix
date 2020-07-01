@@ -55,7 +55,7 @@ public class DocumentRootNodeTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After

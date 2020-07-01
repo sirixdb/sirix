@@ -45,7 +45,8 @@ public final class JsonDiffSerializer {
     try (final var oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevisionNumber);
          final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
       if (emitFromDiffAlgorithm) {
-        diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
+        diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
+            || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
             || diffTuple.getDiff() == DiffFactory.DiffType.REPLACEDOLD);
       }
 
@@ -78,7 +79,7 @@ public final class JsonDiffSerializer {
               jsonInsertDiff.addProperty("depth", deweyId.getLevel());
             }
 
-            addTypeAndDataProperties(newRevisionNumber, resourceManager, newRtx, jsonInsertDiff);
+            addTypeAndDataProperties(newRtx, jsonInsertDiff, newRevisionNumber, emitFromDiffAlgorithm);
 
             insertedJson.add("insert", jsonInsertDiff);
             jsonDiffs.add(insertedJson);
@@ -118,7 +119,7 @@ public final class JsonDiffSerializer {
               jsonReplaceDiff.addProperty("depth", deweyId.getLevel());
             }
 
-            addTypeAndDataProperties(newRevisionNumber, resourceManager, newRtx, jsonReplaceDiff);
+            addTypeAndDataProperties(newRtx, jsonReplaceDiff, newRevisionNumber, emitFromDiffAlgorithm);
 
             jsonDiffs.add(replaceJson);
             break;
@@ -172,7 +173,7 @@ public final class JsonDiffSerializer {
     final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
 
     jsonInsertDiff.addProperty("insertPositionNodeKey",
-        newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
+                               newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
     jsonInsertDiff.addProperty("insertPosition", insertPosition);
   }
 
@@ -188,11 +189,13 @@ public final class JsonDiffSerializer {
     return json;
   }
 
-  private void addTypeAndDataProperties(int newRevision, JsonResourceManager resourceManager,
-      JsonNodeReadOnlyTrx newRtx, JsonObject json) {
+  private void addTypeAndDataProperties(JsonNodeReadOnlyTrx newRtx, JsonObject json, int newRevisionNumber,
+      boolean emitFromDiffAlgorithm) {
     if (newRtx.isArray() || newRtx.isObject() || newRtx.isObjectKey()) {
       json.addProperty("type", "jsonFragment");
-      serialize(newRevision, resourceManager, newRtx, json);
+      if (emitFromDiffAlgorithm) {
+        serialize(newRevisionNumber, resourceManager, newRtx, json);
+      }
     } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
       json.addProperty("type", "boolean");
       json.addProperty("data", newRtx.getBooleanValue());
@@ -208,14 +211,13 @@ public final class JsonDiffSerializer {
     }
   }
 
-  private void serialize(int newRevision, JsonResourceManager resourceManager, JsonNodeReadOnlyTrx newRtx,
-      JsonObject jsonReplaceDiff) {
+  public static void serialize(int newRevision, JsonResourceManager resourceManager, JsonNodeReadOnlyTrx newRtx,
+      JsonObject jsonObject) {
     try (final var writer = new StringWriter()) {
-      final var serializer = JsonSerializer.newBuilder(resourceManager, writer, newRevision)
-                                           .startNodeKey(newRtx.getNodeKey())
-                                           .build();
+      final var serializer =
+          JsonSerializer.newBuilder(resourceManager, writer, newRevision).startNodeKey(newRtx.getNodeKey()).build();
       serializer.call();
-      jsonReplaceDiff.addProperty("data", writer.toString());
+      jsonObject.addProperty("data", writer.toString());
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }

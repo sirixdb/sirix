@@ -14,16 +14,16 @@ import com.google.common.base.Objects;
  */
 public final class IndexLogKey {
   /** Unique number. */
-  private final int mIndex;
+  private final int index;
 
   /** Record page key. */
-  private final long mRecordPageKey;
+  private final long recordPageKey;
 
   /** The kind of index. */
-  private final PageKind mPageKind;
+  private final PageKind pageKind;
 
   /** The revision number. */
-  private final int mRevisionNumber;
+  private final int revisionNumber;
 
   /**
    * Constructor.
@@ -35,35 +35,35 @@ public final class IndexLogKey {
    */
   public IndexLogKey(final PageKind pageKind, final long recordPageKey,
       final @Nonnegative int index, final @Nonnegative int revisionNumber) {
-    mRecordPageKey = recordPageKey;
-    mIndex = index;
-    mPageKind = pageKind;
-    mRevisionNumber = revisionNumber;
+    this.recordPageKey = recordPageKey;
+    this.index = index;
+    this.pageKind = pageKind;
+    this.revisionNumber = revisionNumber;
   }
 
   public long getRecordPageKey() {
-    return mRecordPageKey;
+    return recordPageKey;
   }
 
   public int getIndex() {
-    return mIndex;
+    return index;
   }
 
   public PageKind getIndexType() {
-    return mPageKind;
+    return pageKind;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mRecordPageKey, mIndex, mPageKind, mRevisionNumber);
+    return Objects.hashCode(recordPageKey, index, pageKind, revisionNumber);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof IndexLogKey) {
       final IndexLogKey other = (IndexLogKey) obj;
-      return mRecordPageKey == other.mRecordPageKey && mIndex == other.mIndex
-          && mPageKind == other.mPageKind && mRevisionNumber == other.mRevisionNumber;
+      return recordPageKey == other.recordPageKey && index == other.index
+          && pageKind == other.pageKind && revisionNumber == other.revisionNumber;
     }
     return false;
   }
@@ -71,10 +71,10 @@ public final class IndexLogKey {
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("recordPageKey", mRecordPageKey)
-                      .add("index", mIndex)
-                      .add("pageKind", mPageKind)
-                      .add("revisionNumber", mRevisionNumber)
+                      .add("recordPageKey", recordPageKey)
+                      .add("index", index)
+                      .add("pageKind", pageKind)
+                      .add("revisionNumber", revisionNumber)
                       .toString();
   }
 }

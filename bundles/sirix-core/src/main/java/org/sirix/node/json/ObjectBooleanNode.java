@@ -44,18 +44,6 @@ public final class ObjectBooleanNode extends AbstractBooleanNode {
   /**
    * Constructor.
    *
-   * @param hashCode the hash code of the node
-   * @param boolValue the boolean value
-   * @param structNodeDelegate delegate for {@link StructNode} implementation
-   */
-  public ObjectBooleanNode(final BigInteger hashCode, final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, boolValue);
-    setHash(hashCode);
-  }
-
-  /**
-   * Constructor.
-   *
    * @param boolValue the boolean value
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */

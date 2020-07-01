@@ -24,8 +24,8 @@ public enum SearchMode {
     }
   },
 
-  /** Less than the specified key. */
-  LESS {
+  /** Lower than the specified key. */
+  LOWER {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @Nonnull K secondKey) {
       return secondKey.compareTo(firstKey) < 0 ? 0 : -1;
@@ -52,8 +52,8 @@ public enum SearchMode {
     }
   },
 
-  /** Less or equal than the specified key. */
-  LESS_OR_EQUAL {
+  /** Lower or equal than the specified key. */
+  LOWER_OR_EQUAL {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @Nonnull K secondKey) {
       return secondKey.compareTo(firstKey) <= 0 ? 0 : -1;

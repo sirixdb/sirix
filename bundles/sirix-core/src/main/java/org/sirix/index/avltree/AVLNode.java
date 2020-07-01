@@ -29,10 +29,10 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   private V value;
 
   /** Reference to the left node. */
-  private long mLeft = Fixed.NULL_NODE_KEY.getStandardProperty();
+  private long left = Fixed.NULL_NODE_KEY.getStandardProperty();
 
   /** Reference to the right node. */
-  private long mRight = Fixed.NULL_NODE_KEY.getStandardProperty();
+  private long right = Fixed.NULL_NODE_KEY.getStandardProperty();
 
   /** 'changed' status of tree node. */
   private boolean isChanged;
@@ -99,32 +99,32 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
 
   @Override
   public boolean hasLeftChild() {
-    return mLeft != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return left != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightChild() {
-    return mRight != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return right != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getLeftChildKey() {
-    return mLeft;
+    return left;
   }
 
   @Override
   public long getRightChildKey() {
-    return mRight;
+    return right;
   }
 
   @Override
   public void setLeftChildKey(final long left) {
-    mLeft = left;
+    this.left = left;
   }
 
   @Override
   public void setRightChildKey(final long right) {
-    mRight = right;
+    this.right = right;
   }
 
   @Override
@@ -146,8 +146,8 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   public String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", nodeDelegate)
-                      .add("left child", mLeft)
-                      .add("right child", mRight)
+                      .add("left child", left)
+                      .add("right child", right)
                       .add("changed", isChanged)
                       .add("key", key)
                       .add("value", value)

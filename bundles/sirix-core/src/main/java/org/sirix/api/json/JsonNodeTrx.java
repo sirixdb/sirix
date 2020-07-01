@@ -17,7 +17,9 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertArrayAsRightSibling();
 
-  JsonNodeTrx setObjectKeyName(String name);
+  JsonNodeTrx replaceObjectRecordValue(String key, ObjectRecordValue<?> value);
+
+  JsonNodeTrx setObjectKeyName(String key);
 
   JsonNodeTrx setStringValue(String value);
 

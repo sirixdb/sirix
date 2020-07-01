@@ -161,11 +161,12 @@ public final class BitmapReferencesPage implements Page {
 
   @Override
   public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
-    if (!bitmap.get(offset)) {
-      createNewReference(offset);
-    }
     final int index = index(offset);
-    references.set(index, pageReference);
+    if (!bitmap.get(offset)) {
+      references.add(index, pageReference);
+    } else {
+      references.set(index, pageReference);
+    }
     bitmap.set(index, true);
     return false;
   }

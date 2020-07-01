@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2018, Sirix
  *
  * All rights reserved.
@@ -27,15 +27,11 @@
  */
 package org.sirix.xquery.function.xml.diff;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
@@ -52,17 +48,21 @@ import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import junit.framework.TestCase;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public final class DiffTest extends TestCase {
+public final class DiffTest {
   /** The {@link Holder} instance. */
   private Holder holder;
 
-  @Override
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
@@ -71,7 +71,6 @@ public final class DiffTest extends TestCase {
     holder.getXdmNodeWriteTrx().close();
   }
 
-  @Override
   @After
   public void tearDown() throws SirixException {
     holder.close();
@@ -122,7 +121,7 @@ public final class DiffTest extends TestCase {
         new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        assertEquals(contentNewRev, contentOldRev);
+        Assert.assertEquals(contentNewRev, contentOldRev);
 
         out.reset();
       }
@@ -160,7 +159,7 @@ public final class DiffTest extends TestCase {
         new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        assertEquals(contentNewRev, contentOldRev);
+        Assert.assertEquals(contentNewRev, contentOldRev);
 
         out.reset();
       }

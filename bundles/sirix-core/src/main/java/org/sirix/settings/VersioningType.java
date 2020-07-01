@@ -91,8 +91,10 @@ public enum VersioningType {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
-          firstPage.getPreviousReferenceKeys(), pageReadTrx);
+      final T returnVal = firstPage.newInstance(recordPageKey,
+                                                firstPage.getPageKind(),
+                                                firstPage.getPreviousReferenceKeys(),
+                                                pageReadTrx);
 
       final T latest = pages.get(0);
       T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
@@ -138,10 +140,16 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevision();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
-          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())), pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
-          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey,
+                                          firstPage.getPageKind(),
+                                          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(),
+                                                                          reference.getKey())),
+                                          pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey,
+                                          firstPage.getPageKind(),
+                                          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(),
+                                                                          reference.getKey())),
+                                          pageReadTrx));
 
       final T latest = firstPage;
       T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -221,8 +229,10 @@ public enum VersioningType {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(),
-          firstPage.getPreviousReferenceKeys(), firstPage.getPageReadTrx());
+      final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
+                                                firstPage.getPageKind(),
+                                                firstPage.getPreviousReferenceKeys(),
+                                                firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -263,17 +273,21 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(
-          firstPage.getPreviousReferenceKeys().size() + 1);
+      final var previousPageFragmentKeys =
+          new ArrayList<PageFragmentKey>(firstPage.getPreviousReferenceKeys().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
       for (int i = 0, previousRefKeysSize = firstPage.getPreviousReferenceKeys().size();
           i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(firstPage.getPreviousReferenceKeys().get(i));
       }
-      returnVal.add(
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
-      returnVal.add(
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey,
+                                          firstPage.getPageKind(),
+                                          previousPageFragmentKeys,
+                                          pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey,
+                                          firstPage.getPageKind(),
+                                          previousPageFragmentKeys,
+                                          pageReadTrx));
       final boolean isFullDump = pages.size() == revToRestore;
 
       boolean filledPage = false;
@@ -355,8 +369,10 @@ public enum VersioningType {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(),
-          firstPage.getPreviousReferenceKeys(), firstPage.getPageReadTrx());
+      final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
+                                                firstPage.getPageKind(),
+                                                firstPage.getPreviousReferenceKeys(),
+                                                firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size(); i++) {
@@ -397,46 +413,49 @@ public enum VersioningType {
         final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final List<T> returnVal = new ArrayList<>(2);
-      final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(
-          firstPage.getPreviousReferenceKeys().size() + 1);
+      final var previousPageFragmentKeys =
+          new ArrayList<PageFragmentKey>(firstPage.getPreviousReferenceKeys().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
       for (int i = 0, previousRefKeysSize = firstPage.getPreviousReferenceKeys().size();
           i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(firstPage.getPreviousReferenceKeys().get(i));
       }
-      returnVal.add(
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
-      returnVal.add(
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx));
 
-      final T reconstructed = firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
-          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())), pageReadTrx);
+      final T completePage =
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx);
+      final T modifyingPage =
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx);
+
+      final T pageWithRecordsInSlidingWindow = firstPage.newInstance(recordPageKey,
+                                                                     firstPage.getPageKind(),
+                                                                     List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(),
+                                                                                                     reference.getKey())),
+                                                                     pageReadTrx);
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size() && !filledPage; i++) {
         final T page = pages.get(i);
         assert page.getPageKey() == recordPageKey;
 
-        final boolean pageToSerialize = (i == pages.size() - 1 && revToRestore == pages.size());
+        final boolean isPageOutOfSlidingWindow = (i == pages.size() - 1 && revToRestore == pages.size());
 
         for (final Entry<K, V> entry : page.entrySet()) {
           // Caching the complete page.
           final K key = entry.getKey();
           assert key != null;
-          if (!pageToSerialize) {
-            reconstructed.setEntry(key, entry.getValue());
+          if (!isPageOutOfSlidingWindow) {
+            pageWithRecordsInSlidingWindow.setEntry(key, entry.getValue());
           }
 
-          if (returnVal.get(0).getValue(key) == null) {
-            returnVal.get(0).setEntry(key, entry.getValue());
+          if (completePage.getValue(key) == null) {
+            completePage.setEntry(key, entry.getValue());
           }
 
-          if (pageToSerialize && reconstructed.getValue(key) == null) {
-            returnVal.get(1).setEntry(key, entry.getValue());
+          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(key) == null) {
+            modifyingPage.setEntry(key, entry.getValue());
           }
 
-          if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
+          if (completePage.size() == Constants.NDP_NODE_COUNT) {
             filledPage = true;
             break;
           }
@@ -447,19 +466,19 @@ public enum VersioningType {
             final K key = entry.getKey();
             assert key != null;
 
-            if (!pageToSerialize) {
-              reconstructed.setPageReference(key, entry.getValue());
+            if (!isPageOutOfSlidingWindow) {
+              pageWithRecordsInSlidingWindow.setPageReference(key, entry.getValue());
             }
 
-            if (returnVal.get(0).getPageReference(key) == null) {
-              returnVal.get(0).setPageReference(key, entry.getValue());
+            if (completePage.getPageReference(key) == null) {
+              completePage.setPageReference(key, entry.getValue());
             }
 
-            if (pageToSerialize && reconstructed.getPageReference(key) == null) {
-              returnVal.get(1).setPageReference(key, entry.getValue());
+            if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getPageReference(key) == null) {
+              modifyingPage.setPageReference(key, entry.getValue());
             }
 
-            if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
+            if (completePage.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
               break;
             }
@@ -467,7 +486,7 @@ public enum VersioningType {
         }
       }
 
-      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
+      return PageContainer.getInstance(completePage, modifyingPage);
     }
 
     @Override

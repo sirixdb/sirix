@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -168,7 +168,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       }
 
       pageReference.setLength(writtenPage.length);
-      pageReference.setHash(reader.hashFunction.hashBytes(writtenPage).asBytes());
+      pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
         revisionsOffsetFile.seek(revisionsOffsetFile.length());

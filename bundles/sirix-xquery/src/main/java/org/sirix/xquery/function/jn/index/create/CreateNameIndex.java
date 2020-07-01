@@ -23,7 +23,6 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexDefs.NameIndexType;
 import org.sirix.index.IndexType;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
 import com.google.common.collect.ImmutableSet;
 
@@ -64,7 +63,7 @@ public final class CreateNameIndex extends AbstractFunction {
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
     final JsonResourceManager manager = rtx.getResourceManager();
 
-    final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeWriteTrx();
+    final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeTrx();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
 
     if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {

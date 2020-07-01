@@ -24,16 +24,16 @@ import static java.util.Objects.requireNonNull;
 public final class CASFilter implements Filter {
 
   /** The paths to filter. */
-  private final Set<Path<QNm>> mPaths;
+  private final Set<Path<QNm>> paths;
 
   /** {@link PathFilter} instance to filter specific paths. */
-  private final PathFilter mPathFilter;
+  private final PathFilter pathFilter;
 
   /** The key to compare. */
-  private final Atomic mKey;
+  private final Atomic key;
 
   /** Denotes the search mode. */
-  private final SearchMode mMode;
+  private final SearchMode mode;
 
   /**
    * Constructor. Initializes the internal state.
@@ -45,26 +45,26 @@ public final class CASFilter implements Filter {
    */
   public CASFilter(final Set<Path<QNm>> paths, final Atomic key, final SearchMode mode,
       final PCRCollector pcrCollector) {
-    mPaths = requireNonNull(paths);
-    mPathFilter = new PathFilter(mPaths, pcrCollector);
-    mKey = key;
-    mMode = requireNonNull(mode);
+    this.paths = requireNonNull(paths);
+    pathFilter = new PathFilter(this.paths, pcrCollector);
+    this.key = key;
+    this.mode = requireNonNull(mode);
   }
 
   public Set<Long> getPCRs() {
-    return mPathFilter.getPCRs();
+    return pathFilter.getPCRs();
   }
 
   public PCRCollector getPCRCollector() {
-    return mPathFilter.getPCRCollector();
+    return pathFilter.getPCRCollector();
   }
 
   public SearchMode getMode() {
-    return mMode;
+    return mode;
   }
 
   public Atomic getKey() {
-    return mKey;
+    return key;
   }
 
   /**
@@ -78,7 +78,7 @@ public final class CASFilter implements Filter {
     final K key = node.getKey();
     if (key instanceof CASValue) {
       final CASValue casValue = (CASValue) key;
-      return mPathFilter.filter(node) && (mKey == null || mMode.compare(mKey, casValue.getAtomicValue()) == 0);
+      return pathFilter.filter(node) && (this.key == null || mode.compare(this.key, casValue.getAtomicValue()) == 0);
     }
     return true;
   }

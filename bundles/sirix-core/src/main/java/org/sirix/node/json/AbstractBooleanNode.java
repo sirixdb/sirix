@@ -48,6 +48,9 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
 
   @Override
   public BigInteger getHash() {
+    if (hashCode == null) {
+      hashCode = computeHash();
+    }
     return hashCode;
   }
 

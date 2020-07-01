@@ -312,7 +312,6 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
-
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
                                                                         .startNodeKey(15)
                                                                         .maxLevel(3)

@@ -1475,8 +1475,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private XmlNodeTrx getWtx() {
     final XmlResourceManager resource = mRtx.getResourceManager();
     final XmlNodeTrx wtx;
-    if (resource.hasRunningNodeWriteTrx() && resource.getNodeWriteTrx().isPresent()) {
-      wtx = resource.getNodeWriteTrx().get();
+    if (resource.hasRunningNodeWriteTrx() && resource.getNodeTrx().isPresent()) {
+      wtx = resource.getNodeTrx().get();
     } else {
       wtx = resource.beginNodeTrx();
 

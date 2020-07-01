@@ -46,8 +46,8 @@ import com.google.common.base.Objects;
 public final class ObjectNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
-  private BigInteger mHash;
+  private final StructNodeDelegate structNodeDel;
+  private BigInteger hash;
 
   /**
    * Constructor
@@ -55,9 +55,9 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
    * @param structDel {@link StructNodeDelegate} to be set
    */
   public ObjectNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
-    mHash = hashCode;
+    hash = hashCode;
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
   }
 
   /**
@@ -67,7 +67,7 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
    */
   public ObjectNode(final StructNodeDelegate structDel) {
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
   }
 
   @Override
@@ -79,22 +79,22 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
 
-    assert mHash.toByteArray().length <= 17;
+    assert this.hash.toByteArray().length <= 17;
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   @Override
@@ -104,17 +104,17 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("structDelegate", mStructNodeDel).toString();
+    return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDel).toString();
   }
 
   @Override

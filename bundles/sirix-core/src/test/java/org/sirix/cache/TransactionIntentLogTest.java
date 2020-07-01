@@ -35,7 +35,7 @@ public class TransactionIntentLogTest {
   public void integrationTest() throws FileNotFoundException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       final var resourceManager = database.openResourceManager(JsonTestHelper.RESOURCE);
-      final var pageReadOnlyTrx = resourceManager.beginPageReadTrx()) {
+      final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx()) {
       final RandomAccessFile file = new RandomAccessFile(JsonTestHelper.PATHS.PATH2.getFile().toFile(), "rw");
 
       final FileWriter fileWriter =
