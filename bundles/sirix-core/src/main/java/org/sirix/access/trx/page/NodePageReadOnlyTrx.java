@@ -171,8 +171,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (page == null) {
           page = pageReader.read(reference, this);
 
-          if (page != null && trxIntentLog == null && (resourceConfig.getStorageType() != StorageType.IN_MEMORY
-              || isRootOfTreePage(page))) {
+          if (page != null && trxIntentLog == null) {
+//          if (page != null && trxIntentLog == null && (resourceConfig.getStorageType() != StorageType.IN_MEMORY
+//              || isRootOfTreePage(page))) {
             assert reference.getLogKey() == Constants.NULL_ID_INT
                 && reference.getPersistentLogKey() == Constants.NULL_ID_LONG;
             // Put page into buffer manager and set page reference (just to
@@ -339,9 +340,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (page == null) {
       page = loadPage(reference);
 
-      if ((resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) || isRootOfTreePage(page)) {
+//      if ((resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) || isRootOfTreePage(page)) {
         reference.setPage(page);
-      }
+//      }
     }
 
     return page;
@@ -408,7 +409,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final VersioningType revisioning = resourceConfig.revisioningType;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
-    if (trxIntentLog == null && resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) {
+//    if (trxIntentLog == null && resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) {
+    if (trxIntentLog == null) {
       resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), completePage);
       //      mResourceBufferManager.getUnorderedKeyValuePageCache().put(indexLogKey, completePage);
       pageReferenceToRecordPage.get().setPage(completePage);
