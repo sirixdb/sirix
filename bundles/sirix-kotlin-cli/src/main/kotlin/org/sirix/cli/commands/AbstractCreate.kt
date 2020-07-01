@@ -6,7 +6,7 @@ import org.sirix.cli.CliOptions
 import kotlin.system.exitProcess
 
 
-abstract class Create(options: CliOptions, private val dataOptions: DataCommandOptions?) : CliCommand(options) {
+abstract class AbstractCreate(options: CliOptions, private val dataOptions: DataCommandOptions?) : CliCommand(options) {
 
 
     protected abstract fun createDatabase(): Boolean

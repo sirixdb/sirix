@@ -1,13 +1,15 @@
-package org.sirix.cli.commands
+package org.sirix.cli.commands.json
 
 import com.google.gson.stream.JsonReader
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.cli.CliOptions
+import org.sirix.cli.commands.AbstractCreate
+import org.sirix.cli.commands.DataCommandOptions
 import org.sirix.service.json.shredder.JsonShredder
 import java.nio.file.Paths
 
-class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOptions?): Create(options, dataOptions) {
+class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOptions?): AbstractCreate(options, dataOptions) {
 
 
     override fun createDatabase(): Boolean {

@@ -24,7 +24,7 @@ abstract class CliArgType<T : Any>(hasParameter: kotlin.Boolean) : ArgType<T>(ha
 
     class Timestamp : ArgType<LocalDateTime>(true) {
         override val description: kotlin.String
-            get() = "2020-12-20T18:44:39.464Z"
+            get() = "{ 2020-12-20T18:44:39.464Z }"
 
         override fun convert(value: kotlin.String, name: kotlin.String): LocalDateTime = LocalDateTime.parse(value)
     }

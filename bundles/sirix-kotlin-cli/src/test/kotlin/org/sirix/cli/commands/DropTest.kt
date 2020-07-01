@@ -24,7 +24,7 @@ internal class DropTest: CliCommandTest() {
 
     @AfterEach
     fun tearDown() {
-        super.removeTestDatabase(CreateResourceTest.LOGGER)
+        super.removeTestDatabase(AbstractCreateResourceTest.LOGGER)
     }
 
     @Test
