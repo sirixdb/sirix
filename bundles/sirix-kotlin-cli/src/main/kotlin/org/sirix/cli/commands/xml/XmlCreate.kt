@@ -1,14 +1,16 @@
-package org.sirix.cli.commands
+package org.sirix.cli.commands.xml
 
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.cli.CliOptions
+import org.sirix.cli.commands.AbstractCreate
+import org.sirix.cli.commands.DataCommandOptions
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.FileInputStream
 import java.nio.file.Paths
 import javax.xml.stream.XMLEventReader
 
-class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions?): Create(options, dataOptions) {
+class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions?): AbstractCreate(options, dataOptions) {
 
 
     override fun createDatabase(): Boolean {

@@ -15,6 +15,7 @@ import org.sirix.cli.parser.CreateSubcommand
 import org.sirix.cli.parser.DropResourceSubCommand
 import org.sirix.cli.parser.DropSubCommand
 import org.sirix.cli.parser.DumpResourceHistorySubCommand
+import org.sirix.cli.parser.QuerySubCommand
 
 
 fun main(args: Array<String>) {
@@ -41,7 +42,8 @@ fun parseArgs(args: Array<String>): CliCommand? {
         DropSubCommand(),
         CreateResourceSubCommand(),
         DropResourceSubCommand(),
-        DumpResourceHistorySubCommand()
+        DumpResourceHistorySubCommand(),
+        QuerySubCommand()
     )
     argParser.subcommands(*subCommandList)
     argParser.parse(args)

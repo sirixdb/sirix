@@ -4,8 +4,8 @@ import kotlinx.cli.ArgType
 import org.sirix.access.DatabaseType
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.commands.JsonCreate
-import org.sirix.cli.commands.XmlCreate
+import org.sirix.cli.commands.json.JsonCreate
+import org.sirix.cli.commands.xml.XmlCreate
 
 class CreateSubcommand: AbstractDataCommand("create", "Create a Sirix DB") {
     val type by argument(ArgType.Choice(listOf("xml", "json")), "The Type of the Database")
