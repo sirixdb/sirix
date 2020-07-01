@@ -30,6 +30,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.io.StorageType;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -92,8 +93,9 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
           resourceFile.toString());
     }
 
-    if (resourceStore.hasOpenResourceManager(resourceFile))
+    if (resourceStore.hasOpenResourceManager(resourceFile)) {
       return resourceStore.getOpenResourceManager(resourceFile);
+    }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
@@ -103,8 +105,9 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    if (!bufferManagers.containsKey(resourceFile))
-      bufferManagers.put(resourceFile, new BufferManagerImpl());
+    if (!bufferManagers.containsKey(resourceFile)) {
+      addResourceToBufferManagerMapping(resourceFile, resourceConfig);
+    }
 
     return resourceStore.openResource(this, resourceConfig, bufferManagers.get(resourceFile), resourceFile);
   }

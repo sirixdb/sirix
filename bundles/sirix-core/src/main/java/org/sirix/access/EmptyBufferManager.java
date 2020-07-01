@@ -11,8 +11,6 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
 
   private static final EmptyCache<PageReference, Page> RECORD_PAGE_CACHE = new EmptyCache<>();
 
-  private static final EmptyCache<IndexLogKey, Page> UNORDERED_KEY_VALUE_PAGE_CACHE = new EmptyCache<>();
-
   private static final EmptyCache<PageReference, Page> PAGE_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<Integer, RevisionRootPage> REVISION_ROOT_PAGE_CACHE = new EmptyCache<>();
@@ -23,11 +21,6 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
   @Override
   public Cache<PageReference, Page> getRecordPageCache() {
     return RECORD_PAGE_CACHE;
-  }
-
-  @Override
-  public Cache<IndexLogKey, Page> getUnorderedKeyValuePageCache() {
-    return UNORDERED_KEY_VALUE_PAGE_CACHE;
   }
 
   @Override

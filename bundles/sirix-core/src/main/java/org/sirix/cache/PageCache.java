@@ -12,12 +12,12 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
 
-  public PageCache() {
+  public PageCache(final int maxSize) {
     RemovalListener<PageReference, Page> removalListener =
         (PageReference key, Page value, RemovalCause cause) -> key.setPage(null);
 
     pageCache = Caffeine.newBuilder()
-                        .maximumSize(5_000)
+                        .maximumSize(maxSize)
                         .expireAfterWrite(5, TimeUnit.SECONDS)
                         .expireAfterAccess(5, TimeUnit.SECONDS)
                         .removalListener(removalListener)
