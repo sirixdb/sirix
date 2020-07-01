@@ -2,16 +2,17 @@ package org.sirix.cli.parser
 
 import kotlinx.cli.ArgType
 import kotlinx.cli.optional
+import kotlinx.cli.required
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.CliCommand
 import org.sirix.cli.commands.QueryCommand
 import org.sirix.cli.commands.QueryCommandOptions
-import java.time.LocalDateTime
 
 class QuerySubCommand :
-    AbstractArgSubCommand("query", "Querys the Database") {
+    AbstractUserCommand("query", "Querys the Database") {
 
-    val revision by option(ArgType.Int, "revision", "r", "The revions to query")
+    val resource by option(ArgType.String, "resource", "r", "The name of the resource.").required()
+    val revision by option(ArgType.Int, "revision", "rev", "The revions to query")
     val revisionTimestamp by option(
         CliArgType.Timestamp(),
         "revision-timestamp",
@@ -32,19 +33,23 @@ class QuerySubCommand :
         "ert",
         "The end revision timestamp"
     )
-    val queryStr by argument(ArgType.String, description = "The Query String")
+    val nodeId by option(ArgType.String, "node-id", "nid", "The node id")
+    val queryStr by argument(ArgType.String, description = "The Query String").optional()
 
     override fun createCliCommand(options: CliOptions): CliCommand {
         return QueryCommand(
             options,
             QueryCommandOptions(
                 queryStr,
+                resource,
                 revision,
                 revisionTimestamp,
                 startRevision,
                 endRevision,
                 startRevisionTimestamp,
-                endRevisionTimestamp
+                endRevisionTimestamp,
+                nodeId,
+                user
             )
         )
     }
