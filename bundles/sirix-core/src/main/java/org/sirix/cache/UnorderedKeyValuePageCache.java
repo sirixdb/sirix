@@ -9,34 +9,34 @@ import java.util.concurrent.TimeUnit;
 
 public final class UnorderedKeyValuePageCache implements Cache<IndexLogKey, Page> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<IndexLogKey, Page> mPageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<IndexLogKey, Page> pageCache;
 
   public UnorderedKeyValuePageCache() {
-    mPageCache = Caffeine.newBuilder()
-                         .maximumSize(1_000)
-                         .expireAfterWrite(20, TimeUnit.SECONDS)
-                         .expireAfterAccess(20, TimeUnit.SECONDS)
-                         .build();
+    pageCache = Caffeine.newBuilder()
+                        .maximumSize(1_000)
+                        .expireAfterWrite(10, TimeUnit.SECONDS)
+                        .expireAfterAccess(10, TimeUnit.SECONDS)
+                        .build();
   }
 
   @Override
   public void clear() {
-    mPageCache.invalidateAll();
+    pageCache.invalidateAll();
   }
 
   @Override
   public Page get(IndexLogKey key) {
-    return mPageCache.getIfPresent(key);
+    return pageCache.getIfPresent(key);
   }
 
   @Override
   public void put(IndexLogKey key, @Nonnull Page value) {
-    mPageCache.put(key, value);
+    pageCache.put(key, value);
   }
 
   @Override
   public void putAll(Map<? extends IndexLogKey, ? extends Page> map) {
-    mPageCache.putAll(map);
+    pageCache.putAll(map);
   }
 
   @Override
@@ -46,12 +46,12 @@ public final class UnorderedKeyValuePageCache implements Cache<IndexLogKey, Page
 
   @Override
   public Map<IndexLogKey, Page> getAll(Iterable<? extends IndexLogKey> keys) {
-    return mPageCache.getAllPresent(keys);
+    return pageCache.getAllPresent(keys);
   }
 
   @Override
   public void remove(IndexLogKey key) {
-    mPageCache.invalidate(key);
+    pageCache.invalidate(key);
   }
 
   @Override

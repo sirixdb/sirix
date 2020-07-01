@@ -49,10 +49,10 @@ import com.google.common.base.Objects;
 public final class PageContainer {
 
   /** {@link UnorderedKeyValuePage} reference, which references the complete key/value page. */
-  private final Page mComplete;
+  private final Page complete;
 
   /** {@link UnorderedKeyValuePage} reference, which references the modified key/value page. */
-  private final Page mModified;
+  private final Page modified;
 
   /** Empty instance. */
   private static final PageContainer EMPTY_INSTANCE = new PageContainer(null, null);
@@ -83,11 +83,11 @@ public final class PageContainer {
    * Private constructor with both, complete and modifying page.
    *
    * @param complete to be used as a base for this container
-   * @param modifying to be used as a base for this container
+   * @param modified to be used as a base for this container
    */
-  private PageContainer(final Page complete, final Page modifying) {
-    mComplete = complete;
-    mModified = modifying;
+  private PageContainer(final Page complete, final Page modified) {
+    this.complete = complete;
+    this.modified = modified;
   }
 
   /**
@@ -96,7 +96,7 @@ public final class PageContainer {
    * @return the complete page
    */
   public Page getComplete() {
-    return mComplete;
+    return complete;
   }
 
   /**
@@ -105,12 +105,12 @@ public final class PageContainer {
    * @return the modified page
    */
   public Page getModified() {
-    return mModified;
+    return modified;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mComplete, mModified);
+    return Objects.hashCode(complete, modified);
   }
 
   @Override
@@ -119,14 +119,14 @@ public final class PageContainer {
       return false;
 
     final PageContainer other = (PageContainer) obj;
-    return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
+    return Objects.equal(complete, other.complete) && Objects.equal(modified, other.modified);
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("complete page", mComplete)
-                      .add("modified page", mModified)
+                      .add("complete page", complete)
+                      .add("modified page", modified)
                       .toString();
   }
 }

@@ -45,18 +45,6 @@ public final class NumberNode extends AbstractNumberNode {
   /**
    * Constructor.
    *
-   * @param hashCode the hash code
-   * @param number the number value
-   * @param structNodeDelegate delegate for {@link StructNode} implementation
-   */
-  public NumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, number);
-    setHash(hashCode);
-  }
-
-  /**
-   * Constructor.
-   *
    * @param number the number value
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */

@@ -12,16 +12,16 @@ public final class AtomicJsonDBItem extends AbstractAtomic
     implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** Sirix {@link JsonNodeReadOnlyTrx}. */
-  private final JsonNodeReadOnlyTrx mRtx;
+  private final JsonNodeReadOnlyTrx rtx;
 
   /** Sirix node key. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Collection this node is part of. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /** The atomic value delegate. */
-  private final AbstractAtomic mAtomic;
+  private final AbstractAtomic atomic;
 
   /**
    * Constructor.
@@ -32,75 +32,75 @@ public final class AtomicJsonDBItem extends AbstractAtomic
    */
   public AtomicJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
       final AbstractAtomic atomic) {
-    mCollection = Preconditions.checkNotNull(collection);
-    mRtx = Preconditions.checkNotNull(rtx);
-    mNodeKey = mRtx.getNodeKey();
-    mAtomic = Preconditions.checkNotNull(atomic);
+    this.collection = Preconditions.checkNotNull(collection);
+    this.rtx = Preconditions.checkNotNull(rtx);
+    nodeKey = this.rtx.getNodeKey();
+    this.atomic = Preconditions.checkNotNull(atomic);
   }
 
   private final void moveRtx() {
-    mRtx.moveTo(mNodeKey);
+    rtx.moveTo(nodeKey);
   }
 
   @Override
   public JsonResourceManager getResourceManager() {
-    return mRtx.getResourceManager();
+    return rtx.getResourceManager();
   }
 
   @Override
   public JsonNodeReadOnlyTrx getTrx() {
     moveRtx();
 
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public JsonDBCollection getCollection() {
-    return mCollection;
+    return collection;
   }
 
   @Override
   public boolean booleanValue() {
-    return mAtomic.booleanValue();
+    return atomic.booleanValue();
   }
 
   @Override
   public Type type() {
-    return mAtomic.type();
+    return atomic.type();
   }
 
   @Override
   public int cmp(Atomic atomic) {
-    return mAtomic.cmp(atomic);
+    return this.atomic.cmp(atomic);
   }
 
   @Override
   public int atomicCode() {
-    return mAtomic.atomicCode();
+    return atomic.atomicCode();
   }
 
   @Override
   public String stringValue() {
-    return mAtomic.stringValue();
+    return atomic.stringValue();
   }
 
   @Override
   public Atomic asType(Type type) {
-    return mAtomic.asType(type);
+    return atomic.asType(type);
   }
 
   @Override
   public int hashCode() {
-    return mAtomic.hashCode();
+    return atomic.hashCode();
   }
 
   @Override
   public int atomicCmpInternal(Atomic atomic) {
-    return mAtomic.atomicCmp(atomic);
+    return this.atomic.atomicCmp(atomic);
   }
 
   @Override
   public long getNodeKey() {
-    return mNodeKey;
+    return nodeKey;
   }
 }

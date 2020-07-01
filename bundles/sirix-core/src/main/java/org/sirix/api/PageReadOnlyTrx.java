@@ -147,10 +147,11 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Calculate record page key from a given record key.
    *
    * @param recordKey record key to find record page key for
+   * @param pageKind the pageKind
    * @return record page key
    * @throws IllegalArgumentException if {code recordKey} &lt; 0
    */
-  long pageKey(@Nonnegative long recordKey);
+  long pageKey(@Nonnegative long recordKey, @Nonnull PageKind pageKind);
 
   /**
    * Get the {@link NamePage} associated with the current revision root.

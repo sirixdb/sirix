@@ -37,34 +37,34 @@ import com.github.benmanes.caffeine.cache.Caffeine;
  *
  */
 public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {
-  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> mPageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
 
   public RevisionRootPageCache() {
-    mPageCache = Caffeine.newBuilder()
-                         .maximumSize(1000)
-                         .expireAfterWrite(5, TimeUnit.MINUTES)
-                         .expireAfterAccess(5, TimeUnit.MINUTES)
-                         .build();
+    pageCache = Caffeine.newBuilder()
+                        .maximumSize(1000)
+                        .expireAfterWrite(30, TimeUnit.SECONDS)
+                        .expireAfterAccess(30, TimeUnit.SECONDS)
+                        .build();
   }
 
   @Override
   public void clear() {
-    mPageCache.invalidateAll();
+    pageCache.invalidateAll();
   }
 
   @Override
   public RevisionRootPage get(Integer key) {
-    return mPageCache.getIfPresent(key);
+    return pageCache.getIfPresent(key);
   }
 
   @Override
   public void put(Integer key, RevisionRootPage value) {
-    mPageCache.put(key, value);
+    pageCache.put(key, value);
   }
 
   @Override
   public void putAll(Map<? extends Integer, ? extends RevisionRootPage> map) {
-    mPageCache.putAll(map);
+    pageCache.putAll(map);
   }
 
   @Override
@@ -74,12 +74,12 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
 
   @Override
   public Map<Integer, RevisionRootPage> getAll(Iterable<? extends Integer> keys) {
-    return mPageCache.getAllPresent(keys);
+    return pageCache.getAllPresent(keys);
   }
 
   @Override
   public void remove(Integer key) {
-    mPageCache.invalidate(key);
+    pageCache.invalidate(key);
   }
 
   @Override

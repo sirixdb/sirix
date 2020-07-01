@@ -12,7 +12,7 @@ buildscript {
         classpath 'net.researchgate:gradle-release:2.8.1'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.27.0"
         classpath "com.github.jengelman.gradle.plugins:shadow:5.2.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:4.0.1"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:4.4.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -87,11 +87,11 @@ subprojects {
     }
 
     compileJava {
-        options.compilerArgs += ["--enable-preview"]
+        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
     }
 
     compileTestJava {
-        options.compilerArgs += ["--enable-preview"]
+        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
     }
 
     tasks.withType(JavaCompile).each {
@@ -205,10 +205,10 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
-        jvmArgs(['--enable-preview'])
+        jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
 
-        minHeapSize = '2g'
-        maxHeapSize = '9g'
+//        minHeapSize = '2g'
+//        maxHeapSize = '7g'
     }
 }
 

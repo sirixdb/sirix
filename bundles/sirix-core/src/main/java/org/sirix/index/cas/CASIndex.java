@@ -123,8 +123,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // Iterate over subtree.
       final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(node.getNodeKey());
 
-      return Iterators.concat(Iterators.forArray(node.getValue()),
-          new IndexFilterAxis<>(iter, Set.of(filter)));
+      return new IndexFilterAxis<>(iter, Set.of(filter));
     };
   }
 }

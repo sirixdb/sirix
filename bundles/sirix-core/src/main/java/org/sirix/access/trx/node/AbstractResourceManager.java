@@ -480,9 +480,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) {
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
-    if (pageRtx != null)
+    if (pageRtx != null) {
       // assert pageRtx != null : "Must be in the page trx map!";
       pageRtx.close();
+    }
   }
 
   /**
@@ -603,12 +604,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageReadOnlyTrx beginPageReadTrx() {
+  public PageReadOnlyTrx beginPageReadOnlyTrx() {
     return beginPageReadOnlyTrx(lastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
-  public synchronized PageReadOnlyTrx beginPageReadOnlyTrx(final @Nonnegative int revision) {
+  public PageReadOnlyTrx beginPageReadOnlyTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
@@ -677,7 +678,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized Optional<W> getNodeWriteTrx() {
+  public synchronized Optional<W> getNodeTrx() {
     assertNotClosed();
 
     return nodeTrxMap.values().stream().filter(rtx -> rtx instanceof NodeTrx).map(rtx -> (W) rtx).findAny();

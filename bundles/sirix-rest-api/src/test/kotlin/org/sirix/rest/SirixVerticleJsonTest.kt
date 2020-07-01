@@ -221,7 +221,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the diff of a resource")
     fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -777,7 +777,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -833,7 +833,7 @@ class SirixVerticleJsonTest {
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
                     .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
-                val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+                var hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                 val updateURLInsertAsRightSibling = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
@@ -857,6 +857,8 @@ class SirixVerticleJsonTest {
                     )
                 }
 
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                 httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
@@ -876,6 +878,8 @@ class SirixVerticleJsonTest {
                         false
                     )
                 }
+
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                 httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -898,6 +902,8 @@ class SirixVerticleJsonTest {
                     testContext.completeNow()
                 }
 
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                 httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
@@ -917,6 +923,8 @@ class SirixVerticleJsonTest {
                         false
                     )
                 }
+
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                 httpResponse = client.postAbs(updateURLInsertAsRightSibling).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -938,6 +946,8 @@ class SirixVerticleJsonTest {
                     )
                 }
 
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                 val updateURLInsertAsFirstChild = "$server$serverPath?nodeId=3&insert=asFirstChild"
 
                 httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
@@ -947,6 +957,8 @@ class SirixVerticleJsonTest {
                     .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
                     .putHeader(HttpHeaders.ETAG.toString(), hashCode)
                     .sendBufferAwait(Buffer.buffer("0"))
+
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                 testContext.verify {
                     val expectUpdatedString = """
@@ -980,6 +992,8 @@ class SirixVerticleJsonTest {
                     )
                 }
 
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                 httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
@@ -1000,6 +1014,8 @@ class SirixVerticleJsonTest {
                     )
                 }
 
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                 httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
@@ -1019,6 +1035,8 @@ class SirixVerticleJsonTest {
                         false
                     )
                 }
+
+                hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                 httpResponse = client.postAbs(updateURLInsertAsFirstChild).putHeader(
                     HttpHeaders.AUTHORIZATION

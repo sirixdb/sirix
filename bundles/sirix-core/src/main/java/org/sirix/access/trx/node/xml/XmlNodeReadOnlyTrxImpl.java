@@ -24,7 +24,7 @@ package org.sirix.access.trx.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.AbstractNodeReadTrx;
+import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.ItemList;
 import org.sirix.api.Move;
@@ -56,6 +56,7 @@ import org.sirix.utils.NamePageHash;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
@@ -68,7 +69,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
  */
-public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeReadOnlyTrx>
+public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx>
     implements InternalXmlNodeReadOnlyTrx {
 
   /** Resource manager this write transaction is bound to. */
@@ -130,7 +131,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       } else {
         newNode = getPageTransaction().getRecord(nodeKey, PageKind.RECORDPAGE, -1);
       }
-    } catch (final SirixIOException e) {
+    } catch (final SirixIOException | UncheckedIOException e) {
       newNode = Optional.empty();
     }
 

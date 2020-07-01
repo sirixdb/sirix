@@ -12,6 +12,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
@@ -29,7 +30,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * A skeletal implementation of a read-only node transaction.
  * @param <T> the type of node cursor
  */
-public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
+public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
   private final long id;
@@ -46,7 +47,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    * @param pageReadTransaction the underlying read-only page transaction
    * @param documentNode the document root node
    */
-  public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
+  public AbstractNodeReadOnlyTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
       final @Nonnull ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
     id = trxId;
@@ -130,6 +131,9 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     final ImmutableNode node = currentNode;
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
+    }
+    if (node instanceof ObjectKeyNode) {
+      return ((ObjectKeyNode) node).getPathNodeKey();
     }
     if (node.getKind() == NodeKind.XML_DOCUMENT || node.getKind() == NodeKind.JSON_DOCUMENT) {
       return 0;

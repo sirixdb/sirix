@@ -44,6 +44,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Writer;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -203,7 +204,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
             if (withMetaData) {
               appendObjectSeparator();
-              appendObjectKeyValue(quote("hash"), String.valueOf(rtx.getHash()));
+              appendObjectKeyValue(quote("hash"), quote(String.format("%032x", rtx.getHash())));
               appendObjectSeparator().appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()))
                                      .appendObjectSeparator()
                                      .appendObjectKeyValue(quote("descendantCount"),
@@ -283,7 +284,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       }
 
       if (withMetaData) {
-        appendObjectKeyValue(quote("hash"), String.valueOf(rtx.getHash()));
+        appendObjectKeyValue(quote("hash"), quote(String.format("%032x", rtx.getHash())));
         appendObjectSeparator().appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
 
         if (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY) {

@@ -172,13 +172,13 @@ public final class JsonAVLTreeIntegrationTest {
       assertTrue(nodeGreaterOrEqual.isPresent());
       assertEquals("streetaddress", nodeGreaterOrEqual.get().getKey().getLocalName());
 
-      final var nodeLess = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.LESS);
+      final var nodeLess = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.LOWER);
 
       assertTrue(nodeLess.isPresent());
       assertEquals("id", nodeLess.get().getKey().getLocalName());
 
       final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getAVLNode(nodeGreaterOrEqual.get().getNodeKey(), name,
-          SearchMode.LESS_OR_EQUAL);
+          SearchMode.LOWER_OR_EQUAL);
 
       assertTrue(nodeLessOrEqual.isPresent());
       assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
@@ -209,7 +209,7 @@ public final class JsonAVLTreeIntegrationTest {
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
 
-      final var pathToFeatureType = parse("/features/__array__/type");
+      final var pathToFeatureType = parse("/features/[]/type");
 
       final var idxDefOfFeatureType =
           IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToFeatureType), 0);
@@ -235,7 +235,7 @@ public final class JsonAVLTreeIntegrationTest {
       assertTrue(references.isPresent());
       assertEquals(53, references.get().getNodeKeys().size());
 
-      final var pathToName = parse("/features/__array__/properties/name");
+      final var pathToName = parse("/features/[]/properties/name");
       final var idxDefOfPathToName = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 1);
 
       indexController.createIndexes(Set.of(idxDefOfPathToName), trx);
@@ -243,7 +243,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var casIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.CAS);
 
       final var index = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-          indexController.createCASFilter(Set.of("/features/__array__/properties/name"), new Str("ABC Radio Adelaide"),
+          indexController.createCASFilter(Set.of("/features/[]/properties/name"), new Str("ABC Radio Adelaide"),
               SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(index.hasNext());
@@ -266,7 +266,7 @@ public final class JsonAVLTreeIntegrationTest {
 
       assertEquals(53, stream.count());
 
-      final var pathToCoordinates = parse("/features/__array__/geometry/coordinates/__array__");
+      final var pathToCoordinates = parse("/features/[]/geometry/coordinates/[]");
       final var idxDefOfPathToCoordinates =
           IndexDefs.createCASIdxDef(false, Type.DEC, Collections.singleton(pathToCoordinates), 2);
 
@@ -275,7 +275,7 @@ public final class JsonAVLTreeIntegrationTest {
       final var casIndexDefForCoordinates = indexController.getIndexes().findCASIndex(pathToCoordinates, Type.DEC);
 
       final var casIndexForCoordinates = indexController.openCASIndex(trx.getPageTrx(), casIndexDefForCoordinates.get(),
-          indexController.createCASFilterRange(Set.of("/features/__array__/geometry/coordinates/__array__"), new Dbl(0),
+          indexController.createCASFilterRange(Set.of("/features/[]/geometry/coordinates/[]"), new Dbl(0),
               new Dbl(160), true, true, new JsonPCRCollector(trx)));
 
       assertTrue(casIndexForCoordinates.hasNext());
@@ -289,7 +289,7 @@ public final class JsonAVLTreeIntegrationTest {
 
       assertTrue(casIndex.isPresent());
 
-      final var pathToGeometry = parse("/features/__array__/geometry");
+      final var pathToGeometry = parse("/features/[]/geometry");
 
       final var idxDefOfThreePaths =
           IndexDefs.createCASIdxDef(false, Type.STR, Set.of(pathToFeatureType, pathToGeometry, pathToCoordinates), 3);
@@ -301,13 +301,13 @@ public final class JsonAVLTreeIntegrationTest {
       assertTrue(casIndexDefOfGeometryPath.isPresent());
 
       final var casIndexForGeometry = indexController.openCASIndex(trx.getPageTrx(), casIndexDefOfGeometryPath.get(),
-          indexController.createCASFilter(Set.of("/features/__array__/geometry"), new Str("bla"), SearchMode.EQUAL,
+          indexController.createCASFilter(Set.of("/features/[]/geometry"), new Str("bla"), SearchMode.EQUAL,
               new JsonPCRCollector(trx)));
 
       assertFalse(casIndexForGeometry.hasNext());
 
       final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getPageTrx(), idxDefOfThreePaths,
-          indexController.createCASFilter(Set.of("/features/__array__/geometry/coordinates/__array__"), new Str("0"),
+          indexController.createCASFilter(Set.of("/features/[]/geometry/coordinates/[]"), new Str("0"),
               SearchMode.GREATER, new JsonPCRCollector(trx)));
 
       assertTrue(casIndexForGeometryCoordinates.hasNext());
@@ -326,7 +326,7 @@ public final class JsonAVLTreeIntegrationTest {
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
 
-      final var pathToFeatureType = parse("/features/__array__/type");
+      final var pathToFeatureType = parse("/features/[]/type");
 
       final var idxDefOfFeatureType = IndexDefs.createPathIdxDef(Collections.singleton(pathToFeatureType), 0);
 
@@ -350,7 +350,7 @@ public final class JsonAVLTreeIntegrationTest {
       assertTrue(references.isPresent());
       assertEquals(53, references.get().getNodeKeys().size());
 
-      final var pathToName = parse("/features/__array__/properties/name");
+      final var pathToName = parse("/features/[]/properties/name");
       final var idxDefOfPathToName = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 1);
 
       indexController.createIndexes(Set.of(idxDefOfPathToName), trx);

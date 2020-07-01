@@ -41,19 +41,19 @@ import java.nio.file.Path;
  * @author Johannes Lichtenberger
  *
  */
-public class Holder {
+public final class Holder {
 
   /** {@link Database} implementation. */
-  private Database<XmlResourceManager> mDatabase;
+  private Database<XmlResourceManager> database;
 
   /** {@link XmlResourceManager} implementation. */
-  private XmlResourceManager mResMgr;
+  private XmlResourceManager resMgr;
 
   /** {@link XmlNodeReadOnlyTrx} implementation. */
-  private XmlNodeReadOnlyTrx mRtx;
+  private XmlNodeReadOnlyTrx rtx;
 
   /** {@link XmlNodeTrx} implementation. */
-  private XmlNodeTrx mWtx;
+  private XmlNodeTrx wtx;
 
   /**
    * Generate a resource with deweyIDs for resources and open a resource.
@@ -116,7 +116,7 @@ public class Holder {
    */
   public static Holder generateWtx() {
     final Holder holder = openResourceManager();
-    final XmlNodeTrx writer = holder.mResMgr.beginNodeTrx();
+    final XmlNodeTrx writer = holder.resMgr.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
@@ -128,7 +128,7 @@ public class Holder {
    */
   public static Holder generateRtx() {
     final Holder holder = openResourceManager();
-    final XmlNodeReadOnlyTrx reader = holder.mResMgr.beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx reader = holder.resMgr.beginNodeReadOnlyTrx();
     holder.setXdmNodeReadTrx(reader);
     return holder;
   }
@@ -137,18 +137,18 @@ public class Holder {
    * Close the database, session, read transaction and/or write transaction.
    */
   public void close() {
-    if (mRtx != null && !mRtx.isClosed()) {
-      mRtx.close();
+    if (rtx != null && !rtx.isClosed()) {
+      rtx.close();
     }
-    if (mWtx != null && !mWtx.isClosed()) {
-      mWtx.rollback();
-      mWtx.close();
+    if (wtx != null && !wtx.isClosed()) {
+      wtx.rollback();
+      wtx.close();
     }
-    if (mResMgr != null && !mResMgr.isClosed()) {
-      mResMgr.close();
+    if (resMgr != null && !resMgr.isClosed()) {
+      resMgr.close();
     }
-    if (mDatabase != null) {
-      mDatabase.close();
+    if (database != null) {
+      database.close();
     }
   }
 
@@ -158,7 +158,7 @@ public class Holder {
    * @return {@link Database} handle
    */
   public Database<XmlResourceManager> getDatabase() {
-    return mDatabase;
+    return database;
   }
 
   /**
@@ -167,7 +167,7 @@ public class Holder {
    * @return {@link ResourceManager} handle
    */
   public XmlResourceManager getResourceManager() {
-    return mResMgr;
+    return resMgr;
   }
 
   /**
@@ -176,7 +176,7 @@ public class Holder {
    * @return {@link XmlNodeReadOnlyTrx} handle
    */
   public XmlNodeReadOnlyTrx getXmlNodeReadTrx() {
-    return mRtx;
+    return rtx;
   }
 
   /**
@@ -185,7 +185,7 @@ public class Holder {
    * @return {@link XmlNodeTrx} handle
    */
   public XmlNodeTrx getXdmNodeWriteTrx() {
-    return mWtx;
+    return wtx;
   }
 
   /**
@@ -194,7 +194,7 @@ public class Holder {
    * @param wtx {@link XmlNodeTrx} instance
    */
   private void setXdmNodeWriteTrx(final XmlNodeTrx wtx) {
-    mWtx = wtx;
+    this.wtx = wtx;
   }
 
   /**
@@ -203,7 +203,7 @@ public class Holder {
    * @param rtx {@link XmlNodeReadOnlyTrx} instance
    */
   private void setXdmNodeReadTrx(final XmlNodeReadOnlyTrx rtx) {
-    mRtx = rtx;
+    this.rtx = rtx;
   }
 
   /**
@@ -212,7 +212,7 @@ public class Holder {
    * @param resourceManager {@link XmlResourceManager} instance
    */
   private void setResourceManager(final XmlResourceManager resourceManager) {
-    mResMgr = resourceManager;
+    resMgr = resourceManager;
   }
 
   /**
@@ -221,7 +221,7 @@ public class Holder {
    * @param database {@link Database} instance
    */
   private void setDatabase(final Database<XmlResourceManager> database) {
-    mDatabase = database;
+    this.database = database;
   }
 
 }

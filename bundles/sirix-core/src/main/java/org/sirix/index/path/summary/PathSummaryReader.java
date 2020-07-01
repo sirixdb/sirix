@@ -221,6 +221,28 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
+   * Match a {@link QNm} with a minimum level.
+   *
+   * @param name     the QName
+   * @param minLevel minimum level
+   * @return a set with bits set for each matching path node
+   */
+  public BitSet match(final QNm name, final @Nonnegative int minLevel, NodeKind nodeKind) {
+    assertNotClosed();
+    final Set<PathNode> set = qnmMapping.get(name);
+    if (set == null) {
+      return new BitSet(0);
+    }
+    final BitSet matches = new BitSet();
+    for (final PathNode psn : set) {
+      if (psn.getLevel() >= minLevel && psn.getPathKind() == nodeKind) {
+        matches.set((int) psn.getNodeKey());
+      }
+    }
+    return matches;
+  }
+
+  /**
    * Match a {@link QNm} with a specific level.
    *
    * @param name  the QName
@@ -331,8 +353,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         continue;
       }
 
-      if (path.matches(node.getPath(this))) {
-        pcrSet.add(node.getNodeKey());
+      try {
+        if (path.matches(node.getPath(this))) {
+          pcrSet.add(node.getNodeKey());
+        }
+      } catch (Exception e) {
+        System.out.println();
       }
     }
     moveTo(nodeKey);
@@ -489,9 +515,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    return ((PathSummaryPage) pageReadTrx.getActualRevisionRootPage()
-                                         .getPathSummaryPageReference()
-                                         .getPage()).getMaxNodeKey(0);
+    final var pageReference = pageReadTrx.getActualRevisionRootPage()
+                                         .getPathSummaryPageReference();
+
+    if (pageReference.getPage() == null) {
+      pageReference.setPage(pageReadTrx.getReader().read(pageReference, pageReadTrx));
+    }
+
+    return ((PathSummaryPage) pageReference.getPage()).getMaxNodeKey(0);
   }
 
   @Override
@@ -594,6 +625,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       moveTo(pathNode.getNodeKey());
       if (pathNode.getPathKind() == NodeKind.ATTRIBUTE) {
         path.attribute(getName());
+      } else if (pathNode.getPathKind() == NodeKind.ARRAY) {
+        path.childArray();
       } else {
         path.child(getName());
       }

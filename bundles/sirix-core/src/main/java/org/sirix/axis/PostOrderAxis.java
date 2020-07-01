@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -32,10 +32,10 @@ import org.sirix.settings.Fixed;
 public final class PostOrderAxis extends AbstractAxis {
 
   /** Determines if transaction moved to the parent before. */
-  private boolean mMovedToParent;
+  private boolean movedToParent;
 
   /** Determines if current key is the start node key before the traversal. */
-  private boolean mIsStartKey;
+  private boolean isStartKey;
 
   /**
    * Constructor initializing internal state.
@@ -58,8 +58,8 @@ public final class PostOrderAxis extends AbstractAxis {
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mMovedToParent = false;
-    mIsStartKey = false;
+    movedToParent = false;
+    isStartKey = false;
   }
 
   @Override
@@ -67,9 +67,9 @@ public final class PostOrderAxis extends AbstractAxis {
     final NodeCursor cursor = getCursor();
 
     // No subtree.
-    if (!cursor.hasFirstChild() && cursor.getNodeKey() == getStartKey() || mIsStartKey) {
-      if (!mIsStartKey && isSelfIncluded() == IncludeSelf.YES) {
-        mIsStartKey = true;
+    if (!cursor.hasFirstChild() && cursor.getNodeKey() == getStartKey() || isStartKey) {
+      if (!isStartKey && isSelfIncluded() == IncludeSelf.YES) {
+        isStartKey = true;
         return cursor.getNodeKey();
       } else {
         return done();
@@ -79,8 +79,8 @@ public final class PostOrderAxis extends AbstractAxis {
     final long currKey = cursor.getNodeKey();
 
     // Move down in the tree if it hasn't moved down before.
-    if ((!mMovedToParent && cursor.hasFirstChild())
-        || (cursor.hasRightSibling() && (cursor.moveToRightSibling().hasMoved()))) {
+    if ((!movedToParent && cursor.hasFirstChild()) || (cursor.hasRightSibling() && (cursor.moveToRightSibling()
+                                                                                          .hasMoved()))) {
       while (cursor.hasFirstChild()) {
         cursor.moveToFirstChild();
       }
@@ -96,7 +96,7 @@ public final class PostOrderAxis extends AbstractAxis {
       key = cursor.getRightSiblingKey();
     } else {
       key = cursor.getParentKey();
-      mMovedToParent = true;
+      movedToParent = true;
     }
 
     // Stop traversal if needed.
@@ -107,7 +107,7 @@ public final class PostOrderAxis extends AbstractAxis {
     // Traversal is at start key.
     if (key == getStartKey()) {
       if (isSelfIncluded() == IncludeSelf.YES) {
-        mIsStartKey = true;
+        isStartKey = true;
         return key;
       } else {
         return done();
