@@ -11,7 +11,7 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
 
 
     override fun createDatabase(): Boolean {
-        return Databases.createJsonDatabase(DatabaseConfiguration(Paths.get(options.file)))
+        return Databases.createJsonDatabase(DatabaseConfiguration(Paths.get(options.location)))
     }
 
     override fun insertData() {

@@ -12,7 +12,7 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
 
 
     override fun createDatabase(): Boolean {
-        return Databases.createXmlDatabase(DatabaseConfiguration(Paths.get(options.file)))
+        return Databases.createXmlDatabase(DatabaseConfiguration(Paths.get(options.location)))
     }
 
     override fun insertData() {

@@ -1,21 +1,26 @@
 @file:UseExperimental(ExperimentalCli::class)
+
 package org.sirix.cli
 
 
-import kotlinx.cli.*
+import kotlinx.cli.ArgParser
+import kotlinx.cli.ArgType
+import kotlinx.cli.ExperimentalCli
+import kotlinx.cli.Subcommand
+import kotlinx.cli.required
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.parser.CreateSubcommand
 import org.sirix.cli.parser.AbstractArgSubCommand
 import org.sirix.cli.parser.CreateResourceSubCommand
-import org.sirix.cli.parser.DropSubCommand
+import org.sirix.cli.parser.CreateSubcommand
 import org.sirix.cli.parser.DropResourceSubCommand
+import org.sirix.cli.parser.DropSubCommand
 import org.sirix.cli.parser.DumpResourceHistorySubCommand
 
 
 fun main(args: Array<String>) {
-    val cliCommand: CliCommand?  = parseArgs(args)
+    val cliCommand: CliCommand? = parseArgs(args)
 
-    if(cliCommand != null) {
+    if (cliCommand != null) {
         cliCommand.execute()
     } else {
         println("No Command provided!")
@@ -26,20 +31,22 @@ fun main(args: Array<String>) {
 fun parseArgs(args: Array<String>): CliCommand? {
     val argParser = ArgParser("Sirix CLI")
 
-    val file by argParser.option(ArgType.String, "file",  "f" ,  "Sirix DB File").required()
+    val location by argParser.option(ArgType.String, "location", "l", "The Sirix DB File location").required()
     // Can not use default values when using subcommands at the moment.
     // See https://github.com/Kotlin/kotlinx.cli/issues/26
-    val verbose by argParser.option(ArgType.Boolean,"verbose",  "v",   "Run verbosely")
+    val verbose by argParser.option(ArgType.Boolean, "verbose", "v", "Run verbosely")
 
-    val subCommandList: Array<Subcommand> = arrayOf(CreateSubcommand(),
-                                                    DropSubCommand(),
-                                                    CreateResourceSubCommand(),
-                                                    DropResourceSubCommand(),
-                                                    DumpResourceHistorySubCommand())
+    val subCommandList: Array<Subcommand> = arrayOf(
+        CreateSubcommand(),
+        DropSubCommand(),
+        CreateResourceSubCommand(),
+        DropResourceSubCommand(),
+        DumpResourceHistorySubCommand()
+    )
     argParser.subcommands(*subCommandList)
     argParser.parse(args)
 
-    val options = CliOptions(file, verbose ?: false)
+    val options = CliOptions(location, verbose ?: false)
 
     subCommandList.forEach {
         val asc: AbstractArgSubCommand = it as AbstractArgSubCommand
