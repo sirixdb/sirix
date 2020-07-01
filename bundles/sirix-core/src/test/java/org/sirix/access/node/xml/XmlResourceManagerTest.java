@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -90,7 +90,7 @@ public class XmlResourceManagerTest {
   }
 
   @Test
-  public void testNonExisting() throws SirixException, InterruptedException {
+  public void testNonExisting() {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     assertTrue(database == database2);
@@ -249,12 +249,12 @@ public class XmlResourceManagerTest {
     final Instant afterAllCommits;
     final Instant afterFirstCommit;
     final Instant afterSecondCommit;
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(TimeUnit.MILLISECONDS, 1000)) {
-      TimeUnit.MILLISECONDS.sleep(1100);
+    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(TimeUnit.MILLISECONDS, 2000)) {
+      TimeUnit.MILLISECONDS.sleep(2100);
       afterFirstCommit = Instant.now();
-      TimeUnit.MILLISECONDS.sleep(1100);
+      TimeUnit.MILLISECONDS.sleep(2100);
       afterSecondCommit = Instant.now();
-      TimeUnit.MILLISECONDS.sleep(1100);
+      TimeUnit.MILLISECONDS.sleep(2100);
       assertTrue(wtx.getRevisionNumber() >= 3);
       afterAllCommits = Instant.now();
     }

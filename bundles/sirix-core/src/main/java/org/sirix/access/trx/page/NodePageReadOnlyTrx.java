@@ -33,6 +33,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
+import org.sirix.io.StorageType;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
@@ -151,7 +152,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
   }
 
-  private Page loadIndirectPage(final PageReference reference) {
+  private Page loadPage(final PageReference reference) {
     Page page = reference.getPage();
     if (page == null) {
       if (trxIntentLog != null) {
@@ -170,7 +171,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (page == null) {
           page = pageReader.read(reference, this);
 
-          if (page != null && trxIntentLog == null) {
+          if (page != null && trxIntentLog == null && (resourceConfig.getStorageType() != StorageType.IN_MEMORY
+              || isRootOfTreePage(page))) {
             assert reference.getLogKey() == Constants.NULL_ID_INT
                 && reference.getPersistentLogKey() == Constants.NULL_ID_LONG;
             // Put page into buffer manager and set page reference (just to
@@ -183,6 +185,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     return page;
+  }
+
+  private boolean isRootOfTreePage(Page page) {
+    return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof PathPage
+        || page instanceof CASPage || page instanceof RevisionRootPage || page instanceof UberPage;
   }
 
   @Override
@@ -289,7 +296,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (page == null && reference != null) {
         assert reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
             || reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
-        page = (RevisionRootPage) loadIndirectPage(reference);
+        page = (RevisionRootPage) loadPage(reference);
       }
 
       return page;
@@ -330,8 +337,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     Page page = reference.getPage();
 
     if (page == null) {
-      page = loadIndirectPage(reference);
-      reference.setPage(page);
+      page = loadPage(reference);
+
+      if ((resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) || isRootOfTreePage(page)) {
+        reference.setPage(page);
+      }
     }
 
     return page;
@@ -398,7 +408,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final VersioningType revisioning = resourceConfig.revisioningType;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
-    if (trxIntentLog == null) {
+    if (trxIntentLog == null && resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) {
       resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), completePage);
       //      mResourceBufferManager.getUnorderedKeyValuePageCache().put(indexLogKey, completePage);
       pageReferenceToRecordPage.get().setPage(completePage);
@@ -512,7 +522,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
         || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
       // Then try to get it from the page cache which might read it from the persistent storage on a cache miss.
-      page = (IndirectPage) loadIndirectPage(reference);
+      page = (IndirectPage) loadPage(reference);
     }
 
     return page;
@@ -619,7 +629,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         pageReader.close();
       }
 
-      if (resourceBufferManager != null) {
+      if (resourceBufferManager instanceof BufferManagerImpl) {
         ((BufferManagerImpl) resourceBufferManager).close();
       }
 

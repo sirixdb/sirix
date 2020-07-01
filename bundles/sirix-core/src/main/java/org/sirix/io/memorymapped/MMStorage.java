@@ -42,7 +42,7 @@ import java.nio.file.Path;
  * @author Johannes Lichtenberger
  *
  */
-public final class MemoryMappedStorage implements IOStorage {
+public final class MMStorage implements IOStorage {
 
   /** Data file name. */
   private static final String FILENAME = "sirix.data";
@@ -61,7 +61,7 @@ public final class MemoryMappedStorage implements IOStorage {
    *
    * @param resourceConfig the resource configuration
    */
-  public MemoryMappedStorage(final ResourceConfiguration resourceConfig) {
+  public MMStorage(final ResourceConfiguration resourceConfig) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
@@ -75,11 +75,11 @@ public final class MemoryMappedStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      return new MemoryMappedFileReader(dataFilePath,
-                                        revisionsOffsetFilePath,
-                                        new ByteHandlePipeline(byteHandlerPipeline),
-                                        SerializationType.DATA,
-                                        new PagePersister());
+      return new MMFileReader(dataFilePath,
+                              revisionsOffsetFilePath,
+                              new ByteHandlePipeline(byteHandlerPipeline),
+                              SerializationType.DATA,
+                              new PagePersister());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -110,11 +110,11 @@ public final class MemoryMappedStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      return new MemoryMappedFileWriter(dataFilePath,
-                                        revisionsOffsetFilePath,
-                                        new ByteHandlePipeline(byteHandlerPipeline),
-                                        SerializationType.DATA,
-                                        new PagePersister());
+      return new MMFileWriter(dataFilePath,
+                              revisionsOffsetFilePath,
+                              new ByteHandlePipeline(byteHandlerPipeline),
+                              SerializationType.DATA,
+                              new PagePersister());
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }

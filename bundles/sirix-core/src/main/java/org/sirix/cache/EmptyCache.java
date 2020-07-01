@@ -4,7 +4,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import com.google.common.collect.ImmutableMap;
 
-public class EmptyCache<K, V> implements Cache<K, V> {
+public final class EmptyCache<K, V> implements Cache<K, V> {
   public EmptyCache() {}
 
   @Override

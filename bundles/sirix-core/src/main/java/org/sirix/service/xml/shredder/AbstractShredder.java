@@ -23,13 +23,13 @@ import org.sirix.settings.Fixed;
 public abstract class AbstractShredder implements Shredder<String, QNm> {
 
   /** Sirix {@link XmlNodeTrx}. */
-  private final XmlNodeTrx mWtx;
+  private final XmlNodeTrx wtx;
 
   /** Keeps track of visited keys. */
-  private final Deque<Long> mParents;
+  private final Deque<Long> parents;
 
   /** Determines the import location of a new node. */
-  private InsertPosition mInsertLocation;
+  private InsertPosition insertLocation;
 
   /**
    * Constructor.
@@ -38,10 +38,10 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
    *         {@code null}
    */
   public AbstractShredder(final XmlNodeTrx wtx, final InsertPosition insertLocation) {
-    mWtx = checkNotNull(wtx);
-    mInsertLocation = checkNotNull(insertLocation);
-    mParents = new ArrayDeque<>();
-    mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+    this.wtx = checkNotNull(wtx);
+    this.insertLocation = checkNotNull(insertLocation);
+    parents = new ArrayDeque<>();
+    parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
   }
 
   @Override
@@ -50,14 +50,14 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
     if (!value.isEmpty()) {
       final long key;
 
-      if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        key = mWtx.insertCommentAsFirstChild(value).getNodeKey();
+      if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        key = wtx.insertCommentAsFirstChild(value).getNodeKey();
       } else {
-        key = mWtx.insertCommentAsRightSibling(value).getNodeKey();
+        key = wtx.insertCommentAsRightSibling(value).getNodeKey();
       }
 
-      mParents.pop();
-      mParents.push(key);
+      parents.pop();
+      parents.push(key);
     }
   }
 
@@ -69,14 +69,14 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
     if (!target.isEmpty()) {
       final long key;
 
-      if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        key = mWtx.insertPIAsFirstChild(target, content).getNodeKey();
+      if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        key = wtx.insertPIAsFirstChild(target, content).getNodeKey();
       } else {
-        key = mWtx.insertPIAsRightSibling(target, content).getNodeKey();
+        key = wtx.insertPIAsRightSibling(target, content).getNodeKey();
       }
 
-      mParents.pop();
-      mParents.push(key);
+      parents.pop();
+      parents.push(key);
     }
   }
 
@@ -86,14 +86,14 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
     if (!text.isEmpty()) {
       final long key;
 
-      if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        key = mWtx.insertTextAsFirstChild(text).getNodeKey();
+      if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        key = wtx.insertTextAsFirstChild(text).getNodeKey();
       } else {
-        key = mWtx.insertTextAsRightSibling(text).getNodeKey();
+        key = wtx.insertTextAsRightSibling(text).getNodeKey();
       }
 
-      mParents.pop();
-      mParents.push(key);
+      parents.pop();
+      parents.push(key);
     }
   }
 
@@ -101,45 +101,45 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
   public void processStartTag(final QNm elementName) throws SirixException {
     final QNm name = checkNotNull(elementName);
     long key = -1;
-    switch (mInsertLocation) {
+    switch (insertLocation) {
       case AS_FIRST_CHILD:
-        if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = mWtx.insertElementAsFirstChild(name).getNodeKey();
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertElementAsFirstChild(name).getNodeKey();
         } else {
-          key = mWtx.insertElementAsRightSibling(name).getNodeKey();
+          key = wtx.insertElementAsRightSibling(name).getNodeKey();
         }
         break;
       case AS_RIGHT_SIBLING:
-        if (mWtx.getKind() == NodeKind.XML_DOCUMENT
-            || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+        if (wtx.getKind() == NodeKind.XML_DOCUMENT
+            || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-element!");
         }
-        key = mWtx.insertElementAsRightSibling(name).getNodeKey();
-        mInsertLocation = InsertPosition.AS_FIRST_CHILD;
+        key = wtx.insertElementAsRightSibling(name).getNodeKey();
+        insertLocation = InsertPosition.AS_FIRST_CHILD;
         break;
       case AS_LEFT_SIBLING:
-        if (mWtx.getKind() == NodeKind.XML_DOCUMENT
-            || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+        if (wtx.getKind() == NodeKind.XML_DOCUMENT
+            || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-element!");
         }
-        key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
-        mInsertLocation = InsertPosition.AS_FIRST_CHILD;
+        key = wtx.insertElementAsLeftSibling(name).getNodeKey();
+        insertLocation = InsertPosition.AS_FIRST_CHILD;
         break;
       default:
         throw new AssertionError();// Must not happen.
     }
 
-    mParents.pop();
-    mParents.push(key);
-    mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+    parents.pop();
+    parents.push(key);
+    parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
   }
 
   @Override
   public void processEndTag(final QNm elementName) {
-    mParents.pop();
-    mWtx.moveTo(mParents.peek());
+    parents.pop();
+    wtx.moveTo(parents.peek());
   }
 
   @Override

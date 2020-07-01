@@ -212,10 +212,6 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     }
   }
 
-  BufferManager getPageCache(final Path resourceFile) {
-    return bufferManagers.get(resourceFile);
-  }
-
   @Override
   public Transaction beginTransaction() {
     // FIXME

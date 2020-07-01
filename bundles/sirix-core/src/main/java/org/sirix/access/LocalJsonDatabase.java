@@ -30,6 +30,7 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.io.StorageType;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -65,9 +66,10 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
   }
 
   @Override
-  public synchronized void close() throws SirixException {
-    if (isClosed)
+  public synchronized void close() {
+    if (isClosed) {
       return;
+    }
 
     isClosed = true;
     resourceStore.close();
@@ -103,8 +105,13 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    if (!bufferManagers.containsKey(resourceFile))
-      bufferManagers.put(resourceFile, new BufferManagerImpl());
+    if (!bufferManagers.containsKey(resourceFile)) {
+      if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
+        bufferManagers.put(resourceFile, new EmptyBufferManager());
+      } else  {
+        bufferManagers.put(resourceFile, new BufferManagerImpl());
+      }
+    }
 
     return resourceStore.openResource(this, resourceConfig, bufferManagers.get(resourceFile), resourceFile);
   }
