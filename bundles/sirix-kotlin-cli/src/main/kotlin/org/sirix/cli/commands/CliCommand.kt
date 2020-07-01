@@ -19,7 +19,7 @@ abstract class CliCommand(protected val options: CliOptions) {
     abstract fun execute()
 
     protected fun path() : Path {
-        return Paths.get(options.file)
+        return Paths.get(options.location)
     }
 
     protected fun openDatabase(user: User?): Database<*> {

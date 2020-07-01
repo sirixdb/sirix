@@ -17,9 +17,9 @@ abstract class Create(options: CliOptions, private val dataOptions: DataCommandO
     override fun execute() {
 
         if (createDatabase()) {
-            cliPrinter.prnLnV("Database '${options.file}' created.")
+            cliPrinter.prnLnV("Database '${options.location}' created.")
         } else {
-            cliPrinter.prnLnV("Database '${options.file}' not created!")
+            cliPrinter.prnLnV("Database '${options.location}' not created!")
             exitProcess(1)
         }
 
