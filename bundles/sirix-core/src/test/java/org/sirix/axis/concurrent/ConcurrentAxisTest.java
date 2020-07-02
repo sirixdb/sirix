@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -131,6 +132,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
+  @Ignore
   @Test
   public void testConcurrent() {
     /* query: //regions/africa//location */
@@ -164,6 +166,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
+  @Ignore
   @Test
   public void testPartConcurrentDescAxis1() {
     /* query: //regions/africa//location */
@@ -190,6 +193,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
+  @Ignore
   @Test
   public void testPartConcurrentDescAxis2() {
     /* query: //regions/africa//location */
