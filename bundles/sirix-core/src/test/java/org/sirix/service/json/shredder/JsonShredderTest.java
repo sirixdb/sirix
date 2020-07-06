@@ -1,16 +1,5 @@
 package org.sirix.service.json.shredder;
 
-import static org.junit.Assert.assertEquals;
-
-import java.io.IOException;
-import java.io.StringWriter;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.concurrent.TimeUnit;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -21,12 +10,21 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.Database;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.VersioningType;
 import org.skyscreamer.jsonassert.JSONAssert;
+
+import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.assertEquals;
 
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
@@ -58,7 +56,7 @@ public final class JsonShredderTest {
       int count = 0;
 
       for (final long nodeKey : axis) {
-        if (count % 1_000_000l == 0) {
+        if (count % 1_000_000L == 0) {
           System.out.println(nodeKey);
         }
         count++;

@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -234,6 +235,7 @@ public class XmlResourceManagerTest {
     }
   }
 
+  @Ignore
   @Test
   public void testAutoCommitWithScheduler() throws InterruptedException {
     // After 500 milliseconds commit.
@@ -243,6 +245,7 @@ public class XmlResourceManagerTest {
     }
   }
 
+  @Ignore
   @Test
   public void testFetchingOfClosestRevisionToAGivenPointInTime() throws InterruptedException {
     final Instant start = Instant.now();
