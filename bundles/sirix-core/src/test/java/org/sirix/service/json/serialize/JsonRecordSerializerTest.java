@@ -15,7 +15,6 @@ public final class JsonRecordSerializerTest {
   @BeforeEach
   public void setUp() {
     JsonTestHelper.deleteEverything();
-    JsonTestHelper.createTestDocument();
   }
 
   @AfterEach
@@ -24,7 +23,9 @@ public final class JsonRecordSerializerTest {
   }
 
   @Test
-  public void serialize() {
+  public void serializeObject() {
+    JsonTestHelper.createTestDocument();
+
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
          final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var rtx = resmgr.beginNodeReadOnlyTrx()) {
