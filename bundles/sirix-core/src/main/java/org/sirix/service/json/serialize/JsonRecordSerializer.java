@@ -9,6 +9,14 @@ import java.io.Writer;
 
 public final class JsonRecordSerializer {
 
+  private enum State {
+    IS_OBJECT,
+
+    IS_ARRAY,
+
+    IS_PRIMITIVE
+  }
+
   /**
    * Private constructor to prevent from instantiation.
    */
@@ -22,17 +30,20 @@ public final class JsonRecordSerializer {
       final int... revisions) {
     Preconditions.checkArgument(numberOfRecords > 0, "Number must be > 0.");
 
+    var state = State.IS_PRIMITIVE;
+
     try {
       rtx.moveToDocumentRoot();
 
       if (rtx.hasFirstChild()) {
         rtx.moveToFirstChild();
 
-        boolean isObject = false;
-
         if (rtx.isObject()) {
-          isObject = true;
+          state = State.IS_OBJECT;
           stream.append("{");
+        } else if (rtx.isArray()) {
+          state = State.IS_ARRAY;
+          stream.append("[");
         }
 
         if (rtx.hasFirstChild()) {
@@ -51,18 +62,21 @@ public final class JsonRecordSerializer {
               rtx.moveToRightSibling();
               nodeKey = rtx.getNodeKey();
               stream.append(",");
-              jsonSerializer = new JsonSerializer.Builder(rtx.getResourceManager(), stream, revisions).startNodeKey(nodeKey)
-                                                                                                      .serializeStartNodeWithBrackets(
-                                                                                                          false)
-                                                                                                      .build();
+              jsonSerializer =
+                  new JsonSerializer.Builder(rtx.getResourceManager(), stream, revisions).startNodeKey(nodeKey)
+                                                                                         .serializeStartNodeWithBrackets(
+                                                                                             false)
+                                                                                         .build();
               jsonSerializer.call();
               rtx.moveTo(nodeKey);
             }
           }
         }
 
-        if (isObject) {
+        if (state == State.IS_OBJECT) {
           stream.append("}");
+        } else if (state == State.IS_ARRAY) {
+          stream.append("]");
         }
       }
     } catch (final IOException e) {
