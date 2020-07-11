@@ -433,6 +433,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                     .revisions(revisions)
                                                                                     .serializeTimestamp(
                                                                                         serializeTimestamp)
+                                                                                    .withMetaData(withMetaData)
+                                                                                    .withNodeKeyAndChildCountMetaData(
+                                                                                        withNodeKeyAndChildNodeKeyMetaData)
+                                                                                    .withNodeKeyMetaData(
+                                                                                        withNodeKeyMetaData)
                                                                                     .build();
             jsonSerializer.call();
             rtx.moveTo(nodeKey);
@@ -450,6 +455,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                         .revisions(revisions)
                                                                                         .serializeTimestamp(
                                                                                             serializeTimestamp)
+                                                                                        .withMetaData(withMetaData)
+                                                                                        .withNodeKeyAndChildCountMetaData(
+                                                                                            withNodeKeyAndChildNodeKeyMetaData)
+                                                                                        .withNodeKeyMetaData(
+                                                                                            withNodeKeyMetaData)
                                                                                         .build();
                 jsonSerializer.call();
                 rtx.moveTo(nodeKey);
