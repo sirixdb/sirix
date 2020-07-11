@@ -85,9 +85,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   private void initialize(final @Nonnegative int revision, final int... revisions) {
     this.revisions[0] = revision;
     if (revisions != null) {
-      for (int i = 0; i < revisions.length; i++) {
-        this.revisions[i + 1] = revisions[i];
-      }
+      System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);
     }
   }
 
@@ -95,10 +93,10 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * Serialize the storage.
    *
    * @return null.
-   * @throws SirixException if can't call serailzer
+   * @throws SirixException if anything went wrong
    */
   @Override
-  public Void call() throws SirixException {
+  public Void call() {
     emitStartDocument();
 
     final int nrOfRevisions = revisions.length;
@@ -125,7 +123,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
         // Setup primitives.
         boolean closeElements = false;
-        long key = rtx.getNodeKey();
+        long key;
 
         // Iterate over all nodes of the subtree including s.
         while (descAxis.hasNext()) {
