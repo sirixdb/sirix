@@ -381,8 +381,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case OBJECT_KEY:
-          if (withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData || (hadToAddBracket
-              && rtx.getNodeKey() == startNodeKey)) {
+          if ((withMetaDataField() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
+              && rtx.getNodeKey() == startNodeKey)) || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
             appendObjectEnd(true);
           }
           if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
