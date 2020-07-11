@@ -20,6 +20,7 @@ import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.xml.XmlSessionDBStore
+import org.sirix.service.json.serialize.JsonRecordSerializer
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -212,32 +213,65 @@ class JsonGet(private val location: Path) {
         manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
         ctx: RoutingContext
     ) {
+        val firstTopLevelNodes = ctx.queryParam("revision").getOrNull(0)?.toInt()
+
         val out = StringWriter()
-
-        val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions.toIntArray())
-
-        nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
         val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
         val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
         val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
-        if (withMetaData != null) {
-            when (withMetaData) {
-                "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
-                "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
-                else -> serializerBuilder.withMetaData(true)
+        if (firstTopLevelNodes == null) {
+            val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions.toIntArray())
+
+            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+
+            firstTopLevelNodes?.let { serializerBuilder.serializeStartNodeWithBrackets(false) }
+
+            if (withMetaData != null) {
+                when (withMetaData) {
+                    "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
+                    "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                    else -> serializerBuilder.withMetaData(true)
+                }
             }
+
+            if (maxLevel != null) {
+                serializerBuilder.maxLevel(maxLevel.toLong())
+            }
+
+            if (prettyPrint != null) {
+                serializerBuilder.prettyPrint()
+            }
+
+            val serializer = serializerBuilder.build()
+
+            JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+        } else {
+            val serializerBuilder =
+                JsonRecordSerializer.newBuilder(manager, firstTopLevelNodes, out).revisions(revisions.toIntArray())
+
+            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+
+            if (withMetaData != null) {
+                when (withMetaData) {
+                    "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
+                    "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                    else -> serializerBuilder.withMetaData(true)
+                }
+            }
+
+            if (maxLevel != null) {
+                serializerBuilder.maxLevel(maxLevel.toLong())
+            }
+
+            if (prettyPrint != null) {
+                serializerBuilder.prettyPrint()
+            }
+
+            val serializer = serializerBuilder.build()
+
+            JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
         }
-
-        if (maxLevel != null)
-            serializerBuilder.maxLevel(maxLevel.toLong())
-
-        if (prettyPrint != null)
-            serializerBuilder.prettyPrint()
-
-        val serializer = serializerBuilder.build()
-
-        JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
     }
 }
