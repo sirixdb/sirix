@@ -226,8 +226,6 @@ class JsonGet(private val location: Path) {
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
-            firstTopLevelNodes?.let { serializerBuilder.serializeStartNodeWithBrackets(false) }
-
             if (withMetaData != null) {
                 when (withMetaData) {
                     "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
