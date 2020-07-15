@@ -414,23 +414,34 @@ public final class JsonRecordSerializer implements Callable<Void> {
         if (rtx.hasFirstChild()) {
           rtx.moveToFirstChild();
 
+          var jsonSerializer =
+              new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(rtx.getNodeKey())
+                                                                                  .serializeStartNodeWithBrackets(
+                                                                                      false)
+                                                                                  .serializeTimestamp(
+                                                                                      serializeTimestamp)
+                                                                                  .withMetaData(withMetaData)
+                                                                                  .withNodeKeyAndChildCountMetaData(
+                                                                                      withNodeKeyAndChildNodeKeyMetaData)
+                                                                                  .withNodeKeyMetaData(
+                                                                                      withNodeKeyMetaData)
+                                                                                  .build();
+          jsonSerializer.emitNode(rtx);
+
           if (rtx.isObject()) {
             state = State.IS_OBJECT;
-            out.append("{");
           } else if (rtx.isArray()) {
             state = State.IS_ARRAY;
-            out.append("[");
           }
 
           if (rtx.hasFirstChild()) {
             rtx.moveToFirstChild();
             var nodeKey = rtx.getNodeKey();
-            var jsonSerializer =
+            jsonSerializer =
                 new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
                                                                                     .serializeStartNodeWithBrackets(
                                                                                         false)
                                                                                     .maxLevel(maxLevel)
-                                                                                    .revisions(revisions)
                                                                                     .serializeTimestamp(
                                                                                         serializeTimestamp)
                                                                                     .withMetaData(withMetaData)
@@ -452,7 +463,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                         .serializeStartNodeWithBrackets(
                                                                                             false)
                                                                                         .maxLevel(maxLevel)
-                                                                                        .revisions(revisions)
                                                                                         .serializeTimestamp(
                                                                                             serializeTimestamp)
                                                                                         .withMetaData(withMetaData)
@@ -468,8 +478,14 @@ public final class JsonRecordSerializer implements Callable<Void> {
           }
 
           if (state == State.IS_OBJECT) {
+            if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
+              out.append("}]");
+            }
             out.append("}");
           } else if (state == State.IS_ARRAY) {
+            if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
+              out.append("}");
+            }
             out.append("]");
           }
         }
