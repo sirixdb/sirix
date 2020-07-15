@@ -213,7 +213,7 @@ class JsonGet(private val location: Path) {
         manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
         ctx: RoutingContext
     ) {
-        val firstTopLevelNodes = ctx.queryParam("revision").getOrNull(0)?.toInt()
+        val firstTopLevelNodes = ctx.queryParam("firstTopLevelNodes").getOrNull(0)?.toInt()
 
         val out = StringWriter()
 
