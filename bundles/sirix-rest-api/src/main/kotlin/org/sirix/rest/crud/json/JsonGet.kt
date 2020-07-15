@@ -213,7 +213,7 @@ class JsonGet(private val location: Path) {
         manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
         ctx: RoutingContext
     ) {
-        val firstTopLevelNodes = ctx.queryParam("firstTopLevelNodes").getOrNull(0)?.toInt()
+        val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
         val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
         val out = StringWriter()
@@ -222,7 +222,7 @@ class JsonGet(private val location: Path) {
         val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
         val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
-        if (firstTopLevelNodes == null) {
+        if (nextTopLevelNodes == null) {
             val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions.toIntArray())
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
@@ -248,7 +248,7 @@ class JsonGet(private val location: Path) {
             JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
         } else {
             val serializerBuilder =
-                JsonRecordSerializer.newBuilder(manager, firstTopLevelNodes, out).revisions(revisions.toIntArray())
+                JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions.toIntArray())
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
