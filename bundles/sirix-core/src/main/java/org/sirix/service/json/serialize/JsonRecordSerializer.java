@@ -56,8 +56,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
    */
   private final boolean withInitialIndent;
 
-  private final boolean emitXQueryResultSequence;
-
   private final boolean serializeTimestamp;
 
   private final boolean withMetaData;
@@ -73,7 +71,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
   /**
    * Array with versions to print.
    */
-  protected final int[] revisions;
+  private final int[] revisions;
+
+  private long lastTopLevelNodeKey;
 
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
@@ -95,11 +95,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
     indent = builder.indent;
     indentSpaces = builder.indentSpaces;
     withInitialIndent = builder.initialIndent;
-    emitXQueryResultSequence = builder.emitXQueryResultSequence;
     serializeTimestamp = builder.serializeTimestamp;
     withMetaData = builder.withMetaData;
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
+    lastTopLevelNodeKey = builder.lastTopLevelNodeKey;
   }
 
   /**
@@ -191,11 +191,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
     private boolean initialIndent;
 
     /**
-     * Determines if it's an XQuery result sequence.
-     */
-    private boolean emitXQueryResultSequence;
-
-    /**
      * Determines if a timestamp should be serialized or not.
      */
     private boolean serializeTimestamp;
@@ -219,6 +214,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
      * Determines if childCount meta data should be serialized or not.
      */
     private boolean withNodeKeyAndChildCount;
+
+    private long lastTopLevelNodeKey;
 
     /**
      * Constructor, setting the necessary stuff.
@@ -286,6 +283,17 @@ public final class JsonRecordSerializer implements Callable<Void> {
     }
 
     /**
+     * Specify the start node key.
+     *
+     * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
+     * @return this reference
+     */
+    public Builder lastTopLevelNodeKey(final long nodeKey) {
+      this.lastTopLevelNodeKey = nodeKey;
+      return this;
+    }
+
+    /**
      * Specify the maximum level.
      *
      * @param maxLevel the maximum level until which to serialize
@@ -303,16 +311,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     public Builder withInitialIndent() {
       initialIndent = true;
-      return this;
-    }
-
-    /**
-     * Sets if the serialization is used for XQuery result sets.
-     *
-     * @return this reference
-     */
-    public Builder isXQueryResultSequence() {
-      emitXQueryResultSequence = true;
       return this;
     }
 
@@ -372,7 +370,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
      * The versions to serialize.
      *
      * @param revisions the versions to serialize
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder revisions(final int[] revisions) {
       checkNotNull(revisions);
@@ -416,10 +414,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
           var jsonSerializer =
               new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(rtx.getNodeKey())
-                                                                                  .serializeStartNodeWithBrackets(
-                                                                                      false)
-                                                                                  .serializeTimestamp(
-                                                                                      serializeTimestamp)
+                                                                                  .serializeStartNodeWithBrackets(false)
+                                                                                  .serializeTimestamp(serializeTimestamp)
                                                                                   .withMetaData(withMetaData)
                                                                                   .withNodeKeyAndChildCountMetaData(
                                                                                       withNodeKeyAndChildNodeKeyMetaData)
@@ -435,44 +431,57 @@ public final class JsonRecordSerializer implements Callable<Void> {
           }
 
           if (rtx.hasFirstChild()) {
-            rtx.moveToFirstChild();
-            var nodeKey = rtx.getNodeKey();
-            jsonSerializer =
-                new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
-                                                                                    .serializeStartNodeWithBrackets(
-                                                                                        false)
-                                                                                    .maxLevel(maxLevel)
-                                                                                    .serializeTimestamp(
-                                                                                        serializeTimestamp)
-                                                                                    .withMetaData(withMetaData)
-                                                                                    .withNodeKeyAndChildCountMetaData(
-                                                                                        withNodeKeyAndChildNodeKeyMetaData)
-                                                                                    .withNodeKeyMetaData(
-                                                                                        withNodeKeyMetaData)
-                                                                                    .build();
-            jsonSerializer.call();
-            rtx.moveTo(nodeKey);
-
-            if (rtx.hasRightSibling()) {
-              for (int j = 1; j < numberOfRecords && rtx.hasRightSibling(); j++) {
+            boolean hasMoved = false;
+            if (lastTopLevelNodeKey != 0) {
+              rtx.moveTo(lastTopLevelNodeKey);
+              if (rtx.hasRightSibling()) {
                 rtx.moveToRightSibling();
-                nodeKey = rtx.getNodeKey();
-                out.append(",");
-                jsonSerializer =
-                    new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
-                                                                                        .serializeStartNodeWithBrackets(
-                                                                                            false)
-                                                                                        .maxLevel(maxLevel)
-                                                                                        .serializeTimestamp(
-                                                                                            serializeTimestamp)
-                                                                                        .withMetaData(withMetaData)
-                                                                                        .withNodeKeyAndChildCountMetaData(
-                                                                                            withNodeKeyAndChildNodeKeyMetaData)
-                                                                                        .withNodeKeyMetaData(
-                                                                                            withNodeKeyMetaData)
-                                                                                        .build();
-                jsonSerializer.call();
-                rtx.moveTo(nodeKey);
+                hasMoved = true;
+              }
+            } else {
+              rtx.moveToFirstChild();
+              hasMoved = true;
+            }
+
+            if (hasMoved) {
+              var nodeKey = rtx.getNodeKey();
+              jsonSerializer =
+                  new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
+                                                                                      .serializeStartNodeWithBrackets(
+                                                                                          false)
+                                                                                      .maxLevel(maxLevel)
+                                                                                      .serializeTimestamp(
+                                                                                          serializeTimestamp)
+                                                                                      .withMetaData(withMetaData)
+                                                                                      .withNodeKeyAndChildCountMetaData(
+                                                                                          withNodeKeyAndChildNodeKeyMetaData)
+                                                                                      .withNodeKeyMetaData(
+                                                                                          withNodeKeyMetaData)
+                                                                                      .build();
+              jsonSerializer.call();
+              rtx.moveTo(nodeKey);
+
+              if (rtx.hasRightSibling()) {
+                for (int j = 1; j < numberOfRecords && rtx.hasRightSibling(); j++) {
+                  rtx.moveToRightSibling();
+                  nodeKey = rtx.getNodeKey();
+                  out.append(",");
+                  jsonSerializer =
+                      new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
+                                                                                          .serializeStartNodeWithBrackets(
+                                                                                              false)
+                                                                                          .maxLevel(maxLevel)
+                                                                                          .serializeTimestamp(
+                                                                                              serializeTimestamp)
+                                                                                          .withMetaData(withMetaData)
+                                                                                          .withNodeKeyAndChildCountMetaData(
+                                                                                              withNodeKeyAndChildNodeKeyMetaData)
+                                                                                          .withNodeKeyMetaData(
+                                                                                              withNodeKeyMetaData)
+                                                                                          .build();
+                  jsonSerializer.call();
+                  rtx.moveTo(nodeKey);
+                }
               }
             }
           }
