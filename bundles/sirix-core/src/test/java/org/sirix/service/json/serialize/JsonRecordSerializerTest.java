@@ -41,6 +41,44 @@ public final class JsonRecordSerializerTest {
   }
 
   @Test
+  public void serializeObjectWithLastTopLevelNodeKey() {
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+      final var stringWriter = new StringWriter();
+      final var jsonRecordSerializer =
+          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(7).build();
+      jsonRecordSerializer.call();
+
+      final var expected = """
+              {"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+          """.strip();
+
+      assertEquals(expected, stringWriter.toString());
+    }
+  }
+
+  @Test
+  public void serializeObjectWithLastTopLevelNodeKeyAndNoRightSibling() {
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+      final var stringWriter = new StringWriter();
+      final var jsonRecordSerializer =
+          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(15).build();
+      jsonRecordSerializer.call();
+
+      final var expected = """
+              {}
+          """.strip();
+
+      assertEquals(expected, stringWriter.toString());
+    }
+  }
+
+  @Test
   public void serializeObjectWithMaxLevel() {
     JsonTestHelper.createTestDocument();
 

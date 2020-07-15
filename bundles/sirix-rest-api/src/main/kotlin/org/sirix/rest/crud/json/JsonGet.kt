@@ -214,6 +214,7 @@ class JsonGet(private val location: Path) {
         ctx: RoutingContext
     ) {
         val firstTopLevelNodes = ctx.queryParam("firstTopLevelNodes").getOrNull(0)?.toInt()
+        val lastTopLevelNodeKey = ctx.queryParam("firstTopLevelNodes").getOrNull(0)?.toLong()
 
         val out = StringWriter()
 
@@ -265,6 +266,10 @@ class JsonGet(private val location: Path) {
 
             if (prettyPrint != null) {
                 serializerBuilder.prettyPrint()
+            }
+
+            if (lastTopLevelNodeKey != null) {
+                serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
             }
 
             val serializer = serializerBuilder.build()
