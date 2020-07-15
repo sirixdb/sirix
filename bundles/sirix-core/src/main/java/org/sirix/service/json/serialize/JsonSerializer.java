@@ -140,7 +140,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param rtx Sirix {@link JsonNodeReadOnlyTrx}
    */
   @Override
-  protected void emitNode(final JsonNodeReadOnlyTrx rtx) {
+  public void emitNode(final JsonNodeReadOnlyTrx rtx) {
     try {
       final var hasChildren = rtx.hasChildren();
 
@@ -746,7 +746,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param resourceMgr Sirix {@link ResourceManager}
      * @param nodeKey     root node key of subtree to shredder
      * @param stream      {@link OutputStream} to write to
-     * @param properties  {@link XmlSerializerProperties} to use
+     * @param properties  {@link JsonSerializerProperties} to use
      * @param revisions   revisions to serialize
      */
     public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
