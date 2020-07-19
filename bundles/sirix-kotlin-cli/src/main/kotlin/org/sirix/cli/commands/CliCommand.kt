@@ -18,15 +18,16 @@ abstract class CliCommand(protected val options: CliOptions) {
 
     abstract fun execute()
 
-    protected fun path() : Path {
+    protected fun path(): Path {
         return Paths.get(options.location)
     }
 
     protected fun openDatabase(user: User?): Database<*> {
 
-        return when(Databases.getDatabaseType(path())) {
+        return when (Databases.getDatabaseType(path())) {
             DatabaseType.XML -> openXmlDatabase(user)
             DatabaseType.JSON -> openJsonDatabase(user)
+            else -> throw IllegalStateException("Unknown Database Type!")
         }
 
     }
@@ -35,7 +36,8 @@ abstract class CliCommand(protected val options: CliOptions) {
         return when {
             user != null -> {
                 openJsonDatabase(path(), user)
-            } else -> {
+            }
+            else -> {
                 openJsonDatabase(path())
             }
         }
@@ -45,7 +47,8 @@ abstract class CliCommand(protected val options: CliOptions) {
         return when {
             user != null -> {
                 openXmlDatabase(path(), user)
-            } else -> {
+            }
+            else -> {
                 openXmlDatabase(path())
             }
         }

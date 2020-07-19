@@ -13,7 +13,14 @@ class CliCommandTestConstants {
         val TEST_XML_DATA: String = "<xml><foo>Test</foo></xml>"
 
         @JvmField
-        val TEST_JSON_DATA: String = "{\"json\":\"Test\"}"
+        val TEST_XML_DATA_PATH: String = {}::class.java.getResource("/org/sirix/cli/commands/test_data.xml").path
+
+        @JvmField
+        val TEST_JSON_DATA: String =
+            "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}"
+
+        @JvmField
+        val TEST_JSON_DATA_PATH: String = {}::class.java.getResource("/org/sirix/cli/commands/test_data.json").path
 
         @JvmField
         val RESOURCE_LIST = listOf("resource1", "resource2", "resource3", "resource4", "resource5", "resource6")
@@ -22,6 +29,6 @@ class CliCommandTestConstants {
         val TEST_RESOURCE: String = "resource1"
 
         @JvmField
-        val TEST_MESSAGE: String = "This is a test commit Message."
+        val TEST_COMMIT_MESSAGE: String = "This is a test commit Message."
     }
 }

@@ -16,23 +16,33 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.StringWriter
 
-internal class JsonCreateTest: CliCommandTest() {
+internal class JsonCreateTest : CliCommandTest() {
 
     companion object {
-        @JvmField val LOGGER: Logger = LoggerFactory.getLogger(JsonCreateTest::class.java)
+        @JvmField
+        val LOGGER: Logger = LoggerFactory.getLogger(JsonCreateTest::class.java)
     }
 
-    private fun dataCommandOptions() = listOf(DataCommandOptions(CliCommandTestConstants.TEST_RESOURCE, CliCommandTestConstants.TEST_JSON_DATA, "", CliCommandTestConstants.TEST_MESSAGE, CliCommandTestConstants.TEST_USER),
-            DataCommandOptions(CliCommandTestConstants.TEST_RESOURCE, "", testFilePath(), CliCommandTestConstants.TEST_MESSAGE, CliCommandTestConstants.TEST_USER)
+    private fun dataCommandOptions() = listOf(
+        DataCommandOptions(
+            CliCommandTestConstants.TEST_RESOURCE,
+            CliCommandTestConstants.TEST_JSON_DATA,
+            "",
+            CliCommandTestConstants.TEST_COMMIT_MESSAGE,
+            CliCommandTestConstants.TEST_USER
+        ),
+        DataCommandOptions(
+            CliCommandTestConstants.TEST_RESOURCE,
+            "",
+            CliCommandTestConstants.TEST_JSON_DATA_PATH,
+            CliCommandTestConstants.TEST_COMMIT_MESSAGE,
+            CliCommandTestConstants.TEST_USER
+        )
     )
-
-    private fun testFilePath() :String {
-        return {}::class.java.getResource("/org/sirix/cli/commands/test_data.json").path
-    }
 
     @BeforeEach
     fun setUp() {
-        super.createSirixTestFileName()
+        super.sirixTestFile = createSirixTestFileName()
     }
 
     @AfterEach
@@ -59,7 +69,7 @@ internal class JsonCreateTest: CliCommandTest() {
         }
 
         val database = Databases.openJsonDatabase(path())
-        database.use{
+        database.use {
             assertTrue(database.existsResource(CliCommandTestConstants.TEST_RESOURCE))
 
             val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)

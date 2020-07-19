@@ -16,25 +16,33 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
 
-internal class XmlCreateTest: CliCommandTest() {
+internal class XmlCreateTest : CliCommandTest() {
 
     companion object {
         @JvmField
         val LOGGER: Logger = LoggerFactory.getLogger(XmlCreateTest::class.java)
     }
 
-    private fun dataCommandOptions() = listOf(DataCommandOptions(CliCommandTestConstants.TEST_RESOURCE, CliCommandTestConstants.TEST_XML_DATA, "", CliCommandTestConstants.TEST_MESSAGE, CliCommandTestConstants.TEST_USER),
-            DataCommandOptions(CliCommandTestConstants.TEST_RESOURCE, "", testFilePath(), CliCommandTestConstants.TEST_MESSAGE, CliCommandTestConstants.TEST_USER)
+    private fun dataCommandOptions() = listOf(
+        DataCommandOptions(
+            CliCommandTestConstants.TEST_RESOURCE,
+            CliCommandTestConstants.TEST_XML_DATA,
+            "",
+            CliCommandTestConstants.TEST_COMMIT_MESSAGE,
+            CliCommandTestConstants.TEST_USER
+        ),
+        DataCommandOptions(
+            CliCommandTestConstants.TEST_RESOURCE,
+            "",
+            CliCommandTestConstants.TEST_XML_DATA_PATH,
+            CliCommandTestConstants.TEST_COMMIT_MESSAGE,
+            CliCommandTestConstants.TEST_USER
+        )
     )
-
-
-    private fun testFilePath() :String {
-        return {}::class.java.getResource("/org/sirix/cli/commands/test_data.xml").path
-    }
 
     @BeforeEach
     fun setUp() {
-        super.createSirixTestFileName()
+        super.sirixTestFile = createSirixTestFileName()
     }
 
     @AfterEach
@@ -61,7 +69,7 @@ internal class XmlCreateTest: CliCommandTest() {
         }
 
         val database = Databases.openXmlDatabase(path())
-        database.use{
+        database.use {
             assertTrue(database.existsResource(CliCommandTestConstants.TEST_RESOURCE))
 
             val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
@@ -69,7 +77,7 @@ internal class XmlCreateTest: CliCommandTest() {
                 val out = ByteArrayOutputStream()
                 XmlSerializer.XmlSerializerBuilder(manager, out).build().call()
 
-                val s = String (out.toByteArray())
+                val s = String(out.toByteArray())
                 assertEquals(CliCommandTestConstants.TEST_XML_DATA, s)
             }
         }
