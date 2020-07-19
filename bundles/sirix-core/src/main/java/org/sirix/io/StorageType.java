@@ -21,10 +21,12 @@
 package org.sirix.io;
 
 import java.io.RandomAccessFile;
+
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.direct.FileChannelStorage;
 import org.sirix.io.file.FileStorage;
-import org.sirix.io.memorymapped.MemoryMappedStorage;
+import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
 
 /**
@@ -50,11 +52,19 @@ public enum StorageType {
     }
   },
 
+  /** FileChannel / direct I/O backend. */
+  DIRECT {
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      return new FileChannelStorage(resourceConf);
+    }
+  },
+
   /** Memory mapped backend. */
   MEMORY_MAPPED {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      return new MemoryMappedStorage(resourceConf);
+      return new MMStorage(resourceConf);
     }
   };
 

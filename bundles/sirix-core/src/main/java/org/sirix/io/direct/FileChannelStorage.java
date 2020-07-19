@@ -19,12 +19,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.io.file;
+package org.sirix.io.direct;
 
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -32,7 +32,6 @@ import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,7 +42,7 @@ import java.nio.file.Path;
  * @author Sebastian Graf, University of Konstanz.
  *
  */
-public final class FileStorage implements IOStorage {
+public final class FileChannelStorage implements IOStorage {
 
   /** Data file name. */
   private static final String FILENAME = "sirix.data";
@@ -62,7 +61,7 @@ public final class FileStorage implements IOStorage {
    *
    * @param resourceConfig the resource configuration
    */
-  public FileStorage(final ResourceConfiguration resourceConfig) {
+  public FileChannelStorage(final ResourceConfiguration resourceConfig) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
@@ -74,11 +73,13 @@ public final class FileStorage implements IOStorage {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
-          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-          new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
+      createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
+
+      return new FileChannelReader(dataFilePath,
+                                   revisionsOffsetFilePath,
+                                   new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
-      throw new UncheckedIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
@@ -99,11 +100,19 @@ public final class FileStorage implements IOStorage {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      return new FileWriter(new RandomAccessFile(dataFilePath.toFile(), "rw"),
-          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw"),
-          new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
+      createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
+
+      return new FileChannelWriter(dataFilePath,
+                                   revisionsOffsetFilePath,
+                                   new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
-      throw new UncheckedIOException(e);
+      throw new SirixIOException(e);
+    }
+  }
+
+  private void createRevisionsOffsetFileIfNotExists(Path revisionsOffsetFilePath) throws IOException {
+    if (!Files.exists(revisionsOffsetFilePath)) {
+      Files.createFile(revisionsOffsetFilePath);
     }
   }
 

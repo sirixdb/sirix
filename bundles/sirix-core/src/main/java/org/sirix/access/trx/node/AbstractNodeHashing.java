@@ -41,6 +41,7 @@ public abstract class AbstractNodeHashing {
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
    */
   private boolean bulkInsert;
+
   private boolean autoCommit;
 
   /**

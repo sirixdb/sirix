@@ -99,6 +99,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private final boolean withNodeKeyAndChildNodeKeyMetaData;
 
+  private final boolean serializeStartNodeWithBrackets;
+
   private boolean hadToAddBracket;
 
   private int currentIndent;
@@ -129,6 +131,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     withMetaData = builder.withMetaData;
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
+    serializeStartNodeWithBrackets = builder.serializeStartNodeWithBrackets;
   }
 
   /**
@@ -137,7 +140,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param rtx Sirix {@link JsonNodeReadOnlyTrx}
    */
   @Override
-  protected void emitNode(final JsonNodeReadOnlyTrx rtx) {
+  public void emitNode(final JsonNodeReadOnlyTrx rtx) {
     try {
       final var hasChildren = rtx.hasChildren();
 
@@ -183,7 +186,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case OBJECT_KEY:
-          if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey) {
+          if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
+              && serializeStartNodeWithBrackets) {
             appendObjectStart(hasChildren);
             hadToAddBracket = true;
           }
@@ -340,8 +344,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private void printCommaIfNeeded(final JsonNodeReadOnlyTrx rtx) throws IOException {
     final boolean hasRightSibling = rtx.hasRightSibling();
 
-    if (hasRightSibling && rtx.getNodeKey() != startNodeKey)
+    if (hasRightSibling && rtx.getNodeKey() != startNodeKey) {
       appendObjectSeparator();
+    }
   }
 
   /**
@@ -376,8 +381,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case OBJECT_KEY:
-          if (withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData || (hadToAddBracket
-              && rtx.getNodeKey() == startNodeKey)) {
+          if ((withMetaDataField() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
+              && rtx.getNodeKey() == startNodeKey)) || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
             appendObjectEnd(true);
           }
           if (rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey) {
@@ -711,6 +716,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      */
     private boolean withNodeKeyAndChildCount;
 
+    private boolean serializeStartNodeWithBrackets;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -719,6 +726,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param revisions   revisions to serialize
      */
     public Builder(final JsonResourceManager resourceMgr, final Appendable stream, final int... revisions) {
+      serializeStartNodeWithBrackets = true;
       maxLevel = -1;
       nodeKey = 0;
       this.resourceMgr = checkNotNull(resourceMgr);
@@ -738,12 +746,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param resourceMgr Sirix {@link ResourceManager}
      * @param nodeKey     root node key of subtree to shredder
      * @param stream      {@link OutputStream} to write to
-     * @param properties  {@link XmlSerializerProperties} to use
+     * @param properties  {@link JsonSerializerProperties} to use
      * @param revisions   revisions to serialize
      */
     public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
+      serializeStartNodeWithBrackets = true;
       maxLevel = -1;
       this.resourceMgr = checkNotNull(resourceMgr);
       this.nodeKey = nodeKey;
@@ -772,10 +781,21 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     }
 
     /**
+     * If the {@code startNodeKey} denotes an object key node "{}" are added, if .
+     *
+     * @param serializeStartNodeWithBrackets {@code true}, if brackets should be serialized, {@code false otherwise}
+     * @return this reference
+     */
+    public Builder serializeStartNodeWithBrackets(final boolean serializeStartNodeWithBrackets) {
+      this.serializeStartNodeWithBrackets = serializeStartNodeWithBrackets;
+      return this;
+    }
+
+    /**
      * Specify the maximum level.
      *
      * @param maxLevel the maximum level until which to serialize
-     * @return this XMLSerializerBuilder reference
+     * @return this reference
      */
     public Builder maxLevel(final long maxLevel) {
       this.maxLevel = maxLevel;
@@ -785,7 +805,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets an initial indentation.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder withInitialIndent() {
       initialIndent = true;
@@ -795,7 +815,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if the serialization is used for XQuery result sets.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder isXQueryResultSequence() {
       emitXQueryResultSequence = true;
@@ -805,7 +825,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if the serialization of timestamps of the revision(s) is used or not.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder serializeTimestamp(boolean serializeTimestamp) {
       this.serializeTimestamp = serializeTimestamp;
@@ -815,7 +835,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if metadata should be serialized or not.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder withMetaData(boolean withMetaData) {
       this.withMetaData = withMetaData;
@@ -827,7 +847,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if nodeKey metadata should be serialized or not.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder withNodeKeyMetaData(boolean withNodeKey) {
       this.withNodeKey = withNodeKey;
@@ -837,7 +857,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if nodeKey and childCount metadata should be serialized or not.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder withNodeKeyAndChildCountMetaData(boolean withNodeKeyAndChildCount) {
       this.withNodeKeyAndChildCount = withNodeKeyAndChildCount;
@@ -847,7 +867,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Pretty prints the output.
      *
-     * @return this {@link Builder} instance
+     * @return this reference
      */
     public Builder prettyPrint() {
       indent = true;

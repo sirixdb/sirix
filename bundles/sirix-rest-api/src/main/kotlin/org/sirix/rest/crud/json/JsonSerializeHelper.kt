@@ -7,10 +7,11 @@ import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.serialize.JsonSerializer
 import java.io.StringWriter
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.Callable
 
 class JsonSerializeHelper {
     fun serialize(
-        serializer: JsonSerializer,
+        serializer: Callable<*>,
         out: StringWriter,
         ctx: RoutingContext,
         manager: JsonResourceManager,

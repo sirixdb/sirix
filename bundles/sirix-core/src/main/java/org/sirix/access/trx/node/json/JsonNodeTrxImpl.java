@@ -380,7 +380,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         case AS_RIGHT_SIBLING -> {
           final NodeKind parentKind = getParentKind();
           if (parentKind != NodeKind.ARRAY) {
-            throw new IllegalStateException("Current parent node must an array.");
+            throw new IllegalStateException("Current parent node must be an array node.");
           }
         }
         default -> throw new UnsupportedOperationException();
