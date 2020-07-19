@@ -39,9 +39,9 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {
   private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
 
-  public RevisionRootPageCache() {
+  public RevisionRootPageCache(final int maxSize) {
     pageCache = Caffeine.newBuilder()
-                        .maximumSize(1000)
+                        .maximumSize(maxSize)
                         .expireAfterWrite(30, TimeUnit.SECONDS)
                         .expireAfterAccess(30, TimeUnit.SECONDS)
                         .build();

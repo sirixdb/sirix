@@ -61,28 +61,28 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
 
   /** Axis that is running in an own thread and produces results for this axis. */
-  private final Axis mProducer;
+  private final Axis producer;
 
   /**
    * Queue that stores result keys already computed by the producer. End of the result sequence is
    * marked by the NULL_NODE_KEY.
    */
-  private final BlockingQueue<Long> mResults;
+  private final BlockingQueue<Long> results;
 
   /** Capacity of the mResults queue. */
   private final int M_CAPACITY = 200;
 
   /** Has axis already been called? */
-  private boolean mFirst;
+  private boolean first;
 
   /** Runnable in which the producer is running. */
   private Runnable task;
 
   /** Is axis already finished and has no results left? */
-  private boolean mFinished;
+  private boolean finished;
 
   /** Executor Service holding the execution plan for future tasks. */
-  public ExecutorService mExecutorService;
+  public ExecutorService executorService;
 
   /**
    * Constructor. Initializes the internal state.
@@ -96,43 +96,43 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       throw new IllegalArgumentException(
           "The filter must be bound to another transaction but on the same revision/node!");
     }
-    mResults = new ArrayBlockingQueue<>(M_CAPACITY);
-    mFirst = true;
-    mProducer = checkNotNull(childAxis);
-    task = new ConcurrentAxisHelper(mProducer, mResults);
-    mExecutorService = Executors.newSingleThreadExecutor();
-    mFinished = false;
+    results = new ArrayBlockingQueue<>(M_CAPACITY);
+    first = true;
+    producer = checkNotNull(childAxis);
+    task = new ConcurrentAxisHelper(producer, results);
+    executorService = Executors.newSingleThreadExecutor();
+    finished = false;
   }
 
   @Override
   public synchronized void reset(final @Nonnegative long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
-    mFinished = false;
+    first = true;
+    finished = false;
 
-    if (mExecutorService != null) {
-      mExecutorService = Executors.newSingleThreadExecutor();
+    if (executorService != null) {
+      executorService = Executors.newSingleThreadExecutor();
     }
-    if (mProducer != null) {
-      mProducer.reset(nodeKey);
+    if (producer != null) {
+      producer.reset(nodeKey);
     }
-    if (mResults != null) {
-      mResults.clear();
+    if (results != null) {
+      results.clear();
     }
     if (task != null) {
-      task = new ConcurrentAxisHelper(mProducer, mResults);
+      task = new ConcurrentAxisHelper(producer, results);
     }
   }
 
   @Override
   protected long nextKey() {
     // Start producer on first call.
-    if (mFirst) {
-      mFirst = false;
-      mExecutorService.submit(task);
+    if (first) {
+      first = false;
+      executorService.submit(task);
     }
 
-    if (mFinished) {
+    if (finished) {
       return done();
     }
 
@@ -140,7 +140,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
 
     try {
       // Get result from producer as soon as it is available.
-      result = mResults.take();
+      result = results.take();
     } catch (final InterruptedException e) {
       LOGGER.warn(e.getMessage(), e);
     }
@@ -150,7 +150,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       return result;
     }
 
-    mFinished = true;
+    finished = true;
     return done();
   }
 
@@ -163,9 +163,9 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    */
   @Override
 protected final long done() {
-    mExecutorService.shutdown();
+    executorService.shutdown();
     try {
-        mExecutorService.awaitTermination(5, TimeUnit.SECONDS);
+        executorService.awaitTermination(5, TimeUnit.SECONDS);
     } catch (InterruptedException e) {
     }
     return Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -177,6 +177,6 @@ protected final long done() {
    * @return {@code true}, if axis still has results left, {@code false} otherwise
    */
   public boolean isFinished() {
-    return mFinished;
+    return finished;
   }
 }

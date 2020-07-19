@@ -142,7 +142,7 @@ public final class ResourceConfiguration {
 
   // FIXED STANDARD FIELDS
   /** Standard storage. */
-  private static final StorageType STORAGE = StorageType.FILE;
+  private static final StorageType STORAGE = StorageType.MEMORY_MAPPED;
 
   /** Standard versioning approach. */
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
@@ -151,7 +151,7 @@ public final class ResourceConfiguration {
   private static final HashType HASHKIND = HashType.ROLLING;
 
   /** Versions to restore. */
-  private static final int VERSIONSTORESTORE = 3;
+  private static final int VERSIONS_TO_RESTORE = 3;
 
   /** Persistenter for records. */
   private static final RecordPersister PERSISTENTER = new NodePersistenterImpl();
@@ -254,6 +254,10 @@ public final class ResourceConfiguration {
     checkArgument(id >= 0, "The ID must be >= 0!");
     this.id = id;
     return this;
+  }
+
+  public StorageType getStorageType() {
+    return storageType;
   }
 
   /**
@@ -512,7 +516,7 @@ public final class ResourceConfiguration {
     private HashType hashKind = HASHKIND;
 
     /** Number of revisions to restore a complete set of data. */
-    private int revisionsToRestore = VERSIONSTORESTORE;
+    private int revisionsToRestore = VERSIONS_TO_RESTORE;
 
     /** Record/Node persistenter. */
     private RecordPersister persistenter = PERSISTENTER;

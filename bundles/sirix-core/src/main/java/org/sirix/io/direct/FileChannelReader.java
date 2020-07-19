@@ -1,6 +1,6 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -19,27 +19,29 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.io.file;
+package org.sirix.io.direct;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
+import com.sun.nio.file.ExtendedOpenOption;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersister;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UberPage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
@@ -47,80 +49,99 @@ import com.google.common.hash.Hashing;
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- *
  */
-public final class FileReader implements Reader {
+public final class FileChannelReader implements Reader {
 
-  /** Beacon of first references. */
+  /**
+   * Beacon of first references.
+   */
   final static int FIRST_BEACON = 12;
 
-  /** Beacon of the other references. */
+  /**
+   * Beacon of the other references.
+   */
   final static int OTHER_BEACON = 4;
 
-  /** Inflater to decompress. */
+  /**
+   * Inflater to decompress.
+   */
   final ByteHandler byteHandler;
 
-  /** The hash function used to hash pages/page fragments. */
+  /**
+   * The hash function used to hash pages/page fragments.
+   */
   final HashFunction hashFunction;
 
-  /** Data file. */
-  private final RandomAccessFile dataFile;
+  /**
+   * Data file channel.
+   */
+  private final FileChannel dataFileChannel;
 
-  /** Revisions offset file. */
-  private final RandomAccessFile revisionsOffsetFile;
+  /**
+   * Revisions offset file channel.
+   */
+  private final FileChannel revisionsOffsetChannel;
 
-  /** The type of data to serialize. */
+  /**
+   * The type of data to serialize.
+   */
   private final SerializationType type;
 
-  /** Used to serialize/deserialze pages. */
+  /**
+   * Used to serialize/deserialze pages.
+   */
   private final PagePersister pagePersiter;
 
   /**
    * Constructor.
    *
-   * @param dataFile the data file
+   * @param dataFile            the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler {@link ByteHandler} instance
+   * @param handler             {@link ByteHandler} instance
    * @throws SirixIOException if something bad happens
    */
-  public FileReader(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
-      final ByteHandler handler, final SerializationType type,
-      final PagePersister pagePersistenter) {
+  public FileChannelReader(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
+      final SerializationType type, final PagePersister pagePersistenter) throws IOException {
     hashFunction = Hashing.sha256();
-    this.dataFile = checkNotNull(dataFile);
+    this.dataFileChannel = FileChannel.open(dataFile, StandardOpenOption.READ);
 
-    this.revisionsOffsetFile = type == SerializationType.DATA
-        ? checkNotNull(revisionsOffsetFile)
-        : null;
+    this.revisionsOffsetChannel = type == SerializationType.DATA ? FileChannel.open(revisionsOffsetFile,
+                                                                                    StandardOpenOption.READ) : null;
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
   }
 
   @Override
-  public Page read(final @Nonnull PageReference reference,
-      final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
       switch (type) {
         case DATA:
-          dataFile.seek(reference.getKey());
+          dataFileChannel.position(reference.getKey());
           break;
         case TRANSACTION_INTENT_LOG:
-          dataFile.seek(reference.getPersistentLogKey());
+          dataFileChannel.position(reference.getPersistentLogKey());
           break;
         default:
           // Must not happen.
       }
 
-      final int dataLength = dataFile.readInt();
-      reference.setLength(dataLength + FileReader.OTHER_BEACON);
+      ByteBuffer buffer = ByteBuffer.allocate(4);
+      dataFileChannel.read(buffer);
+      buffer.position(0);
+      final int dataLength = buffer.getInt();
+
+      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
-      dataFile.read(page);
+
+      buffer = ByteBuffer.allocate(dataLength);
+      dataFileChannel.read(buffer);
+      buffer.position(0);
+      buffer.get(page);
 
       // Perform byte operations.
-      final DataInputStream input =
-          new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+      final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
 
       // Return reader required to instantiate and deserialize page.
       return pagePersiter.deserializePage(input, pageReadTrx, type);
@@ -134,8 +155,12 @@ public final class FileReader implements Reader {
     final PageReference uberPageReference = new PageReference();
     try {
       // Read primary beacon.
-      dataFile.seek(0);
-      uberPageReference.setKey(dataFile.readLong());
+      dataFileChannel.position(0);
+
+      ByteBuffer buffer = ByteBuffer.allocate(8);
+      dataFileChannel.read(buffer);
+      buffer.position(0);
+      uberPageReference.setKey(buffer.getLong());
 
       final UberPage page = (UberPage) read(uberPageReference, null);
       uberPageReference.setPage(page);
@@ -148,16 +173,26 @@ public final class FileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      revisionsOffsetFile.seek(revision * 8);
-      dataFile.seek(revisionsOffsetFile.readLong());
+      revisionsOffsetChannel.position(revision * 8);
 
-      final int dataLength = dataFile.readInt();
+      ByteBuffer buffer = ByteBuffer.allocate(8);
+      revisionsOffsetChannel.read(buffer);
+      buffer.position(0);
+      dataFileChannel.position(buffer.getLong());
+
+      buffer = ByteBuffer.allocate(4);
+      dataFileChannel.read(buffer);
+      buffer.position(0);
+      final int dataLength = buffer.getInt();
       final byte[] page = new byte[dataLength];
-      dataFile.read(page);
+
+      buffer = ByteBuffer.allocate(dataLength);
+      dataFileChannel.read(buffer);
+      buffer.position(0);
+      buffer.get(page);
 
       // Perform byte operations.
-      final DataInputStream input =
-          new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+      final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
 
       // Return reader required to instantiate and deserialize page.
       return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, type);
@@ -169,10 +204,10 @@ public final class FileReader implements Reader {
   @Override
   public void close() {
     try {
-      if (revisionsOffsetFile != null) {
-        revisionsOffsetFile.close();
+      if (revisionsOffsetChannel != null) {
+        revisionsOffsetChannel.close();
       }
-      dataFile.close();
+      dataFileChannel.close();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

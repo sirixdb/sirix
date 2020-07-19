@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -57,10 +58,9 @@ public final class ConcurrentAxisTest {
    * Method is called once before each test. It deletes all states, shreds XML file to database and
    * initializes the required variables.
    *
-   * @throws Exception
    */
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     try {
       XmlTestHelper.deleteEverything();
       XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
@@ -73,10 +73,9 @@ public final class ConcurrentAxisTest {
   /**
    * Close all connections.
    *
-   * @throws SirixException
    */
   @After
-  public void tearDown() throws Exception {
+  public void tearDown() {
     try {
       holder.close();
       XmlTestHelper.closeEverything();
@@ -92,7 +91,7 @@ public final class ConcurrentAxisTest {
   // @SkipBench
   // @Bench
   @Test
-  public void testSeriellOld() throws Exception {
+  public void testSeriellOld() {
     // final String query = "//people/person[@id=\"person3\"]/name";
     // final String query = "count(//location[text() = \"United States\"])";
     final String query = "//regions/africa//location";
@@ -131,13 +130,11 @@ public final class ConcurrentAxisTest {
   /**
    * Test concurrent.
    *
-   * @throws SirixException
-   *
-   * @throws SirixXPathException
    */
   // @Bench
+  @Ignore
   @Test
-  public void testConcurrent() throws Exception {
+  public void testConcurrent() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
@@ -167,11 +164,11 @@ public final class ConcurrentAxisTest {
   /**
    * Test concurrent.
    *
-   * @throws SirixXPathException
    */
   // @Bench
+  @Ignore
   @Test
-  public void testPartConcurrentDescAxis1() throws Exception {
+  public void testPartConcurrentDescAxis1() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
@@ -194,11 +191,11 @@ public final class ConcurrentAxisTest {
   /**
    * Test concurrent.
    *
-   * @throws SirixXPathException
    */
   // @Bench
+  @Ignore
   @Test
-  public void testPartConcurrentDescAxis2() throws Exception {
+  public void testPartConcurrentDescAxis2() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();

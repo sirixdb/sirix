@@ -10,7 +10,9 @@ import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 import org.sirix.access.trx.TransactionManagerImpl;
 import org.sirix.api.*;
 import org.sirix.cache.BufferManager;
+import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.utils.SirixFiles;
 
@@ -32,22 +34,34 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements Database<T> {
 
-  /** Unique ID of a resource. */
+  /**
+   * Unique ID of a resource.
+   */
   private final AtomicLong resourceID = new AtomicLong();
 
-  /** The transaction manager. */
+  /**
+   * The transaction manager.
+   */
   protected final TransactionManager transactionManager;
 
-  /** Determines if the database instance is in the closed state or not. */
+  /**
+   * Determines if the database instance is in the closed state or not.
+   */
   protected boolean isClosed;
 
-  /** Buffers / page cache for each resource. */
+  /**
+   * Buffers / page cache for each resource.
+   */
   protected final ConcurrentMap<Path, BufferManager> bufferManagers;
 
-  /** Central repository of all resource-ID/resource-name tuples. */
+  /**
+   * Central repository of all resource-ID/resource-name tuples.
+   */
   protected final BiMap<Long, String> resourceIDsToResourceNames;
 
-  /** DatabaseConfiguration with fixed settings. */
+  /**
+   * DatabaseConfiguration with fixed settings.
+   */
   protected final DatabaseConfiguration dbConfig;
 
   /**
@@ -60,6 +74,14 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     bufferManagers = new ConcurrentHashMap<>();
     transactionManager = new TransactionManagerImpl();
+  }
+
+  protected void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
+    if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
+      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150));
+    } else {
+      bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000));
+    }
   }
 
   @Override
@@ -204,16 +226,12 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   @Override
   public List<Path> listResources() {
     assertNotClosed();
-    try (final Stream<Path> stream =
-        Files.list(dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
+    try (final Stream<Path> stream = Files.list(dbConfig.getFile()
+                                                        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.collect(Collectors.toList());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
-  }
-
-  BufferManager getPageCache(final Path resourceFile) {
-    return bufferManagers.get(resourceFile);
   }
 
   @Override

@@ -9,15 +9,12 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final RecordPageCache recordPageCache;
 
-  private final UnorderedKeyValuePageCache unorderedKeyValuePageCache;
-
   private final RevisionRootPageCache revisionRootPageCache;
 
-  public BufferManagerImpl() {
-    pageCache = new PageCache();
-    recordPageCache = new RecordPageCache();
-    unorderedKeyValuePageCache = new UnorderedKeyValuePageCache();
-    revisionRootPageCache = new RevisionRootPageCache();
+  public BufferManagerImpl(final int maxPageCacheSize, final int maxRecordPageCacheSize, final int maxRevisionRootPageCache) {
+    pageCache = new PageCache(maxPageCacheSize);
+    recordPageCache = new RecordPageCache(maxRecordPageCacheSize);
+    revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
   }
 
   @Override
@@ -31,11 +28,6 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<IndexLogKey, Page> getUnorderedKeyValuePageCache() {
-    return unorderedKeyValuePageCache;
-  }
-
-  @Override
   public Cache<Integer, RevisionRootPage> getRevisionRootPageCache() {
     return revisionRootPageCache;
   }
@@ -44,7 +36,6 @@ public final class BufferManagerImpl implements BufferManager {
   public void close() {
     pageCache.clear();
     recordPageCache.clear();
-    unorderedKeyValuePageCache.clear();
     revisionRootPageCache.clear();
   }
 }

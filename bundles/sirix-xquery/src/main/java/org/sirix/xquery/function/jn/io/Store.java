@@ -77,8 +77,9 @@ public final class Store extends AbstractFunction {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
       final Sequence nodes = args[2];
-      if (nodes == null)
+      if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
+      }
       final boolean createNew = args.length != 4 || args[3].booleanValue();
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
 

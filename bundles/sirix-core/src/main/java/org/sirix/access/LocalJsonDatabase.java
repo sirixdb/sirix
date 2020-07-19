@@ -30,6 +30,7 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.io.StorageType;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -41,16 +42,20 @@ import java.nio.file.Path;
  * This class represents one concrete database for enabling several {@link ResourceManager}
  * instances.
  *
- * @see Database
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
+ * @see Database
  */
 public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceManager> {
 
-  /** {@link LogWrapper} reference. */
+  /**
+   * {@link LogWrapper} reference.
+   */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalJsonDatabase.class));
 
-  /** The resource store to open/close resource-managers. */
+  /**
+   * The resource store to open/close resource-managers.
+   */
   private final JsonResourceStore resourceStore;
 
   /**
@@ -65,9 +70,10 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
   }
 
   @Override
-  public synchronized void close() throws SirixException {
-    if (isClosed)
+  public synchronized void close() {
+    if (isClosed) {
       return;
+    }
 
     isClosed = true;
     resourceStore.close();
@@ -89,7 +95,7 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
 
     if (!Files.exists(resourceFile)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
-          resourceFile.toString());
+                                    resourceFile.toString());
     }
 
     if (resourceStore.hasOpenResourceManager(resourceFile))
@@ -103,8 +109,9 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    if (!bufferManagers.containsKey(resourceFile))
-      bufferManagers.put(resourceFile, new BufferManagerImpl());
+    if (!bufferManagers.containsKey(resourceFile)) {
+      addResourceToBufferManagerMapping(resourceFile, resourceConfig);
+    }
 
     return resourceStore.openResource(this, resourceConfig, bufferManagers.get(resourceFile), resourceFile);
   }
@@ -118,10 +125,10 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
   protected boolean bootstrapResource(ResourceConfiguration resConfig) {
     boolean returnVal = true;
 
-    try (
-        final JsonResourceManager resourceTrxManager =
-            openResourceManager(resConfig.getResource().getFileName().toString());
-        final JsonNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
+    try (final JsonResourceManager resourceTrxManager = openResourceManager(resConfig.getResource()
+                                                                                     .getFileName()
+                                                                                     .toString());
+         final JsonNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

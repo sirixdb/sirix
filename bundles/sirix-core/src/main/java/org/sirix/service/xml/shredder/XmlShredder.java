@@ -73,22 +73,22 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlShredder.class));
 
   /** {@link XmlNodeTrx}. */
-  protected final XmlNodeTrx mWtx;
+  protected final XmlNodeTrx wtx;
 
   /** {@link XMLEventReader}. */
-  protected final XMLEventReader mReader;
+  protected final XMLEventReader reader;
 
   /** Determines if changes are going to be commit right after shredding. */
-  private final ShredderCommit mCommit;
+  private final ShredderCommit commit;
 
   /** Insertion position. */
-  protected final InsertPosition mInsert;
+  protected final InsertPosition insert;
 
   /** Determines if comments should be included. */
-  private boolean mIncludeComments;
+  private boolean includeComments;
 
   /** Determines if processing instructions should be included. */
-  private boolean mIncludePIs;
+  private boolean includePIs;
 
   /**
    * Builder to build an {@link XmlShredder} instance.
@@ -96,24 +96,24 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   public static class Builder {
 
     /** {@link XmlNodeTrx} implementation. */
-    private final XmlNodeTrx mWtx;
+    private final XmlNodeTrx wtx;
 
     /** {@link XMLEventReader} implementation. */
     private final XMLEventReader mReader;
 
     /** Insertion position. */
-    private final InsertPosition mInsert;
+    private final InsertPosition insert;
 
     /** Determines if comments should be included. */
-    private boolean mIncludeComments = true;
+    private boolean includeComments = true;
 
     /** Determines if processing instructions should be included. */
-    private boolean mIncludePIs = true;
+    private boolean includePIs = true;
 
     /**
      * Determines if after shredding the transaction should be immediately commited.
      */
-    private ShredderCommit mCommit = ShredderCommit.NOCOMMIT;
+    private ShredderCommit commit = ShredderCommit.NOCOMMIT;
 
     /**
      * Constructor.
@@ -123,9 +123,9 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      * @param insert insertion position
      */
     public Builder(final XmlNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
-      mWtx = checkNotNull(wtx);
+      this.wtx = checkNotNull(wtx);
       mReader = checkNotNull(reader);
-      mInsert = checkNotNull(insert);
+      this.insert = checkNotNull(insert);
     }
 
     /**
@@ -135,7 +135,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      * @return this builder instance
      */
     public Builder includeComments(final boolean include) {
-      mIncludeComments = include;
+      includeComments = include;
       return this;
     }
 
@@ -146,7 +146,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      * @return this builder instance
      */
     public Builder includePIs(final boolean include) {
-      mIncludePIs = include;
+      includePIs = include;
       return this;
     }
 
@@ -156,7 +156,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      * @return this builder instance
      */
     public Builder commitAfterwards() {
-      mCommit = ShredderCommit.COMMIT;
+      commit = ShredderCommit.COMMIT;
       return this;
     }
 
@@ -176,13 +176,13 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @param builder builder reference
    */
   private XmlShredder(final Builder builder) {
-    super(builder.mWtx, builder.mInsert);
-    mWtx = builder.mWtx;
-    mReader = builder.mReader;
-    mInsert = builder.mInsert;
-    mIncludeComments = builder.mIncludeComments;
-    mIncludePIs = builder.mIncludePIs;
-    mCommit = builder.mCommit;
+    super(builder.wtx, builder.insert);
+    wtx = builder.wtx;
+    reader = builder.mReader;
+    insert = builder.insert;
+    includeComments = builder.includeComments;
+    includePIs = builder.includePIs;
+    commit = builder.commit;
   }
 
   /**
@@ -193,9 +193,9 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    */
   @Override
   public Long call() throws SirixException {
-    final long revision = mWtx.getRevisionNumber();
+    final long revision = wtx.getRevisionNumber();
     insertNewContent();
-    mCommit.commit(mWtx);
+    commit.commit(wtx);
     return revision;
   }
 
@@ -214,8 +214,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
       long insertedRootNodeKey = -1;
 
       // Iterate over all nodes.
-      while (mReader.hasNext() && !endElemReached) {
-        final XMLEvent event = mReader.nextEvent();
+      while (reader.hasNext() && !endElemReached) {
+        final XMLEvent event = reader.nextEvent();
 
         switch (event.getEventType()) {
           case XMLStreamConstants.START_ELEMENT:
@@ -223,7 +223,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             addNewElement(event.asStartElement());
             if (firstElement) {
               firstElement = false;
-              insertedRootNodeKey = mWtx.getNodeKey();
+              insertedRootNodeKey = wtx.getNodeKey();
               rootElement = event.asStartElement().getName();
             }
             break;
@@ -236,7 +236,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart()));
             break;
           case XMLStreamConstants.CHARACTERS:
-            if (mReader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
+            if (reader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
               sBuilder.append(event.asCharacters().getData().trim());
             } else {
               sBuilder.append(event.asCharacters().getData().trim());
@@ -245,12 +245,12 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             }
             break;
           case XMLStreamConstants.COMMENT:
-            if (mIncludeComments) {
+            if (includeComments) {
               processComment(((Comment) event).getText());
             }
             break;
           case XMLStreamConstants.PROCESSING_INSTRUCTION:
-            if (mIncludePIs) {
+            if (includePIs) {
               final ProcessingInstruction pi = (ProcessingInstruction) event;
               processPI(pi.getData(), pi.getTarget());
             }
@@ -260,7 +260,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
         }
       }
 
-      mWtx.moveTo(insertedRootNodeKey);
+      wtx.moveTo(insertedRootNodeKey);
     } catch (final XMLStreamException e) {
       throw new SirixIOException(e);
     }
@@ -282,17 +282,17 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     // Parse namespaces.
     for (final Iterator<?> it = event.getNamespaces(); it.hasNext();) {
       final Namespace namespace = (Namespace) it.next();
-      mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace.getPrefix(), ""));
-      mWtx.moveToParent();
+      wtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace.getPrefix(), ""));
+      wtx.moveToParent();
     }
 
     // Parse attributes.
     for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
       final Attribute attribute = (Attribute) it.next();
       final QName attName = attribute.getName();
-      mWtx.insertAttribute(new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
-          attribute.getValue());
-      mWtx.moveToParent();
+      wtx.insertAttribute(new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
+                          attribute.getValue());
+      wtx.moveToParent();
     }
   }
 

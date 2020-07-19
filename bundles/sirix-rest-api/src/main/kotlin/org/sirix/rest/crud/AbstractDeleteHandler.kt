@@ -80,9 +80,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
             if (nodeId == null) {
                 removeResource(dispatcher, database, resPathName, ctx)
             } else {
-                val manager = database.openResourceManager(resPathName)
-
-                removeSubtree(manager, nodeId, context, ctx)
+                removeSubtree(database, resPathName, nodeId, context, ctx)
             }
         }
 
@@ -117,14 +115,16 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
     }
 
     private suspend fun removeSubtree(
-        manager: ResourceManager<*,*>,
+        database: Database<*>,
+        resPathName: String,
         nodeId: Long,
         context: Context,
         routingContext: RoutingContext
     ): Any? {
         return context.executeBlockingAwait { promise: Promise<Any> ->
-            manager.use { resourceManager ->
-                val wtx = resourceManager.beginNodeTrx()
+            val manager = database.openResourceManager(resPathName)
+            manager.use {
+                val wtx = manager.beginNodeTrx()
 
                 if (wtx.moveTo(nodeId).hasMoved()) {
                     if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
