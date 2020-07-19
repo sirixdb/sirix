@@ -137,8 +137,8 @@ class SirixVerticleJsonTest {
 
                 val credentials = json {
                     obj(
-                            "username" to "admin",
-                            "password" to "admin"
+                        "username" to "admin",
+                        "password" to "admin"
                     )
                 }
 
@@ -152,26 +152,26 @@ class SirixVerticleJsonTest {
                 accessToken = user.getString("access_token")
 
                 var httpResponse = client.putAbs("$server$serverPath").putHeader(
-                        HttpHeaders.AUTHORIZATION
-                                .toString(), "Bearer $accessToken"
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
-                        .sendBufferAwait(Buffer.buffer(json))
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendBufferAwait(Buffer.buffer(json))
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
                     JSONAssert.assertEquals(
-                            expectedJson.replace("\n", System.getProperty("line.separator")),
-                            httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        expectedJson.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
                     )
                 }
 
                 httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
-                        HttpHeaders.AUTHORIZATION
-                                .toString(), "Bearer $accessToken"
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                 val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
@@ -182,25 +182,25 @@ class SirixVerticleJsonTest {
                 val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
                 httpResponse = client.postAbs(url).putHeader(
-                        HttpHeaders.AUTHORIZATION
-                                .toString(), "Bearer $accessToken"
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
-                        .putHeader(HttpHeaders.ETAG.toString(), hashCode)
-                        .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                    .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
                     JSONAssert.assertEquals(
-                            expectUpdatedString.replace("\n", System.getProperty("line.separator")),
-                            httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
                     )
                 }
 
                 httpResponse = client.getAbs("$server$serverPath/history").putHeader(
-                        HttpHeaders.AUTHORIZATION
-                                .toString(), "Bearer $accessToken"
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                 val expectedHistoryJsonString = """
@@ -210,9 +210,12 @@ class SirixVerticleJsonTest {
                 testContext.verify {
                     assertEquals(200, httpResponse.statusCode())
                     JSONAssert.assertEquals(
-                            expectedHistoryJsonString.replace("\n", System.getProperty("line.separator")),
-                            httpResponse.bodyAsString().replace("\"revisionTimestamp\":\"(?!\").+?\"".toRegex(), "\"revisionTimestamp\":\"2020-02-12T17:59:59.457Z\""),
-                            false
+                        expectedHistoryJsonString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace(
+                            "\"revisionTimestamp\":\"(?!\").+?\"".toRegex(),
+                            "\"revisionTimestamp\":\"2020-02-12T17:59:59.457Z\""
+                        ),
+                        false
                     )
                     testContext.completeNow()
                 }
@@ -447,7 +450,11 @@ class SirixVerticleJsonTest {
                             "\r\n",
                             System.getProperty("line.separator")
                         )
-                    JSONAssert.assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result, false)
+                    JSONAssert.assertEquals(
+                        expectedResult.replace("\n", System.getProperty("line.separator")),
+                        result,
+                        false
+                    )
                     testContext.completeNow()
                 }
             }
@@ -455,7 +462,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases with resources")
     fun testListDatabasesWithResource(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -551,7 +558,156 @@ class SirixVerticleJsonTest {
                             "\r\n",
                             System.getProperty("line.separator")
                         )
-                    JSONAssert.assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result, false)
+                    JSONAssert.assertEquals(
+                        expectedResult.replace("\n", System.getProperty("line.separator")),
+                        result,
+                        false
+                    )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing POST query with start index")
+    fun testPostQueryWithStartIndex(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val json = json {
+                    obj(
+                        "query" to "jn:store('mycol.jn','mydoc.jn','[{\"generic\": 1, \"location\": {\"state\": \"CA\", \"city\": \"Los Angeles\"}}, {\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}]')"
+                    )
+                }
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                var response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                response = client.postAbs("$server").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendJsonAwait(json)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val query =
+                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i=>generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
+
+                val jsonData = json {
+                    obj(
+                        "startResultSeqIndex" to 1,
+                        "query" to query
+                    )
+                }
+
+                response = client.postAbs("$server").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendJsonAwait(jsonData)
+
+
+                val expectedJsonAnswer = """
+                    {"rest":[{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}]}
+                """.trimIndent()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectedJsonAnswer.replace("\n", System.getProperty("line.separator")),
+                        response.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing POST query with start-end index")
+    fun testPostQueryWithStartAndEndIndex(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val json = json {
+                    obj(
+                        "query" to "jn:store('mycol.jn','mydoc.jn','[{\"generic\": 1, \"location\": {\"state\": \"CA\", \"city\": \"Los Angeles\"}}, {\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}]')"
+                    )
+                }
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                var response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                response = client.postAbs("$server").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendJsonAwait(json)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val query =
+                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i=>generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
+
+                val jsonData = json {
+                    obj(
+                        "startResultSeqIndex" to 0,
+                        "endResultSeqIndex" to 1,
+                        "query" to query
+                    )
+                }
+
+                response = client.postAbs("$server").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendJsonAwait(jsonData)
+
+
+                val expectedJsonAnswer = """
+                    {"rest":[{"generic":1,"location":{"state":"CA","city":"Los Angeles"},"nodeKey":2},{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}]}
+                """.trimIndent()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectedJsonAnswer.replace("\n", System.getProperty("line.separator")),
+                        response.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
                     testContext.completeNow()
                 }
             }
@@ -605,7 +761,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -619,7 +775,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                     testContext.completeNow()
                 }
@@ -674,7 +830,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -694,7 +850,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedQueryResponse.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                     testContext.completeNow()
                 }
@@ -749,7 +905,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -767,7 +923,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                     testContext.completeNow()
                 }
@@ -823,7 +979,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -853,7 +1009,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectUpdatedString.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -1109,7 +1265,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -1182,7 +1338,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -1212,7 +1368,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectUpdatedString.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -1233,7 +1389,11 @@ class SirixVerticleJsonTest {
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
                             .replace("\"revisionTimestamp\":\"(?!\").+?\",\"revision".toRegex(), "\"revision")
                     println(result)
-                    JSONAssert.assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result, false)
+                    JSONAssert.assertEquals(
+                        expectedResult.replace("\n", System.getProperty("line.separator")),
+                        result,
+                        false
+                    )
                     testContext.completeNow()
                 }
             }
@@ -1281,7 +1441,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectString.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                 }
 
@@ -1299,7 +1459,7 @@ class SirixVerticleJsonTest {
                     JSONAssert.assertEquals(
                         expectQueryResult.replace("\n", System.getProperty("line.separator")),
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
-                            false
+                        false
                     )
                     testContext.completeNow()
                 }

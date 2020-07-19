@@ -72,6 +72,8 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
         if (first) {
           first = false;
           out.append("{\"rest\":[");
+        } else {
+          out.append(",");
         }
 
         Item item = null;
