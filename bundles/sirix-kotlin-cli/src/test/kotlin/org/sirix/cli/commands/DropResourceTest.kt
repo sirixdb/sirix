@@ -11,7 +11,7 @@ import org.sirix.cli.commands.CliCommandTestConstants.Companion.TEST_USER
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-internal class DropResourceTest: CliCommandTest() {
+internal class DropResourceTest : CliCommandTest() {
 
     companion object {
         @JvmField
@@ -21,19 +21,18 @@ internal class DropResourceTest: CliCommandTest() {
 
     @BeforeEach
     fun setUp() {
-        super.createSirixTestFileName()
+        createXmlDatabase()
     }
 
     @AfterEach
     fun tearDown() {
-        super.removeTestDatabase(AbstractCreateResourceTest.LOGGER)
+        removeTestDatabase(CreateResourceTest.LOGGER)
     }
 
 
     @Test
     fun happyPath() {
         // GIVEN
-        createXmlDatabase()
         var database = Databases.openXmlDatabase(path())
         database.use {
             RESOURCE_LIST.forEach {
@@ -41,7 +40,7 @@ internal class DropResourceTest: CliCommandTest() {
             }
         }
 
-        val dropResourceList = RESOURCE_LIST.filterIndexed { index, s -> (index % 2) == 0}
+        val dropResourceList = RESOURCE_LIST.filterIndexed { index, _ -> (index % 2) == 0 }
         val dropResourceCommand = DropResource(giveACliOptions(), dropResourceList, TEST_USER)
 
         // WHEN

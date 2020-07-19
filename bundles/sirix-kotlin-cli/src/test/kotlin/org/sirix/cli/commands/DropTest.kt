@@ -9,7 +9,7 @@ import org.sirix.exception.SirixUsageException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-internal class DropTest: CliCommandTest() {
+internal class DropTest : CliCommandTest() {
 
     companion object {
         @JvmField
@@ -19,18 +19,17 @@ internal class DropTest: CliCommandTest() {
 
     @BeforeEach
     fun setUp() {
-        super.createSirixTestFileName()
+        createXmlDatabase()
     }
 
     @AfterEach
     fun tearDown() {
-        super.removeTestDatabase(AbstractCreateResourceTest.LOGGER)
+        removeTestDatabase(CreateResourceTest.LOGGER)
     }
 
     @Test
     fun happyPath() {
         // GIVEN
-        createXmlDatabase()
         val dropCommand = Drop(giveACliOptions())
 
         // WHEN

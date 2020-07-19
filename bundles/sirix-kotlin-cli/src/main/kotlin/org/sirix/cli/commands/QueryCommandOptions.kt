@@ -5,7 +5,7 @@ import java.time.LocalDateTime
 
 data class QueryCommandOptions(
     val queryStr: String?,
-    val resource: String,
+    val resource: String?,
     val revision: Int?,
     val revisionTimestamp: LocalDateTime?,
     val startRevision: Int?,
