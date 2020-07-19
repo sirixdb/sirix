@@ -38,10 +38,23 @@ class GetHandler(private val location: Path) {
             if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
             } else {
-                val startResultSeqIndex =
-                    ctx.queryParam("startResultSeqIndex").getOrElse(0) { jsonBody?.getString("startResultSeqIndex") }
-                val endResultSeqIndex =
-                    ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
+                var startResultSeqIndexAsString =
+                    ctx.queryParam("startResultSeqIndex").getOrNull(0)
+
+                var startResultSeqIndex = startResultSeqIndexAsString?.toLong();
+
+                if (startResultSeqIndex == null) {
+                    startResultSeqIndex = jsonBody?.getLong("startResultSeqIndex")
+                }
+
+                var endResultSeqIndexAsSring =
+                    ctx.queryParam("endResultSeqIndex").getOrNull(0)
+
+                var endResultSeqIndex = endResultSeqIndexAsSring?.toLong();
+
+                if (endResultSeqIndex == null) {
+                    endResultSeqIndex = jsonBody?.getLong("endResultSeqIndex")
+                }
 
                 with(acceptHeader) {
                     when {
@@ -51,8 +64,8 @@ class GetHandler(private val location: Path) {
                             ctx,
                             context,
                             ctx.get("user") as User,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
+                            startResultSeqIndex,
+                            endResultSeqIndex
                         )
                         contains("application/xml") -> XmlGet(location).xquery(
                             query,
@@ -60,8 +73,8 @@ class GetHandler(private val location: Path) {
                             ctx,
                             context,
                             ctx.get("user") as User,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
+                            startResultSeqIndex,
+                            endResultSeqIndex
                         )
                         else -> JsonGet(location).xquery(
                             query,
@@ -69,8 +82,8 @@ class GetHandler(private val location: Path) {
                             ctx,
                             context,
                             ctx.get("user") as User,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
+                            startResultSeqIndex,
+                            endResultSeqIndex
                         )
                     }
                 }
