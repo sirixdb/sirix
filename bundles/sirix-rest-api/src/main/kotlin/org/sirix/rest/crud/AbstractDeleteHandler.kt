@@ -16,7 +16,6 @@ import org.sirix.access.Databases
 import org.sirix.access.User
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
-import org.sirix.api.NodeTrx
 import org.sirix.api.ResourceManager
 import java.math.BigInteger
 import java.nio.file.Files

@@ -643,6 +643,78 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing POST query with start and end index")
+    fun testPostQueryWithStartAndEndZeroIndex(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val json = json {
+                    obj(
+                        "query" to "jn:store('mycol.jn','mydoc.jn','[{\"generic\": 1, \"location\": {\"state\": \"CA\", \"city\": \"Los Angeles\"}}, {\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}]')"
+                    )
+                }
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                var response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                response = client.postAbs("$server").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendJsonAwait(json)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val query =
+                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i=>generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
+
+                val jsonData = json {
+                    obj(
+                        "startResultSeqIndex" to 1,
+                        "endResultSeqIndex" to 1,
+                        "query" to query
+                    )
+                }
+
+                response = client.postAbs("$server").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendJsonAwait(jsonData)
+
+                val expectedJsonAnswer = """
+                    {"rest":[{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}]}
+                """.trimIndent()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                        expectedJsonAnswer.replace("\n", System.getProperty("line.separator")),
+                        response.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start-end index")
     fun testPostQueryWithStartAndEndIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -842,8 +914,8 @@ class SirixVerticleJsonTest {
                         ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                 val expectedQueryResponse = """
-                                {"rest":[{"nodeKey":6}]}
-                        """.trimIndent()
+                    {"rest":[{"nodeKey":6}]}
+                """.trimIndent()
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
