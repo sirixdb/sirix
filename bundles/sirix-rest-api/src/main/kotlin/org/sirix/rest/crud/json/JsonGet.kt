@@ -154,7 +154,7 @@ class JsonGet(private val location: Path) {
             )
 
             queryCtx.use {
-                node.let {
+                if (node != null) {
                     queryCtx.contextItem = node
 
                     when (node) {
