@@ -3,9 +3,10 @@ package org.sirix.cli.parser
 import kotlinx.cli.ArgType
 import kotlinx.cli.optional
 import org.sirix.cli.CliOptions
+import org.sirix.cli.MetaDataEnum
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.commands.QueryCommand
-import org.sirix.cli.commands.QueryCommandOptions
+import org.sirix.cli.commands.Query
+import org.sirix.cli.commands.QueryOptions
 
 class QuerySubCommand :
     AbstractUserCommand("query", "Querys the Database") {
@@ -32,13 +33,33 @@ class QuerySubCommand :
         "ert",
         "The end revision timestamp"
     )
-    val nodeId by option(ArgType.String, "node-id", "nid", "The node id")
+    val nodeId by option(CliArgType.Long(), "node-id", "nid", "The node id")
+    val nextTopLevelNodes by option(
+        ArgType.Int,
+        "next-top-level-nodes",
+        "ntln",
+        "The next top level Node. Ignored for XML Databases"
+    )
+    val lastTopLevelNodeKey by option(
+        CliArgType.Long(),
+        "last-top-level-node-key",
+        "ltlnk",
+        "The last top level Node Key"
+    )
+    val maxLevel by option(CliArgType.Long(), "max-level", "ml", "The max Level")
+    val metaData by option(
+        ArgType.Choice(listOf("nodeKeyAndChildCount", "nodeKey", "all")),
+        "meta-data",
+        "md",
+        "Print out meta data with the result. Ignored for XML Databases"
+    )
+    val prettyPrint by option(ArgType.Boolean, "pretty-print", "pp", "Print out formated result")
     val queryStr by argument(ArgType.String, description = "The Query String").optional()
 
     override fun createCliCommand(options: CliOptions): CliCommand {
-        return QueryCommand(
+        return Query(
             options,
-            QueryCommandOptions(
+            QueryOptions(
                 queryStr,
                 resource,
                 revision,
@@ -48,10 +69,26 @@ class QuerySubCommand :
                 startRevisionTimestamp,
                 endRevisionTimestamp,
                 nodeId,
+                nextTopLevelNodes,
+                lastTopLevelNodeKey,
+                maxLevel,
+                toMentaDataEnum(metaData),
+                prettyPrint ?: false,
                 user
             )
         )
     }
 
+    private fun toMentaDataEnum(metaData: String?): MetaDataEnum {
+        if (metaData == null) {
+            return MetaDataEnum.NONE
+        }
+        return when (metaData) {
+            "nodeKeyAndChildCount" -> MetaDataEnum.NODE_KEY_AND_CHILD_COUNT
+            "nodeKey" -> MetaDataEnum.NODE_KEY
+            "all" -> MetaDataEnum.ALL
+            else -> throw IllegalArgumentException("Unkown Metadata Type $metaData")
+        }
+    }
 
 }

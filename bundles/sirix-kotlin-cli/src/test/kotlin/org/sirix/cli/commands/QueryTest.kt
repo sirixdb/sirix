@@ -1,44 +1,49 @@
-package org.sirix.cli.commands.json
+package org.sirix.cli.commands
 
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
-import org.sirix.cli.commands.*
+import org.sirix.cli.CliOptions
+import org.sirix.cli.MetaDataEnum
 import org.sirix.service.json.shredder.JsonShredder
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.nio.file.Paths
 import java.util.*
 
-internal class JsonQueryCommandTest : CliCommandTest() {
+internal class QueryTest : CliCommandTest() {
 
     companion object {
         @JvmField
-        val LOGGER: Logger = LoggerFactory.getLogger(JsonQueryCommandTest::class.java)
+        val LOGGER: Logger = LoggerFactory.getLogger(QueryTest::class.java)
 
         @JvmField
-        val sirixTestFile = getTestFileCompletePath("test_sirix-" + UUID.randomUUID() + ".db")
+        val sirixQueryTestFile = getTestFileCompletePath("test_sirix-" + UUID.randomUUID() + ".db")
 
 
         @BeforeAll
         @JvmStatic
         internal fun setup() {
-            createJsonDatabase(sirixTestFile)
+            createJsonDatabase(sirixQueryTestFile)
             setupTestDb()
         }
 
         @AfterAll
         @JvmStatic
         fun teardown() {
-            removeTestDatabase(sirixTestFile, LOGGER)
+            removeTestDatabase(
+                sirixQueryTestFile,
+                LOGGER
+            )
         }
 
     }
 
-    private fun queryCommandOptions() = listOf<QueryCommandOptions>(
-        QueryCommandOptions(
+    private fun queryOptions() = listOf<QueryOptions>(
+        QueryOptions(
             null,
             null,
             null,
@@ -48,26 +53,27 @@ internal class JsonQueryCommandTest : CliCommandTest() {
             null,
             null,
             null,
+            null,
+            null,
+            null,
+            MetaDataEnum.NONE,
+            false,
             null
         )
     )
 
 
-    @Test
-    fun happyPath() {
-        // GIVEN
-        
-
-        // WHEN
-
-        // THEN
+    @ParameterizedTest
+    @MethodSource("queryOptions")
+    fun happyPath(queryOptions: QueryOptions) {
+        Query(CliOptions(sirixQueryTestFile, true), queryOptions).execute()
     }
 }
 
 
 private fun setupTestDb() {
     val database =
-        Databases.openJsonDatabase(Paths.get(JsonQueryCommandTest.sirixTestFile), CliCommandTestConstants.TEST_USER)
+        Databases.openJsonDatabase(Paths.get(QueryTest.sirixQueryTestFile), CliCommandTestConstants.TEST_USER)
     database.use {
         val resConfig = ResourceConfiguration.Builder(CliCommandTestConstants.TEST_RESOURCE).build()
         if (!database.createResource(resConfig)) {
@@ -83,4 +89,6 @@ private fun setupTestDb() {
         }
     }
 }
+
+
 

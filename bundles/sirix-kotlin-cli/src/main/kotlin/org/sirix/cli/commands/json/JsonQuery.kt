@@ -4,14 +4,14 @@ import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.commands.QueryCommandOptions
+import org.sirix.cli.commands.QueryOptions
 import org.sirix.xquery.json.JsonDBCollection
 
-class JsonQueryCommand(options: CliOptions, private val queryCommandOptions: QueryCommandOptions) :
+class JsonQuery(options: CliOptions, private val queryOptions: QueryOptions) :
     CliCommand(options) {
 
     override fun execute() {
-        if (queryCommandOptions.hasQueryStr()) {
+        if (queryOptions.hasQueryStr()) {
             executeQuery()
         } else {
 
@@ -20,16 +20,16 @@ class JsonQueryCommand(options: CliOptions, private val queryCommandOptions: Que
 
     private fun executeQuery() {
 
-        val database: Database<JsonResourceManager> = openJsonDatabase(queryCommandOptions.user)
+        val database: Database<JsonResourceManager> = openJsonDatabase(queryOptions.user)
         database.use {
 
-            val manager = database.openResourceManager(queryCommandOptions.resource)
+            val manager = database.openResourceManager(queryOptions.resource)
             manager.use {
                 val dbCollection = JsonDBCollection(options.location, database)
 
                 dbCollection.use {
 
-                    
+
                 }
             }
         }

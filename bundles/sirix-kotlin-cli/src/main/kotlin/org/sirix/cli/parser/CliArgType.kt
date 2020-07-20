@@ -17,8 +17,8 @@ abstract class CliArgType<T : Any>(hasParameter: kotlin.Boolean) : ArgType<T>(ha
         override val description: kotlin.String
             get() = "{ Comma separated List. \"a,b,c\" }"
 
-        override fun convert(input: kotlin.String, name: kotlin.String): List<kotlin.String> =
-            input.split(",").map { it.trim() }
+        override fun convert(value: kotlin.String, name: kotlin.String): List<kotlin.String> =
+            value.split(",").map { it.trim() }
 
     }
 
@@ -28,4 +28,15 @@ abstract class CliArgType<T : Any>(hasParameter: kotlin.Boolean) : ArgType<T>(ha
 
         override fun convert(value: kotlin.String, name: kotlin.String): LocalDateTime = LocalDateTime.parse(value)
     }
+
+    class Long : ArgType<kotlin.Long>(true) {
+        override val description: kotlin.String
+            get() = "{ Long }"
+
+        override fun convert(value: kotlin.String, name: kotlin.String): kotlin.Long =
+            value.toLongOrNull()
+                ?: throw IllegalArgumentException("Option $name is expected to be long number. $value is provided.")
+    }
+
+
 }
