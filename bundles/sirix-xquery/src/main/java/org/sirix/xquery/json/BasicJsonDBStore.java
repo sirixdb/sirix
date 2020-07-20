@@ -148,10 +148,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
         final Optional<Database<JsonResourceManager>> storedCollection =
             databases.stream().findFirst().filter(db -> db.equals(database));
         if (storedCollection.isPresent()) {
-          return collections.get(storedCollection.get());
+          final var db = storedCollection.get();
+
+          if (db.isOpen()) {
+            return collections.get(db);
+          } else {
+            databases.remove(db);
+          }
         }
         databases.add(database);
-        final JsonDBCollection collection = new JsonDBCollection(name, database);
+        final JsonDBCollection collection = new JsonDBCollection(name, database, this);
         collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
@@ -172,7 +178,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final var database = Databases.openJsonDatabase(dbConf.getFile());
       databases.add(database);
 
-      final JsonDBCollection collection = new JsonDBCollection(name, database);
+      final JsonDBCollection collection = new JsonDBCollection(name, database, this);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -235,7 +241,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                    .buildPathSummary(buildPathSummary)
                                                    .storageType(storageType)
                                                    .build());
-      final JsonDBCollection collection = new JsonDBCollection(collName, database);
+      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
 
       try (final JsonResourceManager manager = database.openResourceManager(resourceName);
@@ -266,7 +272,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);
-      return new JsonDBCollection(collName, database);
+      return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException | InterruptedException e) {
       throw new DocumentException(e.getCause());
     }
@@ -277,8 +283,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createCollection(collectionName, resourceName, jsonReader);
   }
 
-  public BasicJsonDBStore addDatabase(final @Nonnull Database database) {
-    databases.add(database);
+  @Override
+  public JsonDBStore removeDatabase(final @Nonnull Database<?> database) {
+    databases.remove(database);
+    collections.remove(database);
     return this;
   }
 
@@ -310,7 +318,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);
-      return new JsonDBCollection(collName, database);
+      return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException | InterruptedException e) {
       throw new DocumentException(e.getCause());
     }
@@ -326,7 +334,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                  .build());
     try (final JsonResourceManager manager = database.openResourceManager(resourceName);
         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-      final JsonDBCollection collection = new JsonDBCollection(collName, database);
+      final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
     }
@@ -335,8 +343,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection createFromPaths(final String collName, final @Nullable Stream<Path> paths) {
-    if (paths == null)
+    if (paths == null) {
       return null;
+    }
 
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
@@ -361,7 +370,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .build());
             try (final JsonResourceManager manager = database.openResourceManager(resourceName);
                  final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-              final JsonDBCollection collection = new JsonDBCollection(collName, database);
+              final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
               collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
             }
@@ -372,7 +381,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);
-      return new JsonDBCollection(collName, database);
+      return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException | InterruptedException e) {
       throw new DocumentException(e.getCause());
     }

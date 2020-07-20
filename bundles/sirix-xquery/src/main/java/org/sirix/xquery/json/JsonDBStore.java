@@ -33,6 +33,7 @@ import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.JsonStore;
 import com.google.gson.stream.JsonReader;
+import org.sirix.api.Database;
 
 /**
  * Database store.
@@ -40,6 +41,8 @@ import com.google.gson.stream.JsonReader;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface JsonDBStore extends JsonStore, AutoCloseable {
+  JsonDBStore removeDatabase(Database<?> database);
+
   @Override
   JsonDBCollection lookup(String name);
 

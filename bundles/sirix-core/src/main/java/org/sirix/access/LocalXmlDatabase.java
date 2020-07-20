@@ -67,8 +67,9 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
 
   @Override
   public synchronized void close() throws SirixException {
-    if (isClosed)
+    if (isClosed) {
       return;
+    }
 
     isClosed = true;
     resourceStore.close();
