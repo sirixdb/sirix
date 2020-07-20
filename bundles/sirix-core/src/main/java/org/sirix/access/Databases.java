@@ -255,8 +255,9 @@ public final class Databases {
     final Set<Database<?>> databases = DATABASE_SESSIONS.get(file);
     databases.remove(database);
 
-    if (databases.isEmpty())
+    if (databases.isEmpty()) {
       DATABASE_SESSIONS.remove(file);
+    }
   }
 
   /**

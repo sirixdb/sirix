@@ -13,6 +13,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.brackit.xquery.xdm.Item
+import org.brackit.xquery.xdm.json.JsonItem
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -138,7 +139,7 @@ class JsonGet(private val location: Path) {
     }
 
     suspend fun xquery(
-        query: String, node: Item?, routingContext: RoutingContext, vertxContext: Context,
+        query: String, node: JsonItem?, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
@@ -153,7 +154,17 @@ class JsonGet(private val location: Path) {
             )
 
             queryCtx.use {
-                node.let { queryCtx.contextItem = node }
+                node.let {
+                    queryCtx.contextItem = node
+
+                    when (node) {
+                        is AbstractJsonDBArray<*> -> node.getCollection().setJsonDBStore(jsonDBStore)
+                        is JsonDBObject -> node.collection.setJsonDBStore(jsonDBStore)
+                        is AtomicJsonDBItem -> node.collection.setJsonDBStore(jsonDBStore)
+                        is NumericJsonDBItem -> node.collection.setJsonDBStore(jsonDBStore)
+                        else -> throw IllegalStateException("Node type not known.")
+                    }
+                }
 
                 val out = StringBuilder()
 
