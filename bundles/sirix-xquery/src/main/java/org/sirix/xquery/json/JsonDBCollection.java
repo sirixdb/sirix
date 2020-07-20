@@ -212,7 +212,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   @Override
-  public void close() throws SirixException {
+  public void close() {
     database.close();
   }
 

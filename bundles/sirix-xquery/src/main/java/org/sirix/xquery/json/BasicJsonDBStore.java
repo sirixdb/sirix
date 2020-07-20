@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.DocumentException;
@@ -274,6 +275,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public JsonDBCollection create(String collectionName, String resourceName, JsonReader jsonReader) {
     return createCollection(collectionName, resourceName, jsonReader);
+  }
+
+  public BasicJsonDBStore addDatabase(final @Nonnull Database database) {
+    databases.add(database);
+    return this;
   }
 
   @Override

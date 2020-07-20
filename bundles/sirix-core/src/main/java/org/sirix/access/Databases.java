@@ -39,8 +39,8 @@ public final class Databases {
   /** Central repository of all running resource managers. */
   static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
 
-  /** Central repository of all resource {@code <=>} write semaphore mappings. */
-  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
+  /** Central repository of all resource {@code <=>} write locks mappings. */
+  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_LOCKS = new ConcurrentHashMap<>();
 
   /**
    * Get the database type

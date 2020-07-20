@@ -107,15 +107,15 @@ class JsonGet(private val location: Path) {
                 val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
 
                 try {
-                    val trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
+                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
-                    trx.use {
+                    rtx.use {
                         if (nodeId == null)
-                            trx.moveToFirstChild()
+                            rtx.moveToFirstChild()
                         else
-                            trx.moveTo(nodeId.toLong())
+                            rtx.moveTo(nodeId.toLong())
 
-                        val jsonItem = JsonItemFactory().getSequence(trx, dbCollection)
+                        val jsonItem = JsonItemFactory().getSequence(rtx, dbCollection)
 
                         val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
                         val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }

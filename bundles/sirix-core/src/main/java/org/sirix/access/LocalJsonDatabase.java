@@ -98,8 +98,9 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
                                     resourceFile.toString());
     }
 
-    if (resourceStore.hasOpenResourceManager(resourceFile))
+    if (resourceStore.hasOpenResourceManager(resourceFile)) {
       return resourceStore.getOpenResourceManager(resourceFile);
+    }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
