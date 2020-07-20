@@ -119,6 +119,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       if (!updateList.isEmpty()) {
         commitJsonTrx(updateList);
         commitXmlTrx(updateList);
+        updateList.clear();
       }
     }
   }

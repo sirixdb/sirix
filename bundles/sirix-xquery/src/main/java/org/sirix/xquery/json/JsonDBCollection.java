@@ -61,11 +61,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   @Override
   public boolean equals(final @Nullable Object other) {
-    if (this == other)
+    if (this == other) {
       return true;
+    }
 
-    if (!(other instanceof JsonDBCollection))
+    if (!(other instanceof JsonDBCollection)) {
       return false;
+    }
 
     final JsonDBCollection coll = (JsonDBCollection) other;
     return database.equals(coll.database);

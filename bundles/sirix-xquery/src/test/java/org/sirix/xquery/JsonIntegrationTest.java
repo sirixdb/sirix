@@ -12,6 +12,24 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testTimeTravelQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[]')
+        """;
+    final String updateQuery1 = """
+          append json {"generic": 1, "location": {"state": "NY", "city": "New York"}} into jn:doc('mycol.jn','mydoc.jn')
+        """.strip();
+    final String updateQuery2 = """
+          insert json {'generic': 1, 'location': {'state': 'CA', 'city': 'Los Angeles'}} into jn:doc('mycol.jn','mydoc.jn') at position 0
+        """.strip();
+    final String query = "let $node := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'), 1) let $result := for $rev in jn:all-times($node) return if (not(exists(jn:previous($rev)))) then sdb:revision($rev) else if (sdb:hash($rev) ne sdb:hash(jn:previous($rev))) then sdb:revision($rev) else () return for $i in $result order by $i descending return $i";
+    final String assertion = """
+          3 2 1
+        """.strip();
+    test(storeQuery, updateQuery1, updateQuery2, query, assertion);
+  }
+
+  @Test
   public void testArray() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 1, "location": {"state": "NY", "city": "New York"}}]')

@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -87,6 +88,21 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   @Override
   public String getName() {
     return dbConfig.getDatabaseName();
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
+    AbstractLocalDatabase<?> that = (AbstractLocalDatabase<?>) o;
+    return dbConfig.equals(that.dbConfig);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(dbConfig);
   }
 
   @Override
