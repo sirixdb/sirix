@@ -135,12 +135,14 @@ class JsonCreate(
             database.use {
                 val resConfig =
                     ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).build()
+
                 createOrRemoveAndCreateResource(
                     database,
                     resConfig,
                     resPathName,
                     dispatcher
                 )
+
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
