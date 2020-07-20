@@ -1,9 +1,10 @@
 package org.sirix.cli.commands
 
 import org.sirix.access.User
+import org.sirix.cli.MetaDataEnum
 import java.time.LocalDateTime
 
-data class QueryCommandOptions(
+data class QueryOptions(
     val queryStr: String?,
     val resource: String?,
     val revision: Int?,
@@ -12,7 +13,12 @@ data class QueryCommandOptions(
     val endRevision: Int?,
     val startRevisionTimestamp: LocalDateTime?,
     val endRevisionTimestamp: LocalDateTime?,
-    val nodeId: String?,
+    val nodeId: Long?,
+    val nextTopLevelNodes: Int?,
+    val lastTopLevelNodeKey: Long?,
+    val maxLevel: Long?,
+    val metaData: MetaDataEnum,
+    val prettyPrint: Boolean,
     val user: User?
 ) {
 
