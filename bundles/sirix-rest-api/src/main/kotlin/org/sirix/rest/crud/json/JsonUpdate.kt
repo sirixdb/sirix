@@ -174,11 +174,13 @@ class JsonUpdate(private val location: Path) {
                 manager.use {
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
-                        if (nodeId != null)
+                        if (nodeId != null) {
                             wtx.moveTo(nodeId)
+                        }
 
-                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                             wtx.moveToFirstChild()
+                        }
 
                         if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
@@ -213,11 +215,13 @@ class JsonUpdate(private val location: Path) {
                             insertionModeByName.insertSubtree(wtx, jsonReader)
                         }
 
-                        if (nodeId != null)
+                        if (nodeId != null) {
                             wtx.moveTo(nodeId)
+                        }
 
-                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                             wtx.moveToFirstChild()
+                        }
 
                         Pair(wtx.maxNodeKey, wtx.hash)
                     }

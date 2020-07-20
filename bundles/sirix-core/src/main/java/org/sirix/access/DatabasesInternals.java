@@ -14,7 +14,7 @@ public final class DatabasesInternals {
   }
 
   public static Lock computeWriteLockIfAbsent(Path resourcePath) {
-    return Databases.RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new ReentrantLock());
+    return Databases.RESOURCE_WRITE_LOCKS.computeIfAbsent(resourcePath, res -> new ReentrantLock());
   }
 
   /**
@@ -42,7 +42,8 @@ public final class DatabasesInternals {
 
     resourceManagers.remove(resourceManager);
 
-    if (resourceManagers.isEmpty())
+    if (resourceManagers.isEmpty()) {
       Databases.RESOURCE_MANAGERS.remove(file);
+    }
   }
 }

@@ -36,6 +36,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
+import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 
@@ -44,6 +45,8 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -96,8 +99,9 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
               var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceManager(), out,
                   node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
-              if (prettyPrint)
+              if (prettyPrint) {
                 serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
+              }
               final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
               serializer.call();
 
@@ -138,8 +142,9 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
     if (it != null) {
       item = it.next();
 
-      if (item != null)
+      if (item != null) {
         out.append(",");
+      }
     }
     return item;
   }

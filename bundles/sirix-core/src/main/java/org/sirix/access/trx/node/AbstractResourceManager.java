@@ -414,7 +414,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       nodeTrxMap.clear();
       pageTrxMap.clear();
       nodePageTrxMap.clear();
-      resourceStore.closeResource(resourceConfig.getResource());
+      resourceStore.closeResourceManager(resourceConfig.getResource());
 
       storage.close();
 
