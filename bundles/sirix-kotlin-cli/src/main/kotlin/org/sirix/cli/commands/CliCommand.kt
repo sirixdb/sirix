@@ -22,9 +22,11 @@ abstract class CliCommand(protected val options: CliOptions) {
         return Paths.get(options.location)
     }
 
+    protected fun databaseType(): DatabaseType = Databases.getDatabaseType(path())
+
     protected fun openDatabase(user: User?): Database<*> {
 
-        return when (Databases.getDatabaseType(path())) {
+        return when (databaseType()) {
             DatabaseType.XML -> openXmlDatabase(user)
             DatabaseType.JSON -> openJsonDatabase(user)
             else -> throw IllegalStateException("Unknown Database Type!")

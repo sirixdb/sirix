@@ -1,9 +1,5 @@
 package org.sirix.cli.commands
 
-import org.sirix.access.DatabaseType
-import org.sirix.access.DatabaseType.JSON
-import org.sirix.access.DatabaseType.XML
-import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.json.JsonResourceManager
@@ -13,28 +9,22 @@ import org.sirix.cli.commands.RevisionsHelper.Companion.getRevisionsToSerialize
 
 class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCommand(options) {
 
-    var type: DatabaseType? = null
-
     override fun execute() {
-        type = Databases.getDatabaseType(path())
-        when (type) {
-            JSON -> executeQuery(openJsonDatabase(queryOptions.user))
-            XML -> executeQuery(openXmlDatabase(queryOptions.user))
-            else -> throw IllegalStateException("Unknown Database Type!")
-        }
-    }
-
-
-    private fun executeQuery(database: Database<*>) {
+        val startMillis: Long = System.currentTimeMillis()
+        cliPrinter.prnLnV("Execute Query. Result is:")
+        val database: Database<*> = openDatabase(queryOptions.user)
+        var result: String? = null
         database.use {
             val manager = database.openResourceManager(queryOptions.resource)
             manager.use {
                 if (queryOptions.hasQueryStr()) {
                 } else {
-                    serializeResource(manager)
+                    result = serializeResource(manager)
                 }
             }
         }
+        cliPrinter.prnLn(result)
+        cliPrinter.prnLnV("Query executed (${System.currentTimeMillis() - startMillis}ms)")
     }
 
     private fun getRevisions(manager: ResourceManager<*, *>): Array<Int> {
@@ -62,7 +52,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
 
     }
 
-    private fun serializeResource(manager: ResourceManager<*, *>) {
+    private fun serializeResource(manager: ResourceManager<*, *>): String {
         val revisions: Array<Int> = getRevisions(manager)
         with(queryOptions) {
             val serializerAdapter =
@@ -70,7 +60,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                     .startNodeKey(nodeId)
                     .metadata(metaData).maxLevel(maxLevel).prettyPrint(prettyPrint)
 
-            cliPrinter.prnLn(serializerAdapter.serialize())
+            return serializerAdapter.serialize()
         }
     }
 }

@@ -2,6 +2,7 @@ package org.sirix.cli.parser
 
 import kotlinx.cli.ArgType
 import kotlinx.cli.optional
+import kotlinx.cli.required
 import org.sirix.cli.CliOptions
 import org.sirix.cli.MetaDataEnum
 import org.sirix.cli.commands.CliCommand
@@ -11,7 +12,7 @@ import org.sirix.cli.commands.QueryOptions
 class QuerySubCommand :
     AbstractUserCommand("query", "Querys the Database") {
 
-    val resource by option(ArgType.String, "resource", "r", "The name of the resource.")
+    val resource by option(ArgType.String, "resource", "r", "The name of the resource.").required()
     val revision by option(ArgType.Int, "revision", "rev", "The revions to query")
     val revisionTimestamp by option(
         CliArgType.Timestamp(),

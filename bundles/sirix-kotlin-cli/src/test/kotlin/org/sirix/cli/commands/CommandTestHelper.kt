@@ -20,7 +20,7 @@ fun removeTestDatabase(sirixTestFile: String, LOGGER: Logger) {
 }
 
 fun createSirixTestFileName(): String {
-    return getTestFileCompletePath("test_sirix-" + UUID.randomUUID() + ".db")
+    return getTestFileCompletePath("test-sirix-" + UUID.randomUUID() + ".db")
 }
 
 fun createJsonDatabase(sirixTestFile: String) {

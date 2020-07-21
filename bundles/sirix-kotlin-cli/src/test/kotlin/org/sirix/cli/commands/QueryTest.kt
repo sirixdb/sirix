@@ -12,7 +12,6 @@ import org.sirix.service.json.shredder.JsonShredder
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.nio.file.Paths
-import java.util.*
 
 internal class QueryTest : CliCommandTest() {
 
@@ -21,31 +20,31 @@ internal class QueryTest : CliCommandTest() {
         val LOGGER: Logger = LoggerFactory.getLogger(QueryTest::class.java)
 
         @JvmField
-        val sirixQueryTestFile = getTestFileCompletePath("test_sirix-" + UUID.randomUUID() + ".db")
+        val sirixQueryTestFileJson = createSirixTestFileName()
 
 
         @BeforeAll
         @JvmStatic
         internal fun setup() {
-            createJsonDatabase(sirixQueryTestFile)
-            setupTestDb()
+            createJsonDatabase(sirixQueryTestFileJson)
+            setupTestDbJson()
         }
 
         @AfterAll
         @JvmStatic
         fun teardown() {
             removeTestDatabase(
-                sirixQueryTestFile,
+                sirixQueryTestFileJson,
                 LOGGER
             )
         }
 
     }
 
-    private fun queryOptions() = listOf<QueryOptions>(
+    private fun queryOptionList() = listOf<QueryOptions>(
         QueryOptions(
             null,
-            null,
+            CliCommandTestConstants.TEST_RESOURCE,
             null,
             null,
             null,
@@ -57,23 +56,23 @@ internal class QueryTest : CliCommandTest() {
             null,
             null,
             MetaDataEnum.NONE,
-            false,
+            true,
             null
         )
     )
 
 
     @ParameterizedTest
-    @MethodSource("queryOptions")
+    @MethodSource("queryOptionList")
     fun happyPath(queryOptions: QueryOptions) {
-        Query(CliOptions(sirixQueryTestFile, true), queryOptions).execute()
+        Query(CliOptions(sirixQueryTestFileJson, true), queryOptions).execute()
     }
 }
 
 
-private fun setupTestDb() {
+private fun setupTestDbJson() {
     val database =
-        Databases.openJsonDatabase(Paths.get(QueryTest.sirixQueryTestFile), CliCommandTestConstants.TEST_USER)
+        Databases.openJsonDatabase(Paths.get(QueryTest.sirixQueryTestFileJson), CliCommandTestConstants.TEST_USER)
     database.use {
         val resConfig = ResourceConfiguration.Builder(CliCommandTestConstants.TEST_RESOURCE).build()
         if (!database.createResource(resConfig)) {
@@ -89,6 +88,3 @@ private fun setupTestDb() {
         }
     }
 }
-
-
-
