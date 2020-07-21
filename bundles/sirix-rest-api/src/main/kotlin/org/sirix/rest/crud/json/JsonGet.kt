@@ -108,29 +108,21 @@ class JsonGet(private val location: Path) {
                 val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
 
                 try {
-                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
+                    val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                    val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
 
-                    rtx.use {
-                        if (nodeId == null)
-                            rtx.moveToFirstChild()
-                        else
-                            rtx.moveTo(nodeId.toLong())
-
-                        val jsonItem = JsonItemFactory().getSequence(rtx, dbCollection)
-
-                        val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
-                        val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
-
-                        xquery(
-                            query,
-                            jsonItem,
-                            ctx,
-                            vertxContext,
-                            user,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
-                        )
-                    }
+                    xquery(
+                        manager,
+                        dbCollection,
+                        nodeId,
+                        revisionNumber,
+                        query,
+                        ctx,
+                        vertxContext,
+                        user,
+                        startResultSeqIndex?.toLong(),
+                        endResultSeqIndex?.toLong()
+                    )
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
                 }
@@ -139,7 +131,10 @@ class JsonGet(private val location: Path) {
     }
 
     suspend fun xquery(
-        query: String, node: JsonItem?, routingContext: RoutingContext, vertxContext: Context,
+        manager: JsonResourceManager?,
+        dbCollection: JsonDBCollection?,
+        nodeId: String?,
+        revisionNumber: Array<Int>?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
@@ -154,44 +149,100 @@ class JsonGet(private val location: Path) {
             )
 
             queryCtx.use {
-                if (node != null) {
-                    queryCtx.contextItem = node
+                if (manager != null && dbCollection != null && revisionNumber != null) {
+                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
-                    when (node) {
-                        is AbstractJsonDBArray<*> -> node.getCollection().setJsonDBStore(jsonDBStore)
-                        is JsonDBObject -> node.collection.setJsonDBStore(jsonDBStore)
-                        is AtomicJsonDBItem -> node.collection.setJsonDBStore(jsonDBStore)
-                        is NumericJsonDBItem -> node.collection.setJsonDBStore(jsonDBStore)
-                        else -> throw IllegalStateException("Node type not known.")
+                    rtx.use {
+                        if (nodeId == null) {
+                            rtx.moveToFirstChild()
+                        } else {
+                            rtx.moveTo(nodeId.toLong())
+                        }
+
+                        val jsonItem = JsonItemFactory().getSequence(rtx, dbCollection)
+
+                        if (jsonItem != null) {
+                            queryCtx.contextItem = jsonItem
+
+                            when (jsonItem) {
+                                is AbstractJsonDBArray<*> -> {
+                                    jsonItem.getCollection().setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                }
+                                is JsonDBObject -> {
+                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                }
+                                is AtomicJsonDBItem -> {
+                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                }
+                                is NumericJsonDBItem -> {
+                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                }
+                                else -> throw IllegalStateException("Node type not known.")
+                            }
+                        }
+
+                        query(
+                            xmlDBStore,
+                            jsonDBStore,
+                            startResultSeqIndex,
+                            query,
+                            queryCtx,
+                            endResultSeqIndex,
+                            routingContext
+                        )
                     }
+                } else {
+                    query(
+                        xmlDBStore,
+                        jsonDBStore,
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex,
+                        routingContext
+                    )
                 }
 
-                val out = StringBuilder()
-
-                executeQueryAndSerialize(
-                    xmlDBStore,
-                    jsonDBStore,
-                    out,
-                    startResultSeqIndex,
-                    query,
-                    queryCtx,
-                    endResultSeqIndex
-                )
-
-                val body = out.toString()
-
-                routingContext.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(
-                        HttpHeaders.CONTENT_LENGTH,
-                        body.toByteArray(StandardCharsets.UTF_8).size.toString()
-                    )
-                    .write(body)
-                    .end()
+                promise.complete(null)
             }
-
-            promise.complete(null)
         }
+    }
+
+    private fun query(
+        xmlDBStore: XmlSessionDBStore,
+        jsonDBStore: JsonSessionDBStore,
+        startResultSeqIndex: Long?,
+        query: String,
+        queryCtx: SirixQueryContext?,
+        endResultSeqIndex: Long?,
+        routingContext: RoutingContext
+    ) {
+        val out = StringBuilder()
+
+        executeQueryAndSerialize(
+            xmlDBStore,
+            jsonDBStore,
+            out,
+            startResultSeqIndex,
+            query,
+            queryCtx,
+            endResultSeqIndex
+        )
+
+        val body = out.toString()
+
+        routingContext.response().setStatusCode(200)
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            .putHeader(
+                HttpHeaders.CONTENT_LENGTH,
+                body.toByteArray(StandardCharsets.UTF_8).size.toString()
+            )
+            .write(body)
+            .end()
     }
 
     private fun executeQueryAndSerialize(
