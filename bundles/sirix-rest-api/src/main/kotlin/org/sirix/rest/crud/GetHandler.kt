@@ -16,6 +16,7 @@ import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.json.JsonGet
 import org.sirix.rest.crud.xml.XmlGet
 import org.sirix.service.json.serialize.StringValue
+import org.sirix.xquery.json.JsonDBCollection
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -58,15 +59,20 @@ class GetHandler(private val location: Path) {
 
                 with(acceptHeader) {
                     when {
-                        contains("application/json") -> JsonGet(location).xquery(
-                            query,
-                            null,
-                            ctx,
-                            context,
-                            ctx.get("user") as User,
-                            startResultSeqIndex,
-                            endResultSeqIndex
-                        )
+                        contains("application/json") -> {
+                            JsonGet(location).xquery(
+                                null,
+                                null,
+                                null,
+                                null,
+                                query,
+                                ctx,
+                                context,
+                                ctx.get("user") as User,
+                                startResultSeqIndex,
+                                endResultSeqIndex
+                            )
+                        }
                         contains("application/xml") -> XmlGet(location).xquery(
                             query,
                             null,
@@ -77,8 +83,11 @@ class GetHandler(private val location: Path) {
                             endResultSeqIndex
                         )
                         else -> JsonGet(location).xquery(
-                            query,
                             null,
+                            null,
+                            null,
+                            null,
+                            query,
                             ctx,
                             context,
                             ctx.get("user") as User,

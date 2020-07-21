@@ -284,7 +284,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBStore removeDatabase(final @Nonnull Database<?> database) {
+  public JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceManager> database) {
+    databases.add(database);
+    collections.put(database, jsonDBCollection);
+    return this;
+  }
+
+  @Override
+  public JsonDBStore removeDatabase(final @Nonnull Database<JsonResourceManager> database) {
     databases.remove(database);
     collections.remove(database);
     return this;

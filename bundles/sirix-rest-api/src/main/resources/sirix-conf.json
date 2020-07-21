@@ -1,5 +1,6 @@
 {
   "port": 9443,
   "keycloak.url": "http://localhost:8080/auth/realms/sirixdb",
-  "client.secret": "78a294c4-0492-4e44-a35f-7eb9cab0d831"
+  "client.secret": "78a294c4-0492-4e44-a35f-7eb9cab0d831",
+  "use.http": true
 }
