@@ -270,11 +270,7 @@ public final class Databases {
   public static synchronized boolean hasOpenResourceManagers(final Path file) {
     final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
 
-    if (resourceManagers != null && !resourceManagers.isEmpty()) {
-      return true;
-    }
-
-    return false;
+    return resourceManagers != null && !resourceManagers.isEmpty();
   }
 
   /**
