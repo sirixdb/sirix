@@ -46,15 +46,15 @@ class JsonCreate(
 
         if (databaseName == null) {
             ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
-        }
+        } else {
+            if (createMultipleResources) {
+                createMultipleResources(databaseName, ctx)
+                ctx.response().setStatusCode(201).end()
+                return ctx.currentRoute()
+            }
 
-        if (createMultipleResources) {
-            createMultipleResources(databaseName, ctx)
-            ctx.response().setStatusCode(201).end()
-            return ctx.currentRoute()
+            shredder(databaseName, resource, ctx)
         }
-
-        shredder(databaseName, resource, ctx)
 
         return ctx.currentRoute()
     }

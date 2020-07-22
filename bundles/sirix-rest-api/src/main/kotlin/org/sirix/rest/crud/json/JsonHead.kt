@@ -23,6 +23,7 @@ class JsonHead(private val location: Path) {
 
         if (databaseName == null || resource == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
+            return ctx.currentRoute()
         }
 
         ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
@@ -77,7 +78,6 @@ class JsonHead(private val location: Path) {
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
             }
         }
     }

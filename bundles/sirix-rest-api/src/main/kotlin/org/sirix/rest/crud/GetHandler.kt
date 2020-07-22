@@ -101,15 +101,18 @@ class GetHandler(private val location: Path) {
             val buffer = StringBuilder()
             buffer.append("{")
             emitResourcesOfDatabase(buffer, location.resolve(databaseName), ctx)
-            buffer.append("}")
 
-            val content = buffer.toString()
+            if (!ctx.failed()) {
+                buffer.append("}")
 
-            ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                .write(content)
-                .end()
+                val content = buffer.toString()
+
+                ctx.response().setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+                    .write(content)
+                    .end()
+            }
         } else {
             with(acceptHeader) {
                 @Suppress("IMPLICIT_CAST_TO_ANY")

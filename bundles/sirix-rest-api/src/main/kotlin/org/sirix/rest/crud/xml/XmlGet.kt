@@ -89,9 +89,7 @@ class XmlGet(private val location: Path) {
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
             }
-
         }
     }
 

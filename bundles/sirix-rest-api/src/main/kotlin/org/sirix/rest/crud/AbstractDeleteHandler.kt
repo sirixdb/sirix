@@ -56,6 +56,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                         IllegalStateException("Database not found.")
                     )
                 )
+                return
             }
             removeDatabase(dbFile, dispatcher)
             ctx.response().setStatusCode(204).end()
@@ -74,6 +75,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                         IllegalStateException("Resource not found.")
                     )
                 )
+                return@use
             }
 
             if (nodeId == null) {

@@ -23,6 +23,7 @@ class XmlHead(private val location: Path) {
 
         if (databaseName == null || resource == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
+            return ctx.currentRoute()
         }
 
         ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
@@ -65,6 +66,7 @@ class XmlHead(private val location: Path) {
                                     HttpResponseStatus.BAD_REQUEST.code(),
                                     IllegalStateException("Node with ID ${nodeId} doesn't exist.")
                                 )
+                                return@use
                             }
                         } else if (rtx.isDocumentRoot) {
                             rtx.moveToFirstChild()
@@ -76,9 +78,7 @@ class XmlHead(private val location: Path) {
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
             }
-
         }
     }
 
