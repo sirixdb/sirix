@@ -181,7 +181,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     // Check that no running resource managers / sessions are opened.
     if (Databases.hasOpenResourceManagers(resourceFile)) {
       throw new IllegalStateException(
-          "Opened resource managers found, must be closed first: " + Databases.getOpenResourceManagers(resourceFile));
+          "Open resource managers found, must be closed first: " + Databases.getOpenResourceManagers(resourceFile));
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
