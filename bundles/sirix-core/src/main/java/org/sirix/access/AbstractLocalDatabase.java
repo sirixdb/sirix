@@ -177,9 +177,11 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
     final Path resourceFile =
         dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
+
     // Check that no running resource managers / sessions are opened.
     if (Databases.hasOpenResourceManagers(resourceFile)) {
-      throw new IllegalStateException("Opened resource managers found, must be closed first.");
+      throw new IllegalStateException(
+          "Opened resource managers found, must be closed first: " + Databases.getOpenResourceManagers(resourceFile));
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
@@ -187,8 +189,8 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
 
-      // mReadSemaphores.remove(resourceFile);
-      // mWriteSemaphores.remove(resourceFile);
+      DatabasesInternals.removeWriteLock(resourceFile);
+
       bufferManagers.remove(resourceFile);
     }
 

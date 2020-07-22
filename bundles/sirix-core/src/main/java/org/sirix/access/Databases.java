@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -270,5 +271,15 @@ public final class Databases {
     final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
 
     return resourceManagers != null && !resourceManagers.isEmpty();
+  }
+
+  /**
+   * Get open resource managers.
+   *
+   * @param file the resource file
+   * @return open resource managers
+   */
+  public static synchronized Set<ResourceManager<?, ?>> getOpenResourceManagers(final Path file) {
+    return RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
   }
 }
