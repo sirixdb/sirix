@@ -442,7 +442,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public String toString() {
-    return "AbstractResourceManager{" + "resourceConfig=" + resourceConfig + ", isClosed=" + isClosed + '}';
+    return "ResourceManager{" + "resourceConfig=" + resourceConfig + ", isClosed=" + isClosed + '}';
   }
 
   private void assertNotClosed() {
