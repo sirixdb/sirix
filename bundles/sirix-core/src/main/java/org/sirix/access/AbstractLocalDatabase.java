@@ -174,6 +174,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   @Override
   public synchronized Database<T> removeResource(final String name) {
     assertNotClosed();
+    checkNotNull(name);
 
     final Path resourceFile =
         dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);

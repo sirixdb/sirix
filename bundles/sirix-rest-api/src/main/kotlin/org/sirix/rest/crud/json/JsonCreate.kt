@@ -220,7 +220,7 @@ class JsonCreate(
             eventReader.use {
                 wtx.insertSubtreeAsFirstChild(eventReader)
             }
-            return@use wtx.maxNodeKey
+            return wtx.maxNodeKey
         }
     }
 }
