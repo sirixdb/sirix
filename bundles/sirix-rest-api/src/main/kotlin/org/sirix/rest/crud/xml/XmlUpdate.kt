@@ -55,7 +55,7 @@ class XmlUpdate(private val location: Path) {
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
         if (databaseName == null || resource == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name not given."))
+            IllegalArgumentException("Database name and resource name not given.")
         }
 
         val body = ctx.bodyAsString
@@ -93,11 +93,11 @@ class XmlUpdate(private val location: Path) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
 
                             if (hashCode == null) {
-                                ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                                IllegalStateException("Hash code is missing in ETag HTTP-Header.")
                             }
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                                IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 

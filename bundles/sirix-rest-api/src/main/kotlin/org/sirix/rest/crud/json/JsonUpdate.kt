@@ -147,8 +147,7 @@ class JsonUpdate(private val location: Path) {
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
         if (databaseName == null || resource == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name not given."))
-            return ctx.currentRoute()
+            IllegalArgumentException("Database name and resource name not given.")
         }
 
         val body = ctx.bodyAsString

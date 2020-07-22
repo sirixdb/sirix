@@ -22,8 +22,7 @@ class JsonHead(private val location: Path) {
         val resource = ctx.pathParam("resource")
 
         if (databaseName == null || resource == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
-            return ctx.currentRoute()
+            IllegalArgumentException("Database name and resource name must be given.")
         }
 
         ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
