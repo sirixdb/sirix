@@ -90,9 +90,7 @@ class JsonGet(private val location: Path) {
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
             }
-
         }
     }
 
@@ -106,25 +104,21 @@ class JsonGet(private val location: Path) {
         dbCollection.use {
             val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
 
-            try {
-                val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
-                val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
+            val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
+            val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
 
-                xquery(
-                    manager,
-                    dbCollection,
-                    nodeId,
-                    revisionNumber,
-                    query,
-                    ctx,
-                    vertxContext,
-                    user,
-                    startResultSeqIndex?.toLong(),
-                    endResultSeqIndex?.toLong()
-                )
-            } catch (e: SirixUsageException) {
-                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-            }
+            xquery(
+                manager,
+                dbCollection,
+                nodeId,
+                revisionNumber,
+                query,
+                ctx,
+                vertxContext,
+                user,
+                startResultSeqIndex?.toLong(),
+                endResultSeqIndex?.toLong()
+            )
         }
     }
 

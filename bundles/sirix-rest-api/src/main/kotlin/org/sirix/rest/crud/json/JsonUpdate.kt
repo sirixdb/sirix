@@ -148,6 +148,7 @@ class JsonUpdate(private val location: Path) {
 
         if (databaseName == null || resource == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name not given."))
+            return ctx.currentRoute()
         }
 
         val body = ctx.bodyAsString
@@ -186,16 +187,16 @@ class JsonUpdate(private val location: Path) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
 
                             if (hashCode == null) {
-                                ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                                IllegalStateException("Hash code is missing in ETag HTTP-Header.")
                             }
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                                IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 
                         if (insertionModeAsString == null) {
-                            ctx.fail(IllegalArgumentException("Insertion mode must be given."))
+                            IllegalArgumentException("Insertion mode must be given.")
                         }
 
                         val jsonReader = JsonShredder.createStringReader(resFileToStore)
