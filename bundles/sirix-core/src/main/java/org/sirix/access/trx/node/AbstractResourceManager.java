@@ -440,6 +440,11 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
+  @Override
+  public String toString() {
+    return "AbstractResourceManager{" + "resourceConfig=" + resourceConfig + ", isClosed=" + isClosed + '}';
+  }
+
   private void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("Resource manager is already closed!");
