@@ -257,12 +257,10 @@ public final class MMFileReader implements Reader {
   @Override
   public void close() {
     // FIXME: transfer ownership instead as of Java 15
-    if (dataFileSegment != null && dataFileSegment.isAlive()
-        && Thread.currentThread() == dataFileSegment.ownerThread()) {
+    if (dataFileSegment != null && dataFileSegment.isAlive()) {
       dataFileSegment.close();
     }
-    if (revisionFileSegment != null && revisionFileSegment.isAlive()
-        && Thread.currentThread() == dataFileSegment.ownerThread()) {
+    if (revisionFileSegment != null && revisionFileSegment.isAlive()) {
       revisionFileSegment.close();
     }
   }
