@@ -17,6 +17,10 @@ public final class DatabasesInternals {
     return Databases.RESOURCE_WRITE_LOCKS.computeIfAbsent(resourcePath, res -> new ReentrantLock());
   }
 
+  public static void removeWriteLock(Path resourcePath) {
+    Databases.RESOURCE_WRITE_LOCKS.remove(resourcePath);
+  }
+
   /**
    * Put a resource manager into the internal map.
    *
