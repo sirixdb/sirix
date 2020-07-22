@@ -79,7 +79,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
             }
 
             if (nodeId == null) {
-                removeResource(dispatcher, database, resPathName, ctx)
+                removeResource(dispatcher, database, resPathName)
             } else {
                 removeSubtree(database, resPathName, nodeId, context, ctx)
             }
@@ -93,7 +93,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
     abstract fun database(
         dbFile: Path,
         sirixDBUser: User
-    ) : Database<*>
+    ): Database<*>
 
     private suspend fun removeDatabase(dbFile: Path?, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
@@ -103,15 +103,10 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
     private suspend fun removeResource(
         dispatcher: CoroutineDispatcher, database: Database<*>,
-        resPathName: String?,
-        ctx: RoutingContext
-    ): Any? {
-        return try {
-            withContext(dispatcher) {
-                database.removeResource(resPathName)
-            }
-        } catch (e: IllegalStateException) {
-            ctx.fail(IllegalStateException("Open resource managers found."))
+        resPathName: String?
+    ) {
+        withContext(dispatcher) {
+            database.removeResource(resPathName)
         }
     }
 
@@ -151,5 +146,5 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         }
     }
 
-    protected abstract fun hashType(manager: ResourceManager<*, *>) : HashType
+    protected abstract fun hashType(manager: ResourceManager<*, *>): HashType
 }
