@@ -119,30 +119,32 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         nodeId: Long,
         context: Context,
         routingContext: RoutingContext
-    ): Any? {
-        return context.executeBlockingAwait { promise: Promise<Any> ->
+    ) {
+        context.executeBlockingAwait { promise: Promise<Unit> ->
             val manager = database.openResourceManager(resPathName)
             manager.use {
                 val wtx = manager.beginNodeTrx()
 
-                if (wtx.moveTo(nodeId).hasMoved()) {
-                    if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
-                        val hashCode = routingContext.request().getHeader(HttpHeaders.ETAG)
+                wtx.use {
+                    if (wtx.moveTo(nodeId).hasMoved()) {
+                        if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
+                            val hashCode = routingContext.request().getHeader(HttpHeaders.ETAG)
 
-                        if (hashCode == null) {
-                            routingContext.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                            if (hashCode == null) {
+                                routingContext.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                            }
+
+                            if (wtx.hash != BigInteger(hashCode)) {
+                                routingContext.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                            }
                         }
 
-                        if (wtx.hash != BigInteger(hashCode)) {
-                            routingContext.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
-                        }
+                        wtx.remove()
+                        wtx.commit()
                     }
-
-                    wtx.remove()
-                    wtx.commit()
                 }
 
-                promise.complete(wtx)
+                promise.complete()
             }
         }
     }

@@ -8,7 +8,6 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.file.closeAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.http.pipeToAwait
@@ -27,7 +26,6 @@ import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.*
 
 class JsonCreate(
@@ -71,29 +69,32 @@ class JsonCreate(
         createDatabaseIfNotExists(dbFile, context)
 
         val sirixDBUser = SirixDBUser.create(ctx)
-        val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
-        database.use {
-            BodyHandler.create().handle(ctx)
-            val fileResolver = FileResolver()
-            ctx.fileUploads().forEach { fileUpload ->
-                val fileName = fileUpload.fileName()
-                val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true).build()
+        return withContext(Dispatchers.IO) {
+            val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
-                createOrRemoveAndCreateResource(
-                    database,
-                    resConfig,
-                    fileName,
-                    dispatcher
-                )
+            database.use {
+                BodyHandler.create().handle(ctx)
+                val fileResolver = FileResolver()
+                ctx.fileUploads().forEach { fileUpload ->
+                    val fileName = fileUpload.fileName()
+                    val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true).build()
 
-                val manager = database.openResourceManager(fileName)
-
-                manager.use {
-                    insertJsonSubtreeAsFirstChild(
-                        manager,
-                        fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
+                    createOrRemoveAndCreateResource(
+                        database,
+                        resConfig,
+                        fileName,
+                        dispatcher
                     )
+
+                    val manager = database.openResourceManager(fileName)
+
+                    manager.use {
+                        insertJsonSubtreeAsFirstChild(
+                            manager,
+                            fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
+                        )
+                    }
                 }
             }
         }
@@ -214,19 +215,17 @@ class JsonCreate(
         }
     }
 
-    private suspend fun insertJsonSubtreeAsFirstChild(
+    private fun insertJsonSubtreeAsFirstChild(
         manager: JsonResourceManager,
         resFileToStore: Path
     ): Long {
-        return withContext(Dispatchers.IO) {
-            val wtx = manager.beginNodeTrx()
-            return@withContext wtx.use {
-                val eventReader = JsonShredder.createFileReader(resFileToStore)
-                eventReader.use {
-                    wtx.insertSubtreeAsFirstChild(eventReader)
-                }
-                return@use wtx.maxNodeKey
+        val wtx = manager.beginNodeTrx()
+        return wtx.use {
+            val eventReader = JsonShredder.createFileReader(resFileToStore)
+            eventReader.use {
+                wtx.insertSubtreeAsFirstChild(eventReader)
             }
+            return@use wtx.maxNodeKey
         }
     }
 }

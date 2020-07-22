@@ -12,8 +12,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.brackit.xquery.xdm.Item
-import org.brackit.xquery.xdm.json.JsonItem
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -42,7 +40,9 @@ class JsonGet(private val location: Path) {
             jsonBody?.getString("query")
         }
 
-        get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
+        withContext(context.dispatcher()) {
+            get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
+        }
 
         return ctx.currentRoute()
     }
@@ -101,31 +101,29 @@ class JsonGet(private val location: Path) {
         revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User
     ) {
-        withContext(vertxContext.dispatcher()) {
-            val dbCollection = JsonDBCollection(databaseName, database)
+        val dbCollection = JsonDBCollection(databaseName, database)
 
-            dbCollection.use {
-                val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
+        dbCollection.use {
+            val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
 
-                try {
-                    val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
-                    val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
+            try {
+                val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
 
-                    xquery(
-                        manager,
-                        dbCollection,
-                        nodeId,
-                        revisionNumber,
-                        query,
-                        ctx,
-                        vertxContext,
-                        user,
-                        startResultSeqIndex?.toLong(),
-                        endResultSeqIndex?.toLong()
-                    )
-                } catch (e: SirixUsageException) {
-                    ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                }
+                xquery(
+                    manager,
+                    dbCollection,
+                    nodeId,
+                    revisionNumber,
+                    query,
+                    ctx,
+                    vertxContext,
+                    user,
+                    startResultSeqIndex?.toLong(),
+                    endResultSeqIndex?.toLong()
+                )
+            } catch (e: SirixUsageException) {
+                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
     }

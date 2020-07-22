@@ -51,8 +51,9 @@ class JsonHead(private val location: Path) {
                 val manager = database.openResourceManager(resource)
 
                 manager.use {
-                    if (manager.resourceConfig.hashType == HashType.NONE)
+                    if (manager.resourceConfig.hashType == HashType.NONE) {
                         return
+                    }
 
                     val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
