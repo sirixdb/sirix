@@ -65,7 +65,6 @@ class JsonCreate(
     ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
-        val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
         val sirixDBUser = SirixDBUser.create(ctx)
@@ -83,8 +82,7 @@ class JsonCreate(
                     createOrRemoveAndCreateResource(
                         database,
                         resConfig,
-                        fileName,
-                        dispatcher
+                        fileName
                     )
 
                     val manager = database.openResourceManager(fileName)
@@ -140,8 +138,7 @@ class JsonCreate(
                 createOrRemoveAndCreateResource(
                     database,
                     resConfig,
-                    resPathName,
-                    dispatcher
+                    resPathName
                 )
 
                 val manager = database.openResourceManager(resPathName)
@@ -205,13 +202,11 @@ class JsonCreate(
     private suspend fun createOrRemoveAndCreateResource(
         database: Database<JsonResourceManager>,
         resConfig: ResourceConfiguration?,
-        resPathName: String, dispatcher: CoroutineDispatcher
+        resPathName: String
     ) {
-        withContext(dispatcher) {
-            if (!database.createResource(resConfig)) {
-                database.removeResource(resPathName)
-                database.createResource(resConfig)
-            }
+        if (!database.createResource(resConfig)) {
+            database.removeResource(resPathName)
+            database.createResource(resConfig)
         }
     }
 
