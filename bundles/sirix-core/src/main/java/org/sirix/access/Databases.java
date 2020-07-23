@@ -80,18 +80,18 @@ public final class Databases {
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     boolean returnVal = true;
     // if file is existing, skipping
-    if (Files.exists(dbConfig.getFile())) {
+    if (Files.exists(dbConfig.getDatabaseFile())) {
       returnVal = false;
     } else {
       try {
-        Files.createDirectories(dbConfig.getFile());
+        Files.createDirectories(dbConfig.getDatabaseFile());
       } catch (UnsupportedOperationException | IOException | SecurityException e) {
         returnVal = false;
       }
       if (returnVal) {
         // creation of folder structure
         for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
-          final Path toCreate = dbConfig.getFile().resolve(paths.getFile());
+          final Path toCreate = dbConfig.getDatabaseFile().resolve(paths.getFile());
           if (paths.isFolder()) {
             try {
               Files.createDirectory(toCreate);
@@ -105,7 +105,7 @@ public final class Databases {
               }
               returnVal = true;
             } catch (final IOException e) {
-              SirixFiles.recursiveRemove(dbConfig.getFile());
+              SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
               throw new SirixIOException(e);
             }
           }
@@ -120,7 +120,7 @@ public final class Databases {
       // if something was not correct, delete the partly created
       // substructure
       if (!returnVal) {
-        SirixFiles.recursiveRemove(dbConfig.getFile());
+        SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
       }
     }
 

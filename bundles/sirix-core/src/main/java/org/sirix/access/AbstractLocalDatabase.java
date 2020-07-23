@@ -96,7 +96,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     boolean returnVal = true;
     resConfig.setDatabaseConfiguration(dbConfig);
     final Path path =
-        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;
@@ -177,7 +177,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     checkNotNull(name);
 
     final Path resourceFile =
-        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
     // Check that no running resource managers / sessions are opened.
     final var resourceManagers = Databases.getOpenResourceManagers(resourceFile);
@@ -228,14 +228,14 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
     final Path resourceFile =
-        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 
   @Override
   public List<Path> listResources() {
     assertNotClosed();
-    try (final Stream<Path> stream = Files.list(dbConfig.getFile()
+    try (final Stream<Path> stream = Files.list(dbConfig.getDatabaseFile()
                                                         .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.collect(Collectors.toList());
     } catch (final IOException e) {

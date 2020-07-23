@@ -170,7 +170,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
         throw new DocumentException("Document with name %s exists!", name);
       }
 
-      final var database = Databases.openXmlDatabase(dbConf.getFile());
+      final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
       final XmlDBCollection collection = new XmlDBCollection(name, database);
@@ -227,7 +227,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       try {
         Databases.removeDatabase(dbPath);
         Databases.createXmlDatabase(dbConf);
-        final var database = Databases.openXmlDatabase(dbConf.getFile());
+        final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
         databases.add(database);
         int i = database.listResources().size() + 1;
         try (parsers) {
@@ -266,7 +266,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     if (Databases.existsDatabase(dbPath)) {
       try {
         Databases.removeDatabase(dbPath);
-        try (final var database = Databases.openXmlDatabase(dbConfig.getFile())) {
+        try (final var database = Databases.openXmlDatabase(dbConfig.getDatabaseFile())) {
           databases.remove(database);
           collections.remove(database);
         }
