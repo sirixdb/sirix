@@ -6,6 +6,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
+import org.sirix.access.DatabasesInternals
 import org.sirix.rest.crud.json.JsonDelete
 import org.sirix.rest.crud.xml.XmlDelete
 import java.nio.file.Files
@@ -14,6 +15,12 @@ import java.nio.file.Path
 class DeleteHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         if (ctx.pathParam("database") == null && ctx.pathParam("resource") == null) {
+            val databases = DatabasesInternals.getOpenDatabases()
+
+            if (databases.isNotEmpty()) {
+                IllegalStateException("Open databases found: $databases");
+            }
+
             ctx.vertx().executeBlockingAwait { _: Promise<Unit> ->
                 val databases = Files.list(location)
 
@@ -30,7 +37,7 @@ class DeleteHandler(private val location: Path) {
             val databaseName = ctx.pathParam("database")
 
             if (databaseName == null) {
-                ctx.fail(IllegalStateException("No database name given."))
+                IllegalStateException("No database name given.")
             } else {
                 val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
 

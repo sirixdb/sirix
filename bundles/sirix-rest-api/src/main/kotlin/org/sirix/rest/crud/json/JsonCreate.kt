@@ -109,17 +109,16 @@ class JsonCreate(
         createDatabaseIfNotExists(dbFile, context)
         ctx.request().resume()
 
-        insertResource(dbFile, resPathName, dispatcher, ctx)
+        insertResource(dbFile, resPathName, ctx)
     }
 
     private suspend fun insertResource(
         dbFile: Path?, resPathName: String,
-        dispatcher: CoroutineDispatcher,
         ctx: RoutingContext
     ) {
         ctx.request().pause()
         val fileResolver = FileResolver()
-        val filePath = fileResolver.resolveFile(UUID.randomUUID().toString())
+        val filePath = fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
         val file = ctx.vertx().fileSystem().openAwait(
             filePath.toString(),
             OpenOptions()
@@ -199,7 +198,7 @@ class JsonCreate(
         }
     }
 
-    private suspend fun createOrRemoveAndCreateResource(
+    private fun createOrRemoveAndCreateResource(
         database: Database<JsonResourceManager>,
         resConfig: ResourceConfiguration?,
         resPathName: String

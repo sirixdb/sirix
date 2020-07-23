@@ -240,7 +240,7 @@ public final class ResourceConfiguration {
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
     databaseConfig = checkNotNull(config);
     resourcePath =
-        databaseConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+        databaseConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
     return this;
   }
 

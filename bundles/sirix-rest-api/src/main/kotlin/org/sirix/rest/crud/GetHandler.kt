@@ -16,7 +16,6 @@ import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.json.JsonGet
 import org.sirix.rest.crud.xml.XmlGet
 import org.sirix.service.json.serialize.StringValue
-import org.sirix.xquery.json.JsonDBCollection
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,19 +38,19 @@ class GetHandler(private val location: Path) {
             if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
             } else {
-                var startResultSeqIndexAsString =
+                val startResultSeqIndexAsString =
                     ctx.queryParam("startResultSeqIndex").getOrNull(0)
 
-                var startResultSeqIndex = startResultSeqIndexAsString?.toLong();
+                var startResultSeqIndex = startResultSeqIndexAsString?.toLong()
 
                 if (startResultSeqIndex == null) {
                     startResultSeqIndex = jsonBody?.getLong("startResultSeqIndex")
                 }
 
-                var endResultSeqIndexAsSring =
+                val endResultSeqIndexAsSring =
                     ctx.queryParam("endResultSeqIndex").getOrNull(0)
 
-                var endResultSeqIndex = endResultSeqIndexAsSring?.toLong();
+                var endResultSeqIndex = endResultSeqIndexAsSring?.toLong()
 
                 if (endResultSeqIndex == null) {
                     endResultSeqIndex = jsonBody?.getLong("endResultSeqIndex")

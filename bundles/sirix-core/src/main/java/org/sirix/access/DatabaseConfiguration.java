@@ -209,7 +209,7 @@ public final class DatabaseConfiguration {
    *
    * @return the database file
    */
-  public Path getFile() {
+  public Path getDatabaseFile() {
     return file;
   }
 
