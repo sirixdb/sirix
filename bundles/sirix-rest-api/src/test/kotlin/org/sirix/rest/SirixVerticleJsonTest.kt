@@ -108,9 +108,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -218,6 +221,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -263,9 +270,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -370,6 +380,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -415,9 +429,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -463,9 +480,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -511,9 +531,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -600,6 +623,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -645,9 +672,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -756,6 +786,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -801,9 +835,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -910,6 +947,10 @@ class SirixVerticleJsonTest {
                     assertEquals(204, response.statusCode())
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -955,9 +996,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1030,6 +1074,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1078,6 +1126,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1150,6 +1202,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1198,6 +1254,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1270,6 +1330,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1318,6 +1382,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1387,6 +1455,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1435,6 +1507,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1510,6 +1586,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1558,6 +1638,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1632,6 +1716,9 @@ class SirixVerticleJsonTest {
                     testContext.completeNow()
                 }
 
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1680,6 +1767,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -1966,6 +2057,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2014,6 +2109,10 @@ class SirixVerticleJsonTest {
                 }
 
                 testContext.completeNow()
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2087,6 +2186,10 @@ class SirixVerticleJsonTest {
                 if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2132,9 +2235,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2244,6 +2350,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2289,9 +2399,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2359,6 +2472,10 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -2404,9 +2521,12 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(204, httpDeleteResponseJson.statusCode())
+                    testContext.completeNow()
                 }
 
-                testContext.completeNow()
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
