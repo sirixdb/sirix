@@ -938,6 +938,7 @@ class SirixVerticleXmlTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
+                    testContext.completeNow()
                 }
 
                 if (testContext.failed()) {
