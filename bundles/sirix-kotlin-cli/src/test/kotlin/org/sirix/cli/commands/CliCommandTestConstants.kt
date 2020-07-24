@@ -10,7 +10,8 @@ class CliCommandTestConstants {
         val TEST_USER: User = User("testuser", UUID.fromString("091a12f2-e0dc-4795-abde-4b6b9c2932d1"))
 
         @JvmField
-        val TEST_XML_DATA: String = "<xml><foo>Test</foo></xml>"
+        val TEST_XML_DATA: String =
+            "<xml><bar><hello>world</hello><helloo>true</helloo></bar><baz>hello</baz><foo><element>bar</element><element null=\"true\"/><element>2.33</element></foo><tada><element><foo>bar</foo></element><element><baz>false</baz></element><element>boo</element><element/><element/></tada></xml>"
 
         @JvmField
         val TEST_XML_DATA_PATH: String = {}::class.java.getResource("/org/sirix/cli/commands/test_data.xml").path
