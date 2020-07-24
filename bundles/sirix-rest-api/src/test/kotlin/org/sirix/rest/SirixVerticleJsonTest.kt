@@ -69,7 +69,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Disabled("Disabled until we find out what happens on Travis!")
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
