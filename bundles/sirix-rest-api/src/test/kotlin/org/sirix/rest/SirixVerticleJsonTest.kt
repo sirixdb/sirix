@@ -48,8 +48,6 @@ class SirixVerticleJsonTest {
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
-
-        //delete(vertx, testContext)
     }
 
     @AfterEach
@@ -72,7 +70,8 @@ class SirixVerticleJsonTest {
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
-    fun testDeleteResource(vertx: Vertx, testContext: VertxTestContext) {
+    @RepeatedTest(3)
+    fun testDeleteResource1(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
                 val credentials = json {
@@ -225,6 +224,55 @@ class SirixVerticleJsonTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource2(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
     @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the diff of a resource")
     fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
@@ -330,6 +378,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource3(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a database")
     fun testDeleteDatabase(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -362,6 +459,55 @@ class SirixVerticleJsonTest {
                 }
 
                 val httpDeleteResponseJson = client.deleteAbs("$server/database").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource4(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -458,6 +604,55 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource5(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
             }
         }
     }
@@ -571,6 +766,55 @@ class SirixVerticleJsonTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource6(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
     @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing insert, then update, then query, then delete")
     fun testInsertUpdateQueryAndDelete(vertx: Vertx, testContext: VertxTestContext) {
@@ -678,6 +922,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource7(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start index")
     fun testPostQueryWithStartIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -750,6 +1043,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource8(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start and end index")
     fun testPostQueryWithStartAndEndZeroIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -816,6 +1158,55 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource9(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
             }
         }
     }
@@ -894,6 +1285,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource10(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -957,6 +1397,55 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource11(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
             }
         }
     }
@@ -1038,6 +1527,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource12(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1106,6 +1644,55 @@ class SirixVerticleJsonTest {
                     testContext.completeNow()
                 }
 
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource13(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
             }
         }
     }
@@ -1398,6 +1985,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource14(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1465,6 +2101,55 @@ class SirixVerticleJsonTest {
                 if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
                 }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource15(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
             }
         }
     }
@@ -1580,6 +2265,55 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource16(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing serialization up to a specific level")
     fun testSerialize(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1641,6 +2375,55 @@ class SirixVerticleJsonTest {
                     )
                     testContext.completeNow()
                 }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    @RepeatedTest(3)
+    fun testDeleteResource17(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer("{}"))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
+                }
+
+                testContext.completeNow()
             }
         }
     }
