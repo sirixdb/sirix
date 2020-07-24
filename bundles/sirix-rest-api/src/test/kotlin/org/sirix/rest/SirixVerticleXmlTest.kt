@@ -796,34 +796,36 @@ class SirixVerticleXmlTest {
 
                 val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
-                if (200 == response.statusCode()) {
-                    val user = response.bodyAsJsonObject()
-                    accessToken = user.getString("access_token")
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
-                        HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken"
-                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
-                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
 
-                    if (200 == httpResponse.statusCode()) {
-                        testContext.verify {
-                            assertEquals(
-                                expectString.replace("\n", System.getProperty("line.separator")),
-                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
-                            )
-                        }
-                    }
+                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
 
-                    httpResponse = client.headAbs("$server$serverPath?nodeId=3").putHeader(
-                        HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken"
-                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
-                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    assertEquals(
+                        expectString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                    )
+                }
 
-                    val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+                httpResponse = client.headAbs("$server$serverPath?nodeId=3").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
-                    val expectUpdatedString = """
+                val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
+                val expectUpdatedString = """
                     <rest:sequence xmlns:rest="https://sirix.io/rest">
                       <rest:item>
                         <xml rest:id="1">
@@ -839,24 +841,22 @@ class SirixVerticleXmlTest {
                     </rest:sequence>
                     """.trimIndent()
 
-                    val url = "$server$serverPath?nodeId=3&insert=asFirstChild"
+                val url = "$server$serverPath?nodeId=3&insert=asFirstChild"
 
-                    httpResponse = client.postAbs(url).putHeader(
-                        HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken"
-                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
-                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml")
-                        .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer(xml))
+                httpResponse = client.postAbs(url).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml")
+                    .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer(xml))
 
-                    if (200 == httpResponse.statusCode()) {
-                        testContext.verify {
-                            assertEquals(
-                                expectUpdatedString.replace("\n", System.getProperty("line.separator")),
-                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
-                            )
-                            testContext.completeNow()
-                        }
-                    }
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                    )
+                    testContext.completeNow()
                 }
 
                 if (testContext.failed()) {
@@ -936,8 +936,8 @@ class SirixVerticleXmlTest {
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
                     .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
 
-                if (204 == httpResponse.statusCode()) {
-                    testContext.completeNow()
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
                 }
 
                 if (testContext.failed()) {
