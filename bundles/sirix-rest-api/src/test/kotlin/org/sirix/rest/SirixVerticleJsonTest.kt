@@ -67,7 +67,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -223,7 +222,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -376,7 +374,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -473,7 +470,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -608,7 +604,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -765,7 +760,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -920,7 +914,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1041,7 +1034,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1162,7 +1154,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1283,7 +1274,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1401,7 +1391,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1525,7 +1514,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1648,7 +1636,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -1983,7 +1970,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -2105,7 +2091,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -2263,7 +2248,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
@@ -2379,7 +2363,6 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
