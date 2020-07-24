@@ -47,8 +47,6 @@ class SirixVerticleXmlTest {
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
-
-        //delete(vertx, testContext)
     }
 
     @AfterEach
@@ -193,6 +191,10 @@ class SirixVerticleXmlTest {
                     )
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -263,6 +265,10 @@ class SirixVerticleXmlTest {
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
                     )
                     testContext.completeNow()
+                }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
                 }
             }
         }
@@ -399,6 +405,10 @@ class SirixVerticleXmlTest {
                     assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -473,6 +483,10 @@ class SirixVerticleXmlTest {
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
                     )
                     testContext.completeNow()
+                }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
                 }
             }
         }
@@ -555,6 +569,10 @@ class SirixVerticleXmlTest {
                             .replace(" rest:revisionTimestamp=\"(?!\").*\"".toRegex(), "")
                     assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                     testContext.completeNow()
+                }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
                 }
             }
         }
@@ -648,6 +666,10 @@ class SirixVerticleXmlTest {
                     assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                     testContext.completeNow()
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -732,6 +754,10 @@ class SirixVerticleXmlTest {
                             .replace(" rest:revisionTimestamp=\"(?!\").*\"".toRegex(), "")
                     assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                     testContext.completeNow()
+                }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
                 }
             }
         }
@@ -832,6 +858,10 @@ class SirixVerticleXmlTest {
                         }
                     }
                 }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
+                }
             }
         }
     }
@@ -908,6 +938,10 @@ class SirixVerticleXmlTest {
 
                 if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
+                }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
                 }
             }
         }
@@ -1012,6 +1046,10 @@ class SirixVerticleXmlTest {
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
                     )
                     testContext.completeNow()
+                }
+
+                if (testContext.failed()) {
+                    throw testContext.causeOfFailure();
                 }
             }
         }
