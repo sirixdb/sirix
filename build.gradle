@@ -97,6 +97,13 @@ subprojects {
     tasks.withType(JavaCompile).each {
         it.options.compilerArgs.add('--enable-preview')
     }
+    
+    test {
+        testLogging {
+            events "failed"
+            exceptionFormat "short"
+        }
+    }
 
     spotless {
         enforceCheck false
