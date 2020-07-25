@@ -9,7 +9,6 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
-import org.sirix.cli.commands.json.JsonCreate
 import org.sirix.exception.SirixIOException
 import org.sirix.service.json.serialize.JsonSerializer
 import org.slf4j.Logger

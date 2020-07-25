@@ -3,8 +3,8 @@ package org.sirix.cli.commands
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.api.Disabled
+import org.junit.jupiter.api.Test
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.cli.CliOptions
@@ -50,35 +50,13 @@ internal class QueryTest : CliCommandTest() {
 
     }
 
-    private fun queryOptionList() = listOf<QueryOptions>(
-        QueryOptions(
-            null,
-            CliCommandTestConstants.TEST_RESOURCE,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            MetaDataEnum.NONE,
-            true,
-            null
-        )
-    )
-
-
-    @ParameterizedTest
-    @MethodSource("queryOptionList")
-    fun testJson(queryOptions: QueryOptions) {
+    @Test
+    fun testJsonSimple() {
 
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(CliOptions(sirixQueryTestFileJson, true), queryOptions).execute()
+        Query(CliOptions(sirixQueryTestFileJson, true), giveASimpleQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
@@ -88,13 +66,12 @@ internal class QueryTest : CliCommandTest() {
         )
     }
 
-    @ParameterizedTest
-    @MethodSource("queryOptionList")
-    fun testXml(queryOptions: QueryOptions) {
+    @Test
+    fun testXmlSimple() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(CliOptions(sirixQueryTestFileXml, true), queryOptions).execute()
+        Query(CliOptions(sirixQueryTestFileXml, true), giveASimpleQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
@@ -102,9 +79,84 @@ internal class QueryTest : CliCommandTest() {
             "ExecuteQuery.Resultis:<rest:sequencexmlns:rest=\"https://sirix.io/rest\"><rest:item><xmlrest:id=\"1\"><barrest:id=\"2\"><hellorest:id=\"3\">world</hello><helloorest:id=\"5\">true</helloo></bar><bazrest:id=\"7\">hello</baz><foorest:id=\"9\"><elementrest:id=\"10\">bar</element><elementrest:id=\"12\"null=\"true\"/><elementrest:id=\"14\">2.33</element></foo><tadarest:id=\"16\"><elementrest:id=\"17\"><foorest:id=\"18\">bar</foo></element><elementrest:id=\"20\"><bazrest:id=\"21\">false</baz></element><elementrest:id=\"23\">boo</element><elementrest:id=\"25\"/><elementrest:id=\"26\"/></tada></xml></rest:item></rest:sequence>Queryexecuted(123)",
             queryResult
         )
+    }
 
+
+    @Test
+    fun testJsonXQuery() {
+        val byteArrayOutputStream = ByteArrayOutputStream()
+        System.setOut(PrintStream(byteArrayOutputStream))
+
+        Query(CliOptions(sirixQueryTestFileJson, true), giveAXQueryOption()).execute()
+
+        val queryResult = prepareQueryResult(byteArrayOutputStream)
+
+        assertEquals(
+            "ExecuteQuery.Resultis:{\"rest\":[{\"nodeKey\":6}]}Queryexecuted(123)",
+            queryResult
+        )
 
     }
+
+    @Test
+    @Disabled
+    fun testXmlXQuery() {
+        val byteArrayOutputStream = ByteArrayOutputStream()
+        System.setOut(PrintStream(byteArrayOutputStream))
+
+        Query(CliOptions(sirixQueryTestFileXml, true), giveAXQueryOption()).execute()
+
+        val queryResult = prepareQueryResult(byteArrayOutputStream)
+
+        assertEquals(
+            "ExecuteQuery.Resultis:{\"rest\":[{\"nodeKey\":2}]}Queryexecuted(123)",
+            queryResult
+        )
+
+    }
+
+
+    private fun giveASimpleQueryOption() =
+        QueryOptions(
+            queryStr = null,
+            resource = CliCommandTestConstants.TEST_RESOURCE,
+            revision = null,
+            revisionTimestamp = null,
+            startRevision = null,
+            endRevision = null,
+            startRevisionTimestamp = null,
+            endRevisionTimestamp = null,
+            nodeId = null,
+            nextTopLevelNodes = null,
+            lastTopLevelNodeKey = null,
+            startResultSeqIndex = null,
+            endResultSeqIndex = null,
+            maxLevel = null,
+            metaData = MetaDataEnum.NONE,
+            prettyPrint = true,
+            user = null
+        )
+
+    private fun giveAXQueryOption() =
+        QueryOptions(
+            queryStr = "let \$nodeKey := sdb:nodekey(.=>foo[[2]]) return {\"nodeKey\": \$nodeKey}",
+            resource = CliCommandTestConstants.TEST_RESOURCE,
+            revision = null,
+            revisionTimestamp = null,
+            startRevision = null,
+            endRevision = null,
+            startRevisionTimestamp = null,
+            endRevisionTimestamp = null,
+            nodeId = null,
+            nextTopLevelNodes = null,
+            lastTopLevelNodeKey = null,
+            startResultSeqIndex = null,
+            endResultSeqIndex = null,
+            maxLevel = null,
+            metaData = MetaDataEnum.NONE,
+            prettyPrint = true,
+            user = null
+        )
 
 }
 
