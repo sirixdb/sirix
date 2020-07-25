@@ -15,10 +15,10 @@ import java.nio.file.Path
 class DeleteHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         if (ctx.pathParam("database") == null && ctx.pathParam("resource") == null) {
-            val databases = DatabasesInternals.getOpenDatabases()
+            val openDatabases = DatabasesInternals.getOpenDatabases()
 
-            if (databases.isNotEmpty()) {
-                IllegalStateException("Open databases found: $databases");
+            if (openDatabases.isNotEmpty()) {
+                IllegalStateException("Open databases found: $openDatabases");
             }
 
             ctx.vertx().executeBlockingAwait { _: Promise<Unit> ->

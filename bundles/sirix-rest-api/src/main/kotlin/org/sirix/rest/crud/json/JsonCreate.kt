@@ -28,10 +28,13 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
 
+private const val MAX_NODES_TO_SERIALIZE = 5000
+
 class JsonCreate(
     private val location: Path,
     private val createMultipleResources: Boolean = false
 ) {
+
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
@@ -104,7 +107,6 @@ class JsonCreate(
     ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
-        val dispatcher = ctx.vertx().dispatcher()
         ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
         ctx.request().resume()
@@ -148,7 +150,7 @@ class JsonCreate(
 
                     ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
 
-                    if (maxNodeKey < 5000) {
+                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                         serializeJson(manager, ctx)
                     } else {
                         ctx.response().setStatusCode(200).end()
@@ -219,7 +221,7 @@ class JsonCreate(
             eventReader.use {
                 wtx.insertSubtreeAsFirstChild(eventReader)
             }
-            return wtx.maxNodeKey
+            wtx.maxNodeKey
         }
     }
 }
