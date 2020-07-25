@@ -2,6 +2,7 @@ package org.sirix.cli.parser
 
 import kotlinx.cli.ArgType
 import kotlinx.cli.optional
+import kotlinx.cli.required
 import org.sirix.cli.CliOptions
 import org.sirix.cli.MetaDataEnum
 import org.sirix.cli.commands.CliCommand
@@ -11,7 +12,7 @@ import org.sirix.cli.commands.QueryOptions
 class QuerySubCommand :
     AbstractUserCommand("query", "Querys the Database") {
 
-    val resource by option(ArgType.String, "resource", "r", "The name of the resource.")
+    val resource by option(ArgType.String, "resource", "r", "The name of the resource.").required()
     val revision by option(ArgType.Int, "revision", "rev", "The revions to query")
     val revisionTimestamp by option(
         CliArgType.Timestamp(),
@@ -46,6 +47,18 @@ class QuerySubCommand :
         "ltlnk",
         "The last top level Node Key"
     )
+    val startResultSeqIndex by option(
+        CliArgType.Long(),
+        "start-result-sequence-index",
+        "srsi",
+        "The start Result Sequence Index"
+    )
+    val endResultSeqIndex by option(
+        CliArgType.Long(),
+        "end-result-sequence-index",
+        "ersi",
+        "The end Result Sequence Index"
+    )
     val maxLevel by option(CliArgType.Long(), "max-level", "ml", "The max Level")
     val metaData by option(
         ArgType.Choice(listOf("nodeKeyAndChildCount", "nodeKey", "all")),
@@ -71,6 +84,8 @@ class QuerySubCommand :
                 nodeId,
                 nextTopLevelNodes,
                 lastTopLevelNodeKey,
+                startResultSeqIndex,
+                endResultSeqIndex,
                 maxLevel,
                 toMentaDataEnum(metaData),
                 prettyPrint ?: false,

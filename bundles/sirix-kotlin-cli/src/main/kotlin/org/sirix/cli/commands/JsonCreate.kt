@@ -1,11 +1,9 @@
-package org.sirix.cli.commands.json
+package org.sirix.cli.commands
 
 import com.google.gson.stream.JsonReader
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.cli.CliOptions
-import org.sirix.cli.commands.AbstractCreate
-import org.sirix.cli.commands.DataCommandOptions
 import org.sirix.service.json.shredder.JsonShredder
 import java.nio.file.Paths
 
