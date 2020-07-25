@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -180,7 +181,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
     // Check that no running resource managers / sessions are opened.
-    final var resourceManagers = Databases.getOpenResourceManagers(resourceFile);
+    final var resourceManagers = new HashSet<>(Databases.getOpenResourceManagers(resourceFile));
     if (!resourceManagers.isEmpty()) {
       throw new IllegalStateException(
           "Open resource managers found, must be closed first: " + resourceManagers);

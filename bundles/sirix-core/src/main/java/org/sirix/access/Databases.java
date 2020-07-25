@@ -262,18 +262,6 @@ public final class Databases {
   }
 
   /**
-   * Determines if there are any open resource managers.
-   *
-   * @param file the resource file
-   * @return {@code true}, if there are any open resource managers, {@code false} otherwise.
-   */
-  public static synchronized boolean hasOpenResourceManagers(final Path file) {
-    final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
-
-    return !resourceManagers.isEmpty();
-  }
-
-  /**
    * Get open resource managers.
    *
    * @param file the resource file
