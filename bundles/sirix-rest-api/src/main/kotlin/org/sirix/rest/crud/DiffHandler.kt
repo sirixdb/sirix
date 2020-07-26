@@ -32,12 +32,12 @@ class DiffHandler(private val location: Path) {
 
         val database = openDatabase(databaseName)
 
-        database.use {
-            val resourceManager = database.openResourceManager(resourceName)
+        val diff = context.executeBlockingAwait<String> { resultPromise ->
+            database.use {
+                val resourceManager = database.openResourceManager(resourceName)
 
-            resourceManager.use {
-                if (resourceManager is JsonResourceManager) {
-                    val diff = context.executeBlockingAwait<String> { resultPromise ->
+                resourceManager.use {
+                    if (resourceManager is JsonResourceManager) {
                         val firstRevision: String? = ctx.queryParam("first-revision").getOrNull(0)
                         val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
 
@@ -88,18 +88,18 @@ class DiffHandler(private val location: Path) {
                             )
                         }
                     }
-
-                    ctx.response().setStatusCode(200)
-                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                        .putHeader(
-                            HttpHeaders.CONTENT_LENGTH,
-                            diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
-                        )
-                        .write(diff)
-                        .end()
                 }
             }
         }
+
+        ctx.response().setStatusCode(200)
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            .putHeader(
+                HttpHeaders.CONTENT_LENGTH,
+                diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
+            )
+            .write(diff)
+            .end()
 
         return ctx.currentRoute()
     }

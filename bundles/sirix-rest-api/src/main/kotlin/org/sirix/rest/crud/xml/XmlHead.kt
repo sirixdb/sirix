@@ -10,6 +10,7 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
+import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
 import java.nio.file.Path
@@ -23,10 +24,11 @@ class XmlHead(private val location: Path) {
 
         if (databaseName == null || resource == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
+            return ctx.currentRoute()
         }
 
         ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
-            head(databaseName!!, ctx, resource!!)
+            head(databaseName, ctx, resource)
         }
 
         return ctx.currentRoute()
@@ -65,21 +67,24 @@ class XmlHead(private val location: Path) {
                                     HttpResponseStatus.BAD_REQUEST.code(),
                                     IllegalStateException("Node with ID ${nodeId} doesn't exist.")
                                 )
+                            } else {
+                                writeResponse(ctx, rtx)
                             }
                         } else if (rtx.isDocumentRoot) {
                             rtx.moveToFirstChild()
+                            writeResponse(ctx, rtx)
                         }
-
-                        ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
-                        ctx.response().end()
                     }
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
             }
-
         }
+    }
+
+    private fun writeResponse(ctx: RoutingContext, rtx: XmlNodeReadOnlyTrx) {
+        ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
+        ctx.response().end()
     }
 
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XmlResourceManager): Int {

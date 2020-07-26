@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
+
 import org.brackit.xquery.jsonitem.AbstractJsonItemCollection;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.DocumentException;
@@ -31,22 +32,32 @@ import com.google.gson.stream.JsonReader;
 public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
     implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {
 
-  /** Logger. */
+  /**
+   * Logger.
+   */
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
 
-  /** ID sequence. */
+  /**
+   * ID sequence.
+   */
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
-  /** Sirix database. */
+  /**
+   * Sirix database.
+   */
   private final Database<JsonResourceManager> database;
 
-  /** Unique ID. */
+  /**
+   * Unique ID.
+   */
   private final int id;
+
+  private JsonDBStore jsonDbStore;
 
   /**
    * Constructor.
    *
-   * @param name collection name
+   * @param name     collection name
    * @param database Sirix {@link Database} reference
    */
   public JsonDBCollection(final String name, final Database<JsonResourceManager> database) {
@@ -55,17 +66,38 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     id = ID_SEQUENCE.incrementAndGet();
   }
 
+  /**
+   * Constructor.
+   *
+   * @param name     collection name
+   * @param database Sirix {@link Database} reference
+   */
+  public JsonDBCollection(final String name, final Database<JsonResourceManager> database,
+      final JsonDBStore jsonDBStore) {
+    super(Preconditions.checkNotNull(name));
+    this.database = Preconditions.checkNotNull(database);
+    id = ID_SEQUENCE.incrementAndGet();
+    this.jsonDbStore = Preconditions.checkNotNull(jsonDBStore);
+  }
+
+  public JsonDBCollection setJsonDBStore(final JsonDBStore jsonDBStore) {
+    this.jsonDbStore = jsonDBStore;
+    return this;
+  }
+
   public Transaction beginTransaction() {
     return database.beginTransaction();
   }
 
   @Override
   public boolean equals(final @Nullable Object other) {
-    if (this == other)
+    if (this == other) {
       return true;
+    }
 
-    if (!(other instanceof JsonDBCollection))
+    if (!(other instanceof JsonDBCollection)) {
       return false;
+    }
 
     final JsonDBCollection coll = (JsonDBCollection) other;
     return database.equals(coll.database);
@@ -128,9 +160,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
     final JsonResourceManager resource = database.openResourceManager(resName);
-    final int version = revision == -1
-        ? resource.getMostRecentRevisionNumber()
-        : revision;
+    final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
 
     final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
 
@@ -140,7 +170,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   @Override
   public void delete() {
     try {
-      Databases.removeDatabase(database.getDatabaseConfig().getFile());
+      Databases.removeDatabase(database.getDatabaseConfig().getDatabaseFile());
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -164,9 +194,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     }
     try {
       final JsonResourceManager manager = database.openResourceManager(resources.get(0).getFileName().toString());
-      final int version = revision == -1
-          ? manager.getMostRecentRevisionNumber()
-          : revision;
+      final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
 
       return getItem(rtx);
@@ -212,7 +240,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   @Override
-  public void close() throws SirixException {
+  public void close() {
+    jsonDbStore.removeDatabase(database);
     database.close();
   }
 

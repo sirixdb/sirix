@@ -48,7 +48,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         }
 
         if (databaseName == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
+            IllegalArgumentException("Database name and resource data to store not given.")
         }
 
         if (createMultipleResources) {

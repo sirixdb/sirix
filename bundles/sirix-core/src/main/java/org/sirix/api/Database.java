@@ -47,6 +47,8 @@ import org.sirix.exception.SirixIOException;
  */
 public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     extends AutoCloseable {
+  boolean isOpen();
+
   /**
    * Creation of a resource. Since databases can consist out of several resources, those can be
    * created within this method. This includes the creation of a suitable folder structure as well as

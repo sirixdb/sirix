@@ -27,10 +27,8 @@ import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
-import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.io.StorageType;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -67,18 +65,19 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
 
   @Override
   public synchronized void close() throws SirixException {
-    if (isClosed)
+    if (isClosed) {
       return;
+    }
 
     isClosed = true;
     resourceStore.close();
     transactionManager.close();
 
     // Remove from database mapping.
-    Databases.removeDatabase(dbConfig.getFile(), this);
+    Databases.removeDatabase(dbConfig.getDatabaseFile(), this);
 
     // Remove lock file.
-    SirixFiles.recursiveRemove(dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+    SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
   }
 
   @Override
@@ -86,7 +85,7 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
     assertNotClosed();
 
     final Path resourceFile =
-        dbConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resource);
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resource);
 
     if (!Files.exists(resourceFile)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
@@ -100,7 +99,7 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
     // Resource of must be associated to this database.
-    assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getFile());
+    assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getDatabaseFile());
 
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());

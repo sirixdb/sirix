@@ -147,7 +147,7 @@ class JsonUpdate(private val location: Path) {
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
         if (databaseName == null || resource == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name not given."))
+            IllegalArgumentException("Database name and resource name not given.")
         }
 
         val body = ctx.bodyAsString
@@ -174,26 +174,28 @@ class JsonUpdate(private val location: Path) {
                 manager.use {
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
-                        if (nodeId != null)
+                        if (nodeId != null) {
                             wtx.moveTo(nodeId)
+                        }
 
-                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                             wtx.moveToFirstChild()
+                        }
 
                         if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
 
                             if (hashCode == null) {
-                                ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                                IllegalStateException("Hash code is missing in ETag HTTP-Header.")
                             }
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                                IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 
                         if (insertionModeAsString == null) {
-                            ctx.fail(IllegalArgumentException("Insertion mode must be given."))
+                            IllegalArgumentException("Insertion mode must be given.")
                         }
 
                         val jsonReader = JsonShredder.createStringReader(resFileToStore)
@@ -213,11 +215,13 @@ class JsonUpdate(private val location: Path) {
                             insertionModeByName.insertSubtree(wtx, jsonReader)
                         }
 
-                        if (nodeId != null)
+                        if (nodeId != null) {
                             wtx.moveTo(nodeId)
+                        }
 
-                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                             wtx.moveToFirstChild()
+                        }
 
                         Pair(wtx.maxNodeKey, wtx.hash)
                     }

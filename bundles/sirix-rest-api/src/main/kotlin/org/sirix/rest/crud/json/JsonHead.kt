@@ -22,7 +22,7 @@ class JsonHead(private val location: Path) {
         val resource = ctx.pathParam("resource")
 
         if (databaseName == null || resource == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
+            IllegalArgumentException("Database name and resource name must be given.")
         }
 
         ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
@@ -51,8 +51,9 @@ class JsonHead(private val location: Path) {
                 val manager = database.openResourceManager(resource)
 
                 manager.use {
-                    if (manager.resourceConfig.hashType == HashType.NONE)
+                    if (manager.resourceConfig.hashType == HashType.NONE) {
                         return
+                    }
 
                     val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
@@ -76,7 +77,6 @@ class JsonHead(private val location: Path) {
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
             }
         }
     }

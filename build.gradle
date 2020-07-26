@@ -84,6 +84,11 @@ subprojects {
 
     javadoc {
         failOnError = false
+        options {
+            addBooleanOption('-enable-preview', true)
+            addStringOption('-release', '14')
+            addStringOption('-add-modules', 'jdk.incubator.foreign')
+        }
     }
 
     compileJava {
@@ -96,6 +101,13 @@ subprojects {
 
     tasks.withType(JavaCompile).each {
         it.options.compilerArgs.add('--enable-preview')
+    }
+    
+    test {
+        testLogging {
+            events "failed"
+            exceptionFormat "short"
+        }
     }
 
     spotless {

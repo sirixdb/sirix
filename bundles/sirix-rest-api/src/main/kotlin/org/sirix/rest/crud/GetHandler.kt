@@ -38,39 +38,60 @@ class GetHandler(private val location: Path) {
             if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
             } else {
-                val startResultSeqIndex =
-                    ctx.queryParam("startResultSeqIndex").getOrElse(0) { jsonBody?.getString("startResultSeqIndex") }
-                val endResultSeqIndex =
-                    ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
+                val startResultSeqIndexAsString =
+                    ctx.queryParam("startResultSeqIndex").getOrNull(0)
+
+                var startResultSeqIndex = startResultSeqIndexAsString?.toLong()
+
+                if (startResultSeqIndex == null) {
+                    startResultSeqIndex = jsonBody?.getLong("startResultSeqIndex")
+                }
+
+                val endResultSeqIndexAsSring =
+                    ctx.queryParam("endResultSeqIndex").getOrNull(0)
+
+                var endResultSeqIndex = endResultSeqIndexAsSring?.toLong()
+
+                if (endResultSeqIndex == null) {
+                    endResultSeqIndex = jsonBody?.getLong("endResultSeqIndex")
+                }
 
                 with(acceptHeader) {
                     when {
-                        contains("application/json") -> JsonGet(location).xquery(
-                            query,
-                            null,
-                            ctx,
-                            context,
-                            ctx.get("user") as User,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
-                        )
+                        contains("application/json") -> {
+                            JsonGet(location).xquery(
+                                null,
+                                null,
+                                null,
+                                null,
+                                query,
+                                ctx,
+                                context,
+                                ctx.get("user") as User,
+                                startResultSeqIndex,
+                                endResultSeqIndex
+                            )
+                        }
                         contains("application/xml") -> XmlGet(location).xquery(
                             query,
                             null,
                             ctx,
                             context,
                             ctx.get("user") as User,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
+                            startResultSeqIndex,
+                            endResultSeqIndex
                         )
                         else -> JsonGet(location).xquery(
-                            query,
                             null,
+                            null,
+                            null,
+                            null,
+                            query,
                             ctx,
                             context,
                             ctx.get("user") as User,
-                            startResultSeqIndex?.toLong(),
-                            endResultSeqIndex?.toLong()
+                            startResultSeqIndex,
+                            endResultSeqIndex
                         )
                     }
                 }
@@ -79,15 +100,18 @@ class GetHandler(private val location: Path) {
             val buffer = StringBuilder()
             buffer.append("{")
             emitResourcesOfDatabase(buffer, location.resolve(databaseName), ctx)
-            buffer.append("}")
 
-            val content = buffer.toString()
+            if (!ctx.failed()) {
+                buffer.append("}")
 
-            ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                .write(content)
-                .end()
+                val content = buffer.toString()
+
+                ctx.response().setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+                    .write(content)
+                    .end()
+            }
         } else {
             with(acceptHeader) {
                 @Suppress("IMPLICIT_CAST_TO_ANY")

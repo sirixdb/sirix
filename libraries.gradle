@@ -3,6 +3,7 @@ ext {
     testLibraries = [:]
     compileOnlyLibraries = [:]
 }
+
 implLibraries = [
         jcommander               : 'com.beust:jcommander:1.69',
         aspectjrt                : 'org.aspectj:aspectjrt:1.8.10',

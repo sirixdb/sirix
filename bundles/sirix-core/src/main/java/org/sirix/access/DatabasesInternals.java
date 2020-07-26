@@ -1,10 +1,12 @@
 package org.sirix.access;
 
+import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -14,7 +16,15 @@ public final class DatabasesInternals {
   }
 
   public static Lock computeWriteLockIfAbsent(Path resourcePath) {
-    return Databases.RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new ReentrantLock());
+    return Databases.RESOURCE_WRITE_LOCKS.computeIfAbsent(resourcePath, res -> new ReentrantLock());
+  }
+
+  public static void removeWriteLock(Path resourcePath) {
+    Databases.RESOURCE_WRITE_LOCKS.remove(resourcePath);
+  }
+
+  public static ConcurrentMap<Path, Set<Database<?>>> getOpenDatabases() {
+    return Databases.DATABASE_SESSIONS;
   }
 
   /**
@@ -42,7 +52,8 @@ public final class DatabasesInternals {
 
     resourceManagers.remove(resourceManager);
 
-    if (resourceManagers.isEmpty())
+    if (resourceManagers.isEmpty()) {
       Databases.RESOURCE_MANAGERS.remove(file);
+    }
   }
 }
