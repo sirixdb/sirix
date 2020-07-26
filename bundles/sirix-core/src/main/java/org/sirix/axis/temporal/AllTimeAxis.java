@@ -21,13 +21,13 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
     extends AbstractTemporalAxis<R, W> {
 
   /** The revision number. */
-  private int mRevision;
+  private int revision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> mResourceManager;
+  private final ResourceManager<R, W> resourceManager;
 
   /** Node key to lookup and retrieve. */
-  private long mNodeKey;
+  private long nodeKey;
 
   /** Determines if node has been found before and now has been deleted. */
   private boolean mHasMoved;
@@ -39,26 +39,26 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
    * @param rtx the read only transactional cursor
    */
   public AllTimeAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    mResourceManager = checkNotNull(resourceManager);
-    mRevision = 1;
-    mNodeKey = rtx.getNodeKey();
+    this.resourceManager = checkNotNull(resourceManager);
+    revision = 1;
+    nodeKey = rtx.getNodeKey();
   }
 
   @Override
   protected R computeNext() {
-    while (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
-      final Optional<R> optionalRtx = mResourceManager.getNodeReadTrxByRevisionNumber(mRevision);
+    while (revision <= resourceManager.getMostRecentRevisionNumber()) {
+      final Optional<R> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(revision);
 
       final R rtx;
       if (optionalRtx.isPresent()) {
         rtx = optionalRtx.get();
       } else {
-        rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision);
+        rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       }
 
-      mRevision++;
+      revision++;
 
-      if (rtx.moveTo(mNodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey).hasMoved()) {
         mHasMoved = true;
         return rtx;
       } else if (mHasMoved) {
@@ -72,6 +72,6 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
 
   @Override
   public ResourceManager<R, W> getResourceManager() {
-    return mResourceManager;
+    return resourceManager;
   }
 }

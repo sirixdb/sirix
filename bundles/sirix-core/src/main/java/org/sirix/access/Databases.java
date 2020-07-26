@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,8 +40,8 @@ public final class Databases {
   /** Central repository of all running resource managers. */
   static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
 
-  /** Central repository of all resource {@code <=>} write semaphore mappings. */
-  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
+  /** Central repository of all resource {@code <=>} write locks mappings. */
+  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_LOCKS = new ConcurrentHashMap<>();
 
   /**
    * Get the database type
@@ -79,18 +80,18 @@ public final class Databases {
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     boolean returnVal = true;
     // if file is existing, skipping
-    if (Files.exists(dbConfig.getFile())) {
+    if (Files.exists(dbConfig.getDatabaseFile())) {
       returnVal = false;
     } else {
       try {
-        Files.createDirectories(dbConfig.getFile());
+        Files.createDirectories(dbConfig.getDatabaseFile());
       } catch (UnsupportedOperationException | IOException | SecurityException e) {
         returnVal = false;
       }
       if (returnVal) {
         // creation of folder structure
         for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
-          final Path toCreate = dbConfig.getFile().resolve(paths.getFile());
+          final Path toCreate = dbConfig.getDatabaseFile().resolve(paths.getFile());
           if (paths.isFolder()) {
             try {
               Files.createDirectory(toCreate);
@@ -104,7 +105,7 @@ public final class Databases {
               }
               returnVal = true;
             } catch (final IOException e) {
-              SirixFiles.recursiveRemove(dbConfig.getFile());
+              SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
               throw new SirixIOException(e);
             }
           }
@@ -119,7 +120,7 @@ public final class Databases {
       // if something was not correct, delete the partly created
       // substructure
       if (!returnVal) {
-        SirixFiles.recursiveRemove(dbConfig.getFile());
+        SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
       }
     }
 
@@ -255,19 +256,18 @@ public final class Databases {
     final Set<Database<?>> databases = DATABASE_SESSIONS.get(file);
     databases.remove(database);
 
-    if (databases.isEmpty())
+    if (databases.isEmpty()) {
       DATABASE_SESSIONS.remove(file);
+    }
   }
 
   /**
-   * Determines if there are any open resource managers.
+   * Get open resource managers.
    *
    * @param file the resource file
-   * @return {@code true}, if there are any open resource managers, {@code false} otherwise.
+   * @return open resource managers
    */
-  public static synchronized boolean hasOpenResourceManagers(final Path file) {
-    final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
-
-    return resourceManagers != null && !resourceManagers.isEmpty();
+  public static synchronized Set<ResourceManager<?, ?>> getOpenResourceManagers(final Path file) {
+    return RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
   }
 }

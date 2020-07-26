@@ -128,8 +128,9 @@ public final class MMFileReader implements Reader {
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
    * @param handler             {@link ByteHandler} instance
    */
-  public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment, final ByteHandler handler,
-      final SerializationType type, final PagePersister pagePersistenter) {
+  public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final MemorySegment dataFileSegment,
+      final MemorySegment revisionFileSegment, final ByteHandler handler, final SerializationType type,
+      final PagePersister pagePersistenter) {
     hashFunction = Hashing.sha256();
     this.dataFile = checkNotNull(dataFile);
     this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
@@ -191,7 +192,8 @@ public final class MMFileReader implements Reader {
 
     try {
       // new data file segment, cause it might have been written
-      if (dataFileSegment != null) {
+      if (dataFileSegment != null && dataFileSegment.isAlive()
+          && Thread.currentThread() == dataFileSegment.ownerThread()) {
         dataFileSegment.close();
       }
 
@@ -214,15 +216,14 @@ public final class MMFileReader implements Reader {
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
       if (dataFileSegment == null) {
-        dataFileSegment = MemorySegment.mapFromPath(dataFile,
-                                                    dataFile.toFile().length(),
-                                                    FileChannel.MapMode.READ_ONLY);
+        dataFileSegment =
+            MemorySegment.mapFromPath(dataFile, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
       }
 
       if (revisionFileSegment == null) {
         revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
-                                  revisionsOffsetFile.toFile().length(),
-                                  FileChannel.MapMode.READ_ONLY);
+                                                        revisionsOffsetFile.toFile().length(),
+                                                        FileChannel.MapMode.READ_ONLY);
       }
 
       final MemoryAddress revisionFileSegmentBaseAddress = revisionFileSegment.baseAddress();
@@ -255,10 +256,11 @@ public final class MMFileReader implements Reader {
 
   @Override
   public void close() {
-    if (dataFileSegment != null) {
+    // FIXME: transfer ownership instead as of Java 15
+    if (dataFileSegment != null && dataFileSegment.isAlive()) {
       dataFileSegment.close();
     }
-    if (revisionFileSegment != null) {
+    if (revisionFileSegment != null && revisionFileSegment.isAlive()) {
       revisionFileSegment.close();
     }
   }

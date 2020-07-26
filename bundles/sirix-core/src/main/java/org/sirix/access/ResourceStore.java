@@ -33,6 +33,6 @@ public interface ResourceStore<R extends ResourceManager<? extends NodeReadOnlyT
   @Override
   void close();
 
-  boolean closeResource(Path resourceFile);
+  boolean closeResourceManager(Path resourceFile);
 
 }

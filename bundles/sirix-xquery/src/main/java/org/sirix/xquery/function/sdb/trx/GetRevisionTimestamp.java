@@ -17,7 +17,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * Function for getting the current revision timestamp. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:revision-timestamp($doc as xs:node) as xs:dateTime</code></li>
+ * <li><code>sdb:timestamp($doc as xs:node) as xs:dateTime</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

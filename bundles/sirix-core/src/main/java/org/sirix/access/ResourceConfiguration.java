@@ -142,7 +142,7 @@ public final class ResourceConfiguration {
 
   // FIXED STANDARD FIELDS
   /** Standard storage. */
-  private static final StorageType STORAGE = StorageType.MEMORY_MAPPED;
+  private static final StorageType STORAGE = StorageType.FILE;
 
   /** Standard versioning approach. */
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
@@ -240,7 +240,7 @@ public final class ResourceConfiguration {
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
     databaseConfig = checkNotNull(config);
     resourcePath =
-        databaseConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+        databaseConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
     return this;
   }
 

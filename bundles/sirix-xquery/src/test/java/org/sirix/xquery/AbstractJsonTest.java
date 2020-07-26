@@ -21,7 +21,9 @@ public abstract class AbstractJsonTest {
 
   public void test(String storeQuery, String query, String assertion) throws IOException {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile()).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -36,17 +38,45 @@ public abstract class AbstractJsonTest {
     }
   }
 
-  public void test(String storeQuery, String indexQuery, String query, String assertion) throws IOException {
+  public void test(String storeQuery, String updateOrIndexQuery, String query, String assertion) throws IOException {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile()).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use XQuery to store a JSON string into the store.
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to index.
-      new XQuery(chain, indexQuery).evaluate(ctx);
+      // Use XQuery to update or index.
+      new XQuery(chain, updateOrIndexQuery).evaluate(ctx);
+
+      // Use XQuery to load a JSON database/resource.
+      try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
+        new XQuery(chain, query).serialize(ctx, printWriter);
+        assertEquals(assertion, out.toString());
+      }
+    }
+  }
+
+  public void test(String storeQuery, String updateOrIndexQuery1, String updateOrIndexQuery2, String query,
+      String assertion) throws IOException {
+    // Initialize query context and store.
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      // Use XQuery to store a JSON string into the store.
+      new XQuery(chain, storeQuery).evaluate(ctx);
+
+      // Use XQuery to update or index.
+      new XQuery(chain, updateOrIndexQuery1).evaluate(ctx);
+
+      // Use XQuery to update or index.
+      new XQuery(chain, updateOrIndexQuery2).evaluate(ctx);
 
       // Use XQuery to load a JSON database/resource.
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
