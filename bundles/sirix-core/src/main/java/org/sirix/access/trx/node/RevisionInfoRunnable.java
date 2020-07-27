@@ -26,5 +26,4 @@ class RevisionInfoRunnable implements Callable<RevisionInfo> {
           commitCredentials.getMessage());
     }
   }
-
 }

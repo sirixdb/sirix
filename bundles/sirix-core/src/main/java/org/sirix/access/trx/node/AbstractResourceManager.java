@@ -248,7 +248,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return getResult(revisionInfos);
   }
 
-  private List<RevisionInfo> getResult(final ArrayList<Future<RevisionInfo>> revisionInfos) {
+  private List<RevisionInfo> getResult(final List<Future<RevisionInfo>> revisionInfos) {
     return revisionInfos.stream().map(this::getFromFuture).collect(Collectors.toList());
   }
 
