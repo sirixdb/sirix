@@ -11,8 +11,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.http.pipeToAwait
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
@@ -121,7 +119,7 @@ class JsonCreate(
         ctx.request().pause()
         val fileResolver = FileResolver()
 
-        val filePath = withContext(ctx.vertx().dispatcher()) {
+        val filePath = withContext(Dispatchers.IO) {
             fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
         }
 
