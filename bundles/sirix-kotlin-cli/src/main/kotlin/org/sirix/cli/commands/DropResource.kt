@@ -3,7 +3,7 @@ package org.sirix.cli.commands
 import org.sirix.access.User
 import org.sirix.cli.CliOptions
 
-class DropResource(options: CliOptions, private val resourceNames: List<kotlin.String>, private val user: User?): CliCommand(options) {
+class DropResource(options: CliOptions, private val resourceNames: List<String>, private val user: User?): CliCommand(options) {
 
     override fun execute() {
         var database = openDatabase(user)
