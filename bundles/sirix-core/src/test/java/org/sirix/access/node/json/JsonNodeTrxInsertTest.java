@@ -2,6 +2,7 @@ package org.sirix.access.node.json;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
@@ -30,6 +31,7 @@ public final class JsonNodeTrxInsertTest {
     JsonTestHelper.closeEverything();
   }
 
+  @Ignore
   @Test
   public void testInsertingTopLevelDocuments() throws IOException {
     final var resource = "smallInsertions";
@@ -67,6 +69,7 @@ public final class JsonNodeTrxInsertTest {
     }
   }
 
+  @Ignore
   @Test
   public void testSerializeTopLevelDocuments() throws IOException {
     final var resource = "smallInsertions";
