@@ -856,19 +856,19 @@ public class UpdateTest {
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
     final ImmutableSet<SirixDeweyID> ids = builder.add(new SirixDeweyID("1"))
-                                                  .add(new SirixDeweyID("1.3"))
-                                                  .add(new SirixDeweyID("1.3.0.3"))
-                                                  .add(new SirixDeweyID("1.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.3"))
-                                                  .add(new SirixDeweyID("1.3.5"))
-                                                  .add(new SirixDeweyID("1.3.5.5"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3"))
-                                                  .add(new SirixDeweyID("1.3.7"))
-                                                  .add(new SirixDeweyID("1.3.9"))
-                                                  .add(new SirixDeweyID("1.3.9.1.3"))
-                                                  .add(new SirixDeweyID("1.3.9.3"))
-                                                  .add(new SirixDeweyID("1.3.9.5"))
-                                                  .add(new SirixDeweyID("1.3.11"))
+                                                  .add(new SirixDeweyID("1.17"))
+                                                  .add(new SirixDeweyID("1.17.0.17"))
+                                                  .add(new SirixDeweyID("1.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.17"))
+                                                  .add(new SirixDeweyID("1.17.33"))
+                                                  .add(new SirixDeweyID("1.17.33.33"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17"))
+                                                  .add(new SirixDeweyID("1.17.49"))
+                                                  .add(new SirixDeweyID("1.17.65"))
+                                                  .add(new SirixDeweyID("1.17.65.1.17"))
+                                                  .add(new SirixDeweyID("1.17.65.17"))
+                                                  .add(new SirixDeweyID("1.17.65.33"))
+                                                  .add(new SirixDeweyID("1.17.81"))
                                                   .build();
     test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)));
     rtx.close();
@@ -878,7 +878,7 @@ public class UpdateTest {
     while (ids.hasNext()) {
       assertTrue(axis.hasNext());
       axis.next();
-//      System.out.println(axis.asXdmNodeReadTrx().getDeweyID());
+      System.out.println(axis.asXdmNodeReadTrx().getDeweyID());
       assertEquals(ids.next(), axis.asXdmNodeReadTrx().getDeweyID());
     }
   }
@@ -924,18 +924,18 @@ public class UpdateTest {
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
     final ImmutableSet<SirixDeweyID> ids = builder.add(new SirixDeweyID("1"))
-                                                  .add(new SirixDeweyID("1.3"))
-                                                  .add(new SirixDeweyID("1.3.0.3"))
-                                                  .add(new SirixDeweyID("1.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.5"))
-                                                  .add(new SirixDeweyID("1.3.5.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5"))
-                                                  .add(new SirixDeweyID("1.3.7"))
-                                                  .add(new SirixDeweyID("1.3.9"))
-                                                  .add(new SirixDeweyID("1.3.9.1.3"))
-                                                  .add(new SirixDeweyID("1.3.9.3"))
-                                                  .add(new SirixDeweyID("1.3.9.5"))
-                                                  .add(new SirixDeweyID("1.3.11"))
+                                                  .add(new SirixDeweyID("1.17"))
+                                                  .add(new SirixDeweyID("1.17.0.17"))
+                                                  .add(new SirixDeweyID("1.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.33"))
+                                                  .add(new SirixDeweyID("1.17.33.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33"))
+                                                  .add(new SirixDeweyID("1.17.49"))
+                                                  .add(new SirixDeweyID("1.17.65"))
+                                                  .add(new SirixDeweyID("1.17.65.1.17"))
+                                                  .add(new SirixDeweyID("1.17.65.17"))
+                                                  .add(new SirixDeweyID("1.17.65.33"))
+                                                  .add(new SirixDeweyID("1.17.81"))
                                                   .build();
     test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)));
     rtx.close();
@@ -982,19 +982,19 @@ public class UpdateTest {
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.<SirixDeweyID>builder();
     final ImmutableSet<SirixDeweyID> ids = builder.add(new SirixDeweyID("1"))
-                                                  .add(new SirixDeweyID("1.3"))
-                                                  .add(new SirixDeweyID("1.3.0.3"))
-                                                  .add(new SirixDeweyID("1.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.3"))
-                                                  .add(new SirixDeweyID("1.3.5"))
-                                                  .add(new SirixDeweyID("1.3.5.2.3"))
-                                                  .add(new SirixDeweyID("1.3.5.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5"))
-                                                  .add(new SirixDeweyID("1.3.7"))
-                                                  .add(new SirixDeweyID("1.3.9"))
-                                                  .add(new SirixDeweyID("1.3.9.1.3"))
-                                                  .add(new SirixDeweyID("1.3.9.5"))
-                                                  .add(new SirixDeweyID("1.3.11"))
+                                                  .add(new SirixDeweyID("1.17"))
+                                                  .add(new SirixDeweyID("1.17.0.17"))
+                                                  .add(new SirixDeweyID("1.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.17"))
+                                                  .add(new SirixDeweyID("1.17.33"))
+                                                  .add(new SirixDeweyID("1.17.33.9"))
+                                                  .add(new SirixDeweyID("1.17.33.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33"))
+                                                  .add(new SirixDeweyID("1.17.49"))
+                                                  .add(new SirixDeweyID("1.17.65"))
+                                                  .add(new SirixDeweyID("1.17.65.1.17"))
+                                                  .add(new SirixDeweyID("1.17.65.33"))
+                                                  .add(new SirixDeweyID("1.17.81"))
                                                   .build();
     test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)));
     rtx.close();
@@ -1047,21 +1047,21 @@ public class UpdateTest {
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
     final ImmutableSet<SirixDeweyID> ids = builder.add(new SirixDeweyID("1"))
-                                                  .add(new SirixDeweyID("1.3"))
-                                                  .add(new SirixDeweyID("1.3.0.3"))
-                                                  .add(new SirixDeweyID("1.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.3"))
-                                                  .add(new SirixDeweyID("1.3.5"))
-                                                  .add(new SirixDeweyID("1.3.5.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3.1.5"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3.3.3"))
-                                                  .add(new SirixDeweyID("1.3.5.5.3.5"))
-                                                  .add(new SirixDeweyID("1.3.7"))
+                                                  .add(new SirixDeweyID("1.17"))
+                                                  .add(new SirixDeweyID("1.17.0.17"))
+                                                  .add(new SirixDeweyID("1.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.17"))
+                                                  .add(new SirixDeweyID("1.17.33"))
+                                                  .add(new SirixDeweyID("1.17.33.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17.1.33"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17.17.17"))
+                                                  .add(new SirixDeweyID("1.17.33.33.17.33"))
+                                                  .add(new SirixDeweyID("1.17.49"))
                                                   .build();
     test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)));
     rtx.close();
@@ -1136,19 +1136,19 @@ public class UpdateTest {
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.<SirixDeweyID>builder();
     final ImmutableSet<SirixDeweyID> ids = builder.add(new SirixDeweyID("1"))
-                                                  .add(new SirixDeweyID("1.3"))
-                                                  .add(new SirixDeweyID("1.3.0.3"))
-                                                  .add(new SirixDeweyID("1.3.1.3"))
-                                                  .add(new SirixDeweyID("1.3.3"))
-                                                  .add(new SirixDeweyID("1.3.5"))
-                                                  .add(new SirixDeweyID("1.3.5.5"))
-                                                  .add(new SirixDeweyID("1.3.5.7"))
-                                                  .add(new SirixDeweyID("1.3.7"))
-                                                  .add(new SirixDeweyID("1.3.9"))
-                                                  .add(new SirixDeweyID("1.3.9.1.3"))
-                                                  .add(new SirixDeweyID("1.3.9.3"))
-                                                  .add(new SirixDeweyID("1.3.9.5"))
-                                                  .add(new SirixDeweyID("1.3.11"))
+                                                  .add(new SirixDeweyID("1.17"))
+                                                  .add(new SirixDeweyID("1.17.0.17"))
+                                                  .add(new SirixDeweyID("1.17.1.17"))
+                                                  .add(new SirixDeweyID("1.17.17"))
+                                                  .add(new SirixDeweyID("1.17.33"))
+                                                  .add(new SirixDeweyID("1.17.33.33"))
+                                                  .add(new SirixDeweyID("1.17.33.49"))
+                                                  .add(new SirixDeweyID("1.17.49"))
+                                                  .add(new SirixDeweyID("1.17.65"))
+                                                  .add(new SirixDeweyID("1.17.65.1.17"))
+                                                  .add(new SirixDeweyID("1.17.65.17"))
+                                                  .add(new SirixDeweyID("1.17.65.33"))
+                                                  .add(new SirixDeweyID("1.17.81"))
                                                   .build();
     test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)));
     rtx.close();

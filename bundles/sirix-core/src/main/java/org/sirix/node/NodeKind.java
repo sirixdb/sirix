@@ -1652,18 +1652,22 @@ public enum NodeKind implements NodePersistenter {
       ResourceConfiguration resourceConfig) throws IOException {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
-        final byte[] previousDeweyIDBytes = previousDeweyID.toBytes();
-        final int cutOffSize = source.readByte();
-        final int size = source.readByte();
-        final byte[] deweyIDBytes = new byte[size];
-        source.readFully(deweyIDBytes);
+        try {
+          final byte[] previousDeweyIDBytes = previousDeweyID.toBytes();
+          final int cutOffSize = source.readByte();
+          final int size = source.readByte();
+          final byte[] deweyIDBytes = new byte[size];
+          source.readFully(deweyIDBytes);
 
-        final byte[] bytes = new byte[cutOffSize + deweyIDBytes.length];
-        final ByteBuffer target = ByteBuffer.wrap(bytes);
-        target.put(Arrays.copyOfRange(previousDeweyIDBytes, 0, cutOffSize));
-        target.put(deweyIDBytes);
+          final byte[] bytes = new byte[cutOffSize + deweyIDBytes.length];
+          final ByteBuffer target = ByteBuffer.wrap(bytes);
+          target.put(Arrays.copyOfRange(previousDeweyIDBytes, 0, cutOffSize));
+          target.put(deweyIDBytes);
 
-        return new SirixDeweyID(bytes);
+          return new SirixDeweyID(bytes);
+        } catch (Exception e) {
+          System.out.println(e);
+        }
       } else {
         final byte deweyIDLength = source.readByte();
         final byte[] deweyIDBytes = new byte[deweyIDLength];
