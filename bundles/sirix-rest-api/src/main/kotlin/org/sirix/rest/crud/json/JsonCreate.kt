@@ -15,12 +15,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
+import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
+import org.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -28,11 +31,12 @@ import java.util.*
 
 private const val MAX_NODES_TO_SERIALIZE = 5000
 
+private val LOGGER = LogWrapper(LoggerFactory.getLogger(DatabasesInternals::class.java))
+
 class JsonCreate(
     private val location: Path,
     private val createMultipleResources: Boolean = false
 ) {
-
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
@@ -206,8 +210,11 @@ class JsonCreate(
         resConfig: ResourceConfiguration?,
         resPathName: String
     ) {
+        LOGGER.debug("Create resource: ${resConfig}")
         if (!database.createResource(resConfig)) {
+            LOGGER.debug("Remove resource: ${resConfig}")
             database.removeResource(resPathName)
+            LOGGER.debug("Create resource: ${resConfig}")
             database.createResource(resConfig)
         }
     }
