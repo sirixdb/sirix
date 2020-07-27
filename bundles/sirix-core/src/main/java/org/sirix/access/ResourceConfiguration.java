@@ -518,7 +518,7 @@ public final class ResourceConfiguration {
   public static final class Builder {
 
     /** Determines if diffs should be stored or not. */
-    public boolean storeDiffs;
+    public boolean storeDiffs = true;
 
     /** Hashing function for hashing nodes. */
     private HashFunction hashFunction = Hashing.sha256();
