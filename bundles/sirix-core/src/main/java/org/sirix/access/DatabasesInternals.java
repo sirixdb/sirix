@@ -2,6 +2,8 @@ package org.sirix.access;
 
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -11,6 +13,11 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 public final class DatabasesInternals {
+  /**
+   * {@link LogWrapper} reference.
+   */
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AbstractResourceStore.class));
+
   private DatabasesInternals() {
     throw new AssertionError();
   }
@@ -35,6 +42,7 @@ public final class DatabasesInternals {
    */
   public static synchronized void putResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
     Databases.RESOURCE_MANAGERS.computeIfAbsent(file, path -> new HashSet<>()).add(resourceManager);
+    LOGGER.debug("Opened resource manager: " + file);
   }
 
   /**
@@ -51,6 +59,7 @@ public final class DatabasesInternals {
     }
 
     resourceManagers.remove(resourceManager);
+    LOGGER.debug("Removed resource manager: " + file);
 
     if (resourceManagers.isEmpty()) {
       Databases.RESOURCE_MANAGERS.remove(file);

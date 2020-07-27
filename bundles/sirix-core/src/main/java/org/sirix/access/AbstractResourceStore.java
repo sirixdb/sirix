@@ -19,11 +19,6 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
     implements ResourceStore<R> {
 
   /**
-   * {@link LogWrapper} reference.
-   */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AbstractResourceStore.class));
-
-  /**
    * Central repository of all open resource managers.
    */
   protected final ConcurrentMap<Path, R> resourceManagers;
@@ -77,8 +72,6 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   public boolean closeResourceManager(final Path resourceFile) {
     final R manager = resourceManagers.remove(resourceFile);
     DatabasesInternals.removeResourceManager(resourceFile, manager);
-    LOGGER.debug("Removed resource manager: " + resourceFile);
     return manager != null;
   }
-
 }
