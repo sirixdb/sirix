@@ -16,7 +16,7 @@ public final class DatabasesInternals {
   /**
    * {@link LogWrapper} reference.
    */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AbstractResourceStore.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(DatabasesInternals.class));
 
   private DatabasesInternals() {
     throw new AssertionError();

@@ -29,11 +29,11 @@
 -->
 
 <configuration>
-  <property name="LOGGER_HOME" value="/home/travis/build/sirixdb/sirix/logs" />
+  <property name="LOGGER_HOME" value="./logs" />
 
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <filter class="ch.qos.logback.classic.filter.LevelFilter">
-      <level>INFO</level>
+      <level>DEBUG</level>
       <onMatch>ACCEPT</onMatch>
       <onMismatch>DENY</onMismatch>
     </filter>
