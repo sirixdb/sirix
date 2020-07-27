@@ -105,7 +105,7 @@ internal class QueryTest : CliCommandTest() {
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
         assertEquals(
-            "ExecuteQuery.Resultis:{\"rest\":[{\"nodeKey\":2}]}Queryexecuted(123)",
+            "ExecuteQuery.Result is:{\"rest\":[{\"nodeKey\":2}]} Query executed (123)",
             queryResult
         )
     }
