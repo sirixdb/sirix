@@ -6,6 +6,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -54,6 +55,8 @@ public final class DatabasesInternals {
   public static synchronized void removeResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
     final Set<ResourceManager<?, ?>> resourceManagers = Databases.RESOURCE_MANAGERS.get(file);
 
+    LOGGER.debug("Removed resource manager (get): " + resourceManagers);
+
     if (resourceManagers == null) {
       return;
     }
@@ -63,7 +66,19 @@ public final class DatabasesInternals {
     LOGGER.debug("Resource Managers left: " + resourceManagers);
 
     if (resourceManagers.isEmpty()) {
+      LOGGER.debug("Removed resource file to resource manager mapping: " + file);
       Databases.RESOURCE_MANAGERS.remove(file);
     }
+  }
+
+  /**
+   * Get open resource managers.
+   *
+   * @param file the resource file
+   * @return open resource managers
+   */
+  public static synchronized Set<ResourceManager<?, ?>> getOpenResourceManagers(final Path file) {
+    LOGGER.debug("Resource managers %s for file %s", file, Databases.RESOURCE_MANAGERS.get(file));
+    return Databases.RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
   }
 }
