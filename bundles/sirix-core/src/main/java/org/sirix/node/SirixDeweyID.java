@@ -45,7 +45,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   // choice, DISTANCE_TO_SIBLING/2 nodes fits between the existing node, and
   // the new node. For example: id1=1.7, id2=NULL; new ID will be
   // 1.7+DISTANCE_TO_SIBLING
-  private static int distanceToSibling = 2;
+  private static int distanceToSibling = 16;
 
   private final static int namespaceRootDivisionValue = 0;
 
@@ -110,14 +110,14 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
     if (maxDivisionValue[divisionLengthArray.length - 1] != Integer.MAX_VALUE) {
       System.out.println(
-          "XTCdeweyID[static]: it is not possible " + "to handle all positive Integer values "
+          "SirixDBDeweyID[static]: it is not possible " + "to handle all positive Integer values "
               + "with the given divisionLengthArray!");
     }
 
     // check if bitStringAsBoolean has as many rows as divisionLengthArray
     if (bitStringAsBoolean.length != divisionLengthArray.length) {
       System.out.println(
-          "XTCdeweyID[static]: bitStringAsBoolean and "
+          "SirixDBDeweyID[static]: bitStringAsBoolean and "
               + "divisionLengthArray must have equal rows!");
     }
 
@@ -150,7 +150,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
         }
 
         if (binaryTreeSuffixInit[index] != 0) {
-          System.out.println("XTCdeweyID[static]: The " + "bitStringAsBoolean is not prefixfree!");
+          System.out.println("SirixDBDeweyID[static]: The " + "bitStringAsBoolean is not prefixfree!");
         }
       }
       if (i == 0) {

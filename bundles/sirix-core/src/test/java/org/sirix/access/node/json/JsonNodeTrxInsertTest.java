@@ -27,6 +27,29 @@ public final class JsonNodeTrxInsertTest {
   }
 
   @Test
+  public void testInsert500SubtreesAsFirstChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertArrayAsFirstChild();
+
+      try {
+        for (int i = 0; i < 500; i++) {
+          wtx.moveTo(1);
+          wtx.insertObjectAsFirstChild();
+        }
+        wtx.commit();
+      } catch (Exception e) {
+        System.out.println();
+      }
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+    }
+  }
+
+  @Test
   public void testInsertSubtreeArrayAsFirstChild() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
          final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
