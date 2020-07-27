@@ -1816,7 +1816,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Remember succesfully committed uber page in resource manager.
       resourceManager.setLastCommittedUberPage(uberPage);
 
-      serializeUpdateDiffs();
+      if (resourceManager.getResourceConfig().storeDiffs()) {
+        serializeUpdateDiffs();
+      }
 
       // Reinstantiate everything.
       reInstantiate(getId(), getRevisionNumber());

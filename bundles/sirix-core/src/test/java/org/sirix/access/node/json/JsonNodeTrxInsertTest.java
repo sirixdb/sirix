@@ -1,5 +1,6 @@
 package org.sirix.access.node.json;
 
+import org.checkerframework.common.value.qual.StaticallyExecutable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -26,6 +27,47 @@ public final class JsonNodeTrxInsertTest {
   @After
   public void tearDown() {
     JsonTestHelper.closeEverything();
+  }
+
+  @Test
+  public void testInsertingTopLevelDocuments() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      System.out.println("Start inserting");
+
+      long time = System.nanoTime();
+
+      wtx.insertArrayAsFirstChild();
+
+      var jsonObject = """
+          {"item":"this is item 0", "package":"package", "kg":5}
+          """.strip();
+
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject));
+
+      for (int i = 0; i < 650_000; i++) {
+        jsonObject = """
+          {"item":"this is item %s", "package":"package", "kg":5}
+          """.strip().formatted(i);
+
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject));
+      }
+
+      System.out.println("Done inserting [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
+
+      wtx.commit();
+
+      System.out.println("Start serializing");
+
+      time = System.nanoTime();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      System.out.println("Done serializing [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
+    }
   }
 
   @Test
