@@ -40,6 +40,7 @@ public final class JsonNodeTrxInsertTest {
         wtx.moveTo(1);
         wtx.insertObjectAsFirstChild();
       }
+
       wtx.commit();
 
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
