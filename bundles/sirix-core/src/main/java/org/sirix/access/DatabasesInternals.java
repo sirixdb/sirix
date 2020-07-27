@@ -42,7 +42,7 @@ public final class DatabasesInternals {
    */
   public static synchronized void putResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
     Databases.RESOURCE_MANAGERS.computeIfAbsent(file, path -> new HashSet<>()).add(resourceManager);
-    LOGGER.debug("Opened resource manager: " + file);
+    LOGGER.debug("Added resource manager: " + file);
   }
 
   /**
@@ -60,6 +60,7 @@ public final class DatabasesInternals {
 
     resourceManagers.remove(resourceManager);
     LOGGER.debug("Removed resource manager: " + file);
+    LOGGER.debug("Resource Managers left: " + resourceManagers);
 
     if (resourceManagers.isEmpty()) {
       Databases.RESOURCE_MANAGERS.remove(file);

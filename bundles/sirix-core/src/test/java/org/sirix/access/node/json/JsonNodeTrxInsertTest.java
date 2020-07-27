@@ -33,7 +33,7 @@ public final class JsonNodeTrxInsertTest {
 
   @Ignore
   @Test
-  public void testInsertingTopLevelDocuments() throws IOException {
+  public void testInsertingTopLevelDocuments() {
     final var resource = "smallInsertions";
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
