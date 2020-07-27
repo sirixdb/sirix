@@ -6,8 +6,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 abstract class CliCommandTest {
-
-
     protected var sirixTestFile = ""
 
     fun path(): Path {

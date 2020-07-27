@@ -47,12 +47,10 @@ internal class QueryTest : CliCommandTest() {
             removeTestDatabase(sirixQueryTestFileJson, LOGGER)
             removeTestDatabase(sirixQueryTestFileXml, LOGGER)
         }
-
     }
 
     @Test
     fun testJsonSimple() {
-
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
@@ -81,7 +79,6 @@ internal class QueryTest : CliCommandTest() {
         )
     }
 
-
     @Test
     fun testJsonXQuery() {
         val byteArrayOutputStream = ByteArrayOutputStream()
@@ -95,7 +92,6 @@ internal class QueryTest : CliCommandTest() {
             "ExecuteQuery.Resultis:{\"rest\":[{\"nodeKey\":6}]}Queryexecuted(123)",
             queryResult
         )
-
     }
 
     @Test
@@ -112,9 +108,7 @@ internal class QueryTest : CliCommandTest() {
             "ExecuteQuery.Resultis:{\"rest\":[{\"nodeKey\":2}]}Queryexecuted(123)",
             queryResult
         )
-
     }
-
 
     private fun giveASimpleQueryOption() =
         QueryOptions(
@@ -157,14 +151,11 @@ internal class QueryTest : CliCommandTest() {
             prettyPrint = true,
             user = null
         )
-
 }
-
 
 private fun prepareQueryResult(outputStream: OutputStream): String {
     return outputStream.toString().replace("\\s".toRegex(), "").replace("\\d+ms".toRegex(), "123")
 }
-
 
 private fun setupTestDbJson() {
     val database =

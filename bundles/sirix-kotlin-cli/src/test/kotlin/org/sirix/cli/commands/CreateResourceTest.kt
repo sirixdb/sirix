@@ -22,7 +22,6 @@ internal class CreateResourceTest : CliCommandTest() {
 
     @Test
     fun happyPathXML() {
-
         // GIVEN
         createXmlDatabase()
         val createResourceCommand = CreateResource(giveACliOptions(), RESOURCE_LIST, CliCommandTestConstants.TEST_USER)

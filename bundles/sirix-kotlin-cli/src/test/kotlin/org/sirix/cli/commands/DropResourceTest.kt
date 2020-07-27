@@ -18,7 +18,6 @@ internal class DropResourceTest : CliCommandTest() {
         val LOGGER: Logger = LoggerFactory.getLogger(DropResourceTest::class.java)
     }
 
-
     @BeforeEach
     fun setUp() {
         createXmlDatabase()
@@ -28,7 +27,6 @@ internal class DropResourceTest : CliCommandTest() {
     fun tearDown() {
         removeTestDatabase(CreateResourceTest.LOGGER)
     }
-
 
     @Test
     fun happyPath() {

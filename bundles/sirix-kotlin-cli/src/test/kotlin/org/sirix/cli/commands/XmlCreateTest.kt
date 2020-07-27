@@ -52,7 +52,6 @@ internal class XmlCreateTest : CliCommandTest() {
     @ParameterizedTest
     @MethodSource("dataCommandOptions")
     fun executeData(dataCommandOptions: DataCommandOptions) {
-
         // GIVEN
         val create = XmlCreate(giveACliOptions(), dataCommandOptions)
 
@@ -60,7 +59,6 @@ internal class XmlCreateTest : CliCommandTest() {
         create.execute()
 
         // THEN
-
         try {
             assertEquals(DatabaseType.XML, Databases.getDatabaseType(path()))
         } catch (ex: SirixIOException) {

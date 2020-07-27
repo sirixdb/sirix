@@ -15,9 +15,7 @@ import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.XmlDBSerializer
-import org.sirix.xquery.json.BasicJsonDBStore
-import org.sirix.xquery.json.JsonDBCollection
-import org.sirix.xquery.json.JsonItemFactory
+import org.sirix.xquery.json.*
 import org.sirix.xquery.node.BasicXmlDBStore
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBNode
@@ -117,11 +115,13 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                         manager
                     )
                     val trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
+
                     trx.use {
                         if (queryOptions.nodeId == null)
                             trx.moveToFirstChild()
                         else
                             trx.moveTo(queryOptions.nodeId.toLong())
+
                         val jsonDBStore = BasicJsonDBStore.newBuilder().build()
                         val xmlDBStore = BasicXmlDBStore.newBuilder().build()
                         val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
@@ -130,9 +130,35 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                             SirixQueryContext.CommitStrategy.AUTO
                         )
 
+
+
+
                         queryCtx.use {
                             val jsonItem = JsonItemFactory().getSequence(trx, dbCollection)
-                            jsonItem.let { queryCtx.contextItem = jsonItem }
+
+                            if (jsonItem != null) {
+                                queryCtx.contextItem = jsonItem
+
+                                when (jsonItem) {
+                                    is AbstractJsonDBArray<*> -> {
+                                        jsonItem.getCollection().setJsonDBStore(jsonDBStore)
+                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    }
+                                    is JsonDBObject -> {
+                                        jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    }
+                                    is AtomicJsonDBItem -> {
+                                        jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    }
+                                    is NumericJsonDBItem -> {
+                                        jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    }
+                                    else -> throw IllegalStateException("Node type not known.")
+                                }
+                            }
 
                             val out = StringBuilder()
                             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
@@ -153,7 +179,6 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                                 }
                             return out.toString()
                         }
-
                     }
                 }
             }
