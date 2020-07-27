@@ -142,7 +142,7 @@ public final class ResourceConfiguration {
 
   // FIXED STANDARD FIELDS
   /** Standard storage. */
-  private static final StorageType STORAGE = StorageType.MEMORY_MAPPED;
+  private static final StorageType STORAGE = StorageType.FILE;
 
   /** Standard versioning approach. */
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
@@ -204,6 +204,8 @@ public final class ResourceConfiguration {
   /** Determines whether resource child count should be tracked */
   private boolean storeChildCount;
 
+  private final boolean storeDiffs;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -235,6 +237,7 @@ public final class ResourceConfiguration {
     resourceName = builder.resource;
     nodeHashFunction = builder.hashFunction;
     storeChildCount = builder.storeChildCount;
+    storeDiffs = builder.storeDiffs;
   }
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
@@ -322,6 +325,10 @@ public final class ResourceConfiguration {
     return resourceName;
   }
 
+  public boolean storeDiffs() {
+    return storeDiffs;
+  }
+
   /**
    * Get the configuration file.
    *
@@ -340,7 +347,7 @@ public final class ResourceConfiguration {
    */
   private static final String[] JSONNAMES =
       {"revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind",
-          "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter"};
+          "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs"};
 
   /**
    * Serialize the configuration.
@@ -382,6 +389,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[10]).value(config.areDeweyIDsStored);
       // Persistenter.
       jsonWriter.name(JSONNAMES[11]).value(config.recordPersister.getClass().getName());
+      // Diffs.
+      jsonWriter.name(JSONNAMES[12]).value(config.storeDiffs);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -469,6 +478,10 @@ public final class ResourceConfiguration {
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
       final RecordPersister persistenter = (RecordPersister) persistenterConstr.newInstance();
+      name = jsonReader.nextName();
+      assert name.equals(JSONNAMES[12]);
+      final boolean storeDiffs = jsonReader.nextBoolean();
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -486,7 +499,8 @@ public final class ResourceConfiguration {
              .persistenter(persistenter)
              .useTextCompression(compression)
              .buildPathSummary(pathSummary)
-             .useDeweyIDs(deweyIDsStored);
+             .useDeweyIDs(deweyIDsStored)
+             .storeDiffs(storeDiffs);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -502,6 +516,9 @@ public final class ResourceConfiguration {
    * Builder class for generating new {@link ResourceConfiguration} instance.
    */
   public static final class Builder {
+
+    /** Determines if diffs should be stored or not. */
+    public boolean storeDiffs;
 
     /** Hashing function for hashing nodes. */
     private HashFunction hashFunction = Hashing.sha256();
@@ -577,16 +594,16 @@ public final class ResourceConfiguration {
       return this;
     }
 
-//    /**
-//     * Set the hash function.
-//     *
-//     * @param hashFunction the hash function
-//     * @return reference to the builder object
-//     */
-//    public Builder hashFunction(final HashFunction hashFunction) {
-//      mHashFunction = checkNotNull(hashFunction);
-//      return this;
-//    }
+    /**
+     * Set to {@code false} if no diffs should be stored.
+     *
+     * @param storeDiffs {code true}, if diffs should be stored, {@code false} if not
+     * @return reference to the builder object
+     */
+    public Builder storeDiffs(final boolean storeDiffs) {
+      this.storeDiffs = storeDiffs;
+      return this;
+    }
 
     /**
      * Set the versioning algorithm to use.
@@ -679,6 +696,7 @@ public final class ResourceConfiguration {
                         .add("HashFunction", hashFunction)
                         .add("PathSummary", pathSummary)
                         .add("TextCompression", useTextCompression)
+                        .add("Store diffs", storeDiffs)
                         .toString();
     }
 
