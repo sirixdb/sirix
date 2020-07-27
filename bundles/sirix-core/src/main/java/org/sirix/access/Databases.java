@@ -260,14 +260,4 @@ public final class Databases {
       DATABASE_SESSIONS.remove(file);
     }
   }
-
-  /**
-   * Get open resource managers.
-   *
-   * @param file the resource file
-   * @return open resource managers
-   */
-  public static synchronized Set<ResourceManager<?, ?>> getOpenResourceManagers(final Path file) {
-    return RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
-  }
 }

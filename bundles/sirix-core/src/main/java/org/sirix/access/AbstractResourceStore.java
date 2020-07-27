@@ -7,8 +7,6 @@ import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentMap;

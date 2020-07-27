@@ -181,7 +181,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
     // Check that no running resource managers / sessions are opened.
-    final var resourceManagers = new HashSet<>(Databases.getOpenResourceManagers(resourceFile));
+    final var resourceManagers = new HashSet<>(DatabasesInternals.getOpenResourceManagers(resourceFile));
     if (!resourceManagers.isEmpty()) {
       throw new IllegalStateException(
           "Open resource managers found, must be closed first: " + resourceManagers);
