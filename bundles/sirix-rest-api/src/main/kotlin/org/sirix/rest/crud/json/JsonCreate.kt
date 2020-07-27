@@ -120,11 +120,16 @@ class JsonCreate(
     ) {
         ctx.request().pause()
         val fileResolver = FileResolver()
-        val filePath = fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
+
+        val filePath = withContext(ctx.vertx().dispatcher()) {
+            fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
+        }
+
         val file = ctx.vertx().fileSystem().openAwait(
             filePath.toString(),
             OpenOptions()
         )
+        
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
 
