@@ -10,7 +10,6 @@ import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
-import io.vertx.kotlin.core.file.readFileAwait
 import io.vertx.kotlin.core.http.pipeToAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
@@ -20,18 +19,14 @@ import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.crud.SirixDBUser
-import org.sirix.service.json.shredder.JsonShredder
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.*
 
 class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
@@ -48,7 +43,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         }
 
         if (databaseName == null) {
-            IllegalArgumentException("Database name and resource data to store not given.")
+            throw IllegalArgumentException("Database name and resource data to store not given.")
         }
 
         if (createMultipleResources) {
@@ -110,7 +105,11 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     ) {
         ctx.request().pause()
         val fileResolver = FileResolver()
-        val filePath = fileResolver.resolveFile(UUID.randomUUID().toString())
+
+        val filePath = withContext(Dispatchers.IO) {
+            fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
+        }
+
         val file = ctx.vertx().fileSystem().openAwait(filePath.toString(),
             OpenOptions()
         )
