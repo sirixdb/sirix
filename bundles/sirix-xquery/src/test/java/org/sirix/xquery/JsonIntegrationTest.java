@@ -100,7 +100,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
           insert json {"baz": true()} into jn:doc('mycol.jn','mydoc.jn')
         """;
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
-    test(storeQuery, updateQuery, openQuery, "{\"baz\":true,\"foo\":\"bar\"}");
+    test(storeQuery, updateQuery, openQuery, "{\"foo\":\"bar\",\"baz\":true}");
   }
 
   @Test
