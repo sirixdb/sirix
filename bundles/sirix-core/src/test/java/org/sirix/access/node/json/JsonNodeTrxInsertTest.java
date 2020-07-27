@@ -11,6 +11,8 @@ import org.sirix.service.json.shredder.JsonShredder;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -34,18 +36,24 @@ public final class JsonNodeTrxInsertTest {
          final Writer writer = new StringWriter()) {
       wtx.insertArrayAsFirstChild();
 
-      try {
-        for (int i = 0; i < 500; i++) {
-          wtx.moveTo(1);
-          wtx.insertObjectAsFirstChild();
-        }
-        wtx.commit();
-      } catch (Exception e) {
-        System.out.println();
+      for (int i = 0; i < 500; i++) {
+        wtx.moveTo(1);
+        wtx.insertObjectAsFirstChild();
       }
+      wtx.commit();
 
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
+
+      final var expected = Files.readString(Path.of("src",
+                                                    "test",
+                                                    "resources",
+                                                    "json",
+                                                    "jsonNodeTrxInsertTest",
+                                                    "testInsert500SubtreesAsFirstChild",
+                                                    "expected.json"));
+
+      assertEquals(expected, writer.toString());
     }
   }
 
