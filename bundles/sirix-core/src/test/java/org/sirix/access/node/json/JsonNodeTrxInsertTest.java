@@ -1,11 +1,12 @@
 package org.sirix.access.node.json;
 
-import org.checkerframework.common.value.qual.StaticallyExecutable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.json.shredder.JsonShredder;
 
@@ -31,37 +32,51 @@ public final class JsonNodeTrxInsertTest {
 
   @Test
   public void testInsertingTopLevelDocuments() throws IOException {
-    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
-      System.out.println("Start inserting");
+    final var resource = "smallInsertions";
 
-      long time = System.nanoTime();
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(resource)
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .build());
+      try (final var manager = database.openResourceManager(resource); final var wtx = manager.beginNodeTrx()) {
+        System.out.println("Start inserting");
 
-      wtx.insertArrayAsFirstChild();
+        final long time = System.nanoTime();
 
-      var jsonObject = """
-          {"item":"this is item 0", "package":"package", "kg":5}
-          """.strip();
+        wtx.insertArrayAsFirstChild();
 
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject));
+        var jsonObject = """
+            {"item":"this is item 0", "package":"package", "kg":5}
+            """.strip();
 
-      for (int i = 0; i < 650_000; i++) {
-        jsonObject = """
-          {"item":"this is item %s", "package":"package", "kg":5}
-          """.strip().formatted(i);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject), false);
 
-        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject));
+        for (int i = 0; i < 650_000; i++) {
+          jsonObject = """
+              {"item":"this is item %s", "package":"package", "kg":5}
+              """.strip().formatted(i);
+
+          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject), false);
+        }
+
+        wtx.commit();
+
+        System.out.println("Done inserting [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
       }
+    }
+  }
 
-      System.out.println("Done inserting [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
+  @Test
+  public void testSerializeTopLevelDocuments() throws IOException {
+    final var resource = "smallInsertions";
 
-      wtx.commit();
-
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(resource);
+         final Writer writer = new StringWriter()) {
       System.out.println("Start serializing");
 
-      time = System.nanoTime();
+      final var time = System.nanoTime();
 
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
