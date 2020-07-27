@@ -70,8 +70,6 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
       // Put it in the databases cache.
       DatabasesInternals.putResourceManager(resourceFile, resourceManager);
 
-      LOGGER.info("Opened resource manager: " + resourceFile);
-
       // And return it.
       return resourceManager;
     });
