@@ -50,7 +50,7 @@
     </encoder>
   </appender>
 
-  <root level="error">
+  <root level="debug">
     <appender-ref ref="FILE"/>
     <appender-ref ref="STDOUT"/>
   </root>
