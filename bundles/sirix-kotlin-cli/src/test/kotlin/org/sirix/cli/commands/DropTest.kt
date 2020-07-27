@@ -16,7 +16,6 @@ internal class DropTest : CliCommandTest() {
         val LOGGER: Logger = LoggerFactory.getLogger(DropTest::class.java)
     }
 
-
     @BeforeEach
     fun setUp() {
         createXmlDatabase()
@@ -39,6 +38,5 @@ internal class DropTest : CliCommandTest() {
         Assertions.assertThrows(SirixUsageException::class.java) {
             Databases.openXmlDatabase(path())
         }
-
     }
 }

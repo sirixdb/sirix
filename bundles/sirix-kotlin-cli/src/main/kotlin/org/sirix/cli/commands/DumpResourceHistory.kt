@@ -7,14 +7,13 @@ import org.sirix.service.json.serialize.StringValue
 class DumpResourceHistory(options: CliOptions, val resourceName: String, private val user: User?): CliCommand(options) {
 
     override fun execute() {
-
         val database = openDatabase(user)
+
         database.use {
             val buffer = StringBuilder()
             val manager = database.openResourceManager(resourceName)
 
             manager.use {
-
                 val historyList = manager.getHistory()
 
                 buffer.append("{\"history\":[")
@@ -45,5 +44,4 @@ class DumpResourceHistory(options: CliOptions, val resourceName: String, private
             cliPrinter.prnLn(buffer.toString())
         }
     }
-
 }

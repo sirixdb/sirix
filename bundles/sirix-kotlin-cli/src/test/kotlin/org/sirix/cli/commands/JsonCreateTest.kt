@@ -52,7 +52,6 @@ internal class JsonCreateTest : CliCommandTest() {
     @ParameterizedTest
     @MethodSource("dataCommandOptions")
     fun executeData(dataCommandOptions: DataCommandOptions) {
-
         // GIVEN
         val create = JsonCreate(giveACliOptions(), dataCommandOptions)
 
@@ -60,7 +59,6 @@ internal class JsonCreateTest : CliCommandTest() {
         create.execute()
 
         // THEN
-
         try {
             assertEquals(DatabaseType.JSON, Databases.getDatabaseType(path()))
         } catch (ex: SirixIOException) {

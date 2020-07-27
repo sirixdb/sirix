@@ -7,7 +7,6 @@ import java.io.File
 import java.nio.file.Paths
 import java.util.*
 
-
 fun getTestFileCompletePath(fileName: String): String {
     return System.getProperty("java.io.tmpdir") + File.separator + fileName
 }

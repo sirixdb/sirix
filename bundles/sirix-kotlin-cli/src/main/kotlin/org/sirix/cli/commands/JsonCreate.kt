@@ -10,15 +10,12 @@ import java.nio.file.Paths
 class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOptions?) :
     AbstractCreate(options, dataOptions) {
 
-
     override fun createDatabase(): Boolean {
         return Databases.createJsonDatabase(DatabaseConfiguration(Paths.get(options.location)))
     }
 
     override fun insertData() {
-
         if (dataOptions != null) {
-
             val database = openJsonDatabase(dataOptions.user)
 
             createOrRemoveAndCreateResource(database)
@@ -26,15 +23,16 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
             manager.use {
                 val wtx = manager.beginNodeTrx()
                 wtx.use {
-                    wtx.insertSubtreeAsFirstChild(jsonReader())
+                    wtx.insertSubtreeAsFirstChild(jsonReader(), false)
                     if (dataOptions.commitMessage.isNotEmpty()) {
                         wtx.commit(dataOptions.commitMessage)
+                    } else {
+                        wtx.commit()
                     }
                 }
             }
         }
     }
-
 
     private fun jsonReader(): JsonReader {
         if (dataOptions!!.data.isNotEmpty()) {
@@ -44,6 +42,4 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
         }
         throw IllegalStateException("At least data or datafile has to be set!")
     }
-
-
 }
