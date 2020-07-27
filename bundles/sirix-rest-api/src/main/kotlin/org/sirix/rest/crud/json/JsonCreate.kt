@@ -160,23 +160,21 @@ class JsonCreate(
         }
     }
 
-    private suspend fun serializeJson(
+    private fun serializeJson(
         manager: JsonResourceManager,
         routingCtx: RoutingContext
     ) {
-        withContext(Dispatchers.IO) {
-            val out = StringWriter()
-            val serializerBuilder = JsonSerializer.newBuilder(manager, out)
-            val serializer = serializerBuilder.build()
+        val out = StringWriter()
+        val serializerBuilder = JsonSerializer.newBuilder(manager, out)
+        val serializer = serializerBuilder.build()
 
-            JsonSerializeHelper().serialize(
-                serializer,
-                out,
-                routingCtx,
-                manager,
-                null
-            )
-        }
+        JsonSerializeHelper().serialize(
+            serializer,
+            out,
+            routingCtx,
+            manager,
+            null
+        )
     }
 
     private suspend fun createDatabaseIfNotExists(
