@@ -29,8 +29,15 @@ import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.*
-import org.sirix.rest.crud.json.*
-import org.sirix.rest.crud.xml.*
+import org.sirix.rest.crud.json.JsonCreate
+import org.sirix.rest.crud.json.JsonHead
+import org.sirix.rest.crud.json.JsonUpdate
+import org.sirix.rest.crud.xml.XmlCreate
+import org.sirix.rest.crud.xml.XmlHead
+import org.sirix.rest.crud.xml.XmlUpdate
+import java.io.ByteArrayOutputStream
+import java.io.PrintWriter
+import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
 import java.util.*
 
@@ -329,16 +336,29 @@ class SirixVerticle : CoroutineVerticle() {
             val statusCode = failureRoutingContext.statusCode()
             val failure = failureRoutingContext.failure()
 
-            if (statusCode == -1) {
-                if (failure is HttpStatusException)
-                    response(failureRoutingContext.response(), failure.statusCode, failure.message)
-                else
-                    response(
-                        failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
-                        failure.message
-                    )
-            } else {
-                response(failureRoutingContext.response(), statusCode, failure?.message)
+            val out = ByteArrayOutputStream()
+            val printWriter = PrintWriter(out)
+
+            printWriter.use {
+                failure.printStackTrace(printWriter)
+                printWriter.flush()
+
+                if (statusCode == -1) {
+                    if (failure is HttpStatusException) {
+                        response(
+                            failureRoutingContext.response(),
+                            failure.statusCode,
+                            out.toString(StandardCharsets.UTF_8)
+                        )
+                    } else {
+                        response(
+                            failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                            out.toString(StandardCharsets.UTF_8)
+                        )
+                    }
+                } else {
+                    response(failureRoutingContext.response(), statusCode, out.toString(StandardCharsets.UTF_8))
+                }
             }
         }
     }
