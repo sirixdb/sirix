@@ -29,6 +29,7 @@
 -->
 
 <configuration>
+    <property name="USER_HOME" value="/home/johannes" />
     <timestamp key="byDay" datePattern="yyyyMMdd'T'HHmmss"/>
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
@@ -43,7 +44,7 @@
     </appender>
 
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-        <file>sirix-${byDay}.log</file>
+        <file>${USER_HOME}/sirix-${byDay}.log</file>
         <append>true</append>
         <encoder>
             <pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>

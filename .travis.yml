@@ -36,3 +36,5 @@ notifications:
     on_failure: always
     recipients:
       - lichtenberger.johannes@gmail.com
+after_failure:
+  - cat ./logs/sirix.log
