@@ -7,6 +7,8 @@ import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentMap;
@@ -16,10 +18,19 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public abstract class AbstractResourceStore<R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements ResourceStore<R> {
 
-  /** Central repository of all open resource managers. */
+  /**
+   * {@link LogWrapper} reference.
+   */
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AbstractResourceStore.class));
+
+  /**
+   * Central repository of all open resource managers.
+   */
   protected final ConcurrentMap<Path, R> resourceManagers;
 
-  /** The user, which interacts with SirixDB. */
+  /**
+   * The user, which interacts with SirixDB.
+   */
   protected final User user;
 
   public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers, final User user) {
@@ -66,6 +77,7 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   public boolean closeResourceManager(final Path resourceFile) {
     final R manager = resourceManagers.remove(resourceFile);
     DatabasesInternals.removeResourceManager(resourceFile, manager);
+    LOGGER.debug("Removed resource manager: " + resourceFile);
     return manager != null;
   }
 

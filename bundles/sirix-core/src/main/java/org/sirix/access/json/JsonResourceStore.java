@@ -11,6 +11,8 @@ import org.sirix.cache.BufferManager;
 import org.sirix.io.IOStorage;
 import org.sirix.io.StorageType;
 import org.sirix.page.UberPage;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 import java.nio.file.Path;
@@ -26,6 +28,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger
  */
 public final class JsonResourceStore extends AbstractResourceStore<JsonResourceManager> {
+
+  /**
+   * {@link LogWrapper} reference.
+   */
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(JsonResourceStore.class));
 
   /**
    * Default constructor.
@@ -62,6 +69,8 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
 
       // Put it in the databases cache.
       DatabasesInternals.putResourceManager(resourceFile, resourceManager);
+
+      LOGGER.debug("Opened resource manager: " + resourceFile);
 
       // And return it.
       return resourceManager;
