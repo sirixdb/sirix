@@ -35,13 +35,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public final class Databases {
 
   /** Central repository of all running databases. */
-  static final ConcurrentMap<String, Set<Database<?>>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
+  static final ConcurrentMap<Path, Set<Database<?>>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
 
   /** Central repository of all running resource managers. */
-  static final ConcurrentMap<String, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
+  static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
 
   /** Central repository of all resource {@code <=>} write locks mappings. */
-  static final ConcurrentMap<String, Lock> RESOURCE_WRITE_LOCKS = new ConcurrentHashMap<>();
+  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_LOCKS = new ConcurrentHashMap<>();
 
   /**
    * Get the database type
@@ -242,9 +242,9 @@ public final class Databases {
    * @param database database handle to put into the map
    */
   static synchronized void putDatabase(final Path file, final Database<?> database) {
-    final Set<Database<?>> databases = DATABASE_SESSIONS.getOrDefault(file.toAbsolutePath().toString(), new HashSet<>());
+    final Set<Database<?>> databases = DATABASE_SESSIONS.getOrDefault(file, new HashSet<>());
     databases.add(database);
-    DATABASE_SESSIONS.put(file.toAbsolutePath().toString(), databases);
+    DATABASE_SESSIONS.put(file, databases);
   }
 
   /**
@@ -253,11 +253,11 @@ public final class Databases {
    * @param file database file to remove
    */
   static synchronized void removeDatabase(final Path file, final Database<?> database) {
-    final Set<Database<?>> databases = DATABASE_SESSIONS.get(file.toAbsolutePath().toString());
+    final Set<Database<?>> databases = DATABASE_SESSIONS.get(file);
     databases.remove(database);
 
     if (databases.isEmpty()) {
-      DATABASE_SESSIONS.remove(file.toAbsolutePath().toString());
+      DATABASE_SESSIONS.remove(file);
     }
   }
 }

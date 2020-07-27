@@ -24,14 +24,14 @@ public final class DatabasesInternals {
   }
 
   public static Lock computeWriteLockIfAbsent(Path resourcePath) {
-    return Databases.RESOURCE_WRITE_LOCKS.computeIfAbsent(resourcePath.toAbsolutePath().toString(), res -> new ReentrantLock());
+    return Databases.RESOURCE_WRITE_LOCKS.computeIfAbsent(resourcePath, res -> new ReentrantLock());
   }
 
   public static void removeWriteLock(Path resourcePath) {
-    Databases.RESOURCE_WRITE_LOCKS.remove(resourcePath.toAbsolutePath().toString());
+    Databases.RESOURCE_WRITE_LOCKS.remove(resourcePath);
   }
 
-  public static ConcurrentMap<String, Set<Database<?>>> getOpenDatabases() {
+  public static ConcurrentMap<Path, Set<Database<?>>> getOpenDatabases() {
     return Databases.DATABASE_SESSIONS;
   }
 
@@ -42,7 +42,7 @@ public final class DatabasesInternals {
    * @param resourceManager resourceManager handle to put into the map
    */
   public static synchronized void putResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
-    Databases.RESOURCE_MANAGERS.computeIfAbsent(file.toAbsolutePath().toString(), path -> new HashSet<>()).add(resourceManager);
+    Databases.RESOURCE_MANAGERS.computeIfAbsent(file, path -> new HashSet<>()).add(resourceManager);
     LOGGER.debug("Added resource manager: " + file);
   }
 
@@ -53,7 +53,7 @@ public final class DatabasesInternals {
    * @param resourceManager manager to remove
    */
   public static synchronized void removeResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
-    final Set<ResourceManager<?, ?>> resourceManagers = Databases.RESOURCE_MANAGERS.get(file.toAbsolutePath().toString());
+    final Set<ResourceManager<?, ?>> resourceManagers = Databases.RESOURCE_MANAGERS.get(file);
 
     LOGGER.debug("Removed resource manager (get): " + resourceManagers);
 
@@ -62,12 +62,12 @@ public final class DatabasesInternals {
     }
 
     resourceManagers.remove(resourceManager);
-    LOGGER.debug("Removed resource manager: " + file.toAbsolutePath().toString());
+    LOGGER.debug("Removed resource manager: " + file);
     LOGGER.debug("Resource Managers left: " + resourceManagers);
 
     if (resourceManagers.isEmpty()) {
-      LOGGER.debug("Removed resource file to resource manager mapping: " + file.toAbsolutePath().toString());
-      Databases.RESOURCE_MANAGERS.remove(file.toAbsolutePath().toString());
+      LOGGER.debug("Removed resource file to resource manager mapping: " + file);
+      Databases.RESOURCE_MANAGERS.remove(file);
     }
   }
 
@@ -78,7 +78,7 @@ public final class DatabasesInternals {
    * @return open resource managers
    */
   public static synchronized Set<ResourceManager<?, ?>> getOpenResourceManagers(final Path file) {
-    LOGGER.debug("Resource managers %s for file %s", file, Databases.RESOURCE_MANAGERS.get(file.toAbsolutePath().toString()));
-    return Databases.RESOURCE_MANAGERS.getOrDefault(file.toAbsolutePath().toString(), Collections.emptySet());
+    LOGGER.debug("Resource managers %s for file %s", file, Databases.RESOURCE_MANAGERS.get(file));
+    return Databases.RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
   }
 }
