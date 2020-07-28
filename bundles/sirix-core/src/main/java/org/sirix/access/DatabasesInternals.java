@@ -78,7 +78,7 @@ public final class DatabasesInternals {
    * @return open resource managers
    */
   public static synchronized Set<ResourceManager<?, ?>> getOpenResourceManagers(final Path file) {
-    LOGGER.debug("Resource managers %s for file %s", file, Databases.RESOURCE_MANAGERS.get(file));
+    LOGGER.debug("Resource managers " + Databases.RESOURCE_MANAGERS.get(file) + " for file " + file);
     return Databases.RESOURCE_MANAGERS.getOrDefault(file, Collections.emptySet());
   }
 }

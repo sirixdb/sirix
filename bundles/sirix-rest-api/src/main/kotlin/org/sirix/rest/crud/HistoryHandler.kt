@@ -24,6 +24,7 @@ class HistoryHandler(private val location: Path) {
             }
 
         withContext(ctx.vertx().dispatcher()) {
+            val buffer = StringBuilder()
             database.use {
                 val manager = database.openResourceManager(resourceName)
 
@@ -32,7 +33,6 @@ class HistoryHandler(private val location: Path) {
                     val startRevision = ctx.queryParam("startRevision")
                     val endRevision = ctx.queryParam("endRevision")
 
-                    val buffer = StringBuilder()
 
                     val historyList = if (numberOfRevisions.isEmpty()) {
                         if (startRevision.isEmpty() && endRevision.isEmpty()) {
@@ -71,16 +71,16 @@ class HistoryHandler(private val location: Path) {
                     }
 
                     buffer.append("]}")
-
-                    val content = buffer.toString()
-
-                    ctx.response().setStatusCode(200)
-                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                        .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                        .write(content)
-                        .end()
                 }
             }
+
+            val content = buffer.toString()
+
+            ctx.response().setStatusCode(200)
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+                .write(content)
+                .end()
         }
 
         return ctx.currentRoute()

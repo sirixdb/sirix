@@ -166,6 +166,8 @@ class JsonUpdate(private val location: Path) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
+
+            var body: String? = null
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
@@ -230,18 +232,24 @@ class JsonUpdate(private val location: Path) {
                         ctx.response().statusCode = 200
 
                         if (manager.resourceConfig.hashType == HashType.NONE) {
-                            ctx.response().end()
+                            ctx.response()
                         } else {
-                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString())
                         }
                     } else {
                         val out = StringWriter()
                         val serializerBuilder = JsonSerializer.newBuilder(manager, out)
                         val serializer = serializerBuilder.build()
 
-                        JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+                        body = JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
                     }
                 }
+            }
+
+            if (body != null) {
+                ctx.response().end(body)
+            } else {
+                ctx.response().end()
             }
 
             promise.complete(null)

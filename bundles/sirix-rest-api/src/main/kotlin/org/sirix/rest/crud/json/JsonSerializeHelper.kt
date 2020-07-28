@@ -16,7 +16,7 @@ class JsonSerializeHelper {
         ctx: RoutingContext,
         manager: JsonResourceManager,
         nodeId: Long?
-    ) {
+    ): String {
         serializer.call()
 
         val body = out.toString()
@@ -26,14 +26,14 @@ class JsonSerializeHelper {
         } else {
             writeResponseWithHashValue(manager, ctx, body, nodeId)
         }
+
+        return body
     }
 
     private fun writeResponseWithoutHashValue(ctx: RoutingContext, body: String) {
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-            .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
-            .write(body)
-            .end()
+//            .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
     }
 
     private fun writeResponseWithHashValue(
@@ -52,10 +52,8 @@ class JsonSerializeHelper {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
+//                .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .putHeader(HttpHeaders.ETAG, hash.toString())
-                .write(body)
-                .end()
         }
     }
 }

@@ -38,6 +38,7 @@ import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 
 import java.io.ByteArrayOutputStream;
@@ -62,10 +63,13 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
   private boolean first;
 
+  private final Set<JsonNodeReadOnlyTrx> trxSet;
+
   public JsonDBSerializer(final Appendable out, final boolean prettyPrint) {
     this.out = checkNotNull(out);
     this.prettyPrint = prettyPrint;
     first = true;
+    trxSet = new HashSet<>();
   }
 
   @Override
@@ -96,6 +100,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
             if (item instanceof StructuredDBItem) {
               @SuppressWarnings("unchecked")
               final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
+              trxSet.add(node.getTrx());
 
               var serializerBuilder =
                   new JsonSerializer.Builder(node.getTrx().getResourceManager(), out, node.getTrx().getRevisionNumber())
@@ -158,5 +163,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
+
+    trxSet.forEach(JsonNodeReadOnlyTrx::close);
   }
 }

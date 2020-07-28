@@ -74,7 +74,7 @@ class JsonCreate(
 
         val sirixDBUser = SirixDBUser.create(ctx)
 
-        return withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
@@ -100,6 +100,8 @@ class JsonCreate(
                     }
                 }
             }
+
+            ctx.response().setStatusCode(200).end()
         }
     }
 
@@ -136,6 +138,7 @@ class JsonCreate(
         ctx.request().pipeToAwait(file)
 
         withContext(Dispatchers.IO) {
+            var body: String? = null
             val sirixDBUser = SirixDBUser.create(ctx)
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
@@ -158,24 +161,31 @@ class JsonCreate(
                     ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
 
                     if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
-                        serializeJson(manager, ctx)
+                        body = serializeJson(manager, ctx)
                     } else {
-                        ctx.response().setStatusCode(200).end()
+                        ctx.response().setStatusCode(200)
                     }
                 }
             }
+
+            if (body != null) {
+                ctx.response().end(body)
+            } else {
+                ctx.response().end()
+            }
         }
+
     }
 
     private fun serializeJson(
         manager: JsonResourceManager,
         routingCtx: RoutingContext
-    ) {
+    ): String {
         val out = StringWriter()
         val serializerBuilder = JsonSerializer.newBuilder(manager, out)
         val serializer = serializerBuilder.build()
 
-        JsonSerializeHelper().serialize(
+        return JsonSerializeHelper().serialize(
             serializer,
             out,
             routingCtx,

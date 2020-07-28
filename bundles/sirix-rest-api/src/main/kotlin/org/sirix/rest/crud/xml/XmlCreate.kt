@@ -64,23 +64,31 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         createDatabaseIfNotExists(dbFile, context)
 
         val sirixDBUser = SirixDBUser.create(ctx)
-        val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
-        database.use {
-            BodyHandler.create().handle(ctx)
-            val fileResolver = FileResolver()
-            ctx.fileUploads().forEach { fileUpload ->
-                val fileName = fileUpload.fileName()
-                val resConfig = ResourceConfiguration.Builder(fileName).build()
+        withContext(Dispatchers.IO) {
+            val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
-                createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
+            database.use {
+                BodyHandler.create().handle(ctx)
+                val fileResolver = FileResolver()
+                ctx.fileUploads().forEach { fileUpload ->
+                    val fileName = fileUpload.fileName()
+                    val resConfig = ResourceConfiguration.Builder(fileName).build()
 
-                val manager = database.openResourceManager(fileName)
+                    createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
-                manager.use {
-                    insertXmlSubtreeAsFirstChild(manager, fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath())
+                    val manager = database.openResourceManager(fileName)
+
+                    manager.use {
+                        insertXmlSubtreeAsFirstChild(
+                            manager,
+                            fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
+                        )
+                    }
                 }
             }
+
+            ctx.response().setStatusCode(200).end()
         }
     }
 
@@ -99,9 +107,9 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     }
 
     private suspend fun insertResource(
-            dbFile: Path?, resPathName: String,
-            dispatcher: CoroutineDispatcher,
-            ctx: RoutingContext
+        dbFile: Path?, resPathName: String,
+        dispatcher: CoroutineDispatcher,
+        ctx: RoutingContext
     ) {
         ctx.request().pause()
         val fileResolver = FileResolver()
@@ -110,13 +118,15 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
         }
 
-        val file = ctx.vertx().fileSystem().openAwait(filePath.toString(),
+        val file = ctx.vertx().fileSystem().openAwait(
+            filePath.toString(),
             OpenOptions()
         )
         ctx.request().resume()
         ctx.request().pipeToAwait(file)
 
         withContext(Dispatchers.IO) {
+            var body: String? = null
             val sirixDBUser = SirixDBUser.create(ctx)
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
@@ -132,26 +142,30 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     ctx.vertx().fileSystem().deleteAwait(filePath.toString())
 
                     if (maxNodeKey < 5000) {
-                        serializeXml(manager, ctx)
+                        body = serializeXml(manager, ctx)
                     } else {
-                        ctx.response().setStatusCode(200).end()
+                        ctx.response().setStatusCode(200)
                     }
                 }
+            }
+
+            if (body != null) {
+                ctx.response().end(body)
+            } else {
+                ctx.response().end()
             }
         }
     }
 
-    private suspend fun serializeXml(
+    private fun serializeXml(
         manager: XmlResourceManager,
         routingCtx: RoutingContext
-    ) {
-        withContext(Dispatchers.IO) {
-            val out = ByteArrayOutputStream()
-            val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
-            val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
+    ): String {
+        val out = ByteArrayOutputStream()
+        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
+        val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-            XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
-        }
+        return XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
     }
 
     private suspend fun createDatabaseIfNotExists(
@@ -188,20 +202,18 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         }
     }
 
-    private suspend fun insertXmlSubtreeAsFirstChild(
-            manager: XmlResourceManager,
-            resFileToStore: Path
-    ) : Long {
-        return withContext(Dispatchers.IO) {
-            val wtx = manager.beginNodeTrx()
-            return@withContext wtx.use {
-                val inputStream = FileInputStream(resFileToStore.toFile())
-                return@use inputStream.use {
-                    val eventStream = XmlShredder.createFileReader(inputStream)
-                    wtx.insertSubtreeAsFirstChild(eventStream)
-                    eventStream.close()
-                    wtx.maxNodeKey
-                }
+    private fun insertXmlSubtreeAsFirstChild(
+        manager: XmlResourceManager,
+        resFileToStore: Path
+    ): Long {
+        val wtx = manager.beginNodeTrx()
+        return wtx.use {
+            val inputStream = FileInputStream(resFileToStore.toFile())
+            return@use inputStream.use {
+                val eventStream = XmlShredder.createFileReader(inputStream)
+                wtx.insertSubtreeAsFirstChild(eventStream)
+                eventStream.close()
+                wtx.maxNodeKey
             }
         }
     }

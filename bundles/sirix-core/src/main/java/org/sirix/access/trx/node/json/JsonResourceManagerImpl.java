@@ -56,28 +56,33 @@ import java.util.concurrent.locks.Lock;
 public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx>
     implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
-  /** {@link XmlIndexController}s used for this session. */
+  /**
+   * {@link JsonIndexController}s used for this session.
+   */
   private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
 
-  /** {@link XmlIndexController}s used for this session. */
+  /**
+   * {@link JsonIndexController}s used for this session.
+   */
   private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
 
   /**
    * Constructor.
    *
-   * @param database {@link Database} for centralized operations on related sessions
+   * @param database      {@link Database} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
-   * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
+   * @param resourceConf  {@link DatabaseConfiguration} for general setting about the storage
    * @param bufferManager the cache of in-memory pages shared amongst all node transactions
-   * @param storage the storage itself, used for I/O
-   * @param uberPage the UberPage, which is the main entry point into a resource
-   * @param writeLock the write lock, which ensures, that only a single read-write transaction is
-   *        opened on a resource
-   * @param user a user, which interacts with SirixDB, might be {@code null}
+   * @param storage       the storage itself, used for I/O
+   * @param uberPage      the UberPage, which is the main entry point into a resource
+   * @param writeLock     the write lock, which ensures, that only a single read-write transaction is
+   *                      opened on a resource
+   * @param user          a user, which interacts with SirixDB, might be {@code null}
    */
   public JsonResourceManagerImpl(final Database<JsonResourceManager> database,
       final @Nonnull JsonResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
+      final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage,
+      final @Nonnull Lock writeLock, final @Nullable User user) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
 
     rtxIndexControllers = new ConcurrentHashMap<>();
@@ -90,8 +95,9 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode) {
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
+      PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
+      Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadTrx =
         new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableJsonNode) documentNode);
@@ -108,8 +114,15 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       pathSummaryWriter = null;
     }
 
-    return new JsonNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
-        new JsonNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageWriteTrx), nodeFactory);
+    return new JsonNodeTrxImpl(this,
+                               nodeReadTrx,
+                               pathSummaryWriter,
+                               maxNodeCount,
+                               timeUnit,
+                               maxTime,
+                               new JsonNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageWriteTrx),
+                               nodeFactory,
+                               afterCommitState);
   }
 
   @SuppressWarnings("unchecked")

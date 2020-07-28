@@ -72,9 +72,11 @@ class XmlUpdate(private val location: Path) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
-
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
+
+            var body: String? = null
+
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
             database.use {
@@ -83,8 +85,9 @@ class XmlUpdate(private val location: Path) {
                 manager.use {
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
-                        if (nodeId != null)
+                        if (nodeId != null) {
                             wtx.moveTo(nodeId)
+                        }
 
                         if (wtx.isDocumentRoot && wtx.hasFirstChild())
                             wtx.moveToFirstChild()
@@ -121,9 +124,9 @@ class XmlUpdate(private val location: Path) {
                         ctx.response().statusCode = 200
 
                         if (manager.resourceConfig.hashType == HashType.NONE) {
-                            ctx.response().end()
+                            ctx.response()
                         } else {
-                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString())
                         }
                     } else {
                         val out = ByteArrayOutputStream()
@@ -132,9 +135,15 @@ class XmlUpdate(private val location: Path) {
                         val serializer =
                             serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-                        XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
+                        body = XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
                     }
                 }
+            }
+
+            if (body != null) {
+                ctx.response().end(body)
+            } else {
+                ctx.response().end()
             }
 
             promise.complete(null)

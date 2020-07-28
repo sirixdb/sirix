@@ -30,6 +30,9 @@ package org.sirix.xquery;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.HashSet;
+import java.util.Set;
+
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -38,6 +41,7 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Kind;
 import org.brackit.xquery.xdm.Sequence;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.node.XmlDBNode;
 
@@ -55,11 +59,14 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
 
   private boolean first;
 
+  private final Set<XmlNodeReadOnlyTrx> trxSet;
+
   public XmlDBSerializer(final PrintStream out, final boolean emitRESTful, final boolean prettyPrint) {
     this.out = checkNotNull(out);
     this.emitRESTful = emitRESTful;
     this.prettyPrint = prettyPrint;
     first = true;
+    trxSet = new HashSet<>();
   }
 
   @Override
@@ -82,6 +89,7 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
         while ((item = it.next()) != null) {
           if (item instanceof XmlDBNode) {
             final XmlDBNode node = (XmlDBNode) item;
+            trxSet.add(node.getTrx());
             final Kind kind = node.getKind();
 
             if (kind == Kind.ATTRIBUTE) {
@@ -123,5 +131,7 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
     if (emitRESTful) {
       out.print("</rest:sequence>");
     }
+
+    trxSet.forEach(XmlNodeReadOnlyTrx::close);
   }
 }

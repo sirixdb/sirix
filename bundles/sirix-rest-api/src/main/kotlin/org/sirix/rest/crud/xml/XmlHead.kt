@@ -80,11 +80,12 @@ class XmlHead(private val location: Path) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
+
+        ctx.response().end()
     }
 
     private fun writeResponse(ctx: RoutingContext, rtx: XmlNodeReadOnlyTrx) {
         ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
-        ctx.response().end()
     }
 
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XmlResourceManager): Int {
