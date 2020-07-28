@@ -30,8 +30,9 @@ class DeleteHandler(private val location: Path) {
                             it.toFile().deleteRecursively()
                         }
 
-                    ctx.response().setStatusCode(204).end()
                 }
+
+                ctx.response().setStatusCode(204).end()
             }
         } else {
             val databaseName = ctx.pathParam("database")

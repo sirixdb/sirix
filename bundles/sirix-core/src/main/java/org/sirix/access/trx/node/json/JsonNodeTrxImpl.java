@@ -30,6 +30,7 @@ import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
+import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -123,6 +124,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * Json DeweyID manager.
    */
   private final JsonDeweyIDManager deweyIDManager;
+
+  /**
+   * After commit state: keep open or close.
+   */
+  private final AbstractResourceManager.AfterCommitState afterCommitState;
 
   /**
    * Hashes nodes.
@@ -226,14 +232,28 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private final boolean isAutoCommitting;
 
+  private State state;
+
+  private enum State {
+    Running,
+
+    Committing,
+
+    Committed,
+
+    Closed
+  }
+
   /**
    * Constructor.
    *
-   * @param resourceManager the resource manager instance this transaction is bound to
-   * @param maxNodeCount    maximum number of node modifications before auto commit
-   * @param timeUnit        unit of the number of the next param {@code pMaxTime}
-   * @param maxTime         maximum number of seconds before auto commit
-   * @param nodeHashing     hashes node contents
+   * @param resourceManager  the resource manager instance this transaction is bound to
+   * @param maxNodeCount     maximum number of node modifications before auto commit
+   * @param timeUnit         unit of the number of the next param {@code pMaxTime}
+   * @param maxTime          maximum number of seconds before auto commit
+   * @param nodeHashing      hashes node contents
+   * @param nodeFactory      to create nodes
+   * @param afterCommitState state after committing, keep open or close
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
@@ -241,7 +261,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   JsonNodeTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx, final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
-      final @Nonnull JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory) {
+      final @Nonnull JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory,
+      final @Nonnull AbstractResourceManager.AfterCommitState afterCommitState) {
     // Do not accept negative values.
     Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
                                 "Negative arguments for maxNodeCount and maxTime are not accepted.");
@@ -284,6 +305,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     updateOperationsOrdered = new TreeMap<>();
     updateOperationsUnordered = new HashMap<>();
 
+    this.afterCommitState = Preconditions.checkNotNull(afterCommitState);
+    state = State.Running;
+
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
     // try {
@@ -307,7 +331,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Acquire a lock if necessary.
    */
-  private void acquireLock() {
+  private void acquireLockIfNecessary() {
     if (lock != null) {
       lock.lock();
     }
@@ -316,7 +340,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Release a lock if necessary.
    */
-  private void unLock() {
+  private void unLockIfNecessary() {
     if (lock != null) {
       lock.unlock();
     }
@@ -345,6 +369,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition,
       boolean doImplicitCommit) {
     nodeReadOnlyTrx.assertNotClosed();
+    checkState();
     checkNotNull(reader);
     assert insertionPosition != null;
 
@@ -432,6 +457,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     return this;
   }
 
+  private void checkState() {
+    if (state != State.Running) {
+      throw new IllegalStateException("Transaction state is not running: " + state);
+    }
+  }
+
   /**
    * Modifying hashes in a postorder-traversal.
    *
@@ -443,7 +474,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public JsonNodeTrx insertObjectAsFirstChild() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -474,13 +505,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertObjectAsRightSibling() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       checkAccessAndCommit();
 
@@ -506,14 +537,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertObjectRecordAsFirstChild(final String key, final ObjectRecordValue<?> value) {
     checkNotNull(key);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -556,7 +587,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -613,7 +644,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx insertObjectRecordAsRightSibling(final String key, final ObjectRecordValue<?> value) {
     checkNotNull(key);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -649,13 +680,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertArrayAsFirstChild() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
@@ -688,13 +719,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertArrayAsRightSibling() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       checkAccessAndCommit();
       checkPrecondition();
@@ -721,14 +752,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx replaceObjectRecordValue(String key, ObjectRecordValue<?> value) {
     checkNotNull(value);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -747,14 +778,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsFirstChild(final String value) {
     checkNotNull(value);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -795,7 +826,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -823,7 +854,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx insertStringValueAsRightSibling(final String value) {
     checkNotNull(value);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       checkAccessAndCommit();
       checkPrecondition();
@@ -848,13 +879,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsFirstChild(boolean value) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -892,13 +923,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsRightSibling(boolean value) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       checkAccessAndCommit();
       checkPrecondition();
@@ -920,7 +951,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -959,7 +990,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx insertNumberValueAsFirstChild(Number value) {
     checkNotNull(value);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -997,13 +1028,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertNumberValueAsRightSibling(Number value) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       checkAccessAndCommit();
       checkPrecondition();
@@ -1026,13 +1057,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsFirstChild() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final NodeKind kind = getKind();
 
@@ -1067,13 +1098,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsRightSibling() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       checkAccessAndCommit();
       checkPrecondition();
@@ -1096,7 +1127,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -1113,7 +1144,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx remove() {
     checkAccessAndCommit();
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       final StructNode node = (StructNode) getCurrentNode();
       if (node.getKind() == NodeKind.JSON_DOCUMENT) {
@@ -1172,7 +1203,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -1237,7 +1268,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx setObjectKeyName(final String key) {
     checkNotNull(key);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       if (getKind() != NodeKind.OBJECT_KEY)
         throw new SirixUsageException("Not allowed if current node is not an object key node!");
@@ -1274,7 +1305,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -1307,7 +1338,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx setStringValue(final String value) {
     checkNotNull(value);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       if (getKind() != NodeKind.STRING_VALUE && getKind() != NodeKind.OBJECT_STRING_VALUE) {
         throw new SirixUsageException(
@@ -1343,13 +1374,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx setBooleanValue(final boolean value) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       if (getKind() != NodeKind.BOOLEAN_VALUE && getKind() != NodeKind.OBJECT_BOOLEAN_VALUE) {
         throw new SirixUsageException("Not allowed if current node is not a boolean value node!");
@@ -1382,14 +1413,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx setNumberValue(final Number value) {
     checkNotNull(value);
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       if (getKind() != NodeKind.NUMBER_VALUE && getKind() != NodeKind.OBJECT_NUMBER_VALUE) {
         throw new SirixUsageException(
@@ -1422,13 +1453,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx revertTo(final @Nonnegative int revision) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       nodeReadOnlyTrx.assertNotClosed();
       resourceManager.assertAccess(revision);
@@ -1462,13 +1493,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public void close() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       if (!isClosed()) {
         // Make sure to commit all dirty data.
@@ -1494,13 +1525,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         }
       }
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx rollback() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       nodeReadOnlyTrx.assertNotClosed();
 
@@ -1532,7 +1563,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -1598,6 +1629,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    */
   private void checkAccessAndCommit() {
     nodeReadOnlyTrx.assertNotClosed();
+    checkState();
     modificationCount++;
     intermediateCommitIfRequired();
   }
@@ -1737,23 +1769,23 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public JsonNodeTrx addPreCommitHook(final PreCommitHook hook) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       preCommitHooks.add(checkNotNull(hook));
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
   @Override
   public JsonNodeTrx addPostCommitHook(final PostCommitHook hook) {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       postCommitHooks.add(checkNotNull(hook));
       return this;
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -1772,11 +1804,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public PathSummaryReader getPathSummary() {
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       return pathSummaryWriter.getPathSummary();
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
   }
 
@@ -1799,9 +1831,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx commit(final String commitMessage) {
     nodeReadOnlyTrx.assertNotClosed();
+    state = State.Committing;
 
     // Optionally lock while commiting and assigning new instances.
-    acquireLock();
+    acquireLockIfNecessary();
     try {
       // Execute pre-commit hooks.
       for (final PreCommitHook hook : preCommitHooks) {
@@ -1821,9 +1854,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
 
       // Reinstantiate everything.
-      reInstantiate(getId(), getRevisionNumber());
+      if (afterCommitState == AbstractResourceManager.AfterCommitState.KeepOpen) {
+        reInstantiate(getId(), getRevisionNumber());
+        state = State.Running;
+      } else {
+        state = State.Committed;
+      }
     } finally {
-      unLock();
+      unLockIfNecessary();
     }
 
     // Execute post-commit hooks.

@@ -56,10 +56,12 @@ class GetHandler(private val location: Path) {
                     endResultSeqIndex = jsonBody?.getLong("endResultSeqIndex")
                 }
 
+                val body: String?
+
                 with(acceptHeader) {
                     when {
                         contains("application/json") -> {
-                            JsonGet(location).xquery(
+                            body = JsonGet(location).xquery(
                                 null,
                                 null,
                                 null,
@@ -72,28 +74,41 @@ class GetHandler(private val location: Path) {
                                 endResultSeqIndex
                             )
                         }
-                        contains("application/xml") -> XmlGet(location).xquery(
-                            query,
-                            null,
-                            ctx,
-                            context,
-                            ctx.get("user") as User,
-                            startResultSeqIndex,
-                            endResultSeqIndex
-                        )
-                        else -> JsonGet(location).xquery(
-                            null,
-                            null,
-                            null,
-                            null,
-                            query,
-                            ctx,
-                            context,
-                            ctx.get("user") as User,
-                            startResultSeqIndex,
-                            endResultSeqIndex
-                        )
+                        contains("application/xml") -> {
+                            body = XmlGet(location).xquery(
+                                null,
+                                null,
+                                null,
+                                null,
+                                query,
+                                ctx,
+                                context,
+                                ctx.get("user") as User,
+                                startResultSeqIndex,
+                                endResultSeqIndex
+                            )
+                        }
+                        else -> {
+                            body = JsonGet(location).xquery(
+                                null,
+                                null,
+                                null,
+                                null,
+                                query,
+                                ctx,
+                                context,
+                                ctx.get("user") as User,
+                                startResultSeqIndex,
+                                endResultSeqIndex
+                            )
+                        }
                     }
+                }
+
+                if (body != null) {
+                    ctx.response().end(body)
+                } else {
+                    ctx.response().end()
                 }
             }
         } else if (databaseName != null && resourceName == null) {
@@ -166,9 +181,7 @@ class GetHandler(private val location: Path) {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                .write(content)
-                .end()
+                .end(content)
         }
     }
 

@@ -72,13 +72,14 @@ class JsonHead(private val location: Path) {
                         }
 
                         ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
-                        ctx.response().end()
                     }
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
+
+        ctx.response().end()
     }
 
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: JsonResourceManager): Int {

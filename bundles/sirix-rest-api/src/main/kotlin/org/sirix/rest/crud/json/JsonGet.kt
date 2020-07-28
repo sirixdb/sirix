@@ -9,8 +9,6 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
@@ -27,7 +25,6 @@ import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.json.*
 import org.sirix.xquery.node.BasicXmlDBStore
 import java.io.StringWriter
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
 class JsonGet(private val location: Path) {
@@ -40,9 +37,7 @@ class JsonGet(private val location: Path) {
             jsonBody?.getString("query")
         }
 
-        withContext(context.dispatcher()) {
-            get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
-        }
+        get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
 
         return ctx.currentRoute()
     }
@@ -68,13 +63,15 @@ class JsonGet(private val location: Path) {
             return
         }
 
+        var body: String? = null
+
         database.use {
             try {
                 val manager = database.openResourceManager(resource)
 
                 manager.use {
                     if (query != null && query.isNotEmpty()) {
-                        queryResource(
+                        body = queryResource(
                             databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user
                         )
@@ -85,12 +82,18 @@ class JsonGet(private val location: Path) {
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
 
-                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        body = serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
+        }
+
+        if (body != null) {
+            ctx.response().end(body)
+        } else {
+            ctx.response().end()
         }
     }
 
@@ -98,7 +101,7 @@ class JsonGet(private val location: Path) {
         databaseName: String?, database: Database<JsonResourceManager>, revision: String?,
         revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User
-    ) {
+    ): String? {
         val dbCollection = JsonDBCollection(databaseName, database)
 
         dbCollection.use {
@@ -107,7 +110,7 @@ class JsonGet(private val location: Path) {
             val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
             val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
 
-            xquery(
+            return xquery(
                 manager,
                 dbCollection,
                 nodeId,
@@ -128,8 +131,8 @@ class JsonGet(private val location: Path) {
         nodeId: String?,
         revisionNumber: Array<Int>?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
-    ) {
-        vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
+    ): String? {
+        return vertxContext.executeBlockingAwait { promise: Promise<String> ->
             // Initialize queryResource context and store.
             val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
             val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
@@ -141,6 +144,8 @@ class JsonGet(private val location: Path) {
             )
 
             queryCtx.use {
+                var body: String? = null
+
                 if (manager != null && dbCollection != null && revisionNumber != null) {
                     val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
@@ -177,7 +182,7 @@ class JsonGet(private val location: Path) {
                             }
                         }
 
-                        query(
+                        body = query(
                             xmlDBStore,
                             jsonDBStore,
                             startResultSeqIndex,
@@ -188,7 +193,7 @@ class JsonGet(private val location: Path) {
                         )
                     }
                 } else {
-                    query(
+                    body = query(
                         xmlDBStore,
                         jsonDBStore,
                         startResultSeqIndex,
@@ -199,7 +204,7 @@ class JsonGet(private val location: Path) {
                     )
                 }
 
-                promise.complete(null)
+                promise.complete(body)
             }
         }
     }
@@ -212,7 +217,7 @@ class JsonGet(private val location: Path) {
         queryCtx: SirixQueryContext?,
         endResultSeqIndex: Long?,
         routingContext: RoutingContext
-    ) {
+    ): String {
         val out = StringBuilder()
 
         executeQueryAndSerialize(
@@ -229,12 +234,8 @@ class JsonGet(private val location: Path) {
 
         routingContext.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-            .putHeader(
-                HttpHeaders.CONTENT_LENGTH,
-                body.toByteArray(StandardCharsets.UTF_8).size.toString()
-            )
-            .write(body)
-            .end()
+
+        return body
     }
 
     private fun executeQueryAndSerialize(
@@ -266,7 +267,7 @@ class JsonGet(private val location: Path) {
     private fun serializeResource(
         manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
         ctx: RoutingContext
-    ) {
+    ): String {
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
         val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
@@ -299,7 +300,7 @@ class JsonGet(private val location: Path) {
 
             val serializer = serializerBuilder.build()
 
-            JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
         } else {
             val serializerBuilder =
                 JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions.toIntArray())
@@ -328,7 +329,7 @@ class JsonGet(private val location: Path) {
 
             val serializer = serializerBuilder.build()
 
-            JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
         }
     }
 }
