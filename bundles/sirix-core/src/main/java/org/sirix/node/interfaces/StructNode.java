@@ -36,6 +36,13 @@ public interface StructNode extends Node {
   boolean hasFirstChild();
 
   /**
+   * Declares, whether the item has a last child.
+   *
+   * @return true, if item has a last child, otherwise false
+   */
+  boolean hasLastChild();
+
+  /**
    * Declares, whether the item has a left sibling.
    *
    * @return true, if item has a left sibling, otherwise false
@@ -71,6 +78,13 @@ public interface StructNode extends Node {
   long getFirstChildKey();
 
   /**
+   * Gets key of the context item's first child.
+   *
+   * @return first child's key
+   */
+  long getLastChildKey();
+
+  /**
    * Gets key of the context item's left sibling.
    *
    * @return left sibling key
@@ -104,6 +118,13 @@ public interface StructNode extends Node {
    * @param nodeKey the new key to be set.
    */
   void setFirstChildKey(long nodeKey);
+
+  /**
+   * Setting the last child sibling key to this node.
+   *
+   * @param nodeKey the new key to be set.
+   */
+  void setLastChildKey(long nodeKey);
 
   /**
    * Decrementing the child count.
