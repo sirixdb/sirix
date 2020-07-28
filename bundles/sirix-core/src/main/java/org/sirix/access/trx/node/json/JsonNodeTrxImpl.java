@@ -714,7 +714,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       indexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
 
-      insertValueForLastChild(value);
+      insertValue(value);
 
       setLastChildOfObjectKeyNode(node);
 
