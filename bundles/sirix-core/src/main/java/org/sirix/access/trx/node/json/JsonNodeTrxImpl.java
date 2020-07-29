@@ -36,7 +36,6 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
-import org.sirix.access.trx.node.xml.InsertPos;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
