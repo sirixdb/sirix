@@ -79,7 +79,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   private final Map<Path<QNm>, Set<Long>> pathCache;
 
-  private boolean mInit = true;
+  private boolean init = true;
 
   /**
    * Private constructor.
@@ -118,7 +118,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
 
-    mInit = false;
+    init = false;
   }
 
   @Override
@@ -298,6 +298,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     } else if (pathNodeKey == 0) {
       return null;
     }
+
     return (PathNode) pathNodeMapping.get(pathNodeKey);
   }
 
@@ -392,7 +393,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public Move<? extends PathSummaryReader> moveTo(final long nodeKey) {
     assertNotClosed();
 
-    if (!mInit) {
+    if (!init) {
       final PathNode node = getPathNodeForPathNodeKey(nodeKey);
 
       if (node != null) {

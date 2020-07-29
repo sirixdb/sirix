@@ -26,7 +26,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
-import org.sirix.access.trx.node.AbstractResourceManager;
+import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -114,7 +114,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    */
   private final XmlDeweyIDManager deweyIDManager;
 
-  private final AbstractResourceManager.AfterCommitState afterCommitState;
+  private final AfterCommitState afterCommitState;
 
   /**
    * Modification counter.
@@ -220,7 +220,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
       final @Nonnull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory,
-      final AbstractResourceManager.AfterCommitState afterCommitState) {
+      final @Nonnull AfterCommitState afterCommitState) {
     // Do not accept negative values.
     Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
                                 "Negative arguments for maxNodeCount and maxTime are not accepted.");

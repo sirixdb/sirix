@@ -24,7 +24,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Maps in-memory key to persistent key and vice versa.
    */
-  private final BiMap<Integer, Long> mapToPersistentLogKey;
+  private final Map<Integer, Long> mapToPersistentLogKey;
 
   /**
    * The reference to the second cache.
@@ -48,7 +48,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     assert secondCache != null;
     logKey = 0;
     this.secondCache = secondCache;
-    mapToPersistentLogKey = HashBiMap.create(maxInMemoryCapacity >> 1);
+    mapToPersistentLogKey = new HashMap<>(maxInMemoryCapacity >> 1);
     map = new LinkedHashMap<>(maxInMemoryCapacity >> 1) {
       private static final long serialVersionUID = 1;
 

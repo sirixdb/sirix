@@ -30,7 +30,7 @@ import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
-import org.sirix.access.trx.node.AbstractResourceManager;
+import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -128,7 +128,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * After commit state: keep open or close.
    */
-  private final AbstractResourceManager.AfterCommitState afterCommitState;
+  private final AfterCommitState afterCommitState;
 
   /**
    * Hashes nodes.
@@ -232,7 +232,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private final boolean isAutoCommitting;
 
-  private State state;
+  private volatile State state;
 
   private enum State {
     Running,
@@ -262,7 +262,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final InternalJsonNodeReadOnlyTrx nodeReadTrx, final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
       final @Nonnull JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory,
-      final @Nonnull AbstractResourceManager.AfterCommitState afterCommitState) {
+      final @Nonnull AfterCommitState afterCommitState) {
     // Do not accept negative values.
     Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
                                 "Negative arguments for maxNodeCount and maxTime are not accepted.");
@@ -348,32 +348,46 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, true);
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, Commit.Implicit, CheckParentNode.Yes);
   }
 
   @Override
-  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader, boolean doImplicitCommit) {
-    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, doImplicitCommit);
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader, Commit commit) {
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader, Commit commit,
+      CheckParentNode checkParentNode) {
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, true);
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
   }
 
   @Override
-  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader, boolean doImplicitCommit) {
-    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, false);
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader, Commit commit) {
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.Yes);
   }
 
-  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition,
-      boolean doImplicitCommit) {
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader, Commit commit,
+      CheckParentNode checkParentNode) {
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode);
+  }
+
+  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition, Commit commit,
+      CheckParentNode checkParentNode) {
     nodeReadOnlyTrx.assertNotClosed();
-    checkState();
     checkNotNull(reader);
     assert insertionPosition != null;
 
+    acquireLockIfNecessary();
+
     try {
+      checkState();
       final var peekedJsonToken = reader.peek();
 
       if (peekedJsonToken != JsonToken.BEGIN_OBJECT && peekedJsonToken != JsonToken.BEGIN_ARRAY)
@@ -403,9 +417,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           }
         }
         case AS_RIGHT_SIBLING -> {
-          final NodeKind parentKind = getParentKind();
-          if (parentKind != NodeKind.ARRAY) {
-            throw new IllegalStateException("Current parent node must be an array node.");
+          if (checkParentNode == CheckParentNode.Yes) {
+            final NodeKind parentKind = getParentKind();
+            if (parentKind != NodeKind.ARRAY) {
+              throw new IllegalStateException("Current parent node must be an array node.");
+            }
           }
         }
         default -> throw new UnsupportedOperationException();
@@ -448,11 +464,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       nodeHashing.setBulkInsert(false);
 
-      if (doImplicitCommit) {
+      if (commit == Commit.Implicit) {
         commit();
       }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
+    } finally {
+      unLockIfNecessary();
     }
     return this;
   }
@@ -515,8 +533,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       checkAccessAndCommit();
 
-      if (getParentKind() != NodeKind.ARRAY) {
-        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+      if (!nodeHashing.isBulkInsert()) {
+        if (getParentKind() != NodeKind.ARRAY) {
+          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+        }
       }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
@@ -846,7 +866,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptNodesAndHashesForInsertAsFirstChild(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node, InsertPos.ASFIRSTCHILD);
+    adaptForInsert((StructNode) node);
     nodeReadOnlyTrx.setCurrentNode(node);
     nodeHashing.adaptHashesWithAdd();
   }
@@ -956,14 +976,15 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void checkPrecondition() {
-    if (getParentKind() != NodeKind.ARRAY)
+    if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
       throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+    }
   }
 
   private void insertAsRightSibling(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node, InsertPos.ASRIGHTSIBLING);
+    adaptForInsert((StructNode) node);
     nodeReadOnlyTrx.setCurrentNode(node);
     nodeHashing.adaptHashesWithAdd();
 
@@ -1642,12 +1663,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * Adapting everything for insert operations.
    *
    * @param structNode pointer of the new node to be inserted
-   * @param insertPos  determines the position where to insert
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final StructNode structNode, final InsertPos insertPos) {
+  private void adaptForInsert(final StructNode structNode) {
     assert structNode != null;
-    assert insertPos != null;
 
     final StructNode parent =
         (StructNode) pageWriteTrx.prepareEntryForModification(structNode.getParentKey(), PageKind.RECORDPAGE, -1);
@@ -1831,11 +1850,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx commit(final String commitMessage) {
     nodeReadOnlyTrx.assertNotClosed();
-    state = State.Committing;
 
     // Optionally lock while commiting and assigning new instances.
     acquireLockIfNecessary();
     try {
+      state = State.Committing;
+
       // Execute pre-commit hooks.
       for (final PreCommitHook hook : preCommitHooks) {
         hook.preCommit(this);
@@ -1854,7 +1874,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
 
       // Reinstantiate everything.
-      if (afterCommitState == AbstractResourceManager.AfterCommitState.KeepOpen) {
+      if (afterCommitState == AfterCommitState.KeepOpen) {
         reInstantiate(getId(), getRevisionNumber());
         state = State.Running;
       } else {

@@ -129,16 +129,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   final User user;
 
-  public enum AfterCommitState {
-    KeepOpen,
-
-    Close
-  }
-
   /**
    * Package private constructor.
    *
-   * @param database      {@link LocalXmlDatabase} for centralized operations on related sessions
+   * @param database      {@link Database} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf  {@link DatabaseConfiguration} for general setting about the storage
    * @param bufferManager the cache of in-memory pages shared amongst all resource managers and transactions
@@ -346,44 +340,45 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public W beginNodeTrx() {
-    return beginNodeTrx(0, TimeUnit.MINUTES, 0, AfterCommitState.KeepOpen);
+    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, AfterCommitState.KeepOpen);
   }
 
   @Override
   public W beginNodeTrx(final @Nonnegative int maxNodeCount) {
-    return beginNodeTrx(maxNodeCount, TimeUnit.MINUTES, 0, AfterCommitState.KeepOpen);
+    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KeepOpen);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
-    return beginNodeTrx(0, timeUnit, maxTime, AfterCommitState.KeepOpen);
+  public W beginNodeTrx(final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit) {
+    return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KeepOpen);
   }
 
-  public W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
-      final @Nonnegative int maxTime) {
-    return beginNodeTrx(maxNodeCount, timeUnit, maxTime, AfterCommitState.KeepOpen);
+  @Override
+  public W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnegative int maxTime,
+      final @Nonnull TimeUnit timeUnit) {
+    return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KeepOpen);
   }
 
   @Override
   public W beginNodeTrx(final @Nonnull AfterCommitState afterCommitState) {
-    return beginNodeTrx(0, TimeUnit.MINUTES, 0, afterCommitState);
+    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, afterCommitState);
   }
 
   @Override
   public W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnull AfterCommitState afterCommitState) {
-    return beginNodeTrx(maxNodeCount, TimeUnit.MINUTES, 0);
+    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime,
+  public W beginNodeTrx(final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit,
       final @Nonnull AfterCommitState afterCommitState) {
-    return beginNodeTrx(0, timeUnit, maxTime, afterCommitState);
+    return beginNodeTrx(0, maxTime, timeUnit, afterCommitState);
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
-      final @Nonnegative int maxTime, final @Nonnull AfterCommitState afterCommitState) {
+  public synchronized W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnegative int maxTime,
+      final @Nonnull TimeUnit timeUnit, final @Nonnull AfterCommitState afterCommitState) {
     // Checks.
     assertAccess(lastCommittedUberPage.get().getRevision());
     if (maxNodeCount < 0 || maxTime < 0) {
