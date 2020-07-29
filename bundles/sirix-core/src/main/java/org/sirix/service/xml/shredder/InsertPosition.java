@@ -22,7 +22,7 @@
 package org.sirix.service.xml.shredder;
 
 /**
- * Determines how to insert at subtree.
+ * Determines where to insert a subtree.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
