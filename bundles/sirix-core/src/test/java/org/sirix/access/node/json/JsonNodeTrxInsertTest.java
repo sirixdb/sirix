@@ -7,15 +7,19 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.HashType;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.json.shredder.JsonShredder;
+import org.sirix.settings.VersioningType;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -40,8 +44,10 @@ public final class JsonNodeTrxInsertTest {
       database.createResource(ResourceConfiguration.newBuilder(resource)
                                                    .storeDiffs(false)
                                                    .hashKind(HashType.NONE)
+                                                   .buildPathSummary(false)
+                                                   .versioningApproach(VersioningType.FULL)
                                                    .build());
-      try (final var manager = database.openResourceManager(resource); final var wtx = manager.beginNodeTrx()) {
+      try (final var manager = database.openResourceManager(resource); final var wtx = manager.beginNodeTrx(100, TimeUnit.MILLISECONDS)) {
         System.out.println("Start inserting");
 
         final long time = System.nanoTime();
@@ -52,14 +58,19 @@ public final class JsonNodeTrxInsertTest {
             {"item":"this is item 0", "package":"package", "kg":5}
             """.strip();
 
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject), false);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject),
+                                      JsonNodeTrx.Commit.No,
+                                      JsonNodeTrx.CheckParentNode.No);
 
         for (int i = 0; i < 650_000; i++) {
+          System.out.println(i);
           jsonObject = """
               {"item":"this is item %s", "package":"package", "kg":5}
               """.strip().formatted(i);
 
-          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject), false);
+          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject),
+                                          JsonNodeTrx.Commit.No,
+                                          JsonNodeTrx.CheckParentNode.No);
         }
 
         wtx.commit();

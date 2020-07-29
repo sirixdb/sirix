@@ -239,7 +239,7 @@ public class XmlResourceManagerTest {
   @Test
   public void testAutoCommitWithScheduler() throws InterruptedException {
     // After 500 milliseconds commit.
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(TimeUnit.MILLISECONDS, 500)) {
+    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(500, TimeUnit.MILLISECONDS)) {
       TimeUnit.MILLISECONDS.sleep(1500);
       assertTrue(wtx.getRevisionNumber() >= 3);
     }
@@ -252,7 +252,7 @@ public class XmlResourceManagerTest {
     final Instant afterAllCommits;
     final Instant afterFirstCommit;
     final Instant afterSecondCommit;
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(TimeUnit.MILLISECONDS, 2000)) {
+    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(2000, TimeUnit.MILLISECONDS)) {
       TimeUnit.MILLISECONDS.sleep(2100);
       afterFirstCommit = Instant.now();
       TimeUnit.MILLISECONDS.sleep(2100);

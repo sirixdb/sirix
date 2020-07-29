@@ -82,9 +82,9 @@ final class JsonItemSequence {
       final String json = serializeItem(item);
 
       if (trx.getNodeKey() == nodeKey) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), false);
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.No);
       } else {
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json), false);
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.No);
       }
     }
   }
