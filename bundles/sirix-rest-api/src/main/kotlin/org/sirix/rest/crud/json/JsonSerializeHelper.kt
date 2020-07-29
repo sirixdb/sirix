@@ -22,7 +22,7 @@ class JsonSerializeHelper {
         if (manager.resourceConfig.hashType == HashType.NONE) {
             writeResponseWithoutHashValue(ctx)
         } else {
-            writeResponseWithHashValue(manager, ctx, body, nodeId)
+            writeResponseWithHashValue(manager, ctx, nodeId)
         }
 
         return body
@@ -36,7 +36,6 @@ class JsonSerializeHelper {
     private fun writeResponseWithHashValue(
         manager: JsonResourceManager,
         ctx: RoutingContext,
-        body: String,
         nodeId: Long?
     ) {
         val rtx = manager.beginNodeReadOnlyTrx()
