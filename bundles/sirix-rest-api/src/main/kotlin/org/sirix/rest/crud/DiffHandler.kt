@@ -92,14 +92,14 @@ class DiffHandler(private val location: Path) {
             }
         }
 
-        ctx.response().setStatusCode(200)
+        val res = ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             .putHeader(
                 HttpHeaders.CONTENT_LENGTH,
                 diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
             )
-            .write(diff)
-            .end()
+        res.write(diff)
+        res.end()
 
         return ctx.currentRoute()
     }
