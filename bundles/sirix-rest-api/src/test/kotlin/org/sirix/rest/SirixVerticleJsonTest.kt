@@ -915,7 +915,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start-end index")
     fun testPostQueryWithStartAndEndIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

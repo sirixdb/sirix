@@ -866,7 +866,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptNodesAndHashesForInsertAsFirstChild(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node, InsertPos.ASFIRSTCHILD);
+    adaptForInsert((StructNode) node);
     nodeReadOnlyTrx.setCurrentNode(node);
     nodeHashing.adaptHashesWithAdd();
   }
@@ -984,7 +984,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void insertAsRightSibling(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node, InsertPos.ASRIGHTSIBLING);
+    adaptForInsert((StructNode) node);
     nodeReadOnlyTrx.setCurrentNode(node);
     nodeHashing.adaptHashesWithAdd();
 
@@ -1663,12 +1663,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * Adapting everything for insert operations.
    *
    * @param structNode pointer of the new node to be inserted
-   * @param insertPos  determines the position where to insert
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final StructNode structNode, final InsertPos insertPos) {
+  private void adaptForInsert(final StructNode structNode) {
     assert structNode != null;
-    assert insertPos != null;
 
     final StructNode parent =
         (StructNode) pageWriteTrx.prepareEntryForModification(structNode.getParentKey(), PageKind.RECORDPAGE, -1);
