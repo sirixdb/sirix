@@ -5,6 +5,18 @@ import org.sirix.api.NodeTrx;
 import com.google.gson.stream.JsonReader;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
+  enum Commit {
+    Implicit,
+
+    No
+  }
+
+  enum CheckParentNode {
+    Yes,
+
+    No
+  }
+
   JsonNodeTrx insertObjectAsFirstChild();
 
   JsonNodeTrx insertObjectAsRightSibling();
@@ -49,7 +61,11 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
 
-  JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, boolean doImplicitCommit);
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit);
 
-  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, boolean doImplicitCommit);
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 }

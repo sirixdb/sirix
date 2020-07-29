@@ -23,6 +23,7 @@ package org.sirix.access;
 
 import com.google.common.base.MoreObjects;
 import org.sirix.access.json.JsonResourceStore;
+import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeTrx;
@@ -127,7 +128,7 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
     try (final JsonResourceManager resourceTrxManager = openResourceManager(resConfig.getResource()
                                                                                      .getFileName()
                                                                                      .toString());
-         final JsonNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
+         final JsonNodeTrx wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.Close)) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

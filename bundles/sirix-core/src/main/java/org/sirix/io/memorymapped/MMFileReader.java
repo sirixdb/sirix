@@ -84,6 +84,8 @@ public final class MMFileReader implements Reader {
    */
   private final PagePersister pagePersiter;
 
+  private final boolean isReaderWriter;
+
   private MemorySegment dataFileSegment;
 
   private MemorySegment revisionFileSegment;
@@ -105,6 +107,7 @@ public final class MMFileReader implements Reader {
    */
   public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
       final SerializationType type, final PagePersister pagePersistenter) throws IOException {
+    isReaderWriter = false;
     hashFunction = Hashing.sha256();
     this.dataFile = checkNotNull(dataFile);
     this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
@@ -131,6 +134,7 @@ public final class MMFileReader implements Reader {
   public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final MemorySegment dataFileSegment,
       final MemorySegment revisionFileSegment, final ByteHandler handler, final SerializationType type,
       final PagePersister pagePersistenter) {
+    isReaderWriter = true;
     hashFunction = Hashing.sha256();
     this.dataFile = checkNotNull(dataFile);
     this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
@@ -190,22 +194,10 @@ public final class MMFileReader implements Reader {
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
 
-    try {
-      // new data file segment, cause it might have been written
-      if (dataFileSegment != null && dataFileSegment.isAlive()
-          && Thread.currentThread() == dataFileSegment.ownerThread()) {
-        dataFileSegment.close();
-      }
+    // new data file segment, cause it might have been written
+    final MemoryAddress baseAddress = dataFileSegment.baseAddress();
 
-      dataFileSegment =
-          MemorySegment.mapFromPath(checkNotNull(dataFile), dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
-
-      final MemoryAddress baseAddress = dataFileSegment.baseAddress();
-
-      uberPageReference.setKey((long) LONG_VAR_HANDLE.get(baseAddress));
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
+    uberPageReference.setKey((long) LONG_VAR_HANDLE.get(baseAddress));
 
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
@@ -256,12 +248,15 @@ public final class MMFileReader implements Reader {
 
   @Override
   public void close() {
-    // FIXME: transfer ownership instead as of Java 15
     if (dataFileSegment != null && dataFileSegment.isAlive()) {
       dataFileSegment.close();
     }
     if (revisionFileSegment != null && revisionFileSegment.isAlive()) {
       revisionFileSegment.close();
     }
+  }
+
+  public void setDataSegment(MemorySegment dataSegment) {
+    this.dataFileSegment = dataSegment;
   }
 }
