@@ -29,6 +29,7 @@ import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
+import org.sirix.utils.OS;
 
 import java.io.*;
 import java.lang.invoke.VarHandle;
@@ -50,7 +51,9 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private static final byte PAGE_FRAGMENT_WORD_ALIGN = 8;
 
-  private long currByteSizeToMap = Integer.MAX_VALUE;
+  private static int TEST_BLOCK_SIZE = 64 * 1024; // Smallest safe block size for Windows 8+.
+
+  private long currByteSizeToMap = Integer.MAX_VALUE;//OS.is64Bit() ? 64L << 20 : TEST_BLOCK_SIZE;
 
   private static final VarHandle BYTE_VAR_HANDLE = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
                                                                .varHandle(byte.class,
@@ -102,11 +105,15 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     revisionsOffsetSize = Files.size(revisionsOffsetFile);
     this.pagePersister = checkNotNull(pagePersister);
 
+    while (currByteSizeToMap < dataSegmentFileSize) {
+      currByteSizeToMap = currByteSizeToMap << 1;
+    }
+
     this.dataSegment =
         MemorySegment.mapFromPath(checkNotNull(dataFile), currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
 
     this.revisionsOffsetSegment =
-        MemorySegment.mapFromPath(revisionsOffsetFile, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFromPath(revisionsOffsetFile, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
 
     reader =
         new MMFileReader(dataFile, revisionsOffsetFile, dataSegment, revisionsOffsetSegment, handler, serializationType, pagePersister);
@@ -213,13 +220,14 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private void reInstantiateSegment() throws IOException {
     if (dataSegmentFileSize > dataSegment.byteSize()) {
+      do {
+        currByteSizeToMap = currByteSizeToMap << 1;
+      } while (dataSegmentFileSize > currByteSizeToMap);
+
       ifSegmentIsAliveCloseSegment();
 
-      currByteSizeToMap = currByteSizeToMap << 1;
       dataSegment = MemorySegment.mapFromPath(dataFile, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
-    } else if (!dataSegment.isAlive()) {
-      dataSegment =
-          MemorySegment.mapFromPath(checkNotNull(dataFile), Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
+      reader.setDataSegment(dataSegment);
     }
   }
 
