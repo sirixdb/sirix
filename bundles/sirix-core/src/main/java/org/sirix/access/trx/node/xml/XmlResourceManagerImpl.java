@@ -25,6 +25,7 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.AbstractResourceManager;
+import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
