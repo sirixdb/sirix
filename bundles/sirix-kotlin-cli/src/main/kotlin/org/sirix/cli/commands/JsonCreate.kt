@@ -3,6 +3,7 @@ package org.sirix.cli.commands
 import com.google.gson.stream.JsonReader
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
+import org.sirix.api.json.JsonNodeTrx
 import org.sirix.cli.CliOptions
 import org.sirix.service.json.shredder.JsonShredder
 import java.nio.file.Paths
@@ -23,7 +24,7 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
             manager.use {
                 val wtx = manager.beginNodeTrx()
                 wtx.use {
-                    wtx.insertSubtreeAsFirstChild(jsonReader(), false)
+                    wtx.insertSubtreeAsFirstChild(jsonReader(), JsonNodeTrx.Commit.No)
                     if (dataOptions.commitMessage.isNotEmpty()) {
                         wtx.commit(dataOptions.commitMessage)
                     } else {
