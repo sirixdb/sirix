@@ -2,9 +2,9 @@ package org.sirix.rest.crud.xml
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.brackit.xquery.node.parser.SubtreeParser
@@ -53,9 +53,9 @@ class XmlSessionDBStore(private val ctx: RoutingContext, private val dbStore: Xm
 
     private fun checkIfAuthorized(name: String, role: AuthRole) {
         GlobalScope.launch(ctx.vertx().dispatcher()) {
-            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
+            val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
 
-            require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
+            require(isAuthorized || PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
                 IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
             }
         }
