@@ -20,24 +20,22 @@ class XmlSerializeHelper {
         val body = String(out.toByteArray(), StandardCharsets.UTF_8)
 
         if (manager.resourceConfig.hashType == HashType.NONE) {
-            writeResponseWithoutHashValue(ctx, body)
+            writeResponseWithoutHashValue(ctx)
         } else {
-            writeResponseWithHashValue(manager, ctx, body, nodeId)
+            writeResponseWithHashValue(manager, ctx, nodeId)
         }
 
         return body
     }
 
-    private fun writeResponseWithoutHashValue(ctx: RoutingContext, body: String) {
+    private fun writeResponseWithoutHashValue(ctx: RoutingContext) {
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-//            .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
     }
 
     private fun writeResponseWithHashValue(
         manager: XmlResourceManager,
         ctx: RoutingContext,
-        body: String,
         nodeId: Long?
     ) {
         val rtx = manager.beginNodeReadOnlyTrx()
@@ -50,7 +48,6 @@ class XmlSerializeHelper {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-//                .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .putHeader(HttpHeaders.ETAG, hash.toString())
         }
     }
