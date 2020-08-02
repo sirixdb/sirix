@@ -10,6 +10,9 @@ import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.ext.auth.authentication.authenticateAwait
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
+import io.vertx.ext.auth.authorization.RoleBasedAuthorization
+import io.vertx.ext.auth.oauth2.authorization.KeycloakAuthorization
+import io.vertx.kotlin.coroutines.await
 
 //import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 
@@ -35,10 +38,10 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
             if (database == null) {
                 false
             } else {
-                PermissionBasedAuthorization.create(role.databaseRole(database)).match(user)
+                user.isAuthorized(role.databaseRole(database)).await()
             }
 
-        if (!isAuthorized && !PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
+        if (!isAuthorized && user.isAuthorized(role.keycloakRole()).await()) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
         }
