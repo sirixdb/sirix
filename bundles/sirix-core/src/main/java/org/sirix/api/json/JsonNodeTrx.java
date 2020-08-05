@@ -87,25 +87,25 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader);
 
-  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader);
-
-  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader);
-
-  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
-
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit);
-
-  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit);
-
-  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit doImplicitCommit);
-
-  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
+  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit);
+
   JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit doImplicitCommit);
+
   JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 }
