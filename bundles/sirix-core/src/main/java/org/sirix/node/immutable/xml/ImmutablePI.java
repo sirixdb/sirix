@@ -96,6 +96,11 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return mNode.hasLeftSibling();
   }
@@ -118,6 +123,11 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   @Override
   public long getFirstChildKey() {
     return mNode.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

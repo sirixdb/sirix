@@ -95,6 +95,11 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
   }
 
   @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return mNode.hasLeftSibling();
   }
@@ -117,6 +122,11 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
   @Override
   public long getFirstChildKey() {
     return mNode.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

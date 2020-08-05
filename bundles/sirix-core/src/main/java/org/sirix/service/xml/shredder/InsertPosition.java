@@ -31,6 +31,9 @@ public enum InsertPosition {
   /** Subtree should be added as first child of the current node. */
   AS_FIRST_CHILD,
 
+  /** Subtree should be added as last child of the current node. */
+  AS_LAST_CHILD,
+
   /**
    * Subtree should be added as a right sibling of the current node. This is not possible when the
    * {@code IWriteTransaction} is on root node.

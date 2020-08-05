@@ -49,6 +49,9 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   /** Pointer to the first child of the current node. */
   private long firstChild;
 
+  /** Pointer to the last child of the current node. */
+  private long lastChild = -2L;
+
   /** Pointer to the right sibling of the current node. */
   private long rightSibling;
 
@@ -87,6 +90,31 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
     this.descendantCount = descendantCount;
   }
 
+  /**
+   * Constructor.
+   *
+   * @param nodeDelegate {@link NodeDelegate} instance
+   * @param firstChild first child key
+   * @param lastChild last child key
+   * @param rightSibling right sibling key
+   * @param leftSibling left sibling key
+   * @param childCount number of children of the node
+   * @param descendantCount number of descendants of the node
+   */
+  public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild, final long rightSibling,
+      final long leftSibling, final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
+    assert childCount >= 0 : "childCount must be >= 0!";
+    assert descendantCount >= 0 : "descendantCount must be >= 0!";
+    assert nodeDelegate != null : "del must not be null!";
+    this.nodeDelegate = nodeDelegate;
+    this.firstChild = firstChild;
+    this.lastChild = lastChild;
+    this.rightSibling = rightSibling;
+    this.leftSibling = leftSibling;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+  }
+
   @Override
   public NodeKind getKind() {
     return nodeDelegate.getKind();
@@ -95,6 +123,11 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   public boolean hasFirstChild() {
     return firstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return lastChild != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -115,6 +148,11 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   public long getFirstChildKey() {
     return firstChild;
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return lastChild;
   }
 
   @Override
@@ -143,6 +181,11 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
+  public void setLastChildKey(final long key) {
+    lastChild = key;
+  }
+
+  @Override
   public void decrementChildCount() {
     childCount--;
   }
@@ -154,15 +197,22 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount);
+    return ((lastChild==-2L) ? Objects.hashCode(
+      childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount) : Objects.hashCode(
+      childCount, nodeDelegate, firstChild, lastChild, leftSibling, rightSibling, descendantCount));
   }
 
   @Override
   public BigInteger computeHash() {
     final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) ->
     {
-      into.putLong(node.getChildCount()).putLong(node.getDescendantCount()).putLong(node.getLeftSiblingKey()).putLong(
-          node.getRightSiblingKey()).putLong(node.getFirstChildKey());
+      if(lastChild != -2L) {
+        into.putLong(node.getChildCount()).putLong(node.getDescendantCount()).putLong(node.getLeftSiblingKey()).putLong(
+            node.getRightSiblingKey()).putLong(node.getFirstChildKey());
+      } else {
+        into.putLong(node.getChildCount()).putLong(node.getDescendantCount()).putLong(node.getLeftSiblingKey()).putLong(
+            node.getRightSiblingKey()).putLong(node.getFirstChildKey()).putLong(node.getLastChildKey());
+      }
     };
 
     final BigInteger hash = new BigInteger(1, nodeDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
@@ -188,13 +238,15 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
     final StructNodeDelegate other = (StructNodeDelegate) obj;
 
     return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate) && Objects.equal(
-        firstChild, other.firstChild) && Objects.equal(leftSibling, other.leftSibling) && Objects.equal(rightSibling, other.rightSibling) && Objects.equal(descendantCount, other.descendantCount);
+        firstChild, other.firstChild)  && Objects.equal(lastChild, other.lastChild) && Objects.equal(
+        leftSibling, other.leftSibling) && Objects.equal(rightSibling, other.rightSibling) && Objects.equal(descendantCount, other.descendantCount);
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("first child", getFirstChildKey())
+                      .add("last child", getLastChildKey())
                       .add("left sib", getLeftSiblingKey())
                       .add("right sib", getRightSiblingKey())
                       .add("child count", getChildCount())

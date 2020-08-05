@@ -84,6 +84,11 @@ public final class ImmutableObjectStringNode extends AbstractImmutableJsonStruct
   }
 
   @Override
+  public boolean hasLastChild() {
+    return node.hasLastChild();
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return node.hasLeftSibling();
   }
@@ -106,6 +111,11 @@ public final class ImmutableObjectStringNode extends AbstractImmutableJsonStruct
   @Override
   public long getFirstChildKey() {
     return node.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return node.getLastChildKey();
   }
 
   @Override
