@@ -93,6 +93,11 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   }
 
   @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return false;
   }
@@ -115,6 +120,11 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   @Override
   public long getFirstChildKey() {
     return mNode.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    throw new UnsupportedOperationException();
   }
 
   @Override
