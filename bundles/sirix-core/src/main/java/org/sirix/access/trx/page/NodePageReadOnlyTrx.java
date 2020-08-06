@@ -172,8 +172,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
           page = pageReader.read(reference, this);
 
           if (page != null && trxIntentLog == null) {
-//          if (page != null && trxIntentLog == null && (resourceConfig.getStorageType() != StorageType.IN_MEMORY
-//              || isRootOfTreePage(page))) {
             assert reference.getLogKey() == Constants.NULL_ID_INT
                 && reference.getPersistentLogKey() == Constants.NULL_ID_LONG;
             // Put page into buffer manager and set page reference (just to
@@ -339,10 +337,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (page == null) {
       page = loadPage(reference);
-
-//      if ((resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) || isRootOfTreePage(page)) {
-        reference.setPage(page);
-//      }
+      reference.setPage(page);
     }
 
     return page;
@@ -461,7 +456,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPreviousPageFragments(
       T page) {
-    return page.getPreviousReferenceKeys().stream().map(pageFragmentKey -> {
+    return page.getPreviousReferenceKeys().parallelStream().map(pageFragmentKey -> {
       try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
         return (T) pageReadOnlyTrx.getReader()
                                   .read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
