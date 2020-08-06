@@ -107,6 +107,11 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   }
 
   @Override
+  public boolean hasLastChild() {
+    return node.hasLastChild();
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return node.hasLeftSibling();
   }
@@ -129,6 +134,11 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   @Override
   public long getFirstChildKey() {
     return node.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return node.getLastChildKey();
   }
 
   @Override

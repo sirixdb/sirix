@@ -43,6 +43,11 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   }
 
   @Override
+  public boolean hasLastChild() {
+    return structDelegate().hasFirstChild();
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return structDelegate().hasLeftSibling();
   }
@@ -60,6 +65,11 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   @Override
   public long getFirstChildKey() {
     return structDelegate().getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return structDelegate().getLastChildKey();
   }
 
   @Override
@@ -85,6 +95,11 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   @Override
   public void setFirstChildKey(final long key) {
     structDelegate().setFirstChildKey(key);
+  }
+
+  @Override
+  public void setLastChildKey(final long key) {
+    structDelegate().setLastChildKey(key);
   }
 
   @Override

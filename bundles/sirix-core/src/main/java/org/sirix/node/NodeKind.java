@@ -1001,7 +1001,7 @@ public enum NodeKind implements NodePersistenter {
       // Struct delegate.
       final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 
       // Returning an instance.
       return new ObjectStringNode(valDel, structDelegate);
@@ -1042,7 +1042,7 @@ public enum NodeKind implements NodePersistenter {
       // Struct delegate.
       final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 
       // Returning an instance.
       return new ObjectBooleanNode(boolValue, structDelegate);
@@ -1110,7 +1110,7 @@ public enum NodeKind implements NodePersistenter {
       // Struct delegate.
       final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 
       // Returning an instance.
       return new ObjectNumberNode(number, structDelegate);
@@ -1188,7 +1188,7 @@ public enum NodeKind implements NodePersistenter {
       // Struct delegate.
       final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 
       // Returning an instance.
       return new ObjectNullNode(structDelegate);
@@ -1462,7 +1462,7 @@ public enum NodeKind implements NodePersistenter {
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
           Fixed.NULL_NODE_KEY.getStandardProperty(), hashFunction, null, getVarLong(source), SirixDeweyID.newRootID());
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, getVarLong(source),
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, getVarLong(source), getVarLong(source),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
           source.readByte() == ((byte) 0) ? 0 : 1, source.readLong());
       return new JsonDocumentRootNode(nodeDel, structDel);
@@ -1474,7 +1474,9 @@ public enum NodeKind implements NodePersistenter {
       final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
       putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
+      putVarLong(sink, node.getLastChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.hasLastChild() ? (byte) 1 : (byte) 0);
       sink.writeLong(node.getDescendantCount());
     }
 
@@ -1756,6 +1758,7 @@ public enum NodeKind implements NodePersistenter {
 
     if (!isValueNode) {
       putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
+      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLastChildKey());
       if (storeChildCount) {
         putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getChildCount());
       }
@@ -1773,18 +1776,26 @@ public enum NodeKind implements NodePersistenter {
     final var isValueNode = kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE
         || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NULL_VALUE;
 
+    final var isJsonNode = kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY
+        || isValueNode;
+
     final long rightSibl;
     final long leftSibl;
     final long firstChild;
+    final long lastChild;
     final long childCount;
 
     rightSibl = currKey - getVarLong(source);
     leftSibl = currKey - getVarLong(source);
 
-    if (isValueNode)
+    if (isValueNode) {
       firstChild = Fixed.NULL_NODE_KEY.getStandardProperty();
-    else
+      lastChild = Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    else {
       firstChild = currKey - getVarLong(source);
+      lastChild = currKey - getVarLong(source);
+    }
 
     if (isValueNode || !storeChildNodes)
       childCount = 0;
@@ -1798,6 +1809,10 @@ public enum NodeKind implements NodePersistenter {
     } else {
       descendantCount = getVarLong(source) + childCount;
     }
+
+    if(isJsonNode)
+      return new StructNodeDelegate(nodeDel, firstChild, lastChild, rightSibl, leftSibl,
+        childCount, descendantCount);
 
     return new StructNodeDelegate(nodeDel, firstChild, rightSibl, leftSibl, childCount, descendantCount);
   }
