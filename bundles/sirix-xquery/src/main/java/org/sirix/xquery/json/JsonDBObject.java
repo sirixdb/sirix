@@ -356,24 +356,7 @@ public final class JsonDBObject extends AbstractItem
     json = json.substring(1, json.length() - 1);
 
     final var jsonReader = JsonShredder.createStringReader(json);
-    final var numberOfNodes = trx.getChildCount();
-    if (numberOfNodes == 0) {
-      trx.insertSubtreeAsFirstChild(jsonReader);
-    } else {
-      randomPosition(trx, numberOfNodes);
-
-      trx.insertSubtreeAsRightSibling(jsonReader);
-    }
-  }
-
-  private void randomPosition(JsonNodeTrx trx, long numberOfNodes) {
-    long randomNumber = ThreadLocalRandom.current().nextLong(numberOfNodes);
-
-    trx.moveToFirstChild();
-
-    for (int i = 0; i < randomNumber; i++) {
-      trx.moveToRightSibling();
-    }
+    trx.insertSubtreeAsLastChild(jsonReader);
   }
 
   private String serializeItem(Sequence value) {
@@ -436,68 +419,33 @@ public final class JsonDBObject extends AbstractItem
   }
 
   private void insert(QNm field, Sequence value, JsonNodeTrx trx) {
-    final var numberOfNodes = trx.getChildCount();
-
-    if (numberOfNodes == 0) {
-      if (value instanceof Atomic) {
-        final var fieldName = field.getLocalName();
-        if (value instanceof Str) {
-          trx.insertObjectRecordAsFirstChild(fieldName, new StringValue(((Str) value).stringValue()));
-        } else if (value instanceof Null) {
-          trx.insertObjectRecordAsFirstChild(fieldName, new NullValue());
-        } else if (value instanceof Numeric) {
-          if (value instanceof Int) {
-            trx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(((Int) value).intValue()));
-          } else if (value instanceof Int32) {
-            trx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(((Int32) value).intValue()));
-          } else if (value instanceof Int64) {
-            trx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(((Int64) value).longValue()));
-          } else if (value instanceof Flt) {
-            trx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(((Flt) value).floatValue()));
-          } else if (value instanceof Dbl) {
-            trx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(((Dbl) value).doubleValue()));
-          } else if (value instanceof Dec) {
-            trx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(((Dec) value).decimalValue()));
-          }
-        } else if (value instanceof Bool) {
-          trx.insertObjectRecordAsFirstChild(fieldName, new BooleanValue(value.booleanValue()));
+    if (value instanceof Atomic) {
+      final var fieldName = field.getLocalName();
+      if (value instanceof Str) {
+        trx.insertObjectRecordAsLastChild(fieldName, new StringValue(((Str) value).stringValue()));
+      } else if (value instanceof Null) {
+        trx.insertObjectRecordAsLastChild(fieldName, new NullValue());
+      } else if (value instanceof Numeric) {
+        if (value instanceof Int) {
+          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Int) value).intValue()));
+        } else if (value instanceof Int32) {
+          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Int32) value).intValue()));
+        } else if (value instanceof Int64) {
+          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Int64) value).longValue()));
+        } else if (value instanceof Flt) {
+          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Flt) value).floatValue()));
+        } else if (value instanceof Dbl) {
+          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Dbl) value).doubleValue()));
+        } else if (value instanceof Dec) {
+          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Dec) value).decimalValue()));
         }
-      } else {
-        final String json = serializeItem(value);
-
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+      } else if (value instanceof Bool) {
+        trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
       }
     } else {
-      randomPosition(trx, numberOfNodes);
+      final String json = serializeItem(value);
 
-      if (value instanceof Atomic) {
-        final var fieldName = field.getLocalName();
-        if (value instanceof Str) {
-          trx.insertObjectRecordAsRightSibling(fieldName, new StringValue(((Str) value).stringValue()));
-        } else if (value instanceof Null) {
-          trx.insertObjectRecordAsRightSibling(fieldName, new NullValue());
-        } else if (value instanceof Numeric) {
-          if (value instanceof Int) {
-            trx.insertObjectRecordAsRightSibling(fieldName, new NumberValue(((Int) value).intValue()));
-          } else if (value instanceof Int32) {
-            trx.insertObjectRecordAsRightSibling(fieldName, new NumberValue(((Int32) value).intValue()));
-          } else if (value instanceof Int64) {
-            trx.insertObjectRecordAsRightSibling(fieldName, new NumberValue(((Int64) value).longValue()));
-          } else if (value instanceof Flt) {
-            trx.insertObjectRecordAsRightSibling(fieldName, new NumberValue(((Flt) value).floatValue()));
-          } else if (value instanceof Dbl) {
-            trx.insertObjectRecordAsRightSibling(fieldName, new NumberValue(((Dbl) value).doubleValue()));
-          } else if (value instanceof Dec) {
-            trx.insertObjectRecordAsRightSibling(fieldName, new NumberValue(((Dec) value).decimalValue()));
-          }
-        } else if (value instanceof Bool) {
-          trx.insertObjectRecordAsRightSibling(fieldName, new BooleanValue(value.booleanValue()));
-        }
-      } else {
-        final String json = serializeItem(value);
-
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json));
-      }
+      trx.insertSubtreeAsLastChild(JsonShredder.createStringReader(json));
     }
   }
 
