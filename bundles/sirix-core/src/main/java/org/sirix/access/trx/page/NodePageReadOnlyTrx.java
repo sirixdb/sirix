@@ -362,11 +362,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (isMostRecentlyReadPage(indexLogKey)) {
       return Optional.of(mostRecentlyReadRecordPage.getPage());
-      //      final var page = mResourceBufferManager.getUnorderedKeyValuePageCache().get(indexLogKey);
-      //
-      //      if (page != null) {
-      //        return Optional.of(page);
-      //      }
     }
 
     final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(indexLogKey.getRecordPageKey(),
@@ -406,13 +401,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     final int mileStoneRevision = resourceConfig.numberOfRevisionsToRestore;
-    final VersioningType revisioning = resourceConfig.revisioningType;
-    final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
+    final VersioningType versioningApproach = resourceConfig.revisioningType;
+    final Page completePage = versioningApproach.combineRecordPages(pages, mileStoneRevision, this);
 
-//    if (trxIntentLog == null && resourceConfig.getStorageType() != StorageType.MEMORY_MAPPED) {
     if (trxIntentLog == null) {
       resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), completePage);
-      //      mResourceBufferManager.getUnorderedKeyValuePageCache().put(indexLogKey, completePage);
       pageReferenceToRecordPage.get().setPage(completePage);
     }
 
