@@ -69,6 +69,16 @@ public final class NullNode implements StructNode {
   }
 
   @Override
+  public long getLastChildKey() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public void setLastChildKey(long nodeKey) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public void decrementChildCount() {
     throw new UnsupportedOperationException();
   }
@@ -122,6 +132,11 @@ public final class NullNode implements StructNode {
 
   @Override
   public boolean hasFirstChild() {
+    return false;
+  }
+
+  @Override
+  public boolean hasLastChild() {
     return false;
   }
 

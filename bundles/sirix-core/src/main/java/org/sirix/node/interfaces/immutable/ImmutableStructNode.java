@@ -15,6 +15,13 @@ public interface ImmutableStructNode extends ImmutableNode {
   boolean hasFirstChild();
 
   /**
+   * Declares, whether the item has a last child.
+   * 
+   * @return true, if item has a last child, otherwise false
+   */
+  boolean hasLastChild();
+
+  /**
    * Declares, whether the item has a left sibling.
    * 
    * @return true, if item has a left sibling, otherwise false
@@ -48,6 +55,13 @@ public interface ImmutableStructNode extends ImmutableNode {
    * @return first child's key
    */
   long getFirstChildKey();
+
+  /**
+   * Gets key of the context item's last child.
+   * 
+   * @return last child's key
+   */
+  long getLastChildKey();
 
   /**
    * Gets key of the context item's left sibling.

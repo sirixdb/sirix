@@ -100,6 +100,11 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return mNode.hasLeftSibling();
   }
@@ -122,6 +127,11 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   @Override
   public long getFirstChildKey() {
     return mNode.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

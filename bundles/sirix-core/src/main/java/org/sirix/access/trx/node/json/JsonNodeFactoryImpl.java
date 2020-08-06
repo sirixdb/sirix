@@ -68,7 +68,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
             + 1,
         parentKey, hashFunction, null, revision, null);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
     return (PathNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(),
@@ -81,7 +82,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
         parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (ArrayNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel, pathNodeKey),
         PageKind.RECORDPAGE, -1);
   }
@@ -92,7 +94,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
         parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (ObjectNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectNode(structDel), PageKind.RECORDPAGE,
         -1);
   }
@@ -103,7 +106,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
         parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (NullNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new NullNode(structDel), PageKind.RECORDPAGE, -1);
   }
 
@@ -114,7 +118,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = pageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
         parentKey, hashFunction, null, revision, id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, objectValueKey, rightSibKey, leftSibKey, 0, 0);
+    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, objectValueKey,
+            Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (ObjectKeyNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(),
         new ObjectKeyNode(structDel, localNameKey, name, pathNodeKey), PageKind.RECORDPAGE, -1);
   }
@@ -131,7 +136,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         : value;
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (StringNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new StringNode(valDel, structDel),
         PageKind.RECORDPAGE, -1);
   }
@@ -142,7 +148,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
         parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (BooleanNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new BooleanNode(boolValue, structDel),
         PageKind.RECORDPAGE, -1);
   }
@@ -153,7 +160,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
         parentKey, hashFunction, null, revision, id);
     final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+                Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     return (NumberNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new NumberNode(value, structDel),
         PageKind.RECORDPAGE, -1);
   }
@@ -163,8 +171,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = pageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
                                                   parentKey, hashFunction, null, revision, id);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     return (ObjectNullNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectNullNode(structDel), PageKind.RECORDPAGE, -1);
   }
 
@@ -179,8 +188,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? Compression.compress(value, Deflater.BEST_COMPRESSION)
         : value;
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     return (ObjectStringNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectStringNode(valDel, structDel),
                                                   PageKind.RECORDPAGE, -1);
   }
@@ -190,8 +200,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = pageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
                                                   parentKey, hashFunction, null, revision, id);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     return (ObjectBooleanNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectBooleanNode(boolValue, structDel),
                                                    PageKind.RECORDPAGE, -1);
   }
@@ -201,8 +212,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = pageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
                                                   parentKey, hashFunction, null, revision, id);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     return (ObjectNumberNode) pageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectNumberNode(value, structDel),
                                                   PageKind.RECORDPAGE, -1);
   }
