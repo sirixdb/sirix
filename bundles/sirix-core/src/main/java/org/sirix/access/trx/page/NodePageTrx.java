@@ -421,8 +421,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     assert recordPageKey >= 0;
     assert pageKind != null;
 
-    if (mostRecentPageContainer != null && mostRecentPageContainer.pageKey() == recordPageKey
-        && mostRecentPageContainer.indexNumber() == indexNumber && mostRecentPageContainer.pageKind() == pageKind) {
+    if (hasMatchingMostRecentPageContainer(recordPageKey, indexNumber, pageKind)) {
       return mostRecentPageContainer.pageContainer();
     }
 
@@ -462,6 +461,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     mostRecentPageContainer = new MostRecentPageContainer(recordPageKey, indexNumber, pageKind, pageContainer);
 
     return pageContainer;
+  }
+
+  private boolean hasMatchingMostRecentPageContainer(long recordPageKey, int indexNumber, PageKind pageKind) {
+    return mostRecentPageContainer != null && mostRecentPageContainer.pageKey() == recordPageKey
+        && mostRecentPageContainer.indexNumber() == indexNumber && mostRecentPageContainer.pageKind() == pageKind;
   }
 
   /**
