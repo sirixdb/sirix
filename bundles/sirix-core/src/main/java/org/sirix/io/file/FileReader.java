@@ -114,7 +114,7 @@ public final class FileReader implements Reader {
       }
 
       final int dataLength = dataFile.readInt();
-      reference.setLength(dataLength + FileReader.OTHER_BEACON);
+//      reference.setLength(dataLength + FileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 

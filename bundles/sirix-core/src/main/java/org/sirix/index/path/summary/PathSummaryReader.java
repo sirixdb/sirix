@@ -96,11 +96,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     final Optional<? extends DataRecord> node =
         this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
-    if (node.isPresent()) {
-      currentNode = (StructNode) node.get();
-    } else {
-      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
-    }
+    currentNode = (StructNode) node.orElseThrow(() -> new IllegalStateException(
+        "Node couldn't be fetched from persistent storage!"));
 
     pathNodeMapping = new HashMap<>();
     qnmMapping = new HashMap<>();
@@ -245,8 +242,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match a {@link QNm} with a specific level.
    *
-   * @param name  the QName
-   * @param level minimum level
+   * @param name     the QName
+   * @param level    minimum level
    * @param nodeKind the node type
    * @return a set with bits set for each matching path node
    */
@@ -516,8 +513,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    final var pageReference = pageReadTrx.getActualRevisionRootPage()
-                                         .getPathSummaryPageReference();
+    final var pageReference = pageReadTrx.getActualRevisionRootPage().getPathSummaryPageReference();
 
     if (pageReference.getPage() == null) {
       pageReference.setPage(pageReadTrx.getReader().read(pageReference, pageReadTrx));

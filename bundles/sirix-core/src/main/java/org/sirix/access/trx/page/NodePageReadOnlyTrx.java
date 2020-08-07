@@ -33,13 +33,13 @@ import org.sirix.api.ResourceManager;
 import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.io.StorageType;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+import org.sirix.page.interfaces.PageFragmentKey;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
@@ -184,11 +184,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     return page;
-  }
-
-  private boolean isRootOfTreePage(Page page) {
-    return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof PathPage
-        || page instanceof CASPage || page instanceof RevisionRootPage || page instanceof UberPage;
   }
 
   @Override
@@ -444,22 +439,30 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int[] revisionsToRead = config.revisioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<T> pages = new ArrayList<>(revisionsToRead.length);
 
-    final T page = (T) pageReader.read(pageReference, this);
-    pages.add(page);
+    final var pageFragments = pageReference.getPageFragments();
 
-    if (!page.getPreviousReferenceKeys().isEmpty()) {
-      pages.addAll(getPreviousPageFragments(page));
+    if (pageFragments.isEmpty()) {
+      final T page = (T) pageReader.read(pageReference, this);
+      pages.add(page);
+    } else {
+      final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(pageFragments.size() + 1);
+      pageFragmentKeys.add(new PageFragmentKeyImpl(rootPage.getRevision(), pageReference.getKey()));
+      pageFragmentKeys.addAll(pageFragments);
+      pages.addAll(getPreviousPageFragments(pageFragmentKeys));
     }
 
     return pages;
   }
 
   private <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPreviousPageFragments(
-      T page) {
-    return page.getPreviousReferenceKeys().parallelStream().map(pageFragmentKey -> {
-      try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
-        return (T) pageReadOnlyTrx.getReader()
-                                  .read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
+      final Collection<PageFragmentKey> pageFragments) {
+    return pageFragments.stream().map(pageFragmentKey -> {
+      if (pageFragmentKey.getRevision() == rootPage.getRevision()) {
+        return (T) pageReader.read(new PageReference().setKey(pageFragmentKey.getKey()), this);
+      } else {
+        try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
+          return (T) pageReadOnlyTrx.getReader().read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
+        }
       }
     }).sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed()).collect(Collectors.toList());
   }

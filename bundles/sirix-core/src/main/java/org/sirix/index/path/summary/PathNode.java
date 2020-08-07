@@ -28,37 +28,37 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * {@link NodeDelegate} instance.
    */
-  private final NodeDelegate mNodeDel;
+  private final NodeDelegate nodeDel;
 
   /**
    * {@link StructNodeDelegate} instance.
    */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
   /**
    * {@link NameNodeDelegate} instance.
    */
-  private final NameNodeDelegate mNameNodeDel;
+  private final NameNodeDelegate nameNodeDel;
 
   /**
    * Kind of node to index.
    */
-  private final NodeKind mKind;
+  private final NodeKind kind;
 
   /**
    * The node name.
    */
-  private final QNm mName;
+  private final QNm name;
 
   /**
    * Number of references to this path node.
    */
-  private int mReferences;
+  private int references;
 
   /**
    * Level of this path node.
    */
-  private int mLevel;
+  private int level;
 
   /**
    * Constructor.
@@ -74,14 +74,14 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   public PathNode(final QNm name, final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
       @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final NodeKind kind, @Nonnegative final int references,
       @Nonnegative final int level) {
-    mName = checkNotNull(name);
-    mNodeDel = checkNotNull(nodeDel);
-    mStructNodeDel = checkNotNull(structNodeDel);
-    mNameNodeDel = checkNotNull(nameNodeDel);
-    mKind = checkNotNull(kind);
+    this.name = checkNotNull(name);
+    this.nodeDel = checkNotNull(nodeDel);
+    this.structNodeDel = checkNotNull(structNodeDel);
+    this.nameNodeDel = checkNotNull(nameNodeDel);
+    this.kind = checkNotNull(kind);
     checkArgument(references > 0, "references must be > 0!");
-    mReferences = references;
-    mLevel = level;
+    this.references = references;
+    this.level = level;
   }
 
   /**
@@ -94,8 +94,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     PathNode node = this;
     final long nodeKey = reader.getNodeKey();
     reader.moveTo(node.getNodeKey());
-    final PathNode[] pathNodes = new PathNode[mLevel];
-    for (int i = mLevel - 1; i >= 0; i--) {
+    final PathNode[] pathNodes = new PathNode[level];
+    for (int i = level - 1; i >= 0; i--) {
       pathNodes[i] = node;
       node = reader.moveToParent().trx().getPathNode();
     }
@@ -128,7 +128,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @return level of this path node
    */
   public int getLevel() {
-    return mLevel;
+    return level;
   }
 
   /**
@@ -137,7 +137,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @return number of references
    */
   public int getReferences() {
-    return mReferences;
+    return references;
   }
 
   /**
@@ -147,24 +147,24 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    */
   public void setReferenceCount(final @Nonnegative int references) {
     checkArgument(references > 0, "pReferences must be > 0!");
-    mReferences = references;
+    this.references = references;
   }
 
   /**
    * Increment the reference count.
    */
   public void incrementReferenceCount() {
-    mReferences++;
+    references++;
   }
 
   /**
    * Decrement the reference count.
    */
   public void decrementReferenceCount() {
-    if (mReferences <= 1) {
+    if (references <= 1) {
       throw new IllegalStateException();
     }
-    mReferences--;
+    references--;
   }
 
   /**
@@ -173,7 +173,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @return path kind
    */
   public NodeKind getPathKind() {
-    return mKind;
+    return kind;
   }
 
   @Override
@@ -183,42 +183,42 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public int getPrefixKey() {
-    return mNameNodeDel.getPrefixKey();
+    return nameNodeDel.getPrefixKey();
   }
 
   @Override
   public int getLocalNameKey() {
-    return mNameNodeDel.getLocalNameKey();
+    return nameNodeDel.getLocalNameKey();
   }
 
   @Override
   public int getURIKey() {
-    return mNameNodeDel.getURIKey();
+    return nameNodeDel.getURIKey();
   }
 
   @Override
   public void setLocalNameKey(final int nameKey) {
-    mNameNodeDel.setLocalNameKey(nameKey);
+    nameNodeDel.setLocalNameKey(nameKey);
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    mNameNodeDel.setPrefixKey(prefixKey);
+    nameNodeDel.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    mNameNodeDel.setURIKey(uriKey);
+    nameNodeDel.setURIKey(uriKey);
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mNodeDel;
+    return nodeDel;
   }
 
   /**
@@ -227,19 +227,19 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @return name node delegate.
    */
   public NameNodeDelegate getNameNodeDelegate() {
-    return mNameNodeDel;
+    return nameNodeDel;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeDel, mNameNodeDel);
+    return Objects.hashCode(nodeDel, nameNodeDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof PathNode) {
       final PathNode other = (PathNode) obj;
-      return Objects.equal(mNodeDel, other.mNodeDel) && Objects.equal(mNameNodeDel, other.mNameNodeDel);
+      return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameNodeDel, other.nameNodeDel);
     }
     return false;
   }
@@ -247,12 +247,12 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", mNodeDel)
-                      .add("struct delegate", mStructNodeDel)
-                      .add("name delegate", mNameNodeDel)
-                      .add("references", mReferences)
-                      .add("kind", mKind)
-                      .add("level", mLevel)
+                      .add("node delegate", nodeDel)
+                      .add("struct delegate", structNodeDel)
+                      .add("name delegate", nameNodeDel)
+                      .add("references", references)
+                      .add("kind", kind)
+                      .add("level", level)
                       .toString();
   }
 
@@ -268,7 +268,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public QNm getName() {
-    return mName;
+    return name;
   }
 
 }

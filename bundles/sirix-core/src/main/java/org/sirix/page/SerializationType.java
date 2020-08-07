@@ -139,7 +139,7 @@ public enum SerializationType {
         serializeBitSet(out, bitmap);
 
         for (final PageReference pageReference : pageReferences) {
-          out.writeLong(pageReference.getKey());
+          writeKeys(out, pageReference);
 
           if (pageReference.getHash() == null) {
             out.writeInt(-1);
@@ -159,7 +159,7 @@ public enum SerializationType {
       try {
         out.writeByte(pageReferences.size());
         for (final PageReference pageReference : pageReferences) {
-          out.writeLong(pageReference.getKey());
+          writeKeys(out, pageReference);
 
           if (pageReference.getHash() == null) {
             out.writeInt(-1);
@@ -168,7 +168,6 @@ public enum SerializationType {
             out.writeInt(hash.length);
             out.write(pageReference.getHash());
           }
-
         }
         for (final short offset : offsets) {
           out.writeShort(offset);
@@ -189,9 +188,8 @@ public enum SerializationType {
         final GapList<PageReference> references = new GapList<>(length);
 
         for (int offset = 0; offset < length; offset++) {
-          final long key = in.readLong();
           final PageReference reference = new PageReference();
-          reference.setKey(key);
+          readKeys(in, reference);
 
           final int hashLength = in.readInt();
           if (hashLength != -1) {
@@ -217,16 +215,16 @@ public enum SerializationType {
         final List<PageReference> pageReferences = new ArrayList<>(4);
         final List<Short> offsets = new ArrayList<>(4);
         for (int i = 0; i < size; i++) {
-          final long key = in.readLong();
-          final var pageReference = new PageReference().setKey(key);
-          pageReferences.add(pageReference);
+          final var reference = new PageReference();
+          readKeys(in, reference);
+          pageReferences.add(reference);
 
           final int hashLength = in.readInt();
           if (hashLength != -1) {
             final byte[] hash = new byte[hashLength];
             in.readFully(hash);
 
-            pageReference.setHash(hash);
+            reference.setHash(hash);
           }
         }
         for (int i = 0; i < size; i++) {
@@ -238,6 +236,29 @@ public enum SerializationType {
       }
     }
   };
+
+  private static void readKeys(DataInput in, PageReference reference) throws IOException {
+    final int keysSize = in.readByte() & 0xff;
+    if (keysSize > 0) {
+      for (int i = 0; i < keysSize; i++) {
+        final var revision = in.readInt();
+        final var key = in.readLong();
+        reference.addPageFragment(new PageFragmentKeyImpl(revision, key));
+      }
+    }
+    final long key = in.readLong();
+    reference.setKey(key);
+  }
+
+  private static void writeKeys(DataOutput out, PageReference pageReference) throws IOException {
+    final var keys = pageReference.getPageFragments();
+    out.writeByte(keys.size());
+    for (int i = 0, size = keys.size(); i < size; i++) {
+      out.writeInt(keys.get(i).getRevision());
+      out.writeLong(keys.get(i).getKey());
+    }
+    out.writeLong(pageReference.getKey());
+  }
 
   public static void serializeBitSet(DataOutput out, @Nonnull final BitSet bitmap) throws IOException {
     final var bytes = bitmap.toByteArray();

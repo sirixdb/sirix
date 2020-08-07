@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,9 +22,14 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
+
 import org.sirix.page.interfaces.Page;
+import org.sirix.page.interfaces.PageFragmentKey;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 
@@ -49,16 +54,20 @@ public final class PageReference {
   /** Persistent log key. */
   private long persistentLogKey = Constants.NULL_ID_LONG;
 
-  /** Length in bytes. */
-  private int length;
+//  /** Length in bytes. */
+//  private int length;
 
   /** The hash in bytes, generated from the referenced page-fragment. */
   private byte[] hashInBytes;
 
+  private List<PageFragmentKey> pageFragments;
+
   /**
    * Default constructor setting up an uninitialized page reference.
    */
-  public PageReference() {}
+  public PageReference() {
+    pageFragments = new ArrayList<>();
+  }
 
   /**
    * Copy constructor.
@@ -69,8 +78,9 @@ public final class PageReference {
     logKey = reference.logKey;
     page = reference.page;
     key = reference.key;
+    hashInBytes = reference.hashInBytes;
     persistentLogKey = reference.persistentLogKey;
-    length = reference.length;
+    pageFragments = reference.pageFragments;
   }
 
   /**
@@ -91,26 +101,26 @@ public final class PageReference {
     return page;
   }
 
-  /**
-   * Set the length of a referenced page in bytes.
-   *
-   * @param length the length
-   * @return this page reference
-   */
-  public PageReference setLength(final int length) {
-    checkArgument(length > 0, "Length must be > 0.");
-    this.length = length;
-    return this;
-  }
-
-  /**
-   * Get the length of a referenced page in the persistent storage (in bytes).
-   *
-   * @return the length of a referenced page in the persistent storage (in bytes)
-   */
-  public int getLength() {
-    return length;
-  }
+  //  /**
+  //   * Set the length of a referenced page in bytes.
+  //   *
+  //   * @param length the length
+  //   * @return this page reference
+  //   */
+  //  public PageReference setLength(final int length) {
+  //    checkArgument(length > 0, "Length must be > 0.");
+  //    this.length = length;
+  //    return this;
+  //  }
+  //
+  //  /**
+  //   * Get the length of a referenced page in the persistent storage (in bytes).
+  //   *
+  //   * @return the length of a referenced page in the persistent storage (in bytes)
+  //   */
+  //  public int getLength() {
+  //    return length;
+  //  }
 
   /**
    * Get start byte offset in file.
@@ -128,6 +138,20 @@ public final class PageReference {
    */
   public PageReference setKey(final long key) {
     this.key = key;
+    return this;
+  }
+
+  public PageReference addPageFragment(final PageFragmentKey key) {
+    pageFragments.add(key);
+    return this;
+  }
+
+  public List<PageFragmentKey> getPageFragments() {
+    return pageFragments;
+  }
+
+  public PageReference setPageFragments(List<PageFragmentKey> previousPageFragmentKeys) {
+    pageFragments = previousPageFragmentKeys;
     return this;
   }
 
@@ -176,6 +200,7 @@ public final class PageReference {
                       .add("persistentLogKey", persistentLogKey)
                       .add("key", key)
                       .add("page", page)
+                      .add("pageFragments", pageFragments)
                       .toString();
   }
 
@@ -186,8 +211,7 @@ public final class PageReference {
 
   @Override
   public boolean equals(final @Nullable Object other) {
-    if (other instanceof PageReference) {
-      final PageReference otherPageRef = (PageReference) other;
+    if (other instanceof PageReference otherPageRef) {
       return otherPageRef.logKey == logKey && otherPageRef.key == key
           && otherPageRef.persistentLogKey == persistentLogKey;
     }

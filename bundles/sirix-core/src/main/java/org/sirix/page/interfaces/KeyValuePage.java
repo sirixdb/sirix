@@ -81,7 +81,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRec
    * @return a new {@link KeyValuePage} instance
    */
   <C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-      @Nonnull PageKind pageKind, List<PageFragmentKey> previousPageRefKey, @Nonnull PageReadOnlyTrx pageReadTrx);
+      @Nonnull PageKind pageKind, @Nonnull PageReadOnlyTrx pageReadTrx);
 
   /**
    * Get the {@link PageReadOnlyTrx}.
@@ -104,12 +104,12 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRec
    */
   int size();
 
-  /**
-   * Get the optional {@link PageReference}s pointing to the previous versions / page fragments of the page
-   *
-   * @return optional {@link PageReference} pointing to the previous versions / page fragments of the page
-   */
-  List<PageFragmentKey> getPreviousReferenceKeys();
+//  /**
+//   * Get the optional {@link PageReference}s pointing to the previous versions / page fragments of the page
+//   *
+//   * @return optional {@link PageReference} pointing to the previous versions / page fragments of the page
+//   */
+//  List<PageFragmentKey> getPreviousReferenceKeys();
 
   int getRevision();
 }

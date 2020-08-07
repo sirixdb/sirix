@@ -201,7 +201,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
           // Must not happen.
       }
 
-      pageReference.setLength(serializedPage.length + 4);
+//      pageReference.setLength(serializedPage.length + 4);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {

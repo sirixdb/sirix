@@ -132,7 +132,7 @@ public final class FileChannelReader implements Reader {
       buffer.position(0);
       final int dataLength = buffer.getInt();
 
-      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
+//      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
       buffer = ByteBuffer.allocate(dataLength);

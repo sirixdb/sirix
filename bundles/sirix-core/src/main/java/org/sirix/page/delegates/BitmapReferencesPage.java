@@ -129,7 +129,9 @@ public final class BitmapReferencesPage implements Page {
 
     for (int offset = 0; offset < length; offset++) {
       final PageReference reference = new PageReference();
-      reference.setKey(pageToClone.getReferences().get(offset).getKey());
+      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
+      reference.setKey(pageReferenceToClone.getKey());
+      reference.setPageFragments(pageReferenceToClone.getPageFragments());
       references.add(offset, reference);
     }
   }

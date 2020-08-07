@@ -23,7 +23,6 @@ package org.sirix.access;
 
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
@@ -50,7 +49,7 @@ public final class StorageTest {
   /**
    * {@link ResourceConfiguration} reference.
    */
-  private ResourceConfiguration mResourceConfig;
+  private ResourceConfiguration resourceConfig;
 
   @BeforeClass
   public void setUp() throws SirixException, IOException {
@@ -62,7 +61,7 @@ public final class StorageTest {
     Files.createFile(XmlTestHelper.PATHS.PATH1.getFile()
         .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
         .resolve("data.sirix"));
-    mResourceConfig = new ResourceConfiguration.Builder("shredded").build();
+    resourceConfig = new ResourceConfiguration.Builder("shredded").build();
   }
 
   @AfterClass
@@ -132,8 +131,8 @@ public final class StorageTest {
     return new Object[][]{
         { IOStorage.class,
             new IOStorage[]{
-                new FileStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
-                new RAMStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
+                new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),
+                new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),
             }
         }
     };

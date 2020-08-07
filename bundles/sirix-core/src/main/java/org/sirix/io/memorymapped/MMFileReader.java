@@ -177,7 +177,7 @@ public final class MMFileReader implements Reader {
         default -> throw new AssertionError();
       };
 
-      reference.setLength(dataLength + MMFileReader.OTHER_BEACON);
+//      reference.setLength(dataLength + MMFileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {

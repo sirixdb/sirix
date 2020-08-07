@@ -86,7 +86,11 @@ public final class ReferencesPage4 implements Page {
 
     for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
       offsets.add(otherOffsets.get(offset));
-      references.add(new PageReference().setKey(pageToClone.getReferences().get(offset).getKey()));
+      final var pageReference = new PageReference();
+      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
+      pageReference.setKey(pageReferenceToClone.getKey());
+      pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
+      references.add(pageReference);
     }
   }
 
