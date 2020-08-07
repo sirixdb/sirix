@@ -30,6 +30,7 @@ import javax.annotation.Nonnegative;
 
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageFragmentKeyImpl;
 import org.sirix.page.PageReference;
@@ -58,13 +59,13 @@ public enum VersioningType {
     @Override
     public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
-        final PageReference reference) {
+        final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), List.of(), pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), List.of(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
 
       for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
         returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
@@ -91,10 +92,7 @@ public enum VersioningType {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(recordPageKey,
-                                                firstPage.getPageKind(),
-                                                firstPage.getPreviousReferenceKeys(),
-                                                pageReadTrx);
+      final T returnVal = firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
 
       final T latest = pages.get(0);
       T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
@@ -134,22 +132,17 @@ public enum VersioningType {
     @Override
     public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
-        final PageReference reference) {
+        final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevision();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.newInstance(recordPageKey,
-                                          firstPage.getPageKind(),
-                                          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(),
-                                                                          reference.getKey())),
-                                          pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey,
-                                          firstPage.getPageKind(),
-                                          List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(),
-                                                                          reference.getKey())),
-                                          pageReadTrx));
+
+      reference.setPageFragments(List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())));
+
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
 
       final T latest = firstPage;
       T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -203,7 +196,9 @@ public enum VersioningType {
         }
       }
 
-      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
+      final var pageContainer = PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
+      log.put(reference, pageContainer);
+      return pageContainer;
     }
 
     @Override
@@ -229,10 +224,8 @@ public enum VersioningType {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
-                                                firstPage.getPageKind(),
-                                                firstPage.getPreviousReferenceKeys(),
-                                                firstPage.getPageReadTrx());
+      final T returnVal =
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -269,25 +262,22 @@ public enum VersioningType {
 
     @Override
     public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference) {
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+        final TransactionIntentLog log) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      final var previousPageFragmentKeys =
-          new ArrayList<PageFragmentKey>(firstPage.getPreviousReferenceKeys().size() + 1);
+      final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
-      for (int i = 0, previousRefKeysSize = firstPage.getPreviousReferenceKeys().size();
+      for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
           i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
-        previousPageFragmentKeys.add(firstPage.getPreviousReferenceKeys().get(i));
+        previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
-      returnVal.add(firstPage.newInstance(recordPageKey,
-                                          firstPage.getPageKind(),
-                                          previousPageFragmentKeys,
-                                          pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey,
-                                          firstPage.getPageKind(),
-                                          previousPageFragmentKeys,
-                                          pageReadTrx));
+
+      reference.setPageFragments(previousPageFragmentKeys);
+
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
       final boolean isFullDump = pages.size() == revToRestore;
 
       boolean filledPage = false;
@@ -335,7 +325,9 @@ public enum VersioningType {
         }
       }
 
-      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
+      final var pageContainer = PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
+      log.put(reference, pageContainer);
+      return pageContainer;
     }
 
     @Override
@@ -369,10 +361,8 @@ public enum VersioningType {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
-                                                firstPage.getPageKind(),
-                                                firstPage.getPreviousReferenceKeys(),
-                                                firstPage.getPageReadTrx());
+      final T returnVal =
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size(); i++) {
@@ -410,27 +400,24 @@ public enum VersioningType {
 
     @Override
     public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference) {
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+        final TransactionIntentLog log) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final var previousPageFragmentKeys =
-          new ArrayList<PageFragmentKey>(firstPage.getPreviousReferenceKeys().size() + 1);
+      final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
-      for (int i = 0, previousRefKeysSize = firstPage.getPreviousReferenceKeys().size();
+      for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
           i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
-        previousPageFragmentKeys.add(firstPage.getPreviousReferenceKeys().get(i));
+        previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
-      final T completePage =
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx);
-      final T modifyingPage =
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), previousPageFragmentKeys, pageReadTrx);
+      reference.setPageFragments(previousPageFragmentKeys);
 
-      final T pageWithRecordsInSlidingWindow = firstPage.newInstance(recordPageKey,
-                                                                     firstPage.getPageKind(),
-                                                                     List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(),
-                                                                                                     reference.getKey())),
-                                                                     pageReadTrx);
+      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
+      final T modifyingPage = firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
+
+      final T pageWithRecordsInSlidingWindow =
+          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size() && !filledPage; i++) {
@@ -486,7 +473,9 @@ public enum VersioningType {
         }
       }
 
-      return PageContainer.getInstance(completePage, modifyingPage);
+      final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
+      log.put(reference, pageContainer);
+      return pageContainer;
     }
 
     @Override
@@ -532,7 +521,7 @@ public enum VersioningType {
    */
   public abstract <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
       final List<T> pages, final @Nonnegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
-      final PageReference reference);
+      final PageReference reference, final TransactionIntentLog log);
 
   /**
    * Get all revision root page numbers which are needed to restore a {@link KeyValuePage}.

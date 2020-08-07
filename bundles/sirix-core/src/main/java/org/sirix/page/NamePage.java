@@ -61,31 +61,31 @@ public final class NamePage extends AbstractForwardingPage {
   public static final int JSON_OBJECT_KEY_REFERENCE_OFFSET = 0;
 
   /** Attribute names. */
-  private Names mAttributes;
+  private Names attributes;
 
   /** Element names. */
-  private Names mElements;
+  private Names elements;
 
   /** Namespace URIs. */
-  private Names mNamespaces;
+  private Names namespaces;
 
   /** Processing instruction names. */
-  private Names mPIs;
+  private Names processingInstructions;
 
   /** JSON Object key names. */
-  private Names mJSONObjectKeys;
+  private Names jsonObjectKeys;
 
   /** The references page delegate instance. */
   private Page delegate;
 
   /** The number of arrays stored. */
-  private int mNumberOfArrays;
+  private int numberOfArrays;
 
   /** Maximum node keys. */
   private final Map<Integer, Long> maxNodeKeys;
 
   /** Current maximum levels of indirect pages in the tree. */
-  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
+  private final Map<Integer, Integer> currentMaxLevelsOfIndirectPages;
 
   /**
    * Create name page.
@@ -93,13 +93,13 @@ public final class NamePage extends AbstractForwardingPage {
   public NamePage() {
     delegate = new ReferencesPage4();
     maxNodeKeys = new HashMap<>();
-    mAttributes = Names.getInstance(ATTRIBUTES_REFERENCE_OFFSET);
-    mElements = Names.getInstance(ELEMENTS_REFERENCE_OFFSET);
-    mNamespaces = Names.getInstance(NAMESPACE_REFERENCE_OFFSET);
-    mPIs = Names.getInstance(PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
-    mJSONObjectKeys = Names.getInstance(JSON_OBJECT_KEY_REFERENCE_OFFSET);
-    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
-    mNumberOfArrays = 0;
+    attributes = Names.getInstance(ATTRIBUTES_REFERENCE_OFFSET);
+    elements = Names.getInstance(ELEMENTS_REFERENCE_OFFSET);
+    namespaces = Names.getInstance(NAMESPACE_REFERENCE_OFFSET);
+    processingInstructions = Names.getInstance(PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+    jsonObjectKeys = Names.getInstance(JSON_OBJECT_KEY_REFERENCE_OFFSET);
+    currentMaxLevelsOfIndirectPages = new HashMap<>();
+    numberOfArrays = 0;
   }
 
   /**
@@ -115,11 +115,11 @@ public final class NamePage extends AbstractForwardingPage {
       maxNodeKeys.put(i, in.readLong());
     }
 
-    mNumberOfArrays = in.readInt();
+    numberOfArrays = in.readInt();
     final int currentMaxLevelOfIndirectPages = in.readInt();
-    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    currentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
+      currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
     }
   }
 
@@ -133,37 +133,37 @@ public final class NamePage extends AbstractForwardingPage {
     final byte[] rawName;
     switch (nodeKind) {
       case ELEMENT:
-        if (mElements == null) {
-          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+        if (elements == null) {
+          elements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
-        rawName = mElements.getRawName(key);
+        rawName = elements.getRawName(key);
         break;
       case NAMESPACE:
-        if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+        if (namespaces == null) {
+          namespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
-        rawName = mNamespaces.getRawName(key);
+        rawName = namespaces.getRawName(key);
         break;
       case ATTRIBUTE:
-        if (mAttributes == null) {
-          mAttributes =
+        if (attributes == null) {
+          attributes =
               Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
-        rawName = mAttributes.getRawName(key);
+        rawName = attributes.getRawName(key);
         break;
       case PROCESSING_INSTRUCTION:
-        if (mPIs == null) {
-          mPIs = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+        if (processingInstructions == null) {
+          processingInstructions = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
+                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
-        rawName = mPIs.getRawName(key);
+        rawName = processingInstructions.getRawName(key);
         break;
       case OBJECT_KEY:
-        if (mJSONObjectKeys == null) {
-          mJSONObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
+                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
-        rawName = mJSONObjectKeys.getRawName(key);
+        rawName = jsonObjectKeys.getRawName(key);
         break;
       // $CASES-OMITTED$
       default:
@@ -182,37 +182,37 @@ public final class NamePage extends AbstractForwardingPage {
     final String name;
     switch (nodeKind) {
       case ELEMENT:
-        if (mElements == null) {
-          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+        if (elements == null) {
+          elements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
-        name = mElements.getName(key);
+        name = elements.getName(key);
         break;
       case NAMESPACE:
-        if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+        if (namespaces == null) {
+          namespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
-        name = mNamespaces.getName(key);
+        name = namespaces.getName(key);
         break;
       case ATTRIBUTE:
-        if (mAttributes == null) {
-          mAttributes =
+        if (attributes == null) {
+          attributes =
               Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
-        name = mAttributes.getName(key);
+        name = attributes.getName(key);
         break;
       case PROCESSING_INSTRUCTION:
-        if (mPIs == null) {
-          mPIs = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+        if (processingInstructions == null) {
+          processingInstructions = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
+                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
-        name = mPIs.getName(key);
+        name = processingInstructions.getName(key);
         break;
       case OBJECT_KEY:
-        if (mJSONObjectKeys == null) {
-          mJSONObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
+                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
-        name = mJSONObjectKeys.getName(key);
+        name = jsonObjectKeys.getName(key);
         break;
       case ARRAY:
         name = "__array__";
@@ -237,40 +237,40 @@ public final class NamePage extends AbstractForwardingPage {
     int count;
     switch (nodeKind) {
       case ELEMENT:
-        if (mElements == null) {
-          mElements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+        if (elements == null) {
+          elements = Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
-        count = mElements.getCount(key);
+        count = elements.getCount(key);
         break;
       case NAMESPACE:
-        if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+        if (namespaces == null) {
+          namespaces = Names.clone(pageRtx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
-        count = mNamespaces.getCount(key);
+        count = namespaces.getCount(key);
         break;
       case ATTRIBUTE:
-        if (mAttributes == null) {
-          mAttributes =
+        if (attributes == null) {
+          attributes =
               Names.clone(pageRtx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
-        count = mAttributes.getCount(key);
+        count = attributes.getCount(key);
         break;
       case PROCESSING_INSTRUCTION:
-        if (mPIs == null) {
-          mPIs = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+        if (processingInstructions == null) {
+          processingInstructions = Names.clone(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
+                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
-        count = mPIs.getCount(key);
+        count = processingInstructions.getCount(key);
         break;
       case OBJECT_KEY:
-        if (mJSONObjectKeys == null) {
-          mJSONObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = Names.clone(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
+                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
-        count = mJSONObjectKeys.getCount(key);
+        count = jsonObjectKeys.getCount(key);
         break;
       case ARRAY:
-        count = mNumberOfArrays;
+        count = numberOfArrays;
         break;
       // $CASES-OMITTED$
       default:
@@ -290,33 +290,33 @@ public final class NamePage extends AbstractForwardingPage {
       final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
     switch (nodeKind) {
       case ELEMENT:
-        if (mElements == null) {
-          mElements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+        if (elements == null) {
+          elements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
-        return mElements.setName(name, pageTrx);
+        return elements.setName(name, pageTrx);
       case NAMESPACE:
-        if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+        if (namespaces == null) {
+          namespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
-        return mNamespaces.setName(name, pageTrx);
+        return namespaces.setName(name, pageTrx);
       case ATTRIBUTE:
-        if (mAttributes == null) {
-          mAttributes =
+        if (attributes == null) {
+          attributes =
               Names.clone(pageTrx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
-        return mAttributes.setName(name, pageTrx);
+        return attributes.setName(name, pageTrx);
       case PROCESSING_INSTRUCTION:
-        if (mPIs == null) {
-          mPIs = Names.clone(pageTrx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+        if (processingInstructions == null) {
+          processingInstructions = Names.clone(pageTrx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
+                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
-        return mPIs.setName(name, pageTrx);
+        return processingInstructions.setName(name, pageTrx);
       case OBJECT_KEY:
-        if (mJSONObjectKeys == null) {
-          mJSONObjectKeys = Names.clone(pageTrx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = Names.clone(pageTrx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
+                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
-        return mJSONObjectKeys.setName(name, pageTrx);
+        return jsonObjectKeys.setName(name, pageTrx);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -337,29 +337,29 @@ public final class NamePage extends AbstractForwardingPage {
       final long keys = maxNodeKeys.get(i);
       out.writeLong(keys);
     }
-    out.writeInt(mNumberOfArrays);
+    out.writeInt(numberOfArrays);
     final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+      out.writeByte(currentMaxLevelsOfIndirectPages.get(i));
     }
   }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.get(index);
+    return currentMaxLevelsOfIndirectPages.get(index);
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
+    return currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("elements", mElements)
-                      .add("attributes", mAttributes)
-                      .add("URIs", mNamespaces)
-                      .add("PIs", mPIs)
+                      .add("elements", elements)
+                      .add("attributes", attributes)
+                      .add("URIs", namespaces)
+                      .add("PIs", processingInstructions)
                       .toString();
   }
 
@@ -372,37 +372,37 @@ public final class NamePage extends AbstractForwardingPage {
       final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
     switch (nodeKind) {
       case ELEMENT:
-        if (mElements == null) {
-          mElements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+        if (elements == null) {
+          elements = Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
         }
-        mElements.removeName(key, pageTrx);
+        elements.removeName(key, pageTrx);
         break;
       case NAMESPACE:
-        if (mNamespaces == null) {
-          mNamespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+        if (namespaces == null) {
+          namespaces = Names.clone(pageTrx, NAMESPACE_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
         }
-        mNamespaces.removeName(key, pageTrx);
+        namespaces.removeName(key, pageTrx);
         break;
       case ATTRIBUTE:
-        if (mAttributes == null) {
-          mAttributes =
+        if (attributes == null) {
+          attributes =
               Names.clone(pageTrx, ATTRIBUTES_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
         }
-        mAttributes.removeName(key, pageTrx);
+        attributes.removeName(key, pageTrx);
         break;
       case PROCESSING_INSTRUCTION:
-        if (mPIs == null) {
-          mPIs = Names.clone(pageTrx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+        if (processingInstructions == null) {
+          processingInstructions = Names.clone(pageTrx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
+                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
         }
-        mPIs.removeName(key, pageTrx);
+        processingInstructions.removeName(key, pageTrx);
         break;
       case OBJECT_KEY:
-        if (mJSONObjectKeys == null) {
-          mJSONObjectKeys = Names.clone(pageTrx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
-              maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = Names.clone(pageTrx, JSON_OBJECT_KEY_REFERENCE_OFFSET,
+                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
         }
-        mJSONObjectKeys.removeName(key, pageTrx);
+        jsonObjectKeys.removeName(key, pageTrx);
         break;
       // $CASES-OMITTED$
       default:
@@ -432,7 +432,7 @@ public final class NamePage extends AbstractForwardingPage {
       } else {
         maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
       }
-      mCurrentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
+      currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
     }
   }
 

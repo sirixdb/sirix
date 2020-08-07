@@ -163,7 +163,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           // Must not happen.
       }
 
-      pageReference.setLength(writtenPageLength);
+//      pageReference.setLength(writtenPageLength);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {

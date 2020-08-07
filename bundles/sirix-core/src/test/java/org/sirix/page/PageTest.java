@@ -12,7 +12,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
 
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -45,7 +44,7 @@ public class PageTest {
   private Holder mHolder;
 
   /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private PageReadOnlyTrx pageReadTrx;
 
   @BeforeClass
   public void setUp() throws SirixException {
@@ -53,12 +52,12 @@ public class PageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @AfterClass
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
+    pageReadTrx.close();
     mHolder.close();
   }
 
@@ -72,7 +71,7 @@ public class PageTest {
       final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
       final Page serializedPage = PageKind.getKind(handler.getClass())
                                           .deserializePage(new DataInputStream(new ByteArrayInputStream(pageBytes)),
-                                              mPageReadTrx, SerializationType.DATA);
+                                                           pageReadTrx, SerializationType.DATA);
       serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.DATA);
       assertTrue(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
           Arrays.equals(pageBytes, serializedOutput.toByteArray()));
@@ -94,7 +93,7 @@ public class PageTest {
 
     // NodePage setup.
     final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
-        PageKind.RECORDPAGE, List.of(), mPageReadTrx);
+                                                                     PageKind.RECORDPAGE, pageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setEntry(record.getNodeKey(), record);

@@ -77,8 +77,7 @@ public final class PageUtils {
     reference = page.getOrCreateReference(0);
 
     // Create new record page.
-    final UnorderedKeyValuePage recordPage = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-        List.of(), pageReadTrx);
+    final UnorderedKeyValuePage recordPage = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
 

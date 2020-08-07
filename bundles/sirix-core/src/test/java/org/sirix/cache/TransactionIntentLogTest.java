@@ -45,11 +45,11 @@ public class TransactionIntentLogTest {
       final var persistentCache = new PersistentFileCache(fileWriter);
       final var trxIntentLog = new TransactionIntentLog(persistentCache, 1);
 
-      final var firstCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
-      final var firstDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
+      final var firstCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, pageReadOnlyTrx);
+      final var firstDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, pageReadOnlyTrx);
 
-      final var secondCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
-      final var secondDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
+      final var secondCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, pageReadOnlyTrx);
+      final var secondDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, pageReadOnlyTrx);
 
       final var firstPageReference = new PageReference();
       final var secondPageReference = new PageReference();

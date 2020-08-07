@@ -59,7 +59,7 @@ public enum Fixed {
   /**
    * Standard property.
    */
-  private final long mStandardProperty;
+  private final long standardProperty;
 
   /**
    * Private constructor.
@@ -67,7 +67,7 @@ public enum Fixed {
    * @param property property to set
    */
   private Fixed(final long property) {
-    mStandardProperty = property;
+    standardProperty = property;
   }
 
   /**
@@ -76,6 +76,6 @@ public enum Fixed {
    * @return the prop
    */
   public long getStandardProperty() {
-    return mStandardProperty;
+    return standardProperty;
   }
 }
