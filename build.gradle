@@ -1,5 +1,9 @@
 apply from: "${rootDir}/libraries.gradle"
 
+if (JavaVersion.current() != JavaVersion.VERSION_14){
+    throw new GradleException("This build must be run with Java 14")
+}
+
 buildscript {
     repositories {
         maven {
