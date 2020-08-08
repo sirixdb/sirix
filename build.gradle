@@ -1,9 +1,5 @@
 apply from: "${rootDir}/libraries.gradle"
 
-if (JavaVersion.current() != JavaVersion.VERSION_14){
-    throw new GradleException("This build must be run with Java 14")
-}
-
 buildscript {
     repositories {
         maven {
@@ -79,6 +75,10 @@ subprojects {
         targetCompatibility = JavaVersion.VERSION_14
         withSourcesJar()
         withJavadocJar()
+
+        if (JavaVersion.current() != targetCompatibility){
+            throw new GradleException("This build must be run with Java " + targetCompatibility.toString())
+        }
     }
 
     javadoc {
