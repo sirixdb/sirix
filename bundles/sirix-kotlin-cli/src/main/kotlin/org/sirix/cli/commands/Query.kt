@@ -37,10 +37,10 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
     }
 
     private fun xQuery(): String {
-        when (databaseType()) {
-            DatabaseType.XML -> return xQueryXml()
-            DatabaseType.JSON -> return xQueryJson()
-            else -> throw IllegalArgumentException("Unknown Database Typ!")
+        return when (databaseType()) {
+            DatabaseType.XML -> xQueryXml()
+            DatabaseType.JSON -> xQueryJson()
+            else -> throw IllegalArgumentException("Unknown Database Type!")
         }
 
     }
@@ -142,19 +142,31 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                                 when (jsonItem) {
                                     is AbstractJsonDBArray<*> -> {
                                         jsonItem.getCollection().setJsonDBStore(jsonDBStore)
-                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                        jsonDBStore.addDatabase(
+                                            jsonItem.getCollection(),
+                                            jsonItem.getCollection().database
+                                        )
                                     }
                                     is JsonDBObject -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                        jsonDBStore.addDatabase(
+                                            jsonItem.getCollection(),
+                                            jsonItem.getCollection().database
+                                        )
                                     }
                                     is AtomicJsonDBItem -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                        jsonDBStore.addDatabase(
+                                            jsonItem.getCollection(),
+                                            jsonItem.getCollection().database
+                                        )
                                     }
                                     is NumericJsonDBItem -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                        jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                        jsonDBStore.addDatabase(
+                                            jsonItem.getCollection(),
+                                            jsonItem.getCollection().database
+                                        )
                                     }
                                     else -> throw IllegalStateException("Node type not known.")
                                 }
@@ -236,7 +248,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                 val revisions: Array<Int> = getRevisions(manager)
                 with(queryOptions) {
                     val serializerAdapter =
-                        QuerySerializerAdapter(manager, nextTopLevelNodes).revisions(revisions.toIntArray())
+                        SerializerAdapter(manager, nextTopLevelNodes).revisions(revisions.toIntArray())
                             .startNodeKey(nodeId)
                             .metadata(metaData).maxLevel(maxLevel).prettyPrint(prettyPrint)
 
