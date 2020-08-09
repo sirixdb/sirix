@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -114,8 +114,7 @@ public enum PageKind {
   INDIRECTPAGE((byte) 4, IndirectPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx, final SerializationType type)
-        throws IOException {
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx, final SerializationType type) {
       return new IndirectPage(source, type);
     }
 
@@ -257,6 +256,29 @@ public enum PageKind {
    * {@link PathPage}.
    */
   PATHPAGE((byte) 10, PathPage.class) {
+    @Override
+    void serializePage(DataOutput sink, @Nonnull Page page, @Nonnull SerializationType type) throws IOException {
+      sink.writeByte(PATHPAGE.mId);
+      page.serialize(sink, type);
+    }
+
+    @Override
+    Page deserializePage(DataInput source, @Nonnull PageReadOnlyTrx pageReadTrx, @Nonnull SerializationType type)
+        throws IOException {
+      return new PathPage(source, type);
+    }
+
+    @Override
+    public @Nonnull
+    Page getInstance(Page page, @Nonnull PageReadOnlyTrx pageReadTrx) {
+      return new PathPage();
+    }
+  },
+
+  /**
+   * {@link PathPage}.
+   */
+  DEWEYIDPAGE((byte) 10, DeweyIDPage.class) {
     @Override
     void serializePage(DataOutput sink, @Nonnull Page page, @Nonnull SerializationType type) throws IOException {
       sink.writeByte(PATHPAGE.mId);
