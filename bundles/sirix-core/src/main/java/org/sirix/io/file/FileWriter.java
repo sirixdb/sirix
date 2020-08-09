@@ -51,7 +51,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
 
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8;
+  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 64;
 
   /** Random access to work on. */
   private final RandomAccessFile dataFile;

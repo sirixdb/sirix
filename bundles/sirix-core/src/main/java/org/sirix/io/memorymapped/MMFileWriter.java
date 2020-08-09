@@ -49,7 +49,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
 
-  private static final byte PAGE_FRAGMENT_WORD_ALIGN = 8;
+  private static final byte PAGE_FRAGMENT_WORD_ALIGN = 64;
 
   private static int TEST_BLOCK_SIZE = 64 * 1024; // Smallest safe block size for Windows 8+.
 
