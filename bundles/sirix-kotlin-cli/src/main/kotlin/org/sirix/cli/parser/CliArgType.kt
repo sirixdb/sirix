@@ -1,6 +1,7 @@
 package org.sirix.cli.parser
 
 import kotlinx.cli.ArgType
+import java.math.BigInteger
 import java.time.LocalDateTime
 import java.util.*
 
@@ -36,6 +37,13 @@ abstract class CliArgType<T : Any>(hasParameter: kotlin.Boolean) : ArgType<T>(ha
         override fun convert(value: kotlin.String, name: kotlin.String): kotlin.Long =
             value.toLongOrNull()
                 ?: throw IllegalArgumentException("Option $name is expected to be long number. $value is provided.")
+    }
+
+    class BInteger : ArgType<BigInteger>(true) {
+        override val description: kotlin.String
+            get() = "{ -2Integer.MAX_VALUE (exclusive) to +2Integer.MAX_VALUE (exclusive) }"
+
+        override fun convert(value: kotlin.String, name: kotlin.String): BigInteger = BigInteger(value)
     }
 
 
