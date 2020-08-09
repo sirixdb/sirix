@@ -14,7 +14,7 @@ class UpdateSubCommand : AbstractUserCommand("update", "Update command") {
         ArgType.Choice(listOf("asfirstchild", "asrightsibling", "asleftsibling", "replace")),
         "insert-mode",
         "im",
-        "The insert mode. Is Replace when it is not set."
+        "The insert mode. Required for JSON Databases. Mapped to 'replace' when it is not set for XML Databases."
     )
     val hashCode by option(CliArgType.BInteger(), "hash-code", "hc", "The hashcode of the update Node.")
     val updateStr by argument(ArgType.String, description = "The Udate String.")
