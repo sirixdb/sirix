@@ -115,8 +115,13 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     this.revisionsOffsetSegment =
         MemorySegment.mapFromPath(revisionsOffsetFile, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
 
-    reader =
-        new MMFileReader(dataFile, revisionsOffsetFile, dataSegment, revisionsOffsetSegment, handler, serializationType, pagePersister);
+    reader = new MMFileReader(dataFile,
+                              revisionsOffsetFile,
+                              dataSegment,
+                              revisionsOffsetSegment,
+                              handler,
+                              serializationType,
+                              pagePersister);
   }
 
   @Override
@@ -201,7 +206,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
           // Must not happen.
       }
 
-//      pageReference.setLength(serializedPage.length + 4);
+      //      pageReference.setLength(serializedPage.length + 4);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
