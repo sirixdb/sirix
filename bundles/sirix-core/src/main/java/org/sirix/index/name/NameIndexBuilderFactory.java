@@ -12,12 +12,12 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public final class NameIndexBuilderFactory {
 
-  public NameIndexBuilder create(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public NameIndexBuilder create(final PageTrx pageTrx,
       final IndexDef indexDefinition) {
     final var includes = checkNotNull(indexDefinition.getIncluded());
     final var excludes = checkNotNull(indexDefinition.getExcluded());
     assert indexDefinition.getType() == IndexType.NAME;
-    final var avlTreeWriter = AVLTreeWriter.<QNm, NodeReferences>getInstance(pageWriteTrx, indexDefinition.getType(),
+    final var avlTreeWriter = AVLTreeWriter.<QNm, NodeReferences>getInstance(pageTrx, indexDefinition.getType(),
         indexDefinition.getID());
 
     return new NameIndexBuilder(includes, excludes, avlTreeWriter);

@@ -3,6 +3,7 @@ package org.sirix.index.name;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
+
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -21,9 +22,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 public interface NameIndex<B, L extends ChangeListener> {
-  B createBuilder(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+  B createBuilder(PageTrx pageTrx, IndexDef indexDef);
 
-  L createListener(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+  L createListener(PageTrx pageTrx, IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
     final AVLTreeReader<QNm, NodeReferences> reader =
@@ -36,9 +37,7 @@ public interface NameIndex<B, L extends ChangeListener> {
     } else {
       final Iterator<AVLNode<QNm, NodeReferences>> iter =
           reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = filter == null
-          ? ImmutableSet.of()
-          : ImmutableSet.of(filter);
+      final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
 
       return new IndexFilterAxis<>(iter, setFilter);
     }

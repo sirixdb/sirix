@@ -49,40 +49,69 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class RevisionRootPage extends AbstractForwardingPage {
 
-  /** Offset of indirect page reference. */
+  /**
+   * Offset of indirect page reference.
+   */
   private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
-  /** Offset of path summary page reference. */
+  /**
+   * Offset of path summary page reference.
+   */
   private static final int PATH_SUMMARY_REFERENCE_OFFSET = 1;
 
-  /** Offset of name page reference. */
+  /**
+   * Offset of name page reference.
+   */
   private static final int NAME_REFERENCE_OFFSET = 2;
 
-  /** Offset of CAS page reference. */
+  /**
+   * Offset of CAS page reference.
+   */
   private static final int CAS_REFERENCE_OFFSET = 3;
 
-  /** Offset of path page reference. */
+  /**
+   * Offset of path page reference.
+   */
   private static final int PATH_REFERENCE_OFFSET = 4;
 
-  /** Last allocated node key. */
+  /**
+   * Offset of path page reference.
+   */
+  private static final int DEWEYID_REFERENCE_OFFSET = 5;
+
+  /**
+   * Last allocated node key.
+   */
   private long maxNodeKey;
 
-  /** Timestamp of revision. */
+  /**
+   * Timestamp of revision.
+   */
   private long revisionTimestamp;
 
-  /** The references page instance. */
+  /**
+   * The references page instance.
+   */
   private final Page delegate;
 
-  /** Revision number. */
+  /**
+   * Revision number.
+   */
   private final int revision;
 
-  /** Optional commit message. */
+  /**
+   * Optional commit message.
+   */
   private String commitMessage;
 
-  /** Current maximum level of indirect pages in the tree. */
+  /**
+   * Current maximum level of indirect pages in the tree.
+   */
   private int currentMaxLevelOfIndirectPages;
 
-  /** The user, which committed or is probably committing the revision. */
+  /**
+   * The user, which committed or is probably committing the revision.
+   */
   private User user;
 
   /**
@@ -94,6 +123,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     getOrCreateReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getOrCreateReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
     getOrCreateReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
+    getOrCreateReference(DEWEYID_REFERENCE_OFFSET).setPage(new DeweyIDPage());
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     maxNodeKey = -1L;
     currentMaxLevelOfIndirectPages = 1;
@@ -127,7 +157,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Clone revision root page.
    *
    * @param committedRevisionRootPage page to clone
-   * @param representRev revision number to use
+   * @param representRev              revision number to use
    */
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
     final Page pageDelegate = committedRevisionRootPage.delegate();
@@ -186,6 +216,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   /**
+   * Get dewey ID page reference.
+   *
+   * @return dewey ID page reference.
+   */
+  public PageReference getDeweyIdPageReference() {
+    return getOrCreateReference(DEWEYID_REFERENCE_OFFSET);
+  }
+
+  /**
    * Get timestamp of revision.
    *
    * @return Revision timestamp.
@@ -221,12 +260,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
   /**
    * Only commit whole subtree if it's the currently added revision.
-   *
+   * <p>
    * {@inheritDoc}
    */
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
+  public void commit(@Nonnull final PageTrx pageWriteTrx) {
     if (revision == pageWriteTrx.getUberPage().getRevision()) {
       super.commit(pageWriteTrx);
     }
@@ -286,7 +324,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize node tree.
    *
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param log the transaction intent log
+   * @param log         the transaction intent log
    */
   public void createNodeTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     PageReference reference = getIndirectPageReference();

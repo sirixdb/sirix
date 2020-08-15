@@ -95,9 +95,8 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-      PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
-      Node documentNode, AfterCommitState afterCommitState) {
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageWriteTrx, int maxNodeCount, TimeUnit timeUnit,
+      int maxTime, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadTrx =
         new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableJsonNode) documentNode);

@@ -72,7 +72,7 @@ public final class TreeModifierImpl implements TreeModifier {
 
   @Override
   public PageReference prepareLeafOfTree(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
-      final int[] inpLevelPageCountExp, final PageReference startReference, final @Nonnegative long pageKey,
+      final int[] inpLevelPageCountExp, final PageReference startReference, @Nonnegative final long pageKey,
       final int index, final PageKind pageKind, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;

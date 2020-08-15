@@ -10,12 +10,12 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public final class PathIndexListenerFactory {
-  public PathIndexListener create(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public PathIndexListener create(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var pathSummary = checkNotNull(pathSummaryReader);
     final var paths = checkNotNull(indexDef.getPaths());
     final var avlTreeWriter =
-        AVLTreeWriter.<Long, NodeReferences>getInstance(pageWriteTrx, indexDef.getType(), indexDef.getID());
+        AVLTreeWriter.<Long, NodeReferences>getInstance(pageTrx, indexDef.getType(), indexDef.getID());
 
     return new PathIndexListener(paths, pathSummary, avlTreeWriter);
   }

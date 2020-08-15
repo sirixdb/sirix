@@ -15,11 +15,12 @@ final class JsonNodeHashing extends AbstractNodeHashing {
   /**
    * Constructor.
    *
-   * @param hashType the hash type used
+   * @param hashType        the hash type used
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx the page trx
+   * @param pageWriteTrx    the page trx
    */
-  JsonNodeHashing(final HashType hashType, final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
+  JsonNodeHashing(final HashType hashType, final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx,
+      final PageTrx pageWriteTrx) {
     super(hashType, nodeReadOnlyTrx, pageWriteTrx);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
   }

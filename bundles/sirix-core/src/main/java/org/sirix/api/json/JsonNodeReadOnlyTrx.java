@@ -8,7 +8,6 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.diff.DiffTuple;
 import org.sirix.node.SirixDeweyID;
 
 import java.util.List;

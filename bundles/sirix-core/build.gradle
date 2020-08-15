@@ -17,6 +17,7 @@ dependencies {
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
+    implementation implLibraries.chronicleMap
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine

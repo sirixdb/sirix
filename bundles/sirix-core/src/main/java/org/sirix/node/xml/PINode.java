@@ -1,7 +1,6 @@
 package org.sirix.node.xml;
 
 import java.math.BigInteger;
-import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;

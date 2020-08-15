@@ -94,7 +94,7 @@ public final class Names {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
+  public void removeName(final int key, final PageTrx pageTrx) {
     final Integer prevValue = countNameMapping.get(key);
     if (prevValue != null) {
       final long countNodeKey = countNodeMap.get(key);
@@ -132,7 +132,7 @@ public final class Names {
    *
    * @return generated key
    */
-  public int setName(final String name, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
+  public int setName(final String name, final PageTrx pageTrx) {
     assert name != null;
     assert pageTrx != null;
 

@@ -358,7 +358,8 @@ public enum NodeKind implements NodePersistenter {
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), hashFunction, null, getVarLong(source), SirixDeweyID.newRootID());
+                                                    Fixed.NULL_NODE_KEY.getStandardProperty(), hashFunction, null, getVarLong(source), SirixDeweyID
+                                                        .newRootID());
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, getVarLong(source),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
           source.readByte() == ((byte) 0) ? 0 : 1, source.readLong());
@@ -1461,7 +1462,8 @@ public enum NodeKind implements NodePersistenter {
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), hashFunction, null, getVarLong(source), SirixDeweyID.newRootID());
+                                                    Fixed.NULL_NODE_KEY.getStandardProperty(), hashFunction, null, getVarLong(source), SirixDeweyID
+                                                        .newRootID());
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, getVarLong(source), getVarLong(source),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
           source.readByte() == ((byte) 0) ? 0 : 1, source.readLong());
@@ -1531,6 +1533,29 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final HashCountEntryNode node = (HashCountEntryNode) record;
       sink.writeInt(node.getValue());
+    }
+
+    @Override
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) {
+      return null;
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, NodeKind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) {
+    }
+  },
+
+  DEWEY_ID_NODE((byte) 34, DeweyIDNode.class) {
+    @Override
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadOnlyTrx pageReadTrx) {
+      return new DeweyIDNode(recordID, deweyID);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     }
 
     @Override

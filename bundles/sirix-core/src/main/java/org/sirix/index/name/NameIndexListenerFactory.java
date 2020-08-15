@@ -12,7 +12,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public final class NameIndexListenerFactory {
 
-  public NameIndexListener create(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public NameIndexListener create(final PageTrx pageWriteTrx,
       final IndexDef indexDefinition) {
     final var includes = checkNotNull(indexDefinition.getIncluded());
     final var excludes = checkNotNull(indexDefinition.getExcluded());
