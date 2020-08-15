@@ -1,7 +1,5 @@
 package org.sirix.access.node.json;
 
-import com.google.gson.JsonObject;
-import net.bytebuddy.pool.TypePool;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -9,7 +7,6 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
-import org.sirix.api.Axis;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -20,8 +17,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;

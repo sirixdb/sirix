@@ -5,31 +5,29 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.path.PathIndexBuilderFactory;
 import org.sirix.index.path.PathIndexListenerFactory;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 public final class XmlPathIndexImpl implements XmlPathIndex {
 
-  private final PathIndexBuilderFactory mPathIndexBuilderFactory;
+  private final PathIndexBuilderFactory pathIndexBuilderFactory;
 
-  private final PathIndexListenerFactory mPathIndexListenerFactory;
+  private final PathIndexListenerFactory pathIndexListenerFactory;
 
   public XmlPathIndexImpl() {
-    mPathIndexBuilderFactory = new PathIndexBuilderFactory();
-    mPathIndexListenerFactory = new PathIndexListenerFactory();
+    pathIndexBuilderFactory = new PathIndexBuilderFactory();
+    pathIndexListenerFactory = new PathIndexListenerFactory();
   }
 
   @Override
-  public XmlPathIndexBuilder createBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public XmlPathIndexBuilder createBuilder(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var builderDelegate = mPathIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
+    final var builderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new XmlPathIndexBuilder(builderDelegate);
   }
 
   @Override
-  public XmlPathIndexListener createListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public XmlPathIndexListener createListener(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var listenerDelegate = mPathIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
+    final var listenerDelegate = pathIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new XmlPathIndexListener(listenerDelegate);
   }
 

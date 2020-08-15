@@ -5,31 +5,29 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.path.PathIndexBuilderFactory;
 import org.sirix.index.path.PathIndexListenerFactory;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 public final class JsonPathIndexImpl implements JsonPathIndex {
 
-  private final PathIndexBuilderFactory mPathIndexBuilderFactory;
+  private final PathIndexBuilderFactory pathIndexBuilderFactory;
 
-  private final PathIndexListenerFactory mPathIndexListenerFactory;
+  private final PathIndexListenerFactory pathIndexListenerFactory;
 
   public JsonPathIndexImpl() {
-    mPathIndexBuilderFactory = new PathIndexBuilderFactory();
-    mPathIndexListenerFactory = new PathIndexListenerFactory();
+    pathIndexBuilderFactory = new PathIndexBuilderFactory();
+    pathIndexListenerFactory = new PathIndexListenerFactory();
   }
 
   @Override
-  public JsonPathIndexBuilder createBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonPathIndexBuilder createBuilder(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var indexBuilderDelegate = mPathIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
+    final var indexBuilderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new JsonPathIndexBuilder(indexBuilderDelegate);
   }
 
   @Override
-  public JsonPathIndexListener createListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonPathIndexListener createListener(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var indexListenerDelegate = mPathIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
+    final var indexListenerDelegate = pathIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new JsonPathIndexListener(indexListenerDelegate);
   }
 

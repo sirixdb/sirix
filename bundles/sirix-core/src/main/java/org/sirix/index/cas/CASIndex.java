@@ -23,11 +23,9 @@ import java.util.*;
 import java.util.function.Function;
 
 public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx & NodeCursor> {
-  B createBuilder(R rtx, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
-      IndexDef indexDef);
+  B createBuilder(R rtx, PageTrx pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  L createListener(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
-      IndexDef indexDef);
+  L createListener(PageTrx pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageReadTrx, IndexDef indexDef, CASFilterRange filter) {
     final AVLTreeReader<CASValue, NodeReferences> reader =
@@ -116,8 +114,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
-  private Function<AVLNode<CASValue, NodeReferences>, Iterator<NodeReferences>> concatWithFilterAxis(
-      CASFilter filter,
+  private Function<AVLNode<CASValue, NodeReferences>, Iterator<NodeReferences>> concatWithFilterAxis(CASFilter filter,
       AVLTreeReader<CASValue, NodeReferences> reader) {
     return node -> {
       // Iterate over subtree.

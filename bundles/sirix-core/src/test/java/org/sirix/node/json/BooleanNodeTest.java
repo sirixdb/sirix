@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,13 +21,7 @@
 
 package org.sirix.node.json;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import com.google.common.hash.Hashing;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,17 +34,18 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+
+import static org.junit.Assert.*;
 
 /**
  * Boolean node test.
  */
 public class BooleanNodeTest {
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx pageTrx;
 
   private Database<JsonResourceManager> database;
 
@@ -58,7 +53,7 @@ public class BooleanNodeTest {
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
@@ -72,17 +67,17 @@ public class BooleanNodeTest {
     final boolean boolValue = true;
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final BooleanNode node = new BooleanNode(boolValue, strucDel);
     node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final BooleanNode node2 =
-        (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
+        (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 
@@ -95,10 +90,10 @@ public class BooleanNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertTrue(node.getValue());
     assertEquals(NodeKind.BOOLEAN_VALUE, node.getKind());
-    assertEquals(false, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
+    assertFalse(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasLeftSibling());
+    assertTrue(node.hasRightSibling());
   }
 
 }

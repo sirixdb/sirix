@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.testng.AssertJUnit.assertArrayEquals;
 import static org.testng.AssertJUnit.assertTrue;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -36,14 +38,17 @@ import org.testng.annotations.Test;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public class PageTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx pageReadTrx;
 
   @BeforeClass
@@ -62,7 +67,7 @@ public class PageTest {
   }
 
   @Test(dataProvider = "instantiatePages")
-  public void testByteRepresentation(final Class<Page> clazz, final Page[] handlers) throws IOException {
+  public void testByteRepresentation(final Page[] handlers) throws IOException {
     for (final Page handler : handlers) {
       final ByteArrayOutputStream out = new ByteArrayOutputStream();
       handler.serialize(new DataOutputStream(out), SerializationType.DATA);
@@ -71,10 +76,10 @@ public class PageTest {
       final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
       final Page serializedPage = PageKind.getKind(handler.getClass())
                                           .deserializePage(new DataInputStream(new ByteArrayInputStream(pageBytes)),
-                                                           pageReadTrx, SerializationType.DATA);
+                                                           pageReadTrx,
+                                                           SerializationType.DATA);
       serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.DATA);
-      assertTrue(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-          Arrays.equals(pageBytes, serializedOutput.toByteArray()));
+      assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedOutput.toByteArray());
     }
   }
 
@@ -92,8 +97,8 @@ public class PageTest {
     // final RevisionRootPage revRootPage = new RevisionRootPage();
 
     // NodePage setup.
-    final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
-                                                                     PageKind.RECORDPAGE, pageReadTrx);
+    final UnorderedKeyValuePage nodePage =
+        new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE, pageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setEntry(record.getNodeKey(), record);
@@ -101,7 +106,7 @@ public class PageTest {
     // NamePage setup.
     final NamePage namePage = new NamePage();
     final String name = new String(XmlTestHelper.generateRandomBytes(256));
-    namePage.setName(name, NodeKind.ELEMENT, createPageTrxMock("name"));
+    namePage.setName(name, NodeKind.ELEMENT, createPageTrxMock());
 
     // ValuePage setup.
     final PathPage valuePage = new PathPage();
@@ -109,16 +114,14 @@ public class PageTest {
     // PathSummaryPage setup.
     final PathSummaryPage pathSummaryPage = new PathSummaryPage();
 
-    Object[][] returnVal = {{Page.class, new Page[] {indirectPage, namePage, valuePage, pathSummaryPage}}};
-    return returnVal;
+    return new Object[][] { { Page.class, new Page[] { indirectPage, namePage, valuePage, pathSummaryPage } } };
   }
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTrxMock(String name) {
-    final var hashEntryNode = new HashEntryNode(2, 12, name);
+  private PageTrx createPageTrxMock() {
+    final var hashEntryNode = new HashEntryNode(2, 12, "name");
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
-    @SuppressWarnings("unchecked")
-    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx = mock(PageTrx.class);
+    final PageTrx pageTrx = mock(PageTrx.class);
     when(pageTrx.createEntry(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
         hashEntryNode);
     when(pageTrx.createEntry(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(

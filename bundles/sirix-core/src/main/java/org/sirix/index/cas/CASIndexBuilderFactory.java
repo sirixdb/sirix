@@ -12,10 +12,10 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public final class CASIndexBuilderFactory {
 
-  public CASIndexBuilder create(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public CASIndexBuilder create(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var avlTreeWriter =
-        AVLTreeWriter.<CASValue, NodeReferences>getInstance(pageWriteTrx, indexDef.getType(), indexDef.getID());
+        AVLTreeWriter.<CASValue, NodeReferences>getInstance(pageTrx, indexDef.getType(), indexDef.getID());
     final var pathSummary = checkNotNull(pathSummaryReader);
     final var paths = checkNotNull(indexDef.getPaths());
     final var type = checkNotNull(indexDef.getContentType());

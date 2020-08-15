@@ -1,6 +1,6 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -31,8 +31,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
 import java.io.ByteArrayInputStream;
@@ -50,31 +48,37 @@ import static org.junit.Assert.assertTrue;
  */
 public class ObjectNullNodeTest {
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx pageTrx;
 
   @Before
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @Test
   public void test() throws IOException {
     // Create empty node.
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0L, 0L);
+    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
+                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                               0L,
+                                                               0L);
     final ObjectNullNode node = new ObjectNullNode(strucDel);
     node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectNullNode node2 =
-        (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
+    final ObjectNullNode node2 = (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(new DataInputStream(in),
+                                                                                         node.getNodeKey(),
+                                                                                         null,
+                                                                                         pageTrx);
     check(node2);
   }
 

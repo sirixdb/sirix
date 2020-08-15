@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -50,7 +50,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class ObjectNumberNodeTest {
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx pageWriteTrx;
 
   @Before
   public void setUp() throws SirixException {

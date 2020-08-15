@@ -21,10 +21,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 public interface PathIndex<B, L extends ChangeListener> {
-  B createBuilder(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+  B createBuilder(PageTrx pageTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef);
 
-  L createListener(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+  L createListener(PageTrx pageTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,

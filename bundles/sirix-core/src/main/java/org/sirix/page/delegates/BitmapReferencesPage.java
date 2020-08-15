@@ -24,11 +24,9 @@ package org.sirix.page.delegates;
 import com.google.common.base.MoreObjects;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.DeserializedBitmapReferencesPageTuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -197,14 +195,13 @@ public final class BitmapReferencesPage implements Page {
   /**
    * Recursively call commit on all referenced pages.
    *
-   * @param pageWriteTrx the page write transaction
+   * @param pageTrx the page read-write transaction
    */
   @Override
-  public final <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
+  public final void commit(@Nonnull final PageTrx pageTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
-        pageWriteTrx.commit(reference);
+        pageTrx.commit(reference);
       }
     }
   }

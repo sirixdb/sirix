@@ -22,8 +22,14 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.map.ChronicleMap;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.node.DeweyIDNode;
+import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
@@ -32,26 +38,34 @@ import org.sirix.settings.Constants;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Optional;
 
-/**
- * The name page holds all names and their keys for a revision. Furthermore it has references to name indexes.
- */
 public final class DeweyIDPage extends AbstractForwardingPage {
 
-  /** Offset of reference to index-tree. */
+  /**
+   * Offset of reference to index-tree.
+   */
   public static final int REFERENCE_OFFSET = 0;
 
-  /** The references page delegate instance. */
+  /**
+   * The references page delegate instance.
+   */
   private Page delegate;
 
-  /** Maximum node key. */
+  /**
+   * Maximum node key.
+   */
   private long maxNodeKey;
 
-  /** Current maximum levels of indirect pages in the tree. */
+  /**
+   * Current maximum levels of indirect pages in the tree.
+   */
   private int currentMaxLevelOfIndirectPages;
 
+  private ChronicleMap<SirixDeweyID, Long> deweyIDsToNodeKeys;
+
   /**
-   * Create name page.
+   * Create dewey-ID page.
    */
   public DeweyIDPage() {
     delegate = new ReferencesPage4();
@@ -76,6 +90,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
       out.writeByte(1);
     }
     super.serialize(out, type);
+
     out.writeLong(maxNodeKey);
     out.writeByte(currentMaxLevelOfIndirectPages);
   }
@@ -100,7 +115,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    * Initialize dewey id index tree.
    *
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param log the transaction intent log
+   * @param log         the transaction intent log
    */
   public void createIndexTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     PageReference reference = getIndirectPageReference();
@@ -144,5 +159,36 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     delegate = PageUtils.setReference(delegate, offset, pageReference);
 
     return false;
+  }
+
+  public Optional<SirixDeweyID> getDeweyIdForNodeKey(final long nodeKey, final PageReadOnlyTrx pageReadOnlyTrx) {
+    final Optional<DeweyIDNode> node = pageReadOnlyTrx.getRecord(nodeKey, PageKind.DEWEYIDPAGE, 0);
+    return node.map(DeweyIDNode::getDeweyID);
+  }
+
+  public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final PageReadOnlyTrx pageReadOnlyTrx) {
+    if (deweyIDsToNodeKeys == null) {
+      deweyIDsToNodeKeys = ChronicleMap
+          .of(SirixDeweyID.class, Long.class)
+          .name("deweyIDsToNodeKeysMap")
+          .entries(maxNodeKey)
+          .create();
+      for (long i = 1, l = maxNodeKey; i < l; i += 2) {
+        final long nodeKeyOfNode = i;
+        final Optional<? extends DataRecord> deweyIDNode = pageReadOnlyTrx.getRecord(nodeKeyOfNode, PageKind.DEWEYIDPAGE, 0);
+
+        if (deweyIDNode.isPresent() && deweyIDNode.get().getKind() != NodeKind.DELETE) {
+          deweyIDsToNodeKeys.put(deweyIDNode.get().getDeweyID(), nodeKeyOfNode);
+        }
+      }
+    }
+    return deweyIDsToNodeKeys.get(deweyId);
+  }
+
+  public void setDeweyID(final SirixDeweyID deweyId, final PageTrx pageTrx) {
+    final long nodeKey = maxNodeKey;
+    final DeweyIDNode node = new DeweyIDNode(maxNodeKey, deweyId);
+    pageTrx.createEntry(maxNodeKey++, node, PageKind.DEWEYIDPAGE, 0);
+    deweyIDsToNodeKeys.put(deweyId, nodeKey);
   }
 }

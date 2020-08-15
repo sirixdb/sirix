@@ -25,7 +25,6 @@ import com.google.common.base.MoreObjects;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
@@ -70,7 +69,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final UberPage uberPage;
 
   /**
-   * {@link XmlResourceManagerImpl} reference.
+   * {@link InternalResourceManager} reference.
    */
   protected final InternalResourceManager<?, ?> resourceManager;
 
@@ -208,26 +207,33 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public Optional<DataRecord> getRecord(final long nodeKey, final PageKind pageKind, final @Nonnegative int index) {
+  public <K extends Comparable<? super K>, V extends DataRecord> Optional<V> getRecord(@Nonnull final K key,
+      @Nonnull final PageKind pageKind, @Nonnegative final int index) {
+    checkNotNull(key);
     checkNotNull(pageKind);
     assertNotClosed();
 
-    if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return Optional.empty();
+    if (key instanceof Long nodeKey) {
+      if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        return Optional.empty();
+      }
+
+      final long recordPageKey = pageKey(nodeKey, pageKind);
+
+      // $CASES-OMITTED$
+      final Optional<Page> page = switch (pageKind) {
+        case RECORDPAGE, PATHSUMMARYPAGE, PATHPAGE, CASPAGE, NAMEPAGE -> getRecordPage(new IndexLogKey(pageKind,
+                                                                                                       recordPageKey,
+                                                                                                       index,
+                                                                                                       revisionNumber));
+        default -> throw new IllegalStateException();
+      };
+
+      return (Optional<V>) page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(nodeKey))
+                               .flatMap(this::checkItemIfDeleted);
     }
 
-    final long recordPageKey = pageKey(nodeKey, pageKind);
-
-    // $CASES-OMITTED$
-    final Optional<Page> page = switch (pageKind) {
-      case RECORDPAGE, PATHSUMMARYPAGE, PATHPAGE, CASPAGE, NAMEPAGE -> getRecordPage(new IndexLogKey(pageKind,
-                                                                                                     recordPageKey,
-                                                                                                     index,
-                                                                                                     revisionNumber));
-      default -> throw new IllegalStateException();
-    };
-
-    return page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(nodeKey)).flatMap(this::checkItemIfDeleted);
+    return Optional.empty();
   }
 
   /**
@@ -264,7 +270,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @throws SirixIOException if something odd happens within the creation process
    */
   @Override
-  public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) {
+  public RevisionRootPage loadRevRoot(@Nonnegative final int revisionKey) {
     checkArgument(revisionKey >= 0 && revisionKey <= resourceManager.getMostRecentRevisionNumber(),
                   "%s must be >= 0 and <= last stored revision (%s)!",
                   revisionKey,
@@ -319,6 +325,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   public CASPage getCASPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (CASPage) getPage(revisionRoot.getCASPageReference());
+  }
+
+  @Override
+  public DeweyIDPage getDeweyIDPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    return (DeweyIDPage) getPage(revisionRoot.getDeweyIdPageReference());
   }
 
   /**
@@ -442,6 +454,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var pageFragments = pageReference.getPageFragments();
 
     if (pageFragments.isEmpty()) {
+      @SuppressWarnings("unchecked")
       final T page = (T) pageReader.read(pageReference, this);
       pages.add(page);
     } else {
@@ -454,6 +467,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return pages;
   }
 
+  @SuppressWarnings("unchecked")
   private <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPreviousPageFragments(
       final Collection<PageFragmentKey> pageFragments) {
     return pageFragments.stream().map(pageFragmentKey -> {
@@ -461,7 +475,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         return (T) pageReader.read(new PageReference().setKey(pageFragmentKey.getKey()), this);
       } else {
         try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
-          return (T) pageReadOnlyTrx.getReader().read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
+          return (T) pageReadOnlyTrx.getReader()
+                                    .read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
         }
       }
     }).sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed()).collect(Collectors.toList());
@@ -574,6 +589,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return switch (pageKind) {
       case PATHSUMMARYPAGE -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case UBERPAGE -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
+      case PATHPAGE, RECORDPAGE, CASPAGE, NAMEPAGE -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }

@@ -6,32 +6,30 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.cas.CASIndexBuilderFactory;
 import org.sirix.index.cas.CASIndexListenerFactory;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 public final class JsonCASIndexImpl implements JsonCASIndex {
 
-  private final CASIndexBuilderFactory mCASIndexBuilderFactory;
+  private final CASIndexBuilderFactory casIndexBuilderFactory;
 
-  private final CASIndexListenerFactory mCASIndexListenerFactory;
+  private final CASIndexListenerFactory casIndexListenerFactory;
 
   public JsonCASIndexImpl() {
-    mCASIndexBuilderFactory = new CASIndexBuilderFactory();
-    mCASIndexListenerFactory = new CASIndexListenerFactory();
+    casIndexBuilderFactory = new CASIndexBuilderFactory();
+    casIndexListenerFactory = new CASIndexListenerFactory();
   }
 
   @Override
   public JsonCASIndexBuilder createBuilder(JsonNodeReadOnlyTrx rtx,
-      PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+      PageTrx pageTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef) {
-    final var indexBuilderDelegate = mCASIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
+    final var indexBuilderDelegate = casIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new JsonCASIndexBuilder(indexBuilderDelegate, rtx);
   }
 
   @Override
-  public JsonCASIndexListener createListener(PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  public JsonCASIndexListener createListener(PageTrx pageTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
-    final var indexListenerDelegate = mCASIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
+    final var indexListenerDelegate = casIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new JsonCASIndexListener(indexListenerDelegate);
   }
 }

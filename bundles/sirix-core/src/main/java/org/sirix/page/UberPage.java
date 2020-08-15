@@ -43,10 +43,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class UberPage extends AbstractForwardingPage {
 
-  /** Offset of indirect page reference. */
+  /**
+   * Offset of indirect page reference.
+   */
   private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
-  /** Number of revisions. */
+  /**
+   * Number of revisions.
+   */
   private final int revisionCount;
 
   /**
@@ -54,19 +58,29 @@ public final class UberPage extends AbstractForwardingPage {
    */
   private boolean isBootstrap;
 
-  /** The references page instance. */
+  /**
+   * The references page instance.
+   */
   private Page delegate;
 
-  /** {@link RevisionRootPage} instance. */
+  /**
+   * {@link RevisionRootPage} instance.
+   */
   private RevisionRootPage rootPage;
 
-  /** The current most recent revision */
+  /**
+   * The current most recent revision
+   */
   private final int revision;
 
-  /** Key to previous uberpage in persistent storage. */
+  /**
+   * Key to previous uberpage in persistent storage.
+   */
   private long mPreviousUberPageKey;
 
-  /** Current maximum level of indirect pages in the tree. */
+  /**
+   * Current maximum level of indirect pages in the tree.
+   */
   private int currentMaxLevelOfIndirectPages;
 
   /**
@@ -85,7 +99,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Read uber page.
    *
-   * @param in input bytes
+   * @param in   input bytes
    * @param type the serialization type
    */
   protected UberPage(final DataInput in, final SerializationType type) throws IOException {
@@ -93,9 +107,7 @@ public final class UberPage extends AbstractForwardingPage {
     revisionCount = in.readInt();
     if (in.readBoolean())
       mPreviousUberPageKey = in.readLong();
-    revision = revisionCount == 0
-        ? 0
-        : revisionCount - 1;
+    revision = revisionCount == 0 ? 0 : revisionCount - 1;
     isBootstrap = false;
     rootPage = null;
     currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
@@ -104,7 +116,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Clone constructor.
    *
-   * @param committedUberPage page to clone
+   * @param committedUberPage   page to clone
    * @param previousUberPageKey the previous uber page key
    */
   public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
@@ -278,8 +290,7 @@ public final class UberPage extends AbstractForwardingPage {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      final PageTrx<K, V, S> pageWriteTrx) {
+  public void commit(final PageTrx pageWriteTrx) {
     delegate.commit(pageWriteTrx);
   }
 }

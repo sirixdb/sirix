@@ -1,8 +1,6 @@
 package org.sirix.page;
 
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 import java.io.DataInput;
@@ -14,15 +12,16 @@ import java.util.List;
  * OverflowPage used to store records which are longer than a predefined threshold.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class OverflowPage implements Page {
 
-  /** Data to be stored. */
-  private final byte[] mData;
+  /**
+   * Data to be stored.
+   */
+  private final byte[] data;
 
   public OverflowPage() {
-    mData = new byte[0];
+    data = new byte[0];
   }
 
   /**
@@ -32,12 +31,12 @@ public final class OverflowPage implements Page {
    */
   public OverflowPage(final byte[] data) {
     assert data != null;
-    mData = data;
+    this.data = data;
   }
 
   public OverflowPage(final DataInput in) throws IOException {
-    mData = new byte[in.readInt()];
-    in.readFully(mData);
+    data = new byte[in.readInt()];
+    in.readFully(data);
   }
 
   @Override
@@ -46,8 +45,8 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      PageTrx<K, V, S> pageWriteTrx) {}
+  public void commit(PageTrx pageWriteTrx) {
+  }
 
   @Override
   public PageReference getOrCreateReference(int offset) {
@@ -61,11 +60,11 @@ public final class OverflowPage implements Page {
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-    out.writeInt(mData.length);
-    out.write(mData);
+    out.writeInt(data.length);
+    out.write(data);
   }
 
   public byte[] getData() {
-    return mData;
+    return data;
   }
 }

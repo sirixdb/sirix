@@ -1,7 +1,10 @@
 package org.sirix.access.trx.node;
 
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.*;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.ResourceStore;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
@@ -18,10 +21,8 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
 import javax.annotation.Nonnegative;
@@ -82,7 +83,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Remember the write seperately because of the concurrent writes.
    */
-  final ConcurrentMap<Long, PageTrx<Long, DataRecord, UnorderedKeyValuePage>> nodePageTrxMap;
+  final ConcurrentMap<Long, PageTrx> nodePageTrxMap;
 
   /**
    * Lock for blocking the commit.
@@ -193,9 +194,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link PageTrx} instance
    */
   @Override
-  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTransaction(final @Nonnegative long id,
-      final @Nonnegative int representRevision, final @Nonnegative int storedRevision, final Abort abort,
-      boolean isBoundToNodeTrx) {
+  public PageTrx createPageTransaction(final @Nonnegative long id, final @Nonnegative int representRevision,
+      final @Nonnegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
@@ -308,17 +308,15 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageReadTrx,
-      int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode, AfterCommitState afterCommitState);
+  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
+      int maxTime, Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node documentNode;
 
     @SuppressWarnings("unchecked")
     final Optional<? extends Node> node =
-        (Optional<? extends Node>) pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                         PageKind.RECORDPAGE,
-                                                         -1);
+        pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
     if (node.isPresent()) {
       documentNode = node.get();
     } else {
@@ -389,7 +387,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     // Make sure not to exceed available number of write transactions.
     try {
       if (!writeLock.tryLock(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException("No read-write transaction available, please close the read-write transaction first.");
+        throw new SirixUsageException(
+            "No read-write transaction available, please close the read-write transaction first.");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
@@ -398,8 +397,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx =
-        createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -499,13 +497,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * Set a new node page write trx.
    *
    * @param transactionID page write transaction ID
-   * @param pageWriteTrx  page write trx
+   * @param pageTrx       page write trx
    */
   @Override
-  public void setNodePageWriteTransaction(final @Nonnegative long transactionID,
-      @Nonnull final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
+  public void setNodePageWriteTransaction(final @Nonnegative long transactionID, @Nonnull final PageTrx pageTrx) {
     assertNotClosed();
-    nodePageTrxMap.put(transactionID, pageWriteTrx);
+    nodePageTrxMap.put(transactionID, pageTrx);
   }
 
   /**
@@ -669,12 +666,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx() {
+  public PageTrx beginPageTrx() {
     return beginPageTrx(lastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
-  public synchronized PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision) {
+  public synchronized PageTrx beginPageTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -688,15 +685,14 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWtx =
-        createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
-    if (pageTrxMap.put(currentPageTrxID, pageWtx) != null) {
+    if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {
       throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
     }
 
-    return pageWtx;
+    return pageTrx;
   }
 
   @Override

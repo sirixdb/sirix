@@ -35,7 +35,7 @@ public abstract class AbstractNodeHashing {
   /**
    * The page write trx.
    */
-  private final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private final PageTrx pageTrx;
 
   /**
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
@@ -49,13 +49,12 @@ public abstract class AbstractNodeHashing {
    *
    * @param hashType        the hash type used
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx    the page trx
+   * @param pageTrx         the page trx
    */
-  public AbstractNodeHashing(final HashType hashType, final NodeReadOnlyTrx nodeReadOnlyTrx,
-      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
+  public AbstractNodeHashing(final HashType hashType, final NodeReadOnlyTrx nodeReadOnlyTrx, final PageTrx pageTrx) {
     this.hashType = hashType;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
-    this.pageWriteTrx = pageWriteTrx;
+    this.pageTrx = pageTrx;
   }
 
   public AbstractNodeHashing setBulkInsert(boolean value) {
@@ -152,7 +151,7 @@ public abstract class AbstractNodeHashing {
     // adapting the parent if the current node is no structural one.
     if (!(startNode instanceof StructNode)) {
       final Node node =
-          (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       node.setHash(getCurrentNode().computeHash());
       nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey());
     }
@@ -160,7 +159,7 @@ public abstract class AbstractNodeHashing {
     StructNode cursorToRoot;
     do {
       cursorToRoot =
-          (StructNode) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          (StructNode) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       hashCodeForParent = getCurrentNode().computeHash().add(hashCodeForParent.multiply(PRIME));
       // Caring about attributes and namespaces if node is an element.
       if (cursorToRoot.getKind() == NodeKind.ELEMENT) {
@@ -215,7 +214,7 @@ public abstract class AbstractNodeHashing {
     // go the path to the root
     do {
       final Node node =
-          (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       if (node.getNodeKey() == newNode.getNodeKey()) {
         resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash));
         resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(hash));
@@ -240,7 +239,7 @@ public abstract class AbstractNodeHashing {
     // go the path to the root
     do {
       final Node node =
-          (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       if (node.getNodeKey() == startNode.getNodeKey()) {
         // the begin node is always null
         newHash = BigInteger.ZERO;
@@ -302,7 +301,7 @@ public abstract class AbstractNodeHashing {
     // go the path to the root
     do {
       final Node node =
-          (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       if (node.getNodeKey() == startNode.getNodeKey()) {
         // first, take the hashcode of the node only
         newHash = hashToAdd;
@@ -336,7 +335,7 @@ public abstract class AbstractNodeHashing {
       case ROLLING:
         final BigInteger hashToAdd = startNode.computeHash();
         final Node node =
-            (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+            (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setHash(node.getHash().add(hashToAdd.multiply(PRIME)));
         if (startNode instanceof StructNode) {
           ((StructNode) node).setDescendantCount(
@@ -365,15 +364,13 @@ public abstract class AbstractNodeHashing {
         final BigInteger hashToAdd = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
             ? startNode.computeHash()
             : startNode.getHash().add(startNode.computeHash());
-        Node node =
-            (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+        Node node = (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setHash(hashToAdd);
 
         // Set parent node.
         if (startNode.hasParent()) {
           nodeReadOnlyTrx.moveTo(startNode.getParentKey());
-          node =
-              (Node) pageWriteTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          node = (Node) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
           final BigInteger hash =
               node.getHash() == null || BigInteger.ZERO.equals(node.getHash()) ? node.computeHash() : node.getHash();
           node.setHash(hash.add(hashToAdd.multiply(PRIME)));

@@ -290,7 +290,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @return the created key
    */
   public int setName(final String name, final NodeKind nodeKind,
-      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
+      final PageTrx pageTrx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
@@ -382,7 +382,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key the key to remove
    */
   public void removeName(final int key, final NodeKind nodeKind,
-      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx) {
+      final PageTrx pageTrx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {

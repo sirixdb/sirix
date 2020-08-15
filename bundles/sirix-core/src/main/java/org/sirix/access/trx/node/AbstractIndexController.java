@@ -36,27 +36,37 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
-  /** The index types. */
+  /**
+   * The index types.
+   */
   protected final Indexes indexes;
 
-  /** Set of {@link ChangeListener}. */
+  /**
+   * Set of {@link ChangeListener}.
+   */
   private final Set<ChangeListener> listeners;
 
-  /** Used to provide path indexes. */
+  /**
+   * Used to provide path indexes.
+   */
   protected final PathIndex<?, ?> pathIndex;
 
-  /** Used to provide CAS indexes. */
+  /**
+   * Used to provide CAS indexes.
+   */
   protected final CASIndex<?, ?, R> casIndex;
 
-  /** Used to provide name indexes. */
+  /**
+   * Used to provide name indexes.
+   */
   protected final NameIndex<?, ?> nameIndex;
 
   /**
    * Constructor.
    *
-   * @param indexes the index definitions
+   * @param indexes   the index definitions
    * @param pathIndex the path index manager
-   * @param casIndex the CAS index manager
+   * @param casIndex  the CAS index manager
    * @param nameIndex the name index manager
    */
   public AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
@@ -124,18 +134,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return this;
   }
 
-  private ChangeListener createPathIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private ChangeListener createPathIndexListener(final PageTrx pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return pathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private ChangeListener createCASIndexListener(final PageTrx pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return casIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final IndexDef indexDef) {
+  private ChangeListener createNameIndexListener(final PageTrx pageWriteTrx, final IndexDef indexDef) {
     return nameIndex.createListener(pageWriteTrx, indexDef);
   }
 

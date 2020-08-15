@@ -1,7 +1,5 @@
 package org.sirix.api;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -12,7 +10,9 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.KeyValuePage;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 /**
  * Interface for writing pages to disk and to create in-memory records.
@@ -20,8 +20,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>>
-    extends PageReadOnlyTrx {
+public interface PageTrx extends PageReadOnlyTrx {
 
   /**
    * Truncate resource to given revision.
@@ -29,57 +28,60 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
    * @param revision the given revision
    * @return this page write transaction instance
    */
-  PageTrx<K, V, S> truncateTo(int revision);
+  PageTrx truncateTo(int revision);
 
   /**
    * Put a page into the cache.
    *
    * @param reference the reference
-   * @param page the page to put into the cache
+   * @param page      the page to put into the cache
    * @return this page write transaction instance
    */
-  PageTrx<K, V, S> appendLogRecord(@Nonnull PageReference reference, @Nonnull PageContainer page);
+  PageTrx appendLogRecord(@Nonnull PageReference reference, @Nonnull PageContainer page);
 
   /**
    * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
    * (CoW). The record might be a node, in this case the key is the node.
    *
-   * @param key optional key associated with the record to add (otherwise the record nodeKey is used)
-   * @param value value to add (usually a node)
+   * @param key      optional key associated with the record to add (otherwise the record nodeKey is used)
+   * @param value    value to add (usually a node)
    * @param pageKind kind of subtree the page belongs to
-   * @param index the index number
+   * @param index    the index number
    * @return unmodified record for convenience
-   * @throws SirixIOException if an I/O error occurs
+   * @throws SirixIOException     if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  V createEntry(K key, @Nonnull V value, @Nonnull PageKind pageKind, int index);
+  <K extends Comparable<? super K>, V extends DataRecord> V createEntry(K key,
+      @Nonnull V value, @Nonnull PageKind pageKind, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
    * storing the page in the cache and setting up the entry for upcoming modification. The key of the
    * entry might be the node key and the value the node itself.
    *
-   * @param key key of the entry to be modified
+   * @param key      key of the entry to be modified
    * @param pageKind the kind of subtree (for instance regular data pages or the kind of index pages)
-   * @param index the index number
+   * @param index    the index number
    * @return instance of the class implementing the {@link DataRecord} instance
-   * @throws SirixIOException if an I/O-error occurs
+   * @throws SirixIOException         if an I/O-error occurs
    * @throws IllegalArgumentException if {@code recordKey < 0}
-   * @throws NullPointerException if {@code page} is {@code null}
+   * @throws NullPointerException     if {@code page} is {@code null}
    */
-  V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind pageKind, int index);
+  <K extends Comparable<? super K>, V extends DataRecord> V prepareEntryForModification(
+      @Nonnegative K key, @Nonnull PageKind pageKind, int index);
 
   /**
    * Remove an entry from the storage.
    *
-   * @param key entry key from entry to be removed
+   * @param key      entry key from entry to be removed
    * @param pageKind denoting the kind of page (that is the subtree root kind)
-   * @param index the index number
-   * @throws SirixIOException if the removal fails
+   * @param index    the index number
+   * @throws SirixIOException         if the removal fails
    * @throws IllegalArgumentException if {@code recordKey < 0}
-   * @throws NullPointerException if {@code pageKind} is {@code null}
+   * @throws NullPointerException     if {@code pageKind} is {@code null}
    */
-  void removeEntry(K key, @Nonnull PageKind pageKind, int index);
+  <K extends Comparable<? super K>> void removeEntry(K key,
+      @Nonnull PageKind pageKind, int index);
 
   /**
    * Creating a namekey for a given name.
@@ -87,7 +89,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
    * @param name for which the key should be created
    * @param kind kind of node
    * @return an int, representing the namekey
-   * @throws SirixIOException if something odd happens while storing the new key
+   * @throws SirixIOException     if something odd happens while storing the new key
    * @throws NullPointerException if {@code name} or {@code kind} is {@code null}
    */
   int createNameKey(String name, @Nonnull NodeKind kind);
@@ -95,8 +97,8 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
   /**
    * Commit the transaction, that is persist changes if any and create a new revision.
    *
-   * @throws SirixException if Sirix fails to commit
    * @return UberPage the new revision after commit
+   * @throws SirixException if Sirix fails to commit
    */
   UberPage commit();
 
@@ -114,7 +116,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
    * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.
    *
    * @param reference to be commited
-   * @throws SirixException if the write fails
+   * @throws SirixException       if the write fails
    * @throws NullPointerException if {@code reference} is {@code null}
    */
   void commit(PageReference reference);
@@ -132,7 +134,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
    *
    * @return the {@link PageReadOnlyTrx} reference
    */
-  PageReadOnlyTrx getPageReadTrx();
+  PageReadOnlyTrx getPageReadOnlyTrx();
 
   /**
    * Rollback all changes done within the page transaction.
@@ -158,7 +160,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends DataRecord, 
 
   /**
    * Get the revision, which this page trx is going to represent in case of a revert.
-   * 
+   *
    * @return the revision to represent
    */
   int getRevisionToRepresent();

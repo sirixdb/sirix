@@ -34,7 +34,6 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.RecordPersister;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.PageFragmentKey;
 import org.sirix.settings.Constants;
 
 import javax.annotation.Nonnegative;
@@ -43,7 +42,6 @@ import javax.annotation.Nullable;
 import java.io.*;
 import java.util.*;
 import java.util.Map.Entry;
-import java.util.function.Consumer;
 
 import static java.util.stream.Collectors.toList;
 import static org.sirix.node.Utils.getVarLong;
@@ -386,8 +384,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      @Nonnull PageTrx<K, V, S> pageWriteTrx) {
+  public void commit(@Nonnull PageTrx pageWriteTrx) {
     if (!addedReferences) {
       try {
         addReferences();
