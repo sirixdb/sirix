@@ -30,7 +30,7 @@ public final class FutureAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
@@ -39,13 +39,13 @@ public final class FutureAxisTest {
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void testFutureOrSelfAxis() throws SirixException {
+  public void testFutureOrSelfAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
@@ -60,7 +60,7 @@ public final class FutureAxisTest {
   }
 
   @Test
-  public void testFutureAxis() throws SirixException {
+  public void testFutureAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
@@ -75,7 +75,7 @@ public final class FutureAxisTest {
   }
 
   @Test
-  public void testAxisWithDeletedNode() throws SirixException {
+  public void testAxisWithDeletedNode() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertCommentAsRightSibling("foooooo");
