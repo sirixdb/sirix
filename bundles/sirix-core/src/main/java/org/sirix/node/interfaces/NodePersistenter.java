@@ -12,6 +12,6 @@ public interface NodePersistenter extends RecordPersister {
   SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
       ResourceConfiguration resourceConfig) throws IOException;
 
-  void serializeDeweyID(DataOutput sink, NodeKind nodeKind, SirixDeweyID deweyID, SirixDeweyID nextDeweyID,
+  void serializeDeweyID(DataOutput sink, SirixDeweyID deweyID, SirixDeweyID nextDeweyID,
       ResourceConfiguration resourceConfig) throws IOException;
 }

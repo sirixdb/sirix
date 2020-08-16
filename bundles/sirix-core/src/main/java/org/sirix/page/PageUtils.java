@@ -83,7 +83,7 @@ public final class PageUtils {
     // TODO: Should be passed from the method... chaining up.
     final DatabaseType dbType = pageReadTrx.getResourceManager().getDatabase().getDatabaseConfig().getDatabaseType();
 
-    recordPage.setEntry(0L, dbType.getDocumentNode(id));
+    recordPage.setRecord(0L, dbType.getDocumentNode(id));
 
     log.put(reference, PageContainer.getInstance(recordPage, recordPage));
   }

@@ -41,13 +41,13 @@ import org.sirix.node.immutable.xml.ImmutableText;
 public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
 
   /** {@link XmlNodeReadOnlyTrx} implementation. */
-  private final XmlNodeReadOnlyTrx mRtx;
+  private final XmlNodeReadOnlyTrx rtx;
 
   /** For each node type: list of inner nodes. */
-  private final Map<NodeKind, List<Long>> mLabels;
+  private final Map<NodeKind, List<Long>> labels;
 
   /** For each node type: list of leaf nodes. */
-  private final Map<NodeKind, List<Long>> mLeafLabels;
+  private final Map<NodeKind, List<Long>> leafLabels;
 
   /**
    * Constructor.
@@ -55,35 +55,35 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    * @param readTrx a read only transaction
    */
   public LabelFMSEVisitor(final XmlNodeReadOnlyTrx readTrx) {
-    mRtx = checkNotNull(readTrx);
-    mLabels = new HashMap<>();
-    mLeafLabels = new HashMap<>();
+    rtx = checkNotNull(readTrx);
+    labels = new HashMap<>();
+    leafLabels = new HashMap<>();
   }
 
   @Override
   public VisitResultType visit(final ImmutableElement node) {
     final long nodeKey = node.getNodeKey();
-    mRtx.moveTo(nodeKey);
-    for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
-      mRtx.moveToNamespace(i);
+    rtx.moveTo(nodeKey);
+    for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+      rtx.moveToNamespace(i);
       addLeafLabel();
-      mRtx.moveTo(nodeKey);
+      rtx.moveTo(nodeKey);
     }
-    for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
-      mRtx.moveToAttribute(i);
+    for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+      rtx.moveToAttribute(i);
       addLeafLabel();
-      mRtx.moveTo(nodeKey);
+      rtx.moveTo(nodeKey);
     }
-    if (!mLabels.containsKey(node.getKind())) {
-      mLabels.put(node.getKind(), new ArrayList<Long>());
+    if (!labels.containsKey(node.getKind())) {
+      labels.put(node.getKind(), new ArrayList<Long>());
     }
-    mLabels.get(node.getKind()).add(node.getNodeKey());
+    labels.get(node.getKind()).add(node.getNodeKey());
     return VisitResultType.CONTINUE;
   }
 
   @Override
   public VisitResultType visit(final ImmutableText node) {
-    mRtx.moveTo(node.getNodeKey());
+    rtx.moveTo(node.getNodeKey());
     addLeafLabel();
     return VisitResultType.CONTINUE;
   }
@@ -92,11 +92,11 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    * Add leaf node label.
    */
   private void addLeafLabel() {
-    final NodeKind nodeKind = mRtx.getKind();
-    if (!mLeafLabels.containsKey(nodeKind)) {
-      mLeafLabels.put(nodeKind, new ArrayList<>());
+    final NodeKind nodeKind = rtx.getKind();
+    if (!leafLabels.containsKey(nodeKind)) {
+      leafLabels.put(nodeKind, new ArrayList<>());
     }
-    mLeafLabels.get(nodeKind).add(mRtx.getNodeKey());
+    leafLabels.get(nodeKind).add(rtx.getNodeKey());
   }
 
   /**
@@ -105,7 +105,7 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    * @return the Labels
    */
   public Map<NodeKind, List<Long>> getLabels() {
-    return mLabels;
+    return labels;
   }
 
   /**
@@ -114,6 +114,6 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    * @return the leaf labels
    */
   public Map<NodeKind, List<Long>> getLeafLabels() {
-    return mLeafLabels;
+    return leafLabels;
   }
 }

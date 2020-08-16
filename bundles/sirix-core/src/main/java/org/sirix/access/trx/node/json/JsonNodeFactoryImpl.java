@@ -4,6 +4,7 @@ import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageTrx;
 import org.sirix.index.path.summary.PathNode;
+import org.sirix.node.DeweyIDNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -305,5 +306,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 0,
                                                                 0);
     return pageTrx.createRecord(nodeDel.getNodeKey(), new ObjectNumberNode(value, structDel), PageKind.RECORDPAGE, -1);
+  }
+
+  @Override
+  public DeweyIDNode createDeweyIdNode(long nodeKey, @Nonnull SirixDeweyID id) {
+    return pageTrx.createRecord(nodeKey, new DeweyIDNode(nodeKey, id), PageKind.DEWEYIDPAGE, 0);
   }
 }
