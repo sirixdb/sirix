@@ -55,7 +55,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRec
    * @param key key to store
    * @param value value to store
    */
-  void setEntry(K key, @Nonnull V value);
+  void setRecord(K key, @Nonnull V value);
 
   Set<Entry<K, PageReference>> referenceEntrySet();
 
@@ -88,7 +88,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRec
    *
    * @return page reading transaction
    */
-  PageReadOnlyTrx getPageReadTrx();
+  PageReadOnlyTrx getPageReadOnlyTrx();
 
   /**
    * Get the page kind.

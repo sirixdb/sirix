@@ -100,7 +100,7 @@ public class PageTest {
         new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE, pageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
-      nodePage.setEntry(record.getNodeKey(), record);
+      nodePage.setRecord(record.getNodeKey(), record);
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();

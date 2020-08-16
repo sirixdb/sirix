@@ -68,8 +68,8 @@ public enum VersioningType {
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
 
       for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
-        returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
-        returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
+        returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
+        returnVal.get(1).setRecord(entry.getKey(), entry.getValue());
       }
 
       return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
@@ -101,7 +101,7 @@ public enum VersioningType {
       assert fullDump.getPageKey() == recordPageKey;
 
       for (final Map.Entry<K, V> entry : latest.entrySet()) {
-        returnVal.setEntry(entry.getKey(), entry.getValue());
+        returnVal.setRecord(entry.getKey(), entry.getValue());
       }
       for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
         returnVal.setPageReference(entry.getKey(), entry.getValue());
@@ -111,7 +111,7 @@ public enum VersioningType {
       if (pages.size() == 2) {
         for (final Entry<K, V> entry : fullDump.entrySet()) {
           if (returnVal.getValue(entry.getKey()) == null) {
-            returnVal.setEntry(entry.getKey(), entry.getValue());
+            returnVal.setRecord(entry.getKey(), entry.getValue());
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               break;
             }
@@ -150,8 +150,8 @@ public enum VersioningType {
 
       // Iterate through all nodes of the latest revision.
       for (final Map.Entry<K, V> entry : latest.entrySet()) {
-        returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
-        returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
+        returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
+        returnVal.get(1).setRecord(entry.getKey(), entry.getValue());
       }
       // Iterate through all nodes of the latest revision.
       for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
@@ -164,11 +164,11 @@ public enum VersioningType {
         // Iterate through the full dump.
         for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
           if (returnVal.get(0).getValue(entry.getKey()) == null) {
-            returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
+            returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
           }
 
           if (isFullDump && returnVal.get(1).getValue(entry.getKey()) == null) {
-            returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
+            returnVal.get(1).setRecord(entry.getKey(), entry.getValue());
           }
 
           if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
@@ -225,7 +225,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal =
-          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadTrx());
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadOnlyTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -236,7 +236,7 @@ public enum VersioningType {
         for (final Entry<K, V> entry : page.entrySet()) {
           final K recordKey = entry.getKey();
           if (returnVal.getValue(recordKey) == null) {
-            returnVal.setEntry(recordKey, entry.getValue());
+            returnVal.setRecord(recordKey, entry.getValue());
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
               break;
@@ -292,10 +292,10 @@ public enum VersioningType {
           final K key = entry.getKey();
           assert key != null;
           if (entry != null && returnVal.get(0).getValue(key) == null) {
-            returnVal.get(0).setEntry(key, entry.getValue());
+            returnVal.get(0).setRecord(key, entry.getValue());
 
             if (returnVal.get(1).getValue(entry.getKey()) == null && isFullDump) {
-              returnVal.get(1).setEntry(key, entry.getValue());
+              returnVal.get(1).setRecord(key, entry.getValue());
             }
 
             if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
@@ -362,7 +362,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal =
-          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadTrx());
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadOnlyTrx());
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size(); i++) {
@@ -374,7 +374,7 @@ public enum VersioningType {
         for (final Entry<K, V> entry : page.entrySet()) {
           final K recordKey = entry.getKey();
           if (returnVal.getValue(recordKey) == null) {
-            returnVal.setEntry(recordKey, entry.getValue());
+            returnVal.setRecord(recordKey, entry.getValue());
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
               break;
@@ -431,15 +431,15 @@ public enum VersioningType {
           final K key = entry.getKey();
           assert key != null;
           if (!isPageOutOfSlidingWindow) {
-            pageWithRecordsInSlidingWindow.setEntry(key, entry.getValue());
+            pageWithRecordsInSlidingWindow.setRecord(key, entry.getValue());
           }
 
           if (completePage.getValue(key) == null) {
-            completePage.setEntry(key, entry.getValue());
+            completePage.setRecord(key, entry.getValue());
           }
 
           if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(key) == null) {
-            modifyingPage.setEntry(key, entry.getValue());
+            modifyingPage.setRecord(key, entry.getValue());
           }
 
           if (completePage.size() == Constants.NDP_NODE_COUNT) {

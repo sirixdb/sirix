@@ -42,13 +42,13 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 public final class FMSEVisitor extends AbstractXmlNodeVisitor {
 
   /** {@link XmlNodeReadOnlyTrx} reference. */
-  private final XmlNodeReadOnlyTrx mRtx;
+  private final XmlNodeReadOnlyTrx rtx;
 
   /** Determines if nodes are in order. */
-  private final Map<Long, Boolean> mInOrder;
+  private final Map<Long, Boolean> inOrder;
 
   /** Descendant count per node. */
-  private final Map<Long, Long> mDescendants;
+  private final Map<Long, Long> descendants;
 
   /**
    * Constructor.
@@ -61,24 +61,24 @@ public final class FMSEVisitor extends AbstractXmlNodeVisitor {
    */
   public FMSEVisitor(final XmlNodeReadOnlyTrx readTransaction, final Map<Long, Boolean> inOrder,
       final Map<Long, Long> descendants) {
-    mRtx = checkNotNull(readTransaction);
-    mInOrder = checkNotNull(inOrder);
-    mDescendants = checkNotNull(descendants);
+    rtx = checkNotNull(readTransaction);
+    this.inOrder = checkNotNull(inOrder);
+    this.descendants = checkNotNull(descendants);
   }
 
   @Override
   public VisitResultType visit(final ImmutableElement node) {
     final long nodeKey = node.getNodeKey();
-    mRtx.moveTo(nodeKey);
-    for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
-      mRtx.moveToAttribute(i);
+    rtx.moveTo(nodeKey);
+    for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+      rtx.moveToAttribute(i);
       fillStructuralDataStructures();
-      mRtx.moveTo(nodeKey);
+      rtx.moveTo(nodeKey);
     }
-    for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
-      mRtx.moveToNamespace(i);
+    for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+      rtx.moveToNamespace(i);
       fillStructuralDataStructures();
-      mRtx.moveTo(nodeKey);
+      rtx.moveTo(nodeKey);
     }
     countDescendants();
     return VisitResultType.CONTINUE;
@@ -88,8 +88,8 @@ public final class FMSEVisitor extends AbstractXmlNodeVisitor {
    * Fill data structures.
    */
   private void fillStructuralDataStructures() {
-    mInOrder.put(mRtx.getNodeKey(), true);
-    mDescendants.put(mRtx.getNodeKey(), 1L);
+    inOrder.put(rtx.getNodeKey(), true);
+    descendants.put(rtx.getNodeKey(), 1L);
   }
 
   /**
@@ -97,21 +97,21 @@ public final class FMSEVisitor extends AbstractXmlNodeVisitor {
    */
   private void countDescendants() {
     long descendants = 0;
-    final long nodeKey = mRtx.getNodeKey();
-    descendants += mRtx.getNamespaceCount();
-    descendants += mRtx.getAttributeCount();
-    if (mRtx.hasFirstChild()) {
-      mRtx.moveToFirstChild();
+    final long nodeKey = rtx.getNodeKey();
+    descendants += rtx.getNamespaceCount();
+    descendants += rtx.getAttributeCount();
+    if (rtx.hasFirstChild()) {
+      rtx.moveToFirstChild();
       do {
-        descendants += mDescendants.get(mRtx.getNodeKey());
-        if (mRtx.getKind() == NodeKind.ELEMENT) {
+        descendants += this.descendants.get(rtx.getNodeKey());
+        if (rtx.getKind() == NodeKind.ELEMENT) {
           descendants += 1;
         }
-      } while (mRtx.hasRightSibling() && mRtx.moveToRightSibling().hasMoved());
+      } while (rtx.hasRightSibling() && rtx.moveToRightSibling().hasMoved());
     }
-    mRtx.moveTo(nodeKey);
-    mInOrder.put(mRtx.getNodeKey(), false);
-    mDescendants.put(mRtx.getNodeKey(), descendants);
+    rtx.moveTo(nodeKey);
+    inOrder.put(rtx.getNodeKey(), false);
+    this.descendants.put(rtx.getNodeKey(), descendants);
   }
 
   @Override
@@ -132,14 +132,14 @@ public final class FMSEVisitor extends AbstractXmlNodeVisitor {
   /**
    * Visit a leaf node.
    *
-   * @param pNode the node to visit
+   * @param node the node to visit
    * @return {@link VisitResultType} value to continue normally
    */
-  private VisitResultType visiLeafNode(final ImmutableNode pNode) {
-    final long nodeKey = pNode.getNodeKey();
-    mRtx.moveTo(nodeKey);
-    mInOrder.put(mRtx.getNodeKey(), false);
-    mDescendants.put(mRtx.getNodeKey(), 1L);
+  private VisitResultType visiLeafNode(final ImmutableNode node) {
+    final long nodeKey = node.getNodeKey();
+    rtx.moveTo(nodeKey);
+    inOrder.put(rtx.getNodeKey(), false);
+    descendants.put(rtx.getNodeKey(), 1L);
     return VisitResultType.CONTINUE;
   }
 }

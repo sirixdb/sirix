@@ -34,16 +34,16 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
   private static final int MODIFY_EVERY = 1111;
 
   /** Sirix {@link XmlNodeTrx}. */
-  private final XmlNodeTrx mWtx;
+  private final XmlNodeTrx wtx;
 
   /** Random number generator. */
-  private final Random mRandom = new Random();
+  private final Random random = new Random();
 
   /** Start key. */
-  private final long mStartKey;
+  private final long startKey;
 
   /** Current node index, that is every node is indexed starting at 1. */
-  private long mNodeIndex;
+  private long nodeIndex;
 
   /**
    * Constructor.
@@ -52,10 +52,10 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
    * @param startKey start key
    */
   public ModificationVisitor(final XmlNodeTrx wtx, final long startKey) {
-    mWtx = checkNotNull(wtx);
+    this.wtx = checkNotNull(wtx);
     checkArgument(startKey >= 0, "start key must be >= 0!");
-    mStartKey = startKey;
-    mNodeIndex = 1;
+    this.startKey = startKey;
+    nodeIndex = 1;
   }
 
   @Override
@@ -66,13 +66,13 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
   /**
    * Process a node, that is decide if it has to be deleted and move accordingly.
    *
-   * @param pNode the node to check
+   * @param node the node to check
    * @return the appropriate {@link VisitResultType} value
    */
   private VisitResult processNode(final ImmutableNode node) {
     assert node != null;
     final VisitResult result = modify(node);
-    if (node.getNodeKey() == mStartKey) {
+    if (node.getNodeKey() == startKey) {
       return VisitResultType.TERMINATE;
     }
     return result;
@@ -94,29 +94,29 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
    */
   private VisitResult modify(final ImmutableNode node) {
     assert node != null;
-    if (mNodeIndex % MODIFY_EVERY == 0) {
-      mNodeIndex = 1;
+    if (nodeIndex % MODIFY_EVERY == 0) {
+      nodeIndex = 1;
 
       try {
-        switch (mRandom.nextInt(4)) {
+        switch (random.nextInt(4)) {
           case 0:
             final QNm insert = new QNm("testInsert");
-            final long key = mWtx.getNodeKey();
-            mWtx.insertElementAsLeftSibling(insert);
-            final boolean moved = mWtx.moveTo(key).hasMoved();
+            final long key = wtx.getNodeKey();
+            wtx.insertElementAsLeftSibling(insert);
+            final boolean moved = wtx.moveTo(key).hasMoved();
             assert moved;
             return VisitResultType.CONTINUE;
           case 1:
-            if (mWtx.getKind() == NodeKind.TEXT) {
-              mWtx.setValue("testUpdate");
-            } else if (mWtx.getKind() == NodeKind.ELEMENT) {
-              mWtx.setName(new QNm("testUpdate"));
+            if (wtx.getKind() == NodeKind.TEXT) {
+              wtx.setValue("testUpdate");
+            } else if (wtx.getKind() == NodeKind.ELEMENT) {
+              wtx.setName(new QNm("testUpdate"));
             }
             return VisitResultType.CONTINUE;
           case 2:
             return delete();
           case 3:
-            mWtx.replaceNode(XmlShredder.createStringReader("<foo/>"));
+            wtx.replaceNode(XmlShredder.createStringReader("<foo/>"));
             return VisitResultType.CONTINUE;
           default:
             break;
@@ -126,7 +126,7 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
         return VisitResultType.TERMINATE;
       }
     } else {
-      mNodeIndex++;
+      nodeIndex++;
       return VisitResultType.CONTINUE;
     }
     return VisitResultType.CONTINUE;
@@ -135,66 +135,66 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
   /** Delete a subtree and determine movement. */
   private VisitResult delete() throws SirixException {
     try {
-      final long nodeKey = mWtx.getNodeKey();
+      final long nodeKey = wtx.getNodeKey();
       boolean removeTextNode = false;
-      if (mWtx.getLeftSiblingKind() == NodeKind.TEXT && mWtx.getRightSiblingKind() == NodeKind.TEXT) {
+      if (wtx.getLeftSiblingKind() == NodeKind.TEXT && wtx.getRightSiblingKind() == NodeKind.TEXT) {
         removeTextNode = true;
       }
-      mWtx.moveTo(nodeKey);
+      wtx.moveTo(nodeKey);
 
       // Case: Has no right and no left sibl. but the parent has a right sibl.
       if (!removeTextNode) {
-        final boolean movedToParent = mWtx.moveToParent().hasMoved();
+        final boolean movedToParent = wtx.moveToParent().hasMoved();
         assert movedToParent;
-        final long parentNodeKey = mWtx.getNodeKey();
-        if (mWtx.getChildCount() == 1 && mWtx.hasRightSibling()) {
-          mWtx.moveTo(nodeKey);
-          mWtx.remove();
-          assert mWtx.getNodeKey() == parentNodeKey;
+        final long parentNodeKey = wtx.getNodeKey();
+        if (wtx.getChildCount() == 1 && wtx.hasRightSibling()) {
+          wtx.moveTo(nodeKey);
+          wtx.remove();
+          assert wtx.getNodeKey() == parentNodeKey;
           return LocalVisitResult.SKIPSUBTREEPOPSTACK;
         }
       }
-      mWtx.moveTo(nodeKey);
+      wtx.moveTo(nodeKey);
 
       // Case: Has left sibl. but no right sibl.
-      if (!mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
-        final long leftSiblKey = mWtx.getLeftSiblingKey();
-        mWtx.remove();
-        assert mWtx.getNodeKey() == leftSiblKey;
+      if (!wtx.hasRightSibling() && wtx.hasLeftSibling()) {
+        final long leftSiblKey = wtx.getLeftSiblingKey();
+        wtx.remove();
+        assert wtx.getNodeKey() == leftSiblKey;
         return VisitResultType.SKIPSUBTREE;
       }
 
       // Case: Has right sibl. and left sibl.
-      if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
-        final long rightSiblKey = mWtx.getRightSiblingKey();
-        final long rightRightSiblKey = mWtx.moveToRightSibling().trx().getRightSiblingKey();
-        mWtx.moveTo(nodeKey);
-        mWtx.remove();
+      if (wtx.hasRightSibling() && wtx.hasLeftSibling()) {
+        final long rightSiblKey = wtx.getRightSiblingKey();
+        final long rightRightSiblKey = wtx.moveToRightSibling().trx().getRightSiblingKey();
+        wtx.moveTo(nodeKey);
+        wtx.remove();
         if (removeTextNode) {
-          assert mWtx.getKind() == NodeKind.TEXT;
-          assert mWtx.getRightSiblingKey() == rightRightSiblKey;
+          assert wtx.getKind() == NodeKind.TEXT;
+          assert wtx.getRightSiblingKey() == rightRightSiblKey;
           return VisitResultType.CONTINUE;
         } else {
-          final boolean moved = mWtx.moveToLeftSibling().hasMoved();
+          final boolean moved = wtx.moveToLeftSibling().hasMoved();
           assert moved;
-          assert mWtx.getRightSiblingKey() == rightSiblKey;
+          assert wtx.getRightSiblingKey() == rightSiblKey;
           return VisitResultType.SKIPSUBTREE;
         }
       }
 
       // Case: Has right sibl. but no left sibl.
-      if (mWtx.hasRightSibling() && !mWtx.hasLeftSibling()) {
-        final long rightSiblKey = mWtx.getRightSiblingKey();
-        mWtx.remove();
-        mWtx.moveToParent();
-        assert mWtx.getFirstChildKey() == rightSiblKey;
+      if (wtx.hasRightSibling() && !wtx.hasLeftSibling()) {
+        final long rightSiblKey = wtx.getRightSiblingKey();
+        wtx.remove();
+        wtx.moveToParent();
+        assert wtx.getFirstChildKey() == rightSiblKey;
         return VisitResultType.CONTINUE;
       }
 
       // Case: Has no right and no left sibl.
-      final long parentKey = mWtx.getParentKey();
-      mWtx.remove();
-      assert mWtx.getNodeKey() == parentKey;
+      final long parentKey = wtx.getParentKey();
+      wtx.remove();
+      assert wtx.getNodeKey() == parentKey;
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }

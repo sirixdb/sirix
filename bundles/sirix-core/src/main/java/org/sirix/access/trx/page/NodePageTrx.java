@@ -184,7 +184,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
           throw new SirixIOException("Cannot retrieve record from cache!");
         }
         record = oldRecord;
-        ((UnorderedKeyValuePage) cont.getModified()).setEntry(record.getNodeKey(), record);
+        ((UnorderedKeyValuePage) cont.getModified()).setRecord(nodeKey, record);
       }
       return (V) record;
     }
@@ -227,7 +227,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final PageContainer cont = prepareRecordPage(recordPageKey, index, pageKind);
       @SuppressWarnings("unchecked")
       final KeyValuePage<Long, DataRecord> modified = (KeyValuePage<Long, DataRecord>) cont.getModified();
-      modified.setEntry(createdRecordKey, record);
+      modified.setRecord(createdRecordKey, record);
       return record;
     }
 
@@ -253,8 +253,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                                                               null,
                                                               pageRtx.getRevisionNumber(),
                                                               null));
-        ((UnorderedKeyValuePage) cont.getModified()).setEntry(delNode.getNodeKey(), delNode);
-        ((UnorderedKeyValuePage) cont.getComplete()).setEntry(delNode.getNodeKey(), delNode);
+        ((UnorderedKeyValuePage) cont.getModified()).setRecord(delNode.getNodeKey(), delNode);
+        ((UnorderedKeyValuePage) cont.getComplete()).setRecord(delNode.getNodeKey(), delNode);
       } else {
         throw new IllegalStateException("Node not found!");
       }

@@ -92,7 +92,7 @@ public final class NodePageTest {
     node1.insertNamespace(99L);
     node1.insertNamespace(98L);
     assertEquals(0L, node1.getNodeKey());
-    page1.setEntry(node1.getNodeKey(), node1);
+    page1.setRecord(node1.getNodeKey(), node1);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     final DataOutputStream dataOut = new DataOutputStream(out);
