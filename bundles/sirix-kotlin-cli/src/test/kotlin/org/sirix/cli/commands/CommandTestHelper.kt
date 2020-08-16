@@ -2,8 +2,12 @@ package org.sirix.cli.commands
 
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
+import org.sirix.access.ResourceConfiguration
+import org.sirix.service.json.shredder.JsonShredder
+import org.sirix.service.xml.shredder.XmlShredder
 import org.slf4j.Logger
 import java.io.File
+import java.io.FileInputStream
 import java.nio.file.Paths
 import java.util.*
 
@@ -33,4 +37,45 @@ fun createXmlDatabase(sirixTestFile: String) {
         throw IllegalStateException("Can not create xml Database!\n$sirixTestFile")
     }
 }
+
+fun setupTestDbJson(sirixQueryTestFileJson: String) {
+    val database =
+        Databases.openJsonDatabase(Paths.get(sirixQueryTestFileJson), CliCommandTestConstants.TEST_USER)
+    database.use {
+        val resConfig = ResourceConfiguration.Builder(CliCommandTestConstants.TEST_RESOURCE).build()
+        if (!database.createResource(resConfig)) {
+            throw IllegalStateException("Failed to create resource '${CliCommandTestConstants.TEST_RESOURCE}'!")
+        }
+        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+        manager.use {
+            val wtx = manager.beginNodeTrx()
+            wtx.use {
+                wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(Paths.get(CliCommandTestConstants.TEST_JSON_DATA_PATH)))
+                wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
+            }
+        }
+    }
+}
+
+fun setupTestDbXml(sirixQueryTestFileXml: String) {
+    val database =
+        Databases.openXmlDatabase(Paths.get(sirixQueryTestFileXml), CliCommandTestConstants.TEST_USER)
+    database.use {
+        val resConfig = ResourceConfiguration.Builder(CliCommandTestConstants.TEST_RESOURCE).build()
+        if (!database.createResource(resConfig)) {
+            throw IllegalStateException("Failed to create resource '${CliCommandTestConstants.TEST_RESOURCE}'!")
+        }
+        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+        manager.use {
+            val wtx = manager.beginNodeTrx()
+            wtx.use {
+                wtx.insertSubtreeAsFirstChild(
+                    XmlShredder.createFileReader(FileInputStream(CliCommandTestConstants.TEST_XML_DATA_PATH))
+                )
+                wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
+            }
+        }
+    }
+}
+
 

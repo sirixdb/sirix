@@ -4,17 +4,17 @@ import org.sirix.api.xml.XmlNodeTrx
 import javax.xml.stream.XMLEventReader
 
 enum class XmlInsertionMode {
-    ASFIRSTCHILD {
+    AS_FIRST_CHILD {
         override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
         }
     },
-    ASRIGHTSIBLING {
+    AS_RIGHT_SIBLING {
         override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsRightSibling(xmlReader)
         }
     },
-    ASLEFTSIBLING {
+    AS_LEFT_SIBLING {
         override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsLeftSibling(xmlReader)
         }
@@ -28,6 +28,6 @@ enum class XmlInsertionMode {
     abstract fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader)
 
     companion object {
-        fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
+        fun getInsertionModeByName(name: String) = valueOf(name.replace('-', '_').toUpperCase())
     }
 }

@@ -5,19 +5,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
-import org.sirix.access.Databases
-import org.sirix.access.ResourceConfiguration
 import org.sirix.cli.CliOptions
 import org.sirix.cli.MetaDataEnum
-import org.sirix.service.json.shredder.JsonShredder
-import org.sirix.service.xml.shredder.XmlShredder
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
-import java.io.FileInputStream
 import java.io.OutputStream
 import java.io.PrintStream
-import java.nio.file.Paths
 
 internal class QueryTest : CliCommandTest() {
 
@@ -37,8 +31,8 @@ internal class QueryTest : CliCommandTest() {
         internal fun setup() {
             createJsonDatabase(sirixQueryTestFileJson)
             createXmlDatabase(sirixQueryTestFileXml)
-            setupTestDbJson()
-            setupTestDbXml()
+            setupTestDbJson(sirixQueryTestFileJson)
+            setupTestDbXml(sirixQueryTestFileXml)
         }
 
         @AfterAll
@@ -157,43 +151,4 @@ private fun prepareQueryResult(outputStream: OutputStream): String {
     return outputStream.toString().replace("\\s".toRegex(), "").replace("\\d+ms".toRegex(), "123")
 }
 
-private fun setupTestDbJson() {
-    val database =
-        Databases.openJsonDatabase(Paths.get(QueryTest.sirixQueryTestFileJson), CliCommandTestConstants.TEST_USER)
-    database.use {
-        val resConfig = ResourceConfiguration.Builder(CliCommandTestConstants.TEST_RESOURCE).build()
-        if (!database.createResource(resConfig)) {
-            throw IllegalStateException("Failed to create resource '${CliCommandTestConstants.TEST_RESOURCE}'!")
-        }
-        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
-        manager.use {
-            val wtx = manager.beginNodeTrx()
-            wtx.use {
-                wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(Paths.get(CliCommandTestConstants.TEST_JSON_DATA_PATH)))
-                wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
-            }
-        }
-    }
-}
-
-private fun setupTestDbXml() {
-    val database =
-        Databases.openXmlDatabase(Paths.get(QueryTest.sirixQueryTestFileXml), CliCommandTestConstants.TEST_USER)
-    database.use {
-        val resConfig = ResourceConfiguration.Builder(CliCommandTestConstants.TEST_RESOURCE).build()
-        if (!database.createResource(resConfig)) {
-            throw IllegalStateException("Failed to create resource '${CliCommandTestConstants.TEST_RESOURCE}'!")
-        }
-        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
-        manager.use {
-            val wtx = manager.beginNodeTrx()
-            wtx.use {
-                wtx.insertSubtreeAsFirstChild(
-                    XmlShredder.createFileReader(FileInputStream(CliCommandTestConstants.TEST_XML_DATA_PATH))
-                )
-                wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
-            }
-        }
-    }
-}
 
