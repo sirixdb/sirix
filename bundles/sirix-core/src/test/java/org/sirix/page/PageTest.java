@@ -13,7 +13,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Arrays;
 
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -122,11 +121,11 @@ public class PageTest {
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createEntry(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
         hashEntryNode);
-    when(pageTrx.createEntry(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
         hashCountEntryNode);
-    when(pageTrx.prepareEntryForModification(2L, PageKind.NAMEPAGE, 0)).thenReturn(hashCountEntryNode);
+    when(pageTrx.prepareRecordForModification(2L, PageKind.NAMEPAGE, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;
   }
 }

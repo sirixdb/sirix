@@ -36,21 +36,21 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V createEntry(K key, @Nonnull V record,
+  public <K extends Comparable<? super K>, V extends DataRecord> V createRecord(K key, @Nonnull V record,
       @Nonnull PageKind pageKind, @Nonnegative int index) {
-    return delegate().createEntry(key, record, pageKind, index);
+    return delegate().createRecord(key, record, pageKind, index);
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V prepareEntryForModification(@Nonnegative K recordKey,
+  public <K extends Comparable<? super K>, V extends DataRecord> V prepareRecordForModification(@Nonnegative K recordKey,
       @Nonnull PageKind pageKind, @Nonnegative int index) {
-    return delegate().prepareEntryForModification(recordKey, pageKind, index);
+    return delegate().prepareRecordForModification(recordKey, pageKind, index);
   }
 
   @Override
-  public <K extends Comparable<? super K>> void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind,
+  public <K extends Comparable<? super K>> void removeRecord(@Nonnegative K recordKey, @Nonnull PageKind pageKind,
       @Nonnegative int index) throws SirixIOException {
-    delegate().removeEntry(recordKey, pageKind, index);
+    delegate().removeRecord(recordKey, pageKind, index);
   }
 
   @Override

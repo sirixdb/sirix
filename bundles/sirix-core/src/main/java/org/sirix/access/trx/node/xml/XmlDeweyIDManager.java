@@ -10,7 +10,6 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.xml.ElementNode;
 import org.sirix.page.PageKind;
-import org.sirix.page.UnorderedKeyValuePage;
 
 final class XmlDeweyIDManager extends AbstractDeweyIDManager {
   private final InternalXmlNodeTrx nodeTrx;
@@ -43,7 +42,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
     final long nodeKey = nodeTrx.getNodeKey();
 
     final StructNode root = nodeTrx.getPageWtx()
-                                   .prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1);
+                                   .prepareRecordForModification(nodeKey, PageKind.RECORDPAGE, -1);
     root.setDeweyID(id);
 
     adaptNonStructuralNodes(root);
@@ -90,7 +89,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
           }
         }
 
-        final Node node = pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setDeweyID(deweyID);
 
         previousNodeKey = node.getNodeKey();
@@ -115,7 +114,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
         nodeTrx.moveToParent();
         nodeTrx.moveToAttribute(i);
 
-        final Node node = pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setDeweyID(deweyID);
 
         nodeTrx.moveToParent();
@@ -132,7 +131,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
         }
         nodeTrx.moveToNamespace(i);
 
-        final Node node = pageTrx.prepareEntryForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setDeweyID(deweyID);
 
         nodeTrx.moveToParent();

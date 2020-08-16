@@ -51,7 +51,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws SirixIOException     if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  <K extends Comparable<? super K>, V extends DataRecord> V createEntry(K key,
+  <K extends Comparable<? super K>, V extends DataRecord> V createRecord(K key,
       @Nonnull V value, @Nonnull PageKind pageKind, int index);
 
   /**
@@ -67,7 +67,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code page} is {@code null}
    */
-  <K extends Comparable<? super K>, V extends DataRecord> V prepareEntryForModification(
+  <K extends Comparable<? super K>, V extends DataRecord> V prepareRecordForModification(
       @Nonnegative K key, @Nonnull PageKind pageKind, int index);
 
   /**
@@ -80,7 +80,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    */
-  <K extends Comparable<? super K>> void removeEntry(K key,
+  <K extends Comparable<? super K>> void removeRecord(K key,
       @Nonnull PageKind pageKind, int index);
 
   /**

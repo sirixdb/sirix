@@ -76,10 +76,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
-                               PageKind.PATHSUMMARYPAGE,
-                               0);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
+                                PageKind.PATHSUMMARYPAGE,
+                                0);
   }
 
   @Override
@@ -105,15 +105,15 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
 
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new ElementNode(structDel,
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new ElementNode(structDel,
                                                nameDel,
                                                new ArrayList<>(),
                                                HashBiMap.create(),
                                                new ArrayList<>(),
                                                name),
-                               PageKind.RECORDPAGE,
-                               -1);
+                                PageKind.RECORDPAGE,
+                                -1);
   }
 
   @Override
@@ -132,7 +132,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new TextNode(valDel, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new TextNode(valDel, structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -154,10 +154,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, value, false);
 
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new AttributeNode(nodeDel, nameDel, valDel, name),
-                               PageKind.RECORDPAGE,
-                               -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new AttributeNode(nodeDel, nameDel, valDel, name),
+                                PageKind.RECORDPAGE,
+                                -1);
   }
 
   @Override
@@ -178,10 +178,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, -1, pathNodeKey);
 
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new NamespaceNode(nodeDel, nameDel, name),
-                               PageKind.RECORDPAGE,
-                               -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new NamespaceNode(nodeDel, nameDel, name),
+                                PageKind.RECORDPAGE,
+                                -1);
   }
 
   @Override
@@ -208,10 +208,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, content, false);
 
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new PINode(structDel, nameDel, valDel, pageTrx),
-                               PageKind.RECORDPAGE,
-                               -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new PINode(structDel, nameDel, valDel, pageTrx),
+                                PageKind.RECORDPAGE,
+                                -1);
   }
 
   @Override
@@ -229,6 +229,6 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new CommentNode(valDel, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new CommentNode(valDel, structDel), PageKind.RECORDPAGE, -1);
   }
 }
