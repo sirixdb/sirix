@@ -165,8 +165,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V prepareEntryForModification(final @Nonnull K recordKey,
-      @Nonnull final PageKind pageKind, final int index) {
+  public <K extends Comparable<? super K>, V extends DataRecord> V prepareEntryForModification(
+      final @Nonnull K recordKey, @Nonnull final PageKind pageKind, final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);
 

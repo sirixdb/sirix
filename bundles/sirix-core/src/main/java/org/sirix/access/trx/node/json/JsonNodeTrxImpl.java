@@ -60,7 +60,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
@@ -70,7 +69,6 @@ import org.sirix.node.json.*;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Constants;
@@ -221,18 +219,33 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private final Map<Long, DiffTuple> updateOperationsUnordered;
 
   /**
-   * Flag to decide whether to store child count
+   * Flag to decide whether to store child count.
    */
   private final boolean storeChildCount;
 
+  /**
+   * Determines if a value can be replaced, used for replacing an object record.
+   */
   private boolean canRemoveValue;
 
+  /**
+   * The revision number before bulk-inserting nodes.
+   */
   private int beforeBulkInsertionRevisionNumber;
 
+  /**
+   * {@code true}, if transaction is auto-committing, {@code false} if not.
+   */
   private final boolean isAutoCommitting;
 
+  /**
+   * Transaction state.
+   */
   private volatile State state;
 
+  /**
+   * The transaction states.
+   */
   private enum State {
     Running,
 
@@ -256,7 +269,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  @SuppressWarnings("unchecked")
   JsonNodeTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx, final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
@@ -283,11 +295,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     this.maxNodeCount = maxNodeCount;
     this.modificationCount = 0L;
 
-    if (maxNodeCount > 0 || maxTime > 0) {
-      isAutoCommitting = true;
-    } else {
-      isAutoCommitting = false;
-    }
+    isAutoCommitting = maxNodeCount > 0 || maxTime > 0;
 
     if (maxTime > 0) {
       threadPool.scheduleWithFixedDelay(() -> commit("autoCommit"), maxTime, maxTime, timeUnit);
@@ -1424,8 +1432,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       pathNodeKey = -1;
     }
 
-    moveTo(node.getNodeKey());
-
     nodeReadOnlyTrx.setCurrentNode(node);
 
     indexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
@@ -2481,7 +2487,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   public PageTrx getPageWtx() {
     nodeReadOnlyTrx.assertNotClosed();
