@@ -789,7 +789,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
-    final ObjectKeyNode objectKeyNode = pageTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+    final ObjectKeyNode objectKeyNode = pageTrx.prepareRecordForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
     objectKeyNode.setFirstChildKey(getNodeKey());
   }
 
@@ -1770,7 +1770,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         removeValue();
 
         // Then remove node.
-        pageTrx.removeEntry(currentNode.getNodeKey(), PageKind.RECORDPAGE, -1);
+        pageTrx.removeRecord(currentNode.getNodeKey(), PageKind.RECORDPAGE, -1);
       }
 
       // Remove the name of subtree-root.
@@ -1880,7 +1880,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final int newNameKey = pageTrx.createNameKey(key, node.getKind());
 
       // Set new keys for current node.
-      node = pageTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+      node = pageTrx.prepareRecordForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
       node.setNameKey(newNameKey);
 
       // Adapt path summary.
@@ -1952,7 +1952,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final byte[] byteVal = getBytes(value);
 
       final AbstractStringNode node =
-          pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       node.setValue(byteVal);
 
       nodeReadOnlyTrx.setCurrentNode(node);
@@ -1989,7 +1989,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
 
       final AbstractBooleanNode node =
-          pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       node.setValue(value);
 
       nodeReadOnlyTrx.setCurrentNode(node);
@@ -2027,7 +2027,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
 
       final AbstractNumberNode node =
-          pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
       node.setValue(value);
 
       nodeReadOnlyTrx.setCurrentNode(node);
@@ -2233,7 +2233,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptForInsert(final StructNode structNode) {
     assert structNode != null;
 
-    final StructNode parent = pageTrx.prepareEntryForModification(structNode.getParentKey(), PageKind.RECORDPAGE, -1);
+    final StructNode parent = pageTrx.prepareRecordForModification(structNode.getParentKey(), PageKind.RECORDPAGE, -1);
 
     if (storeChildCount) {
       parent.incrementChildCount();
@@ -2249,13 +2249,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     if (structNode.hasRightSibling()) {
       final StructNode rightSiblingNode =
-          pageTrx.prepareEntryForModification(structNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(structNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
       rightSiblingNode.setLeftSiblingKey(structNode.getNodeKey());
     }
 
     if (structNode.hasLeftSibling()) {
       final StructNode leftSiblingNode =
-          pageTrx.prepareEntryForModification(structNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(structNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
       leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
     }
   }
@@ -2280,19 +2280,19 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     // Adapt left sibling node if there is one.
     if (oldNode.hasLeftSibling()) {
       final StructNode leftSibling =
-          pageTrx.prepareEntryForModification(oldNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(oldNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
       leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
     }
 
     // Adapt right sibling node if there is one.
     if (oldNode.hasRightSibling()) {
       final StructNode rightSibling =
-          pageTrx.prepareEntryForModification(oldNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(oldNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
       rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
     }
 
     // Adapt parent, if node has left sibling now it is a first child, and right sibling will be a last child
-    StructNode parent = pageTrx.prepareEntryForModification(oldNode.getParentKey(), PageKind.RECORDPAGE, -1);
+    StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), PageKind.RECORDPAGE, -1);
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
@@ -2312,7 +2312,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     // Remove old node.
     moveTo(oldNode.getNodeKey());
-    pageTrx.removeEntry(oldNode.getNodeKey(), PageKind.RECORDPAGE, -1);
+    pageTrx.removeRecord(oldNode.getNodeKey(), PageKind.RECORDPAGE, -1);
   }
 
   // ////////////////////////////////////////////////////////////

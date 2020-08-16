@@ -165,8 +165,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V prepareEntryForModification(
-      final @Nonnull K recordKey, @Nonnull final PageKind pageKind, final int index) {
+  public <K extends Comparable<? super K>, V extends DataRecord> V prepareRecordForModification(
+      @Nonnull final K recordKey, @Nonnull final PageKind pageKind, final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);
 
@@ -194,7 +194,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V createEntry(@Nonnull final K recordKey,
+  public <K extends Comparable<? super K>, V extends DataRecord> V createRecord(@Nonnull final K recordKey,
       @Nonnull final V record, @Nonnull final PageKind pageKind, @Nonnegative final int index) {
     pageRtx.assertNotClosed();
 
@@ -236,7 +236,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>> void removeEntry(final K recordKey, @Nonnull final PageKind pageKind,
+  public <K extends Comparable<? super K>> void removeRecord(final K recordKey, @Nonnull final PageKind pageKind,
       final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);

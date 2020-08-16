@@ -188,7 +188,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   public void setDeweyID(final SirixDeweyID deweyId, final PageTrx pageTrx) {
     final long nodeKey = maxNodeKey;
     final DeweyIDNode node = new DeweyIDNode(maxNodeKey, deweyId);
-    pageTrx.createEntry(maxNodeKey++, node, PageKind.DEWEYIDPAGE, 0);
+    pageTrx.createRecord(maxNodeKey++, node, PageKind.DEWEYIDPAGE, 0);
     deweyIDsToNodeKeys.put(deweyId, nodeKey);
   }
 }

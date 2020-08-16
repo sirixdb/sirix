@@ -10,11 +10,9 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.json.*;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
@@ -75,10 +73,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
-                               PageKind.PATHSUMMARYPAGE,
-                               0);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
+                                PageKind.PATHSUMMARYPAGE,
+                                0);
   }
 
   @Override
@@ -98,7 +96,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel, pathNodeKey), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new ArrayNode(structDel, pathNodeKey), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -117,7 +115,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new ObjectNode(structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new ObjectNode(structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -136,7 +134,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new NullNode(structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new NullNode(structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -157,10 +155,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new ObjectKeyNode(structDel, localNameKey, name, pathNodeKey),
-                               PageKind.RECORDPAGE,
-                               -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new ObjectKeyNode(structDel, localNameKey, name, pathNodeKey),
+                                PageKind.RECORDPAGE,
+                                -1);
   }
 
   @Override
@@ -183,7 +181,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new StringNode(valDel, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new StringNode(valDel, structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -203,7 +201,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new BooleanNode(boolValue, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new BooleanNode(boolValue, structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -223,7 +221,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 leftSibKey,
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new NumberNode(value, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new NumberNode(value, structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -242,7 +240,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new ObjectNullNode(structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new ObjectNullNode(structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -265,7 +263,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new ObjectStringNode(valDel, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new ObjectStringNode(valDel, structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override
@@ -284,10 +282,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(),
-                               new ObjectBooleanNode(boolValue, structDel),
-                               PageKind.RECORDPAGE,
-                               -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(),
+                                new ObjectBooleanNode(boolValue, structDel),
+                                PageKind.RECORDPAGE,
+                                -1);
   }
 
   @Override
@@ -306,6 +304,6 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 0,
                                                                 0);
-    return pageTrx.createEntry(nodeDel.getNodeKey(), new ObjectNumberNode(value, structDel), PageKind.RECORDPAGE, -1);
+    return pageTrx.createRecord(nodeDel.getNodeKey(), new ObjectNumberNode(value, structDel), PageKind.RECORDPAGE, -1);
   }
 }

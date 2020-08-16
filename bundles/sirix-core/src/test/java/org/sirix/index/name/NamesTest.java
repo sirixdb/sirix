@@ -11,9 +11,7 @@ import org.junit.Test;
 import org.sirix.api.PageTrx;
 import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
-import org.sirix.page.UnorderedKeyValuePage;
 
 public final class NamesTest {
   @Test
@@ -34,11 +32,11 @@ public final class NamesTest {
 
     @SuppressWarnings("unchecked")
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createEntry(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
         hashEntryNode);
-    when(pageTrx.createEntry(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
         hashCountEntryNode);
-    when(pageTrx.prepareEntryForModification(2L, PageKind.NAMEPAGE, 0)).thenReturn(hashCountEntryNode);
+    when(pageTrx.prepareRecordForModification(2L, PageKind.NAMEPAGE, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;
   }
 
