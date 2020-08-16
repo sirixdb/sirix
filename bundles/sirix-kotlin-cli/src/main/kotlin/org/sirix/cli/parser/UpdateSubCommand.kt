@@ -11,10 +11,10 @@ class UpdateSubCommand : AbstractUserCommand("update", "Update command") {
     val resource by option(ArgType.String, "resource", "r", "The name of the resource.").required()
     val nodeId by option(CliArgType.Long(), "node-id", "nid", "The node id.")
     val insertMode by option(
-        ArgType.Choice(listOf("asfirstchild", "asrightsibling", "asleftsibling", "replace")),
+        ArgType.Choice(listOf("as-first-child", "as-right-sibling", "as-left-sibling", "replace")),
         "insert-mode",
         "im",
-        "The insert mode. Required for JSON Databases. Mapped to 'replace' when it is not set for XML Databases."
+        "JSON Databases: Required. Valid vales: [as-first-child, as-right-sibling]. XML Databases: Mapped to 'replace' if not set"
     )
     val hashCode by option(CliArgType.BInteger(), "hash-code", "hc", "The hashcode of the update Node.")
     val updateStr by argument(ArgType.String, description = "The Udate String.")

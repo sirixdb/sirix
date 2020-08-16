@@ -8,7 +8,7 @@ import org.sirix.service.json.JsonNumber
 import java.io.IOException
 
 enum class JsonInsertionMode {
-    ASFIRSTCHILD {
+    AS_FIRST_CHILD {
         override fun insertSubtree(wtx: JsonNodeTrx, jsonReader: JsonReader) {
             wtx.insertSubtreeAsFirstChild(jsonReader)
         }
@@ -39,7 +39,7 @@ enum class JsonInsertionMode {
             wtx.commit()
         }
     },
-    ASRIGHTSIBLING {
+    AS_RIGHT_SIBLING {
         override fun insertSubtree(wtx: JsonNodeTrx, jsonReader: JsonReader) {
             wtx.insertSubtreeAsRightSibling(jsonReader)
         }
@@ -119,7 +119,6 @@ enum class JsonInsertionMode {
     abstract fun insertObjectRecord(wtx: JsonNodeTrx, jsonReader: JsonReader)
 
     companion object {
-        fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
+        fun getInsertionModeByName(name: String) = valueOf(name.replace('-', '_').toUpperCase())
     }
-
 }
