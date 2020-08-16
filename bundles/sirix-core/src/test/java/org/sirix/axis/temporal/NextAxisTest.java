@@ -29,7 +29,7 @@ public final class NextAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
@@ -38,13 +38,13 @@ public final class NextAxisTest {
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void testAxis() throws SirixException {
+  public void testAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
 

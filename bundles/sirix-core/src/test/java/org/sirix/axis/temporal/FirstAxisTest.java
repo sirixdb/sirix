@@ -29,7 +29,7 @@ public final class FirstAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
@@ -38,7 +38,7 @@ public final class FirstAxisTest {
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
