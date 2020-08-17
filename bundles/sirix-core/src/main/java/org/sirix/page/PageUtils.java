@@ -7,6 +7,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.FullReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -37,10 +38,11 @@ public final class PageUtils {
     if (hasToGrow) {
       if (pageDelegate instanceof ReferencesPage4) {
         pageDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) pageDelegate);
-        pageDelegate.setOrCreateReference(offset, pageReference);
       } else {
-        throw new IllegalStateException();
+        assert pageDelegate instanceof BitmapReferencesPage;
+        pageDelegate = new FullReferencesPage((BitmapReferencesPage) pageDelegate);
       }
+      pageDelegate.setOrCreateReference(offset, pageReference);
     }
 
     return pageDelegate;
@@ -52,6 +54,7 @@ public final class PageUtils {
       return switch (kind) {
         case 0 -> new ReferencesPage4(in, type);
         case 1 -> new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
+        case 2 -> new FullReferencesPage(in, type);
         default -> throw new IllegalStateException();
       };
     } catch (final IOException e) {

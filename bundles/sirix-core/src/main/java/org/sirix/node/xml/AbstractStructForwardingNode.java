@@ -1,12 +1,12 @@
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.StructNode;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.math.BigInteger;
 
 /**
  * Skeletal implementation of {@link StructNode} interface.
@@ -24,9 +24,9 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   protected abstract StructNodeDelegate structDelegate();
 
   /**
-   * Getting the inlying {@link NodeDelegate}.
+   * Getting the struct node delegate.
    *
-   * @return the inlying {@link NodeDelegate} instance
+   * @return the struct node delegate
    */
   public StructNodeDelegate getStructNodeDelegate() {
     return structDelegate();
