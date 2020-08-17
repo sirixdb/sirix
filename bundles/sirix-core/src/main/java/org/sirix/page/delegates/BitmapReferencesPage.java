@@ -44,6 +44,7 @@ import static com.google.common.base.Preconditions.checkArgument;
  */
 public final class BitmapReferencesPage implements Page {
 
+  public static final int THRESHOLD = Constants.INP_REFERENCE_COUNT - 16;
   /**
    * Page references.
    */
@@ -168,6 +169,11 @@ public final class BitmapReferencesPage implements Page {
       references.set(index, pageReference);
     }
     bitmap.set(index, true);
+
+    if (bitmap.cardinality() == THRESHOLD) {
+      return true;
+    }
+
     return false;
   }
 
@@ -176,6 +182,11 @@ public final class BitmapReferencesPage implements Page {
     final PageReference pageReference = new PageReference();
     references.add(index, pageReference);
     bitmap.set(offset, true);
+
+    if (bitmap.cardinality() == THRESHOLD) {
+      return null;
+    }
+
     return pageReference;
   }
 
