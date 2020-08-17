@@ -1,6 +1,7 @@
 package org.sirix.axis.temporal;
 
 import java.util.Iterator;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -18,14 +19,17 @@ import com.google.common.collect.testing.IteratorTester;
  * Test {@link FirstAxis}.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class FirstAxisTest {
 
-  /** Number of iterations. */
+  /**
+   * Number of iterations.
+   */
   private static final int ITERATIONS = 5;
 
-  /** The {@link Holder} instance. */
+  /**
+   * The {@link Holder} instance.
+   */
   private Holder holder;
 
   @Before
@@ -47,7 +51,7 @@ public final class FirstAxisTest {
   public void testAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
 
-    new IteratorTester<XmlNodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new FirstAxis<>(holder.getResourceManager(), holder.getXmlNodeReadTrx());
