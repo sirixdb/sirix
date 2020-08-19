@@ -25,10 +25,8 @@ import com.google.common.base.MoreObjects;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -76,7 +74,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Key to previous uberpage in persistent storage.
    */
-  private long mPreviousUberPageKey;
+  private long previousUberPageKey;
 
   /**
    * Current maximum level of indirect pages in the tree.
@@ -91,7 +89,7 @@ public final class UberPage extends AbstractForwardingPage {
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     revisionCount = Constants.UBP_ROOT_REVISION_COUNT;
     isBootstrap = true;
-    mPreviousUberPageKey = -1;
+    previousUberPageKey = -1;
     rootPage = null;
     currentMaxLevelOfIndirectPages = 1;
   }
@@ -106,7 +104,7 @@ public final class UberPage extends AbstractForwardingPage {
     delegate = new ReferencesPage4(in, type);
     revisionCount = in.readInt();
     if (in.readBoolean())
-      mPreviousUberPageKey = in.readLong();
+      previousUberPageKey = in.readLong();
     revision = revisionCount == 0 ? 0 : revisionCount - 1;
     isBootstrap = false;
     rootPage = null;
@@ -127,7 +125,7 @@ public final class UberPage extends AbstractForwardingPage {
     } else if (pageDelegate instanceof BitmapReferencesPage) {
       delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
     }
-    mPreviousUberPageKey = previousUberPageKey;
+    this.previousUberPageKey = previousUberPageKey;
     if (committedUberPage.isBootstrap()) {
       revision = committedUberPage.revision;
       revisionCount = committedUberPage.revisionCount;
@@ -143,7 +141,7 @@ public final class UberPage extends AbstractForwardingPage {
   }
 
   public long getPreviousUberPageKey() {
-    return mPreviousUberPageKey;
+    return previousUberPageKey;
   }
 
   /**
@@ -188,7 +186,7 @@ public final class UberPage extends AbstractForwardingPage {
     out.writeInt(revisionCount);
     out.writeBoolean(!isBootstrap);
     if (!isBootstrap) {
-      out.writeLong(mPreviousUberPageKey);
+      out.writeLong(previousUberPageKey);
     }
     out.writeByte(currentMaxLevelOfIndirectPages);
     isBootstrap = false;

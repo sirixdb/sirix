@@ -1,6 +1,7 @@
 package org.sirix.api;
 
 import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;

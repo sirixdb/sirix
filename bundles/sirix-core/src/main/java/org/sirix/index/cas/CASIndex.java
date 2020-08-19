@@ -27,9 +27,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   L createListener(PageTrx pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageReadTrx, IndexDef indexDef, CASFilterRange filter) {
+  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, CASFilterRange filter) {
     final AVLTreeReader<CASValue, NodeReferences> reader =
-        AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
+        AVLTreeReader.getInstance(pageRtx.getResourceManager().getIndexCache(),
+                                  pageRtx,
+                                  indexDef.getType(),
+                                  indexDef.getID());
 
     final Iterator<AVLNode<CASValue, NodeReferences>> iter =
         reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
@@ -37,9 +40,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return new IndexFilterAxis<>(iter, Set.of(filter));
   }
 
-  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageReadTrx, IndexDef indexDef, CASFilter filter) {
+  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, CASFilter filter) {
     final AVLTreeReader<CASValue, NodeReferences> reader =
-        AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
+        AVLTreeReader.getInstance(pageRtx.getResourceManager().getIndexCache(),
+                                  pageRtx,
+                                  indexDef.getType(),
+                                  indexDef.getID());
 
     // PCRs requested.
     final Set<Long> pcrsRequested = filter == null ? Collections.emptySet() : filter.getPCRs();
