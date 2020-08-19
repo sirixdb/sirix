@@ -28,9 +28,13 @@ import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.cache.AVLIndexKey;
+import org.sirix.cache.BufferManager;
+import org.sirix.cache.Cache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.path.summary.PathSummaryReader;
 
 import javax.annotation.Nonnegative;
@@ -366,4 +370,11 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return the user
    */
   Optional<User> getUser();
+
+  /**
+   * Get cache for index-structures.
+   *
+   * @return the cache
+   */
+  Cache<AVLIndexKey, AVLNode<?, ?>> getIndexCache();
 }

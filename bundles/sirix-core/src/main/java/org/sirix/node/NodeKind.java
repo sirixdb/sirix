@@ -645,10 +645,8 @@ public enum NodeKind implements NodePersistenter {
       final boolean isChanged = source.readBoolean();
 
       final Atomic atomic = AtomicUtil.fromBytes(value, atomicType);
-      AVLNode<CASValue, NodeReferences> node;
-      node = new AVLNode<CASValue, NodeReferences>(new CASValue(atomic, atomicType, pathNodeKey),
-                                                   new NodeReferences(nodeKeys),
-                                                   nodeDel);
+      final var node =
+          new AVLNode<>(new CASValue(atomic, atomicType, pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
 
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);

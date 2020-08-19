@@ -28,7 +28,10 @@ public interface NameIndex<B, L extends ChangeListener> {
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
     final AVLTreeReader<QNm, NodeReferences> reader =
-        AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
+        AVLTreeReader.getInstance(pageRtx.getResourceManager().getIndexCache(),
+                                  pageRtx,
+                                  indexDef.getType(),
+                                  indexDef.getID());
 
     if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
       final Optional<NodeReferences> optionalNodeReferences =

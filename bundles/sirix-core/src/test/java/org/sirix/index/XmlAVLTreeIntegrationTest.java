@@ -14,7 +14,6 @@ import org.sirix.XmlTestHelper;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
@@ -30,11 +29,12 @@ import static org.junit.Assert.assertTrue;
  * Test the AVLTree implementation.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class XmlAVLTreeIntegrationTest {
 
-  /** {@link Holder} reference. */
+  /**
+   * {@link Holder} reference.
+   */
   private Holder holder;
 
   @Before
@@ -53,11 +53,10 @@ public final class XmlAVLTreeIntegrationTest {
   public void testCASAttributeIndex() throws PathException {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    XmlIndexController indexController =
-        holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
-        Collections.singleton(Path.parse("//bla/@foobar")), 0);
+    final IndexDef idxDef =
+        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/@foobar")), 0);
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
 
@@ -75,7 +74,10 @@ public final class XmlAVLTreeIntegrationTest {
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
     AVLTreeReader<CASValue, NodeReferences> reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+        AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                  wtx.getPageTrx(),
+                                  indexDef.getType(),
+                                  indexDef.getID());
 
     final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"), false);
 
@@ -94,8 +96,10 @@ public final class XmlAVLTreeIntegrationTest {
     final var secondNodeKey = wtx.moveToAttributeByName(new QNm("foobar")).trx().getNodeKey();
     wtx.commit();
 
-    reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+    reader = AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                       wtx.getPageTrx(),
+                                       indexDef.getType(),
+                                       indexDef.getID());
 
     final Optional<NodeReferences> bazRefs3 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
@@ -105,8 +109,10 @@ public final class XmlAVLTreeIntegrationTest {
     wtx.remove();
     wtx.commit();
 
-    reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+    reader = AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                       wtx.getPageTrx(),
+                                       indexDef.getType(),
+                                       indexDef.getID());
 
     final Optional<NodeReferences> bazRefs4 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
@@ -116,28 +122,29 @@ public final class XmlAVLTreeIntegrationTest {
     wtx.remove();
     wtx.commit();
 
-    reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+    reader = AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                       wtx.getPageTrx(),
+                                       indexDef.getType(),
+                                       indexDef.getID());
 
     final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
     check(bazRefs5, ImmutableSet.of());
 
-//    try (final var printStream = new PrintStream(new BufferedOutputStream(System.out))) {
-//      reader.dump(printStream);
-//      printStream.flush();
-//    }
+    //    try (final var printStream = new PrintStream(new BufferedOutputStream(System.out))) {
+    //      reader.dump(printStream);
+    //      printStream.flush();
+    //    }
   }
 
   @Test
   public void testCASTextIndex() {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    XmlIndexController indexController =
-        holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
-        Collections.singleton(Path.parse("//bla/blabla")), 0);
+    final IndexDef idxDef =
+        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/blabla")), 0);
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
 
@@ -150,7 +157,10 @@ public final class XmlAVLTreeIntegrationTest {
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
     AVLTreeReader<CASValue, NodeReferences> reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+        AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                  wtx.getPageTrx(),
+                                  indexDef.getType(),
+                                  indexDef.getID());
 
     Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
@@ -159,8 +169,10 @@ public final class XmlAVLTreeIntegrationTest {
     wtx.moveTo(nodeKey);
     wtx.remove();
 
-    reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+    reader = AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                       wtx.getPageTrx(),
+                                       indexDef.getType(),
+                                       indexDef.getID());
 
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
@@ -172,8 +184,10 @@ public final class XmlAVLTreeIntegrationTest {
     wtx.remove();
     wtx.commit();
 
-    reader =
-        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+    reader = AVLTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+                                       wtx.getPageTrx(),
+                                       indexDef.getType(),
+                                       indexDef.getID());
 
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 

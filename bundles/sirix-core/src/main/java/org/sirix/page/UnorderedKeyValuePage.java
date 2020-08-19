@@ -134,10 +134,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   /**
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *
-   * @param recordPageKey base key assigned to this node page
-   * @param pageKind      the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
-   *                      ATTRIBUTEVALUEPAGE...)
-   * @param pageReadOnlyTrx   the page reading transaction
+   * @param recordPageKey   base key assigned to this node page
+   * @param pageKind        the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
+   *                        ATTRIBUTEVALUEPAGE...)
+   * @param pageReadOnlyTrx the page reading transaction
    */
   public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
       final PageReadOnlyTrx pageReadOnlyTrx) {
@@ -210,8 +210,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final DataRecord record =
-          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, null, this.pageReadOnlyTrx);
+      final DataRecord record = recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)),
+                                                            key,
+                                                            null,
+                                                            this.pageReadOnlyTrx);
       records.put(key, record);
     }
 
@@ -236,9 +238,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final DataRecord record =
-          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, deweyId,
-                                      pageReadOnlyTrx);
+      final DataRecord record = recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)),
+                                                            key,
+                                                            deweyId,
+                                                            pageReadOnlyTrx);
       records.put(key, record);
     } catch (final IOException e) {
       throw new SirixIOException(e);
