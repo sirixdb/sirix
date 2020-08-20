@@ -79,9 +79,9 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
   protected void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
     if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000));
+      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000_000));
     } else {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000));
+      bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000_000));
     }
   }
 

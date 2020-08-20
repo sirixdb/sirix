@@ -320,6 +320,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     final var leftChild = node.getLeftChild();
     if (leftChild != null) {
       avlTreeReader.setCurrentAVLNode(leftChild);
+      assert node.getLeftChildKey() == leftChild.getNodeKey();
       return leftChild;
     }
     return moveTo(node.getLeftChildKey()).hasMoved() ? avlTreeReader.getCurrentAVLNode() : null;
@@ -338,6 +339,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     final var rightChild = node.getRightChild();
     if (rightChild != null) {
       avlTreeReader.setCurrentAVLNode(rightChild);
+      assert node.getRightChildKey() == rightChild.getNodeKey();
       return rightChild;
     }
     return moveTo(node.getRightChildKey()).hasMoved() ? avlTreeReader.getCurrentAVLNode() : null;
@@ -356,6 +358,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     final var parent = node.getParent();
     if (parent != null) {
       avlTreeReader.setCurrentAVLNode(parent);
+      assert node.getParentKey() == parent.getNodeKey();
       return parent;
     }
     return moveTo(node.getParentKey()).hasMoved() ? avlTreeReader.getCurrentAVLNode() : null;
@@ -445,7 +448,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     leftChild =
         pageTrx.prepareRecordForModification(leftChild.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
     leftChild.setParentKey(node.getParentKey());
-    leftChild.setParent(node);
+    leftChild.setParent(node.getParent());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       final StructNode parent = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
