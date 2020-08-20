@@ -15,8 +15,6 @@ import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
 import java.util.*;
@@ -65,13 +63,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
       if (mode == SearchMode.EQUAL) {
         // Compare for equality by PCR and atomic value.
-        final Optional<AVLNode<CASValue, NodeReferences>> optionalNode = reader.getAVLNode(value, mode);
+        final Optional<AVLNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentAVLNode(value, mode);
 
         return optionalNode.map(node -> Iterators.forArray(node.getValue()))
                            .orElse(Iterators.unmodifiableIterator(Collections.emptyIterator()));
       } else {
         // Compare for search criteria by PCR and atomic value.
-        final Optional<AVLNode<CASValue, NodeReferences>> optionalNode = reader.getAVLNode(value, mode);
+        final Optional<AVLNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentAVLNode(value, mode);
 
         return optionalNode.map(concatWithFilterAxis(filter, reader)).orElse(Collections.emptyIterator());
       }
@@ -84,13 +82,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
       if (mode == SearchMode.EQUAL) {
         // Compare for equality by PCR and atomic value.
-        final Optional<AVLNode<CASValue, NodeReferences>> optionalNode = reader.getAVLNode(value, mode);
+        final Optional<AVLNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentAVLNode(value, mode);
 
         return optionalNode.map(concatWithFilterAxis(filter, reader)).orElse(Collections.emptyIterator());
       } else {
         // Compare for equality only by PCR.
         final Optional<AVLNode<CASValue, NodeReferences>> optionalNode =
-            reader.getAVLNode(value, SearchMode.EQUAL, Comparator.comparingLong(CASValue::getPathNodeKey));
+            reader.getCurrentAVLNode(value, SearchMode.EQUAL, Comparator.comparingLong(CASValue::getPathNodeKey));
 
         return optionalNode.map(findFirstNodeWithMatchingPCRAndAtomicValue(filter, reader, mode, value))
                            .orElse(Collections.emptyIterator());
@@ -109,7 +107,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // Now compare for equality by PCR and atomic value and find first
       // node which satisfies criteria.
       final Optional<AVLNode<CASValue, NodeReferences>> firstFoundNode =
-          reader.getAVLNode(node.getNodeKey(), value, mode);
+          reader.getCurrentAVLNode(node.getNodeKey(), value, mode);
 
       return firstFoundNode.map(theNode -> {
         // Iterate over subtree.

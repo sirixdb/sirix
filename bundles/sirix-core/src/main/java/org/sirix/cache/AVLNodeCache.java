@@ -1,21 +1,34 @@
 package org.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import org.sirix.index.avltree.AVLNode;
 
+import javax.annotation.Nonnull;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public final class AVLNodeCache implements Cache<AVLIndexKey, AVLNode<?, ?>> {
 
   private final com.github.benmanes.caffeine.cache.Cache<AVLIndexKey, AVLNode<?, ?>> pageCache;
 
   public AVLNodeCache(final int maxSize) {
-    pageCache = Caffeine.newBuilder()
-                        .maximumSize(maxSize)
-                        .expireAfterWrite(5, TimeUnit.SECONDS)
-                        .expireAfterAccess(5, TimeUnit.SECONDS)
-                        .build();
+    final RemovalListener<AVLIndexKey, AVLNode<?, ?>> removalListener =
+        (AVLIndexKey key, AVLNode<?, ?> value, RemovalCause cause) -> {
+          assert key != null;
+          assert value != null;
+          final AVLNode<?, ?> parent = value.getParent();
+
+          if (parent != null) {
+            if (parent.getLeftChild().equals(value)) {
+              parent.setLeftChild(null);
+            } else if (parent.getRightChild().equals(value)) {
+              parent.setRightChild(null);
+            }
+          }
+        };
+
+    pageCache = Caffeine.newBuilder().maximumSize(maxSize).removalListener(removalListener).build();
   }
 
   @Override
@@ -29,7 +42,7 @@ public final class AVLNodeCache implements Cache<AVLIndexKey, AVLNode<?, ?>> {
   }
 
   @Override
-  public void put(AVLIndexKey key, AVLNode<?, ?> value) {
+  public void put(AVLIndexKey key, @Nonnull AVLNode<?, ?> value) {
     pageCache.put(key, value);
   }
 
@@ -54,5 +67,6 @@ public final class AVLNodeCache implements Cache<AVLIndexKey, AVLNode<?, ?>> {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 }

@@ -176,28 +176,28 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var name = new QNm("streetaddress");
 
-      final var nodeGreater = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER);
+      final var nodeGreater = allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.GREATER);
 
       assertTrue(nodeGreater.isPresent());
       assertEquals("twitteraccount", nodeGreater.get().getKey().getLocalName());
 
-      final var nodeGreaterNotPresent = allObjectKeyNamesIndexReader.getAVLNode(new QNm("type"), SearchMode.GREATER);
+      final var nodeGreaterNotPresent = allObjectKeyNamesIndexReader.getCurrentAVLNode(new QNm("type"), SearchMode.GREATER);
 
       assertFalse(nodeGreaterNotPresent.isPresent());
 
-      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER_OR_EQUAL);
+      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.GREATER_OR_EQUAL);
 
       assertTrue(nodeGreaterOrEqual.isPresent());
       assertEquals("streetaddress", nodeGreaterOrEqual.get().getKey().getLocalName());
 
-      final var nodeLess = allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.LOWER);
+      final var nodeLess = allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.LOWER);
 
       assertTrue(nodeLess.isPresent());
       assertEquals("id", nodeLess.get().getKey().getLocalName());
 
-      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getAVLNode(nodeGreaterOrEqual.get().getNodeKey(),
-                                                                          name,
-                                                                          SearchMode.LOWER_OR_EQUAL);
+      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getCurrentAVLNode(nodeGreaterOrEqual.get().getNodeKey(),
+                                                                                 name,
+                                                                                 SearchMode.LOWER_OR_EQUAL);
 
       assertTrue(nodeLessOrEqual.isPresent());
       assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
@@ -210,7 +210,7 @@ public final class JsonAVLTreeIntegrationTest {
       assertEquals(18, stream.count());
 
       final var nodeGreaterWithComp =
-          allObjectKeyNamesIndexReader.getAVLNode(name, SearchMode.GREATER, Comparator.naturalOrder());
+          allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.GREATER, Comparator.naturalOrder());
 
       assertEquals("twitteraccount", nodeGreaterWithComp.get().getKey().getLocalName());
 
