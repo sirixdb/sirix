@@ -40,6 +40,8 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   /** {@link NodeDelegate} reference. */
   private NodeDelegate nodeDelegate;
 
+  private AVLNode<K,V> parent;
+
   private AVLNode<K,V> leftChild;
 
   private AVLNode<K,V> rightChild;
@@ -121,6 +123,10 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
     return right;
   }
 
+  public AVLNode<K, V> getParent() {
+    return parent;
+  }
+
   public AVLNode<K, V> getLeftChild() {
     return leftChild;
   }
@@ -135,6 +141,10 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
 
   public void setRightChild(AVLNode<K, V> rightChild) {
     this.rightChild = rightChild;
+  }
+
+  public void setParent(AVLNode<K, V> parent) {
+    this.parent = parent;
   }
 
   @Override
