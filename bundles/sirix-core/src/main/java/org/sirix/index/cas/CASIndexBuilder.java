@@ -31,25 +31,25 @@ import java.util.Set;
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
 
-  private final AVLTreeWriter<CASValue, NodeReferences> mAVLTreeWriter;
+  private final AVLTreeWriter<CASValue, NodeReferences> avlTreeWriter;
 
-  private final PathSummaryReader mPathSummaryReader;
+  private final PathSummaryReader pathSummaryReader;
 
-  private final Set<Path<QNm>> mPaths;
+  private final Set<Path<QNm>> paths;
 
-  private final Type mType;
+  private final Type type;
 
   public CASIndexBuilder(final AVLTreeWriter<CASValue, NodeReferences> avlTreeWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
-    mPathSummaryReader = pathSummaryReader;
-    mPaths = paths;
-    mAVLTreeWriter = avlTreeWriter;
-    mType = type;
+    this.pathSummaryReader = pathSummaryReader;
+    this.paths = paths;
+    this.avlTreeWriter = avlTreeWriter;
+    this.type = type;
   }
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
-      if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths, true).contains(pathNodeKey)) {
+      if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths, true).contains(pathNodeKey)) {
         final Str strValue;
 
         if (node instanceof ImmutableValueNode) {
@@ -68,15 +68,15 @@ public final class CASIndexBuilder {
 
         boolean isOfType = false;
         try {
-          if (mType != Type.STR)
-            AtomicUtil.toType(strValue, mType);
+          if (type != Type.STR)
+            AtomicUtil.toType(strValue, type);
           isOfType = true;
         } catch (final SirixRuntimeException e) {
         }
 
         if (isOfType) {
-          final CASValue value = new CASValue(strValue, mType, pathNodeKey);
-          final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(value, SearchMode.EQUAL);
+          final CASValue value = new CASValue(strValue, type, pathNodeKey);
+          final Optional<NodeReferences> textReferences = avlTreeWriter.get(value, SearchMode.EQUAL);
           if (textReferences.isPresent()) {
             setNodeReferences(node, textReferences.get(), value);
           } else {
@@ -92,6 +92,6 @@ public final class CASIndexBuilder {
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final CASValue value)
       throws SirixIOException {
-    mAVLTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    avlTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 }
