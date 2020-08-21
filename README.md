@@ -41,9 +41,6 @@
     -   [Docker Images](#docker-images)
     -   [Command line tool](#command-line-tool)
     -   [Documentation](#documentation)
--   [RESTful-API](#restful-api)
--   [DOM alike API](#dom-alike-api) 💪
--   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Community Forum](#community-forum)
     -   [Join us on Slack](#join-us-on-slack)
