@@ -35,6 +35,8 @@
 ## Table of contents
 -   [Keeping All Versions of Your Data By Sharing Structure](#keeping-all-versions-of-your-data-by-sharing-structure)
 -   [SirixDB Features](#sirixdb-features)
+    -   [Design Goals](#design-goals)
+    -   [Revision Histories](#revision-histories)
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
     -   [Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API](#setup-of-the-sirixdb-http-server-and-keycloak-to-use-the-rest-api)
