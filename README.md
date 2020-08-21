@@ -40,7 +40,6 @@
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
     -   [Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API](#setup-of-the-sirixdb-http-server-and-keycloak-to-use-the-rest-api)
-    -   [Docker Images](#docker-images)
     -   [Command line tool](#command-line-tool)
     -   [Documentation](#documentation)
 -   [Getting Help](#getting-help)
