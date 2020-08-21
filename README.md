@@ -111,7 +111,7 @@ href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
 during commits. It never overwrites committed data.</dd>
 </dl>
 
-## Revision Histories
+### Revision Histories
 **Keeping the revision history is one of the main features in
 SirixDB.** We're able to revert any revision into an earlier
 version or back up the system automatically without the overhead of
