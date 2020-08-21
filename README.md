@@ -225,27 +225,60 @@ compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.6-SNAPSHOT'
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
-### Docker images for the Sirix HTTP(S)-Server / the REST-API
-First, we need a running Keycloak server for now on port 8080.
+### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 
-As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
+The REST-API is asynchronous at its very core. We use Vert.x which is a toolkit, built on top of Netty. It is heavily inspired by Node.js but for the JVM. As such it uses event loop(s), that is thread(s), which never should by blocked by long running CPU tasks or disk bound I/O. We are using Kotlin with coroutines to keep the code simple.
+SirixDB uses OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance.
 
-For running a keycloak docker container you could for instance use the following docker command:
-`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful, asynchronous API. It is the authorization server instance.
+### Start Docker Keycloak-Container using docker-compose
+For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test realm:
 
-Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix). However the easiest way for now is to download Sirix, then
+1. `git clone https://github.com/sirixdb/sirix.git`
+2. `sudo docker-compose up keycloak`
 
-1. Change into the sirix-rest-api bundle: `cd bundles/sirix-rest-api`
-2. Change the configuration in `src/main/resources/sirix-conf.json` and add the secret from Keycloak (see for instance this great [tutorial](
-https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/) and change the HTTP(S)-Server port Sirix is listening on:
+### Keycloak setup
 
-<img src="https://piotrminkowski.files.wordpress.com/2017/09/vertx-sec-3.png"/>
+Keycloak can be set up as described in this excellent [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. Basically you can skip the steps 3 - 7 and and 10 and 11 and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you simply want to use the Docker Hub image.
 
-3. You can simply use the example `key.pem`/`cert.pem` files in `src/main/resources` for HTTPS (for example.org), but you have to change it, once we release the stable version for production. Then you for sure have to use a certificate/key for your domain. You could use [Let's Encrypt](https://letsencrypt.org/) for instance to get an SSL/TLS certificate for free.
-4. Build the docker image: `docker build -t sirixdb/sirix`
-5. Run the docker container: `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
+1. Open your browser. URL: http://localhost:8080
+2. Login with username "admin", password "admin"
+3. Create a new **realm** with the name **"sirixdb"**
+4. Go to `Clients` => `account`
+5. Change client-id to "sirix"
+6. Make sure `access-type` is set to `confidential`
+7. Go to `Credentials` tab
+8. Put the `client secret` into the SirixDB HTTP-Server [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). Change the value of "client.secret" to whatever Keycloak set up.
+9. If "oAuthFlowType" is specified in the ame configuration file change the value to "PASSWORD" (if not default is "PASSWORD").
+10. Regarding Keycloak the `direct access` grant on the settings tab must be `enabled`.
+11. Our (user-/group-)roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. You can also assign `${databaseName}-` prefixed roles.
+ 
+### Start the SirixDB HTTP-Server and the Keycloak-Container using docker-compose
+The following command will start the docker container
 
-Sirix should be up and running afterward. Please let us know if you have any trouble setting it up.
+1. `sudo docker-compose up`
+
+### SirixDB HTTP-Server Setup Without Docker/docker-compose
+
+To created a fat-JAR. Download our ZIP-file for instance, then
+
+1. `cd bundles/sirix-rest-api`
+2. `mvn clean package -DskipTests`
+
+And a fat-JAR with all required dependencies should have been created in your target folder.
+
+Furthermore, a `key.pem` and a `cert.pem` file are needed. These two files have to be in your user home directory in a directory called "sirix-data", where Sirix stores the databases. For demo purposes they can be copied from our [resources directory](https://github.com/sirixdb/sirix/tree/master/bundles/sirix-rest-api/src/main/resources).
+
+Once also Keycloak is set up we can start the server via:
+
+`java -jar -Duser.home=/opt/sirix sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp /opt/sirix/*`
+
+If you like to change your user home directory to `/opt/sirix` for instance.
+
+The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.9.0-SNAPSHOT/).
+
+### Run the Integration Tests
+In order to run the integration tests under `bundles/sirix-rest-api/src/test/kotlin` make sure that you assign your admin user all the user-roles you have created in the Keycloak setup (last step). Make sure that Keycloak is running first and execute the tests in your favorite IDE for instance.
 
 ### Command-line tool
 We ship a (very) simple command-line tool for the sirix-xquery bundle:
