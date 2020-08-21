@@ -37,10 +37,9 @@
 -   [SirixDB Features](#sirixdb-features)
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
-    -   [Maven Artifacts](#maven-artifacts)
+    -   [Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API](#setup-of-the-sirixdb-http-server-and-keycloak-to-use-the-rest-api)
     -   [Docker Images](#docker-images)
     -   [Command line tool](#command-line-tool)
-    -   [First steps](#first-steps)
     -   [Documentation](#documentation)
 -   [RESTful-API](#restful-api)
 -   [DOM alike API](#dom-alike-api) 💪
@@ -284,9 +283,6 @@ In order to run the integration tests under `bundles/sirix-rest-api/src/test/kot
 We ship a (very) simple command-line tool for the sirix-xquery bundle:
 
 Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
-
-### First steps
-Please have a look into our sirix-example project how to use Sirix from Java or have a look into the [documentation](https://sirix.io/documentation.html).
 
 ### Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Slack channel.
