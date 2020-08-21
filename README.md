@@ -44,13 +44,8 @@
 -   [Getting Help](#getting-help)
     -   [Community Forum](#community-forum)
     -   [Join us on Slack](#join-us-on-slack)
--   [Visualizations](#visualizations)
--   [Why should you even bother?](#why-should-you-even-bother)
--   [Features in a nutshell](#features-in-a-nutshell)
--   [Developers](#developers)
--   [Further information](#further-information)
+-   [Contributors](#contributors)
 -   [License](#license)
--   [Involved People](#involved-people)
 
 ## Keeping All Versions of Your Data By Sharing Structure
 We could write quite a bunch of stuff, why it's oftentimes of great value to keep all states of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
@@ -295,25 +290,13 @@ If you have any questions or are considering to contribute or use Sirix, please 
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
 
-## Visualizations (built on top of the cursor-based transaction API)
-<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtrees through hierarchical edge bundling.</p>
-
-<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
-
-A screencast is available depicting the SunburstView and the TextView side by side:
-http://www.youtube.com/watch?v=l9CXXBkl5vI
-
-<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future, we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
-
-## Project Maintainer
+## Contributors ✨
 
 SirixDB is maintained by
 
 * Johannes Lichtenberger
 
 And the Open Source Community.
-
-## Contributors ✨
 
 As the project was forked from a university project called Treetank, my deepest gratitude to Marc Kramis, who came up with the idea of building a versioned, secure and energy-efficient data store, which retains the history of resources of his Ph.D. Furthermore, Sebastian Graf came up with a lot of ideas and greatly improved the implementation for his Ph.D. Besides, a lot of students worked and improved the project considerably.
 
