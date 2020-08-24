@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2020, SirixDB
  *
  * All rights reserved.
  *
@@ -27,7 +27,8 @@
  */
 package org.sirix.node.json;
 
-import java.math.BigInteger;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -37,8 +38,8 @@ import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import java.math.BigInteger;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -125,10 +126,9 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode))
+    if (!(obj instanceof ObjectKeyNode other))
       return false;
 
-    final ObjectKeyNode other = (ObjectKeyNode) obj;
     return Objects.equal(delegate(), other.delegate());
   }
 

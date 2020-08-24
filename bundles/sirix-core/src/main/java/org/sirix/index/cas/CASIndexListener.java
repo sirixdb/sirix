@@ -9,10 +9,10 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
-import org.sirix.index.avltree.AVLTreeWriter;
-import org.sirix.index.avltree.keyvalue.CASValue;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
+import org.sirix.index.redblacktree.RBTreeWriter;
+import org.sirix.index.redblacktree.keyvalue.CASValue;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
@@ -21,13 +21,13 @@ import java.util.Set;
 
 public final class CASIndexListener {
 
-  private final AVLTreeWriter<CASValue, NodeReferences> mAVLTreeWriter;
+  private final RBTreeWriter<CASValue, NodeReferences> mAVLTreeWriter;
   private final PathSummaryReader mPathSummaryReader;
   private final Set<Path<QNm>> mPaths;
   private final Type mType;
 
   public CASIndexListener(final PathSummaryReader pathSummaryReader,
-      final AVLTreeWriter<CASValue, NodeReferences> avlTreeWriter, final Set<Path<QNm>> paths, final Type type) {
+      final RBTreeWriter<CASValue, NodeReferences> avlTreeWriter, final Set<Path<QNm>> paths, final Type type) {
     mPathSummaryReader = pathSummaryReader;
     mAVLTreeWriter = avlTreeWriter;
     mPaths = paths;

@@ -1,4 +1,4 @@
-package org.sirix.index.avltree.keyvalue;
+package org.sirix.index.redblacktree.keyvalue;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;

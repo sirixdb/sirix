@@ -4,11 +4,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
-import org.sirix.index.avltree.AVLTreeWriter;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeWriter;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 public final class PathIndexBuilderFactory {
 
@@ -18,7 +16,7 @@ public final class PathIndexBuilderFactory {
     final var paths = checkNotNull(indexDef.getPaths());
     assert indexDef.getType() == IndexType.PATH;
     final var avlTreeWriter =
-        AVLTreeWriter.<Long, NodeReferences>getInstance(pageTrx, indexDef.getType(), indexDef.getID());
+        RBTreeWriter.<Long, NodeReferences>getInstance(pageTrx, indexDef.getType(), indexDef.getID());
 
     return new PathIndexBuilder(avlTreeWriter, pathSummary, paths);
   }

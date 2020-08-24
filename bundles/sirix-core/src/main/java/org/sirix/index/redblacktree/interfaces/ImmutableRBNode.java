@@ -1,11 +1,11 @@
-package org.sirix.index.avltree.interfaces;
+package org.sirix.index.redblacktree.interfaces;
 
 import org.sirix.node.interfaces.Node;
 
 /**
- * Immutable AVLNode.
+ * Immutable RBNode.
  */
-public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends Node {
+public interface ImmutableRBNode<K extends Comparable<? super K>, V> extends Node {
 
   /**
    * Key to be indexed.

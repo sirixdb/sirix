@@ -207,8 +207,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> Optional<V> getRecord(@Nonnull final K key,
-      @Nonnull final PageKind pageKind, @Nonnegative final int index) {
+  public <K, V> Optional<V> getRecord(@Nonnull final K key, @Nonnull final PageKind pageKind,
+      @Nonnegative final int index) {
     checkNotNull(key);
     checkNotNull(pageKind);
     assertNotClosed();
@@ -322,7 +322,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public CASPage getCASPage(final RevisionRootPage revisionRoot) {
+  public CASPage getCASPage(@Nonnull final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (CASPage) getPage(revisionRoot.getCASPageReference());
   }
@@ -357,8 +357,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
-      final IndexLogKey indexLogKey) {
+  public <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
+      @Nonnull final IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
@@ -443,7 +443,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  final <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPageFragments(
+  final <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(
       final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();
@@ -468,7 +468,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @SuppressWarnings("unchecked")
-  private <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> List<T> getPreviousPageFragments(
+  private <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPreviousPageFragments(
       final Collection<PageFragmentKey> pageFragments) {
     return pageFragments.stream().map(pageFragmentKey -> {
       if (pageFragmentKey.getRevision() == rootPage.getRevision()) {

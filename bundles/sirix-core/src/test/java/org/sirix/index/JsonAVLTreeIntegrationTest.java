@@ -8,9 +8,9 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
-import org.sirix.index.avltree.AVLTreeReader;
-import org.sirix.index.avltree.keyvalue.CASValue;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeReader;
+import org.sirix.index.redblacktree.keyvalue.CASValue;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.node.NodeKind;
 import org.sirix.service.json.shredder.JsonShredder;
@@ -146,10 +146,10 @@ public final class JsonAVLTreeIntegrationTest {
 
       assertFalse(allStreetAddressesIndex.hasNext());
 
-      final var allStreetAddressesIndexReader = AVLTreeReader.getInstance(manager.getIndexCache(),
-                                                                          trx.getPageTrx(),
-                                                                          allStreetAddresses.getType(),
-                                                                          allStreetAddresses.getID());
+      final var allStreetAddressesIndexReader = RBTreeReader.getInstance(manager.getIndexCache(),
+                                                                         trx.getPageTrx(),
+                                                                         allStreetAddresses.getType(),
+                                                                         allStreetAddresses.getID());
 
       final var firstChildKey = allStreetAddressesIndexReader.getFirstChildKey();
       final var firstChildKind = allStreetAddressesIndexReader.getFirstChildKind();
@@ -157,15 +157,15 @@ public final class JsonAVLTreeIntegrationTest {
       final var lastChildKind = allStreetAddressesIndexReader.getLastChildKind();
 
       assertEquals(3, firstChildKey);
-      assertEquals(NodeKind.NAMEAVL, firstChildKind);
+      assertEquals(NodeKind.NAMERB, firstChildKind);
       assertEquals(-1, lastChildKey);
       assertEquals(NodeKind.UNKNOWN, lastChildKind);
 
-      final AVLTreeReader<QNm, NodeReferences> allObjectKeyNamesIndexReader =
-          AVLTreeReader.getInstance(manager.getIndexCache(),
-                                    trx.getPageTrx(),
-                                    allObjectKeyNames.getType(),
-                                    allObjectKeyNames.getID());
+      final RBTreeReader<QNm, NodeReferences> allObjectKeyNamesIndexReader =
+          RBTreeReader.getInstance(manager.getIndexCache(),
+                                   trx.getPageTrx(),
+                                   allObjectKeyNames.getType(),
+                                   allObjectKeyNames.getID());
 
       final var avlNodeIterator = allObjectKeyNamesIndexReader.new AVLNodeIterator(0);
 
@@ -242,8 +242,8 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
-      AVLTreeReader<CASValue, NodeReferences> reader =
-          AVLTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
+      RBTreeReader<CASValue, NodeReferences> reader =
+          RBTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType, false);
 
@@ -386,8 +386,8 @@ public final class JsonAVLTreeIntegrationTest {
 
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
 
-      AVLTreeReader<Long, NodeReferences> reader =
-          AVLTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
+      RBTreeReader<Long, NodeReferences> reader =
+          RBTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType, false);
 

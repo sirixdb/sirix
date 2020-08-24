@@ -1,6 +1,6 @@
 package org.sirix.cache;
 
-import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.redblacktree.RBNode;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
@@ -12,5 +12,5 @@ public interface BufferManager extends AutoCloseable {
 
   Cache<Integer, RevisionRootPage> getRevisionRootPageCache();
 
-  Cache<AVLIndexKey, AVLNode<?, ?>> getIndexCache();
+  Cache<RBIndexKey, RBNode<?, ?>> getIndexCache();
 }

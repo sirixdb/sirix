@@ -51,8 +51,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws SirixIOException     if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  <K extends Comparable<? super K>, V extends DataRecord> V createRecord(K key,
-      @Nonnull V value, @Nonnull PageKind pageKind, int index);
+  <K, V> V createRecord(K key, @Nonnull V value, @Nonnull PageKind pageKind, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
@@ -67,8 +66,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code page} is {@code null}
    */
-  <K extends Comparable<? super K>, V extends DataRecord> V prepareRecordForModification(
-      @Nonnegative K key, @Nonnull PageKind pageKind, int index);
+  <K, V> V prepareRecordForModification(@Nonnegative K key, @Nonnull PageKind pageKind, int index);
 
   /**
    * Remove an entry from the storage.
@@ -80,8 +78,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    */
-  <K extends Comparable<? super K>> void removeRecord(K key,
-      @Nonnull PageKind pageKind, int index);
+  <K> void removeRecord(K key, @Nonnull PageKind pageKind, int index);
 
   /**
    * Creating a namekey for a given name.

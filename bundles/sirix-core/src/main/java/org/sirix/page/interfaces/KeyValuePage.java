@@ -17,7 +17,7 @@ import org.sirix.page.PageReference;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRecord> extends Page {
+public interface KeyValuePage<K, V> extends Page {
   /**
    * Entry set of all nodes in the page. Changes to the set are reflected in the internal data
    * structure
