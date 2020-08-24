@@ -292,7 +292,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       Preconditions.checkArgument(fromKey != getCurrentNode().getNodeKey(),
                                   "Can't move itself to right sibling of itself!");
 
-      final var node = pageTrx.getRecord(fromKey, PageKind.RECORDPAGE, -1);
+      final Optional<DataRecord> node = pageTrx.getRecord(fromKey, PageKind.RECORDPAGE, -1);
       if (node.isEmpty()) {
         throw new IllegalStateException("Node to move must exist!");
       }
@@ -425,7 +425,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       }
 
       // Save: Every node in the "usual" node page is of type Node.
-      final var node = pageTrx.getRecord(fromKey, PageKind.RECORDPAGE, -1);
+      final Optional<DataRecord> node = pageTrx.getRecord(fromKey, PageKind.RECORDPAGE, -1);
       if (node.isEmpty()) {
         throw new IllegalStateException("Node to move must exist!");
       }

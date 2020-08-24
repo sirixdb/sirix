@@ -1,4 +1,4 @@
-package org.sirix.index.avltree;
+package org.sirix.index.redblacktree;
 
 import org.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import org.sirix.api.NodeCursor;
@@ -7,8 +7,8 @@ import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
-import org.sirix.index.avltree.interfaces.References;
+import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
+import org.sirix.index.redblacktree.interfaces.References;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.*;
@@ -24,23 +24,23 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * Simple AVLTreeWriter (balanced binary search-tree -- based on BaseX(.org) version).
+ * Simple RBTreeWriter (balanced binary search-tree -- based on BaseX(.org) version).
  *
  * @param <K> the key to search for or insert
  * @param <V> the value
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public final class AVLTreeWriter<K extends Comparable<? super K>, V extends References>
+public final class RBTreeWriter<K extends Comparable<? super K>, V extends References>
     extends AbstractForwardingNodeCursor {
   /**
    * Logger.
    */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AVLTreeWriter.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(RBTreeWriter.class));
 
   /**
-   * {@link AVLTreeReader} instance.
+   * {@link RBTreeReader} instance.
    */
-  private final AVLTreeReader<K, V> avlTreeReader;
+  private final RBTreeReader<K, V> rbTreeReader;
 
   /**
    * {@link PageTrx} instance.
@@ -53,7 +53,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param pageTrx {@link PageTrx} for persistent storage
    * @param type    type of index
    */
-  private AVLTreeWriter(final PageTrx pageTrx, final IndexType type, final @Nonnegative int index) {
+  private RBTreeWriter(final PageTrx pageTrx, final IndexType type, final @Nonnegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
       final PageReference reference;
@@ -85,7 +85,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }
-    avlTreeReader = AVLTreeReader.getInstance(pageTrx.getResourceManager().getIndexCache(), pageTrx, type, index);
+    rbTreeReader = RBTreeReader.getInstance(pageTrx.getResourceManager().getIndexCache(), pageTrx, type, index);
     this.pageTrx = pageTrx;
   }
 
@@ -97,9 +97,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param index        the index number
    * @return new tree instance
    */
-  public static <K extends Comparable<? super K>, V extends References> AVLTreeWriter<K, V> getInstance(
+  public static <K extends Comparable<? super K>, V extends References> RBTreeWriter<K, V> getInstance(
       final PageTrx pageWriteTrx, final IndexType type, final int index) {
-    return new AVLTreeWriter<>(pageWriteTrx, type, index);
+    return new RBTreeWriter<>(pageWriteTrx, type, index);
   }
 
   /**
@@ -117,65 +117,65 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
       moveToDocumentRoot();
     }
     final RevisionRootPage root = pageTrx.getActualRevisionRootPage();
-    if (avlTreeReader.getCurrentAVLNode() == null
+    if (rbTreeReader.getCurrentAVLNode() == null
         && ((StructNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       // Index is empty.. create root node.
       final long nodeKey = getNewNodeKey(root);
-      final AVLNode<K, V> treeRoot = pageTrx.createRecord(nodeKey,
-                                                          new AVLNode<>(key,
-                                                                        value,
-                                                                        new NodeDelegate(nodeKey,
+      final RBNode<K, V> treeRoot = pageTrx.createRecord(nodeKey,
+                                                         new RBNode<>(key,
+                                                                      value,
+                                                                      new NodeDelegate(nodeKey,
                                                                                          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                                                          null,
                                                                                          null,
                                                                                          0,
                                                                                          null)),
-                                                          avlTreeReader.pageKind,
-                                                          avlTreeReader.index);
+                                                         rbTreeReader.pageKind,
+                                                         rbTreeReader.index);
       final StructNode document = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                                       avlTreeReader.pageKind,
-                                                                       avlTreeReader.index);
+                                                                       rbTreeReader.pageKind,
+                                                                       rbTreeReader.index);
       document.setFirstChildKey(treeRoot.getNodeKey());
       document.incrementChildCount();
       document.incrementDescendantCount();
       return value;
     }
 
-    if (move == MoveCursor.TO_DOCUMENT_ROOT || avlTreeReader.getCurrentAVLNode() == null) {
+    if (move == MoveCursor.TO_DOCUMENT_ROOT || rbTreeReader.getCurrentAVLNode() == null) {
       moveToDocumentRoot();
       moveToFirstChild();
     }
-    AVLNode<K, V> node = avlTreeReader.getCurrentAVLNode();
+    RBNode<K, V> node = rbTreeReader.getCurrentAVLNode();
     while (true) {
       final int c = key.compareTo(node.getKey());
       if (c == 0) {
         if (!value.equals(node.getValue())) {
-          final AVLNode<K, V> avlNode =
-              pageTrx.prepareRecordForModification(node.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
-          avlNode.setValue(value);
+          final RBNode<K, V> RBNode =
+              pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
+          RBNode.setValue(value);
         }
         return node.getValue();
       }
 
       final boolean moved = c < 0 ? moveToFirstChild().hasMoved() : moveToLastChild().hasMoved();
       if (moved) {
-        node = avlTreeReader.getCurrentAVLNode();
+        node = rbTreeReader.getCurrentAVLNode();
         continue;
       }
 
       final long nodeKey = getNewNodeKey(root);
-      final AVLNode<K, V> child = pageTrx.createRecord(nodeKey,
-                                                       new AVLNode<>(key,
-                                                                     value,
-                                                                     new NodeDelegate(nodeKey,
+      final RBNode<K, V> child = pageTrx.createRecord(nodeKey,
+                                                      new RBNode<>(key,
+                                                                   value,
+                                                                   new NodeDelegate(nodeKey,
                                                                                       node.getNodeKey(),
                                                                                       null,
                                                                                       null,
                                                                                       0,
                                                                                       null)),
-                                                       avlTreeReader.pageKind,
-                                                       avlTreeReader.index);
-      node = pageTrx.prepareRecordForModification(node.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+                                                      rbTreeReader.pageKind,
+                                                      rbTreeReader.index);
+      node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
       if (c < 0) {
         node.setLeftChildKey(child.getNodeKey());
       } else {
@@ -183,8 +183,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
       }
       adjust(child);
       final StructNode document = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                                       avlTreeReader.pageKind,
-                                                                       avlTreeReader.index);
+                                                                       rbTreeReader.pageKind,
+                                                                       rbTreeReader.index);
       document.incrementDescendantCount();
       return value;
     }
@@ -199,11 +199,11 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    */
   private long getNewNodeKey(final RevisionRootPage root) {
     // $CASES-OMITTED$
-    return switch (avlTreeReader.pageKind) {
-      case PATHPAGE -> pageTrx.getPathPage(root).getMaxNodeKey(avlTreeReader.index) + 1;
-      case CASPAGE -> pageTrx.getCASPage(root).getMaxNodeKey(avlTreeReader.index) + 1;
-      case NAMEPAGE -> pageTrx.getNamePage(root).getMaxNodeKey(avlTreeReader.index) + 1;
-      case PATHSUMMARYPAGE -> pageTrx.getPathSummaryPage(root).getMaxNodeKey(avlTreeReader.index) + 1;
+    return switch (rbTreeReader.pageKind) {
+      case PATHPAGE -> pageTrx.getPathPage(root).getMaxNodeKey(rbTreeReader.index) + 1;
+      case CASPAGE -> pageTrx.getCASPage(root).getMaxNodeKey(rbTreeReader.index) + 1;
+      case NAMEPAGE -> pageTrx.getNamePage(root).getMaxNodeKey(rbTreeReader.index) + 1;
+      case PATHSUMMARYPAGE -> pageTrx.getPathSummaryPage(root).getMaxNodeKey(rbTreeReader.index) + 1;
       default -> throw new IllegalStateException();
     };
   }
@@ -217,7 +217,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    */
   public boolean remove(final K key, final @Nonnegative long nodeKey) {
     checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
-    final Optional<V> searchedValue = avlTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
+    final Optional<V> searchedValue = rbTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
     boolean removed = false;
     if (searchedValue.isPresent()) {
       final V value = searchedValue.get();
@@ -225,9 +225,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
       removed = value.removeNodeKey(nodeKey);
 
       if (removed) {
-        final AVLNode<K, V> node = pageTrx.prepareRecordForModification(avlTreeReader.getNodeKey(),
-                                                                        avlTreeReader.pageKind,
-                                                                        avlTreeReader.index);
+        final RBNode<K, V> node = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
+                                                                       rbTreeReader.pageKind,
+                                                                       rbTreeReader.index);
         node.getValue().removeNodeKey(nodeKey);
       }
     }
@@ -240,13 +240,13 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param node node to be adjusted
    * @throws SirixIOException if an I/O error occurs
    */
-  private void adjust(AVLNode<K, V> node) {
+  private void adjust(RBNode<K, V> node) {
     setChanged(node, true);
 
     while (node != null && node.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty() && parent(node) != null
         && parent(node).isChanged()) {
       if (parent(node).equals(left(parent(parent(node))))) {
-        final AVLNode<K, V> y = right(parent(parent(node)));
+        final RBNode<K, V> y = right(parent(parent(node)));
         if (y != null && y.isChanged()) {
           setChanged(parent(node), false);
           y.setChanged(false);
@@ -263,7 +263,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
             rotateRight(parent(parent(node)));
         }
       } else if (parent(node).equals(right(parent(parent(node))))) {
-        final AVLNode<K, V> y = left(parent(parent(node)));
+        final RBNode<K, V> y = left(parent(parent(node)));
         if (y != null && y.isChanged()) {
           setChanged(parent(node), false);
           setChanged(y, false);
@@ -289,7 +289,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     if (((StructNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
       //noinspection ConstantConditions
-      setChanged(avlTreeReader.getCurrentAVLNode(), false);
+      setChanged(rbTreeReader.getCurrentAVLNode(), false);
     }
     moveTo(nodeKey);
   }
@@ -301,9 +301,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param changed      changed value
    * @throws SirixIOException if an I/O error occurs
    */
-  private void setChanged(final AVLNode<K, V> nodeToChange, final boolean changed) {
-    final AVLNode<K, V> node =
-        pageTrx.prepareRecordForModification(nodeToChange.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+  private void setChanged(final RBNode<K, V> nodeToChange, final boolean changed) {
+    final RBNode<K, V> node =
+        pageTrx.prepareRecordForModification(nodeToChange.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     node.setChanged(changed);
   }
 
@@ -313,17 +313,17 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param node node from which to move to and return the left sibling
    * @return left child node or {@code null}
    */
-  private AVLNode<K, V> left(@Nullable final AVLNode<K, V> node) {
+  private RBNode<K, V> left(@Nullable final RBNode<K, V> node) {
     if (node == null || node.getLeftChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
     final var leftChild = node.getLeftChild();
     if (leftChild != null) {
-      avlTreeReader.setCurrentAVLNode(leftChild);
+      rbTreeReader.setCurrentAVLNode(leftChild);
       assert node.getLeftChildKey() == leftChild.getNodeKey();
       return leftChild;
     }
-    return moveTo(node.getLeftChildKey()).hasMoved() ? avlTreeReader.getCurrentAVLNode() : null;
+    return moveTo(node.getLeftChildKey()).hasMoved() ? rbTreeReader.getCurrentAVLNode() : null;
   }
 
   /**
@@ -332,17 +332,17 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param node node from which to move to and return the right sibling
    * @return right child node or {@code null}
    */
-  private AVLNode<K, V> right(@Nullable final AVLNode<K, V> node) {
+  private RBNode<K, V> right(@Nullable final RBNode<K, V> node) {
     if (node == null || node.getRightChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
     final var rightChild = node.getRightChild();
     if (rightChild != null) {
-      avlTreeReader.setCurrentAVLNode(rightChild);
+      rbTreeReader.setCurrentAVLNode(rightChild);
       assert node.getRightChildKey() == rightChild.getNodeKey();
       return rightChild;
     }
-    return moveTo(node.getRightChildKey()).hasMoved() ? avlTreeReader.getCurrentAVLNode() : null;
+    return moveTo(node.getRightChildKey()).hasMoved() ? rbTreeReader.getCurrentAVLNode() : null;
   }
 
   /**
@@ -351,17 +351,17 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @param node node from which to move to and return the parent node
    * @return parent node or {@code null}
    */
-  private AVLNode<K, V> parent(@Nullable final AVLNode<K, V> node) {
+  private RBNode<K, V> parent(@Nullable final RBNode<K, V> node) {
     if (node == null || node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
     final var parent = node.getParent();
     if (parent != null) {
-      avlTreeReader.setCurrentAVLNode(parent);
+      rbTreeReader.setCurrentAVLNode(parent);
       assert node.getParentKey() == parent.getNodeKey();
       return parent;
     }
-    return moveTo(node.getParentKey()).hasMoved() ? avlTreeReader.getCurrentAVLNode() : null;
+    return moveTo(node.getParentKey()).hasMoved() ? rbTreeReader.getCurrentAVLNode() : null;
   }
 
   /**
@@ -371,52 +371,52 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @throws SirixIOException if an I/O error occurs
    */
   @SuppressWarnings({ "unchecked" })
-  private void rotateLeft(AVLNode<K, V> node) {
+  private void rotateLeft(RBNode<K, V> node) {
     moveTo(node.getNodeKey());
 
-    AVLNode<K, V> right = ((AVLTreeReader<K, V>) moveToLastChild().trx()).getCurrentAVLNode();
+    RBNode<K, V> right = ((RBTreeReader<K, V>) moveToLastChild().trx()).getCurrentAVLNode();
 
-    node = pageTrx.prepareRecordForModification(node.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+    node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     assert right != null;
     node.setRightChildKey(right.getLeftChildKey());
     node.setRightChild(right.getLeftChild());
 
     if (right.hasLeftChild()) {
-      final AVLNode<K, V> rightLeftChild =
-          pageTrx.prepareRecordForModification(right.getLeftChildKey(), avlTreeReader.pageKind, avlTreeReader.index);
+      final RBNode<K, V> rightLeftChild =
+          pageTrx.prepareRecordForModification(right.getLeftChildKey(), rbTreeReader.pageKind, rbTreeReader.index);
       rightLeftChild.setParentKey(node.getNodeKey());
       rightLeftChild.setParent(node);
     }
 
-    right = pageTrx.prepareRecordForModification(right.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+    right = pageTrx.prepareRecordForModification(right.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     right.setParentKey(node.getParentKey());
     right.setParent(node.getParent());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       final StructNode parent = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                                     avlTreeReader.pageKind,
-                                                                     avlTreeReader.index);
+                                                                     rbTreeReader.pageKind,
+                                                                     rbTreeReader.index);
       parent.setFirstChildKey(right.getNodeKey());
     } else //noinspection ConstantConditions
-      if (moveTo(node.getParentKey()).hasMoved() && avlTreeReader.getCurrentAVLNode().getLeftChildKey() == node.getNodeKey()) {
-        final AVLNode<K, V> parent = pageTrx.prepareRecordForModification(avlTreeReader.getNodeKey(),
-                                                                          avlTreeReader.pageKind,
-                                                                          avlTreeReader.index);
+      if (moveTo(node.getParentKey()).hasMoved() && rbTreeReader.getCurrentAVLNode().getLeftChildKey() == node.getNodeKey()) {
+        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
+                                                                         rbTreeReader.pageKind,
+                                                                         rbTreeReader.index);
         parent.setLeftChildKey(right.getNodeKey());
         parent.setLeftChild(right);
       } else {
-        final AVLNode<K, V> parent = pageTrx.prepareRecordForModification(avlTreeReader.getNodeKey(),
-                                                                          avlTreeReader.pageKind,
-                                                                          avlTreeReader.index);
+        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
+                                                                         rbTreeReader.pageKind,
+                                                                         rbTreeReader.index);
         parent.setRightChildKey(right.getNodeKey());
         parent.setRightChild(right);
       }
 
-    right = pageTrx.prepareRecordForModification(right.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+    right = pageTrx.prepareRecordForModification(right.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     right.setLeftChildKey(node.getNodeKey());
     right.setLeftChild(node);
 
-    node = pageTrx.prepareRecordForModification(node.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+    node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     node.setParentKey(right.getNodeKey());
     node.setParent(right);
   }
@@ -428,67 +428,67 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * @throws SirixIOException if an I/O error occurs
    */
   @SuppressWarnings({ "unchecked" })
-  private void rotateRight(AVLNode<K, V> node) {
+  private void rotateRight(RBNode<K, V> node) {
     moveTo(node.getNodeKey());
 
-    AVLNode<K, V> leftChild = ((AVLTreeReader<K, V>) moveToFirstChild().trx()).getCurrentAVLNode();
-    node = pageTrx.prepareRecordForModification(node.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+    RBNode<K, V> leftChild = ((RBTreeReader<K, V>) moveToFirstChild().trx()).getCurrentAVLNode();
+    node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     assert leftChild != null;
     node.setLeftChildKey(leftChild.getRightChildKey());
     node.setLeftChild(leftChild.getRightChild());
 
     if (leftChild.hasRightChild()) {
-      final AVLNode<K, V> leftRightChild = pageTrx.prepareRecordForModification(leftChild.getRightChildKey(),
-                                                                       avlTreeReader.pageKind,
-                                                                       avlTreeReader.index);
+      final RBNode<K, V> leftRightChild = pageTrx.prepareRecordForModification(leftChild.getRightChildKey(),
+                                                                               rbTreeReader.pageKind,
+                                                                               rbTreeReader.index);
       leftRightChild.setParentKey(node.getNodeKey());
       leftRightChild.setParent(node);
     }
 
     leftChild =
-        pageTrx.prepareRecordForModification(leftChild.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+        pageTrx.prepareRecordForModification(leftChild.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     leftChild.setParentKey(node.getParentKey());
     leftChild.setParent(node.getParent());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       final StructNode parent = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                                     avlTreeReader.pageKind,
-                                                                     avlTreeReader.index);
+                                                                     rbTreeReader.pageKind,
+                                                                     rbTreeReader.index);
       parent.setFirstChildKey(leftChild.getNodeKey());
     } else //noinspection ConstantConditions
       if (moveTo(node.getParentKey()).hasMoved()
-          && avlTreeReader.getCurrentAVLNode().getRightChildKey() == node.getNodeKey()) {
-        final AVLNode<K, V> parent = pageTrx.prepareRecordForModification(avlTreeReader.getNodeKey(),
-                                                                          avlTreeReader.pageKind,
-                                                                          avlTreeReader.index);
+          && rbTreeReader.getCurrentAVLNode().getRightChildKey() == node.getNodeKey()) {
+        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
+                                                                         rbTreeReader.pageKind,
+                                                                         rbTreeReader.index);
         parent.setRightChildKey(leftChild.getNodeKey());
         parent.setRightChild(leftChild);
       } else {
-        final AVLNode<K, V> parent = pageTrx.prepareRecordForModification(avlTreeReader.getNodeKey(),
-                                                                          avlTreeReader.pageKind,
-                                                                          avlTreeReader.index);
+        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
+                                                                         rbTreeReader.pageKind,
+                                                                         rbTreeReader.index);
         parent.setLeftChildKey(leftChild.getNodeKey());
         parent.setLeftChild(leftChild);
       }
 
     leftChild =
-        pageTrx.prepareRecordForModification(leftChild.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+        pageTrx.prepareRecordForModification(leftChild.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     leftChild.setRightChildKey(node.getNodeKey());
     leftChild.setRightChild(node);
 
-    node = pageTrx.prepareRecordForModification(node.getNodeKey(), avlTreeReader.pageKind, avlTreeReader.index);
+    node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.pageKind, rbTreeReader.index);
     node.setParentKey(leftChild.getNodeKey());
     node.setParent(leftChild);
   }
 
   @Override
   public void close() {
-    avlTreeReader.close();
+    rbTreeReader.close();
   }
 
   @Override
   protected NodeCursor delegate() {
-    return avlTreeReader;
+    return rbTreeReader;
   }
 
   /**
@@ -500,15 +500,15 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
    * value hasn't been found)
    */
   public Optional<V> get(final K key, final SearchMode mode) {
-    return avlTreeReader.get(checkNotNull(key), checkNotNull(mode));
+    return rbTreeReader.get(checkNotNull(key), checkNotNull(mode));
   }
 
   /**
-   * Get the {@link AVLTreeReader} used to navigate.
+   * Get the {@link RBTreeReader} used to navigate.
    *
-   * @return {@link AVLTreeReader} reference
+   * @return {@link RBTreeReader} reference
    */
-  public AVLTreeReader<K, V> getReader() {
-    return avlTreeReader;
+  public RBTreeReader<K, V> getReader() {
+    return rbTreeReader;
   }
 }

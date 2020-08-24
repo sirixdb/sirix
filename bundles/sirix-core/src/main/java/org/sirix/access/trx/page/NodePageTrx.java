@@ -165,7 +165,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V prepareRecordForModification(
+  public <K, V> V prepareRecordForModification(
       @Nonnull final K recordKey, @Nonnull final PageKind pageKind, final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);
@@ -194,7 +194,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> V createRecord(@Nonnull final K recordKey,
+  public <K, V> V createRecord(@Nonnull final K recordKey,
       @Nonnull final V record, @Nonnull final PageKind pageKind, @Nonnegative final int index) {
     pageRtx.assertNotClosed();
 
@@ -227,7 +227,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final PageContainer cont = prepareRecordPage(recordPageKey, index, pageKind);
       @SuppressWarnings("unchecked")
       final KeyValuePage<Long, DataRecord> modified = (KeyValuePage<Long, DataRecord>) cont.getModified();
-      modified.setRecord(createdRecordKey, record);
+      modified.setRecord(createdRecordKey, (DataRecord) record);
       return record;
     }
 
@@ -236,7 +236,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>> void removeRecord(final K recordKey, @Nonnull final PageKind pageKind,
+  public <K> void removeRecord(final K recordKey, @Nonnull final PageKind pageKind,
       final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);
@@ -264,7 +264,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> Optional<V> getRecord(@Nonnull final K recordKey,
+  public <K, V> Optional<V> getRecord(@Nonnull final K recordKey,
       @Nonnull final PageKind pageKind, @Nonnegative final int index) {
     pageRtx.assertNotClosed();
 

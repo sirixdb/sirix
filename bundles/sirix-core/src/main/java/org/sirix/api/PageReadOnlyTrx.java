@@ -60,7 +60,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  <K extends Comparable<? super K>, V extends DataRecord> Optional<V> getRecord(@Nonnull K key,
+  <K, V> Optional<V> getRecord(@Nonnull K key,
       @Nonnull PageKind pageKind, @Nonnegative int index);
 
   /**
@@ -122,7 +122,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  <K extends Comparable<? super K>, V extends DataRecord, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
+  <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
       @Nonnull IndexLogKey indexLogKey);
 
   /**
@@ -164,7 +164,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return NamePage The associated NamePage
    * @throws SirixIOException if an I/O error occurs
    */
-  NamePage getNamePage(RevisionRootPage revisionRoot);
+  NamePage getNamePage(@Nonnull RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link PathPage} associated with the current revision root.
@@ -173,7 +173,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return PathPage The associated PathPage
    * @throws SirixIOException if an I/O error occur@Nonnull RevisionRootPage revisionRoots
    */
-  PathPage getPathPage(RevisionRootPage revisionRoot);
+  PathPage getPathPage(@Nonnull RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link CASPage} associated with the current revision root.
@@ -191,7 +191,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return PathSummaryPage The associated PathSummaryPage
    * @throws SirixIOException if an I/O error occurs
    */
-  PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot);
+  PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link DeweyIDPage} associated with the current revision root.
@@ -200,7 +200,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return DeweyIDPage The associated DeweyIDPage
    * @throws SirixIOException if an I/O error occurs
    */
-  DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot);
+  DeweyIDPage getDeweyIDPage(@Nonnull RevisionRootPage revisionRoot);
 
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.

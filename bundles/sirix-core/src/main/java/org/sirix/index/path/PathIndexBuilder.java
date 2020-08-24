@@ -9,9 +9,9 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
-import org.sirix.index.avltree.AVLTreeWriter;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
+import org.sirix.index.redblacktree.RBTreeWriter;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
@@ -25,9 +25,9 @@ public final class PathIndexBuilder {
 
   private final PathSummaryReader pathSummaryReader;
 
-  private final AVLTreeWriter<Long, NodeReferences> avlTreeWriter;
+  private final RBTreeWriter<Long, NodeReferences> avlTreeWriter;
 
-  public PathIndexBuilder(final AVLTreeWriter<Long, NodeReferences> avlTreeWriter,
+  public PathIndexBuilder(final RBTreeWriter<Long, NodeReferences> avlTreeWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;

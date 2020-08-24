@@ -1,4 +1,4 @@
-package org.sirix.index.avltree.interfaces;
+package org.sirix.index.redblacktree.interfaces;
 
 import java.util.Set;
 import javax.annotation.Nonnegative;

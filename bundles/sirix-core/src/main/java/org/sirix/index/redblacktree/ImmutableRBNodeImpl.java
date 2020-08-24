@@ -1,76 +1,76 @@
-package org.sirix.index.avltree;
+package org.sirix.index.redblacktree;
 
-import org.sirix.index.avltree.interfaces.ImmutableAVLNode;
+import org.sirix.index.redblacktree.interfaces.ImmutableRBNode;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 
 /**
- * Immutable AVLNode.
+ * Immutable RBNode.
  *
  * @author Johannes Lichtenberger
  *
  * @param <K> key which has to be comparable (implement Comparable interface)
  * @param <V> value
  */
-public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V> extends AbstractForwardingNode
-    implements ImmutableAVLNode<K, V> {
+public final class ImmutableRBNodeImpl<K extends Comparable<? super K>, V> extends AbstractForwardingNode
+    implements ImmutableRBNode<K, V> {
 
-  /** {@link AVLNode} to wrap. */
-  private final AVLNode<K, V> mNode;
+  /** {@link RBNode} to wrap. */
+  private final RBNode<K, V> node;
 
   /**
    * Constructor.
    *
-   * @param node {@link AVLNode} to wrap.
+   * @param node {@link RBNode} to wrap.
    */
-  public ImmutableAVLNodeImpl(final AVLNode<K, V> node) {
+  public ImmutableRBNodeImpl(final RBNode<K, V> node) {
     assert node != null;
-    mNode = node;
+    this.node = node;
   }
 
   @Override
   public NodeKind getKind() {
-    return mNode.getKind();
+    return node.getKind();
   }
 
   @Override
   public K getKey() {
-    return mNode.getKey();
+    return node.getKey();
   }
 
   @Override
   public V getValue() {
-    return mNode.getValue();
+    return node.getValue();
   }
 
   @Override
   public boolean isChanged() {
-    return mNode.isChanged();
+    return node.isChanged();
   }
 
   @Override
   public boolean hasLeftChild() {
-    return mNode.hasLeftChild();
+    return node.hasLeftChild();
   }
 
   @Override
   public boolean hasRightChild() {
-    return mNode.hasRightChild();
+    return node.hasRightChild();
   }
 
   @Override
   public long getLeftChildKey() {
-    return mNode.getLeftChildKey();
+    return node.getLeftChildKey();
   }
 
   @Override
   public long getRightChildKey() {
-    return mNode.getRightChildKey();
+    return node.getRightChildKey();
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mNode.delegate();
+    return node.delegate();
   }
 }

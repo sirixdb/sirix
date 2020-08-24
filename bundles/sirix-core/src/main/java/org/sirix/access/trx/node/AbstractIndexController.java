@@ -10,7 +10,7 @@ import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.*;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.*;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.cas.CASIndex;
@@ -20,9 +20,7 @@ import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnull;
 import java.io.OutputStream;

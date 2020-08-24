@@ -1,10 +1,9 @@
 package org.sirix.access;
 
-import org.sirix.cache.AVLIndexKey;
+import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.Cache;
 import org.sirix.cache.EmptyCache;
-import org.sirix.cache.IndexLogKey;
-import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.redblacktree.RBNode;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
@@ -17,7 +16,7 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
 
   private static final EmptyCache<Integer, RevisionRootPage> REVISION_ROOT_PAGE_CACHE = new EmptyCache<>();
 
-  private static final EmptyCache<AVLIndexKey, AVLNode<?, ?>> AVL_NODE_CACHE = new EmptyCache<>();
+  private static final EmptyCache<RBIndexKey, RBNode<?, ?>> AVL_NODE_CACHE = new EmptyCache<>();
 
   EmptyBufferManager() {
   }
@@ -38,7 +37,7 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
   }
 
   @Override
-  public Cache<AVLIndexKey, AVLNode<?, ?>> getIndexCache() {
+  public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
     return AVL_NODE_CACHE;
   }
 

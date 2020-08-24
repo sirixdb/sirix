@@ -31,9 +31,9 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.AtomicUtil;
-import org.sirix.index.avltree.AVLNode;
-import org.sirix.index.avltree.keyvalue.CASValue;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.keyvalue.CASValue;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -55,7 +55,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
 import java.util.*;
 
 import static org.sirix.node.Utils.getVarLong;
@@ -613,9 +612,9 @@ public enum NodeKind implements NodePersistenter {
   },
 
   /**
-   * Node kind is a CAS-AVL node.
+   * Node kind is a CAS-RB node.
    */
-  CASAVL((byte) 17, AVLNode.class) {
+  CASRB((byte) 17, RBNode.class) {
     @Override
     public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -646,7 +645,7 @@ public enum NodeKind implements NodePersistenter {
 
       final Atomic atomic = AtomicUtil.fromBytes(value, atomicType);
       final var node =
-          new AVLNode<>(new CASValue(atomic, atomicType, pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
+          new RBNode<>(new CASValue(atomic, atomicType, pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
 
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
@@ -658,7 +657,7 @@ public enum NodeKind implements NodePersistenter {
     public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       @SuppressWarnings("unchecked")
-      final AVLNode<CASValue, NodeReferences> node = (AVLNode<CASValue, NodeReferences>) record;
+      final RBNode<CASValue, NodeReferences> node = (RBNode<CASValue, NodeReferences>) record;
       final CASValue key = node.getKey();
       final byte[] textValue = key.getValue();
       sink.writeInt(textValue.length);
@@ -714,9 +713,9 @@ public enum NodeKind implements NodePersistenter {
   },
 
   /**
-   * Node kind is a PATH-AVL node.
+   * Node kind is a PATH-RB node.
    */
-  PATHAVL((byte) 18, AVLNode.class) {
+  PATHRB((byte) 18, RBNode.class) {
     @Override
     public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -731,7 +730,7 @@ public enum NodeKind implements NodePersistenter {
       final long leftChild = getVarLong(source);
       final long rightChild = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-      final AVLNode<Long, NodeReferences> node = new AVLNode<>(key, new NodeReferences(nodeKeys), nodeDel);
+      final RBNode<Long, NodeReferences> node = new RBNode<>(key, new NodeReferences(nodeKeys), nodeDel);
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
       node.setChanged(isChanged);
@@ -742,7 +741,7 @@ public enum NodeKind implements NodePersistenter {
     public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       @SuppressWarnings("unchecked")
-      final AVLNode<Long, NodeReferences> node = (AVLNode<Long, NodeReferences>) record;
+      final RBNode<Long, NodeReferences> node = (RBNode<Long, NodeReferences>) record;
       putVarLong(sink, node.getKey().longValue());
       final NodeReferences value = node.getValue();
       final Set<Long> nodeKeys = value.getNodeKeys();
@@ -770,9 +769,9 @@ public enum NodeKind implements NodePersistenter {
   },
 
   /**
-   * Node kind is a PATH-AVL node.
+   * Node kind is a PATH-RB node.
    */
-  NAMEAVL((byte) 19, AVLNode.class) {
+  NAMERB((byte) 19, RBNode.class) {
     @Override
     public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -795,7 +794,7 @@ public enum NodeKind implements NodePersistenter {
       final long leftChild = getVarLong(source);
       final long rightChild = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-      final AVLNode<QNm, NodeReferences> node = new AVLNode<>(name, new NodeReferences(nodeKeys), nodeDel);
+      final RBNode<QNm, NodeReferences> node = new RBNode<>(name, new NodeReferences(nodeKeys), nodeDel);
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
       node.setChanged(isChanged);
@@ -806,7 +805,7 @@ public enum NodeKind implements NodePersistenter {
     public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       @SuppressWarnings("unchecked")
-      final AVLNode<QNm, NodeReferences> node = (AVLNode<QNm, NodeReferences>) record;
+      final RBNode<QNm, NodeReferences> node = (RBNode<QNm, NodeReferences>) record;
       final byte[] nspBytes = node.getKey().getNamespaceURI().getBytes();
       sink.writeInt(nspBytes.length);
       sink.write(nspBytes);

@@ -1,9 +1,6 @@
 package org.sirix.access.trx.page;
 
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
+import com.google.common.collect.ForwardingObject;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
@@ -11,19 +8,12 @@ import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.CASPage;
-import org.sirix.page.IndirectPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.KeyValuePage;
-import com.google.common.collect.ForwardingObject;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.util.Optional;
 
 /**
  * Forwards all methods to the delegate.
@@ -66,7 +56,7 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord> Optional<V> getRecord(@Nonnull K key,
+  public <K, V> Optional<V> getRecord(@Nonnull K key,
       @Nonnull PageKind pageKind, int index) {
     return delegate().getRecord(key, pageKind, index);
   }

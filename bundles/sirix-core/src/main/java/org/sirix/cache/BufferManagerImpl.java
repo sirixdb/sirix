@@ -1,6 +1,6 @@
 package org.sirix.cache;
 
-import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.redblacktree.RBNode;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
@@ -12,13 +12,14 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final RevisionRootPageCache revisionRootPageCache;
 
-  private final AVLNodeCache avlNodeCache;
+  private final RedBlackTreeNodeCache redBlackTreeNodeCache;
 
-  public BufferManagerImpl(final int maxPageCacheSize, final int maxRecordPageCacheSize, final int maxRevisionRootPageCache, final int maxAVLNodeCache) {
+  public BufferManagerImpl(final int maxPageCacheSize, final int maxRecordPageCacheSize,
+      final int maxRevisionRootPageCache, final int maxRBTreeNodeCache) {
     pageCache = new PageCache(maxPageCacheSize);
     recordPageCache = new RecordPageCache(maxRecordPageCacheSize);
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
-    avlNodeCache = new AVLNodeCache(maxAVLNodeCache);
+    redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
   }
 
   @Override
@@ -37,8 +38,8 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<AVLIndexKey, AVLNode<?, ?>> getIndexCache() {
-    return avlNodeCache;
+  public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
+    return redBlackTreeNodeCache;
   }
 
   @Override
@@ -46,6 +47,6 @@ public final class BufferManagerImpl implements BufferManager {
     pageCache.clear();
     recordPageCache.clear();
     revisionRootPageCache.clear();
-    avlNodeCache.clear();
+    redBlackTreeNodeCache.clear();
   }
 }

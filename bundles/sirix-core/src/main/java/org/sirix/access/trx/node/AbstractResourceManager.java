@@ -12,14 +12,14 @@ import org.sirix.access.trx.page.RevisionRootPageReader;
 import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.cache.AVLIndexKey;
+import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.Cache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
@@ -188,7 +188,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Cache<AVLIndexKey, AVLNode<?, ?>> getIndexCache() {
+  public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
     return bufferManager.getIndexCache();
   }
 

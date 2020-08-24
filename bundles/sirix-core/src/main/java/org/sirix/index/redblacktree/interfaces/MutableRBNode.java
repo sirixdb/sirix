@@ -1,12 +1,12 @@
-package org.sirix.index.avltree.interfaces;
+package org.sirix.index.redblacktree.interfaces;
 
 /**
- * Mutable AVLNode.
+ * Mutable RBNode.
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public interface MutableAVLNode<K extends Comparable<? super K>, V> extends ImmutableAVLNode<K, V> {
+public interface MutableRBNode<K extends Comparable<? super K>, V> extends ImmutableRBNode<K, V> {
   /**
    * Set the key.
    * 

@@ -3,21 +3,21 @@ package org.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
-import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.redblacktree.RBNode;
 
 import javax.annotation.Nonnull;
 import java.util.Map;
 
-public final class AVLNodeCache implements Cache<AVLIndexKey, AVLNode<?, ?>> {
+public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, ?>> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<AVLIndexKey, AVLNode<?, ?>> pageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<RBIndexKey, RBNode<?, ?>> pageCache;
 
-  public AVLNodeCache(final int maxSize) {
-    final RemovalListener<AVLIndexKey, AVLNode<?, ?>> removalListener =
-        (AVLIndexKey key, AVLNode<?, ?> value, RemovalCause cause) -> {
+  public RedBlackTreeNodeCache(final int maxSize) {
+    final RemovalListener<RBIndexKey, RBNode<?, ?>> removalListener =
+        (RBIndexKey key, RBNode<?, ?> value, RemovalCause cause) -> {
           assert key != null;
           assert value != null;
-          final AVLNode<?, ?> parent = value.getParent();
+          final RBNode<?, ?> parent = value.getParent();
 
           if (parent != null) {
             if (parent.getLeftChild().equals(value)) {
@@ -37,17 +37,17 @@ public final class AVLNodeCache implements Cache<AVLIndexKey, AVLNode<?, ?>> {
   }
 
   @Override
-  public AVLNode<?, ?> get(AVLIndexKey key) {
+  public RBNode<?, ?> get(RBIndexKey key) {
     return pageCache.getIfPresent(key);
   }
 
   @Override
-  public void put(AVLIndexKey key, @Nonnull AVLNode<?, ?> value) {
+  public void put(RBIndexKey key, @Nonnull RBNode<?, ?> value) {
     pageCache.put(key, value);
   }
 
   @Override
-  public void putAll(Map<? extends AVLIndexKey, ? extends AVLNode<?, ?>> map) {
+  public void putAll(Map<? extends RBIndexKey, ? extends RBNode<?, ?>> map) {
     pageCache.putAll(map);
   }
 
@@ -57,12 +57,12 @@ public final class AVLNodeCache implements Cache<AVLIndexKey, AVLNode<?, ?>> {
   }
 
   @Override
-  public Map<AVLIndexKey, AVLNode<?, ?>> getAll(Iterable<? extends AVLIndexKey> keys) {
+  public Map<RBIndexKey, RBNode<?, ?>> getAll(Iterable<? extends RBIndexKey> keys) {
     return pageCache.getAllPresent(keys);
   }
 
   @Override
-  public void remove(AVLIndexKey key) {
+  public void remove(RBIndexKey key) {
     pageCache.invalidate(key);
   }
 

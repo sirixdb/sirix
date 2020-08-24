@@ -11,10 +11,10 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
-import org.sirix.index.avltree.AVLTreeWriter;
-import org.sirix.index.avltree.keyvalue.CASValue;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
+import org.sirix.index.redblacktree.RBTreeWriter;
+import org.sirix.index.redblacktree.keyvalue.CASValue;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
@@ -31,7 +31,7 @@ import java.util.Set;
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
 
-  private final AVLTreeWriter<CASValue, NodeReferences> avlTreeWriter;
+  private final RBTreeWriter<CASValue, NodeReferences> avlTreeWriter;
 
   private final PathSummaryReader pathSummaryReader;
 
@@ -39,7 +39,7 @@ public final class CASIndexBuilder {
 
   private final Type type;
 
-  public CASIndexBuilder(final AVLTreeWriter<CASValue, NodeReferences> avlTreeWriter,
+  public CASIndexBuilder(final RBTreeWriter<CASValue, NodeReferences> avlTreeWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;

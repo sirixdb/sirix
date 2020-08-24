@@ -1,11 +1,11 @@
-package org.sirix.index.avltree.keyvalue;
+package org.sirix.index.redblacktree.keyvalue;
 
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-import org.sirix.index.avltree.interfaces.References;
+import org.sirix.index.redblacktree.interfaces.References;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
