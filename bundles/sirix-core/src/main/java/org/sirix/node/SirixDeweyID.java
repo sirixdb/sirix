@@ -106,6 +106,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     if (maxDivisionValue[divisionLengthArray.length - 1] != Integer.MAX_VALUE) {
       throw new SirixException(
           "DeweyID: It is not possible to handle all positive Integer values with the given divisionLengthArray!");
+    }
 
     // check if bitStringAsBoolean has as many rows as divisionLengthArray
     if (bitStringAsBoolean.length != divisionLengthArray.length) {
