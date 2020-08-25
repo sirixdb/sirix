@@ -50,7 +50,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   private long firstChild;
 
   /** Pointer to the last child of the current node. */
-  private long lastChild = Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty();
+  private long lastChild;
 
   /** Pointer to the right sibling of the current node. */
   private long rightSibling;
@@ -84,6 +84,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
     assert nodeDelegate != null : "del must not be null!";
     this.nodeDelegate = nodeDelegate;
     this.firstChild = firstChild;
+    this.lastChild = Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty();
     this.rightSibling = rightSibling;
     this.leftSibling = leftSibling;
     this.childCount = childCount;
@@ -127,7 +128,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public boolean hasLastChild() {
-    return lastChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return lastChild != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty() &&
+      lastChild != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -182,6 +184,9 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public void setLastChildKey(final long key) {
+    if (key == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      throw new UnsupportedOperationException();
+    }
     lastChild = key;
   }
 

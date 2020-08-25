@@ -57,9 +57,9 @@ public final class JsonDiffSerializer {
       for (final var diffTuple : diffs) {
         final var diffType = diffTuple.getDiff();
 
-        if (diffTuple.getDiff() == DiffFactory.DiffType.INSERTED) {
+        if (diffType == DiffFactory.DiffType.INSERTED) {
           newRtx.moveTo(diffTuple.getNewNodeKey());
-        } else if (diffTuple.getDiff() == DiffFactory.DiffType.DELETED) {
+        } else if (diffType == DiffFactory.DiffType.DELETED) {
           oldRtx.moveTo(diffTuple.getOldNodeKey());
         } else {
           newRtx.moveTo(diffTuple.getNewNodeKey());
