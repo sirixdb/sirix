@@ -5,6 +5,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.settings.Fixed;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -105,7 +106,7 @@ public class JsonNodeTrxRemoveTest {
   }
 
   @Test
-  public void removwObjectKeyAsLeftSibling() {
+  public void removeObjectKeyAsLeftSibling() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -143,7 +144,7 @@ public class JsonNodeTrxRemoveTest {
     rtx.moveTo(7);
 
     assertFalse(rtx.hasLeftSibling());
-    assertEquals(-1, rtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
   }
 
   @Test
@@ -397,7 +398,7 @@ public class JsonNodeTrxRemoveTest {
 
     rtx.moveTo(20);
 
-    assertEquals(-1, rtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
   }
 
   private void assertsForRemoveObjectAsLastChild(JsonNodeReadOnlyTrx rtx) {
