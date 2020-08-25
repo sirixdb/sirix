@@ -146,6 +146,39 @@ public final class JsonNodeTrxInsertTest {
   }
 
   @Test
+  public void testInsertSubtreeArrayAsLastChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[[]]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeArrayAsLeftSibling() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("[]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[[],[]]", writer.toString());
+    }
+  }
+
+  @Test
   public void testInsertSubtreeArrayAsRightSibling() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
          final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
@@ -175,6 +208,39 @@ public final class JsonNodeTrxInsertTest {
       serializer.call();
 
       assertEquals("[{}]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeObjectAsLastChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{}"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[{}]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeObjectAsLeftSibling() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
+      wtx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("{}"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[{},{}]", writer.toString());
     }
   }
 

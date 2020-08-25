@@ -300,10 +300,29 @@ public final class JsonShredder implements Callable<Long> {
     final String value = checkNotNull(stringValue);
     final long key;
 
-    if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = wtx.insertStringValueAsFirstChild(value).getNodeKey();
-    } else {
-      key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+    switch (insert) {
+      case AS_FIRST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertStringValueAsFirstChild(value).getNodeKey();
+        } else {
+          key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+        }
+        break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertStringValueAsLastChild(value).getNodeKey();
+        } else {
+          key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        key = wtx.insertStringValueAsLeftSibling(value).getNodeKey();
+        break;
+      case AS_RIGHT_SIBLING:
+        key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+        break;
+      default:
+        throw new AssertionError();//Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -315,10 +334,29 @@ public final class JsonShredder implements Callable<Long> {
     final boolean value = checkNotNull(boolValue);
     final long key;
 
-    if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = wtx.insertBooleanValueAsFirstChild(value).getNodeKey();
-    } else {
-      key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+    switch (insert) {
+      case AS_FIRST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertBooleanValueAsFirstChild(value).getNodeKey();
+        } else {
+          key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+        }
+        break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertBooleanValueAsLastChild(value).getNodeKey();
+        } else {
+          key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        key = wtx.insertBooleanValueAsLeftSibling(value).getNodeKey();
+        break;
+      case AS_RIGHT_SIBLING:
+        key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+        break;
+      default:
+        throw new AssertionError();//Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -331,10 +369,29 @@ public final class JsonShredder implements Callable<Long> {
 
     final long key;
 
-    if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = wtx.insertNumberValueAsFirstChild(value).getNodeKey();
-    } else {
-      key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
+    switch (insert) {
+      case AS_FIRST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertNumberValueAsFirstChild(value).getNodeKey();
+        } else {
+          key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
+        }
+        break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertNumberValueAsLastChild(value).getNodeKey();
+        } else {
+          key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        key = wtx.insertNumberValueAsLeftSibling(value).getNodeKey();
+        break;
+      case AS_RIGHT_SIBLING:
+        key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
+        break;
+      default:
+        throw new AssertionError();//Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -354,10 +411,29 @@ public final class JsonShredder implements Callable<Long> {
   private long insertNullValue(final boolean nextTokenIsParent) {
     final long key;
 
-    if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = wtx.insertNullValueAsFirstChild().getNodeKey();
-    } else {
-      key = wtx.insertNullValueAsRightSibling().getNodeKey();
+    switch (insert) {
+      case AS_FIRST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertNullValueAsFirstChild().getNodeKey();
+        } else {
+          key = wtx.insertNullValueAsRightSibling().getNodeKey();
+        }
+        break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertNullValueAsLastChild().getNodeKey();
+        } else {
+          key = wtx.insertNullValueAsRightSibling().getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        key = wtx.insertNullValueAsLeftSibling().getNodeKey();
+        break;
+      case AS_RIGHT_SIBLING:
+        key = wtx.insertNullValueAsRightSibling().getNodeKey();
+        break;
+      default:
+        throw new AssertionError();//Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -374,6 +450,22 @@ public final class JsonShredder implements Callable<Long> {
         } else {
           key = wtx.insertArrayAsRightSibling().getNodeKey();
         }
+        break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertArrayAsLastChild().getNodeKey();
+        } else {
+          key = wtx.insertArrayAsRightSibling().getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        if (wtx.getKind() == NodeKind.JSON_DOCUMENT
+            || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+              throw new IllegalStateException(
+                  "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
+        }
+        key = wtx.insertArrayAsLeftSibling().getNodeKey();
+        insert = InsertPosition.AS_FIRST_CHILD;
         break;
       case AS_RIGHT_SIBLING:
         if (wtx.getKind() == NodeKind.JSON_DOCUMENT
@@ -406,6 +498,22 @@ public final class JsonShredder implements Callable<Long> {
           key = wtx.insertObjectAsRightSibling().getNodeKey();
         }
         break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertObjectAsLastChild().getNodeKey();
+        } else {
+          key = wtx.insertObjectAsRightSibling().getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        if (wtx.getKind() == NodeKind.JSON_DOCUMENT
+            || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+          throw new IllegalStateException(
+              "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
+        }
+        key = wtx.insertObjectAsLeftSibling().getNodeKey();
+        insert = InsertPosition.AS_FIRST_CHILD;
+        break;
       case AS_RIGHT_SIBLING:
         if (wtx.getKind() == NodeKind.JSON_DOCUMENT
             || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
@@ -434,10 +542,29 @@ public final class JsonShredder implements Callable<Long> {
 
     final long key;
 
-    if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = wtx.insertObjectRecordAsFirstChild(name, value).getNodeKey();
-    } else {
-      key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
+    switch (insert) {
+      case AS_FIRST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertObjectRecordAsFirstChild(name, value).getNodeKey();
+        } else {
+          key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
+        }
+        break;
+      case AS_LAST_CHILD:
+        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          key = wtx.insertObjectRecordAsLastChild(name, value).getNodeKey();
+        } else {
+          key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
+        }
+        break;
+      case AS_LEFT_SIBLING:
+        key = wtx.insertObjectRecordAsLeftSibling(name, value).getNodeKey();
+        break;
+      case AS_RIGHT_SIBLING:
+        key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
+        break;
+      default:
+        throw new AssertionError();//Should not happen
     }
 
     parents.pop();
