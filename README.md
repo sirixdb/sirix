@@ -22,12 +22,13 @@
 
 **We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats.**
 
+<!--
 <p>&nbsp;</p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/showcase/screencast-three-revisions-faster.gif"/></p>
 
 <p>&nbsp;</p>
-
+-->
 **Note: Work on a [Front-end](https://github.com/sirixdb/sirix-svelte-front-end) built with [Svelte](https://svelte.dev), [D3.js](https://d3js), and Typescript has just begun**
 
 **Discuss it in the [Community Forum](https://sirix.discourse.group)**
