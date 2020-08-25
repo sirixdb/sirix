@@ -255,7 +255,7 @@ The following command will start the docker container
 To created a fat-JAR. Download our ZIP-file for instance, then
 
 1. `cd bundles/sirix-rest-api`
-2. `mvn clean package -DskipTests`
+2. `gradle build -x test`
 
 And a fat-JAR with all required dependencies should have been created in your target folder.
 
