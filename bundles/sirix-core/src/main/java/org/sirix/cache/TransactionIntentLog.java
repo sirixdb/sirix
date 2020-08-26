@@ -72,6 +72,7 @@ public final class TransactionIntentLog implements AutoCloseable {
             if (value != null) {
               iter.remove();
               TransactionIntentLog.this.secondCache.put(key, value);
+              //noinspection UnusedAssignment
               value = null;
               mapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
             }
