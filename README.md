@@ -22,12 +22,13 @@
 
 **We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats.**
 
+<!--
 <p>&nbsp;</p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/showcase/screencast-three-revisions-faster.gif"/></p>
 
 <p>&nbsp;</p>
-
+-->
 **Note: Work on a [Front-end](https://github.com/sirixdb/sirix-svelte-front-end) built with [Svelte](https://svelte.dev), [D3.js](https://d3js), and Typescript has just begun**
 
 **Discuss it in the [Community Forum](https://sirix.discourse.group)**
@@ -142,9 +143,9 @@ Articles published on Medium:
 git clone https://github.com/sirixdb/sirix.git
 ```
 
-or use the following dependencies in your Maven (or Gradle?) project.
+or use the following dependencies in your Maven or Gradle project.
 
-We just changed to Java14 (OpenJDK 14).
+**SirixDB uses Java14, thus you need an up-to-date Gradle (if you want to work on SirixDB) and IntelliJ or Eclipse.**
 
 ### Maven artifacts
 At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
@@ -255,7 +256,7 @@ The following command will start the docker container
 To created a fat-JAR. Download our ZIP-file for instance, then
 
 1. `cd bundles/sirix-rest-api`
-2. `mvn clean package -DskipTests`
+2. `gradle build -x test`
 
 And a fat-JAR with all required dependencies should have been created in your target folder.
 
