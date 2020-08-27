@@ -106,14 +106,9 @@ during commits. It never overwrites committed data.</dd>
 
 ### Revision Histories
 **Keeping the revision history is one of the main features in
-SirixDB.** We're able to revert any revision into an earlier
-version or back up the system automatically without the overhead of
-copying. SirixDB only ever copies changed database-pages and depending
-on the versioning algorithm we chose during the creation of a
-database/resource only page-fragments, as well as ancestor index-pages
-to create a new revision.
+SirixDB.** You can revert any revision into an earlier version or back up the system automatically without the overhead of copying. SirixDB only ever copies changed database-pages and, depending on the versioning algorithm you chose during the creation of a database/resource, only page-fragments, and ancestor index-pages to create a new revision.
 
-We can reconstruct every revision in <em>O(n)</em>, where <em>n</em>
+You can reconstruct every revision in <em>O(n)</em>, where <em>n</em>
 denotes the number of nodes in the revision. Binary search is used on
 an in-memory (linked) map to load the revision, thus finding the
 revision root page has an asymptotic runtime complexity of <em>O(log
@@ -121,7 +116,7 @@ n)</em>, where <em>n</em>, in this case, is the number of stored
 revisions.
 
 Currently, SirixDB offers two built-in native data models, namely a
-binary XML store as well as a JSON store.
+binary XML store and a JSON store.
 
 <p>&nbsp;&nbsp;</p>
 
