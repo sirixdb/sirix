@@ -50,19 +50,19 @@
 -   [License](#license)
 
 ## Keeping All Versions of Your Data By Sharing Structure
-We could write quite a bunch of stuff, why it's oftentimes of great value to keep all states of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
+We could write quite a bunch of stuff, why it's often of great value to keep all states of your data in a storage system. Still, recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations. The [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
 
-Our strong belief is that a temporal storage system must address the issues, which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdles. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
+Our firm belief is that a temporal storage system must address the issues, which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems that do not support the storage thereof natively results in many unwanted hurdles. They waste storage space, query performance to retrieve past states of your data is not ideal, and usually, temporal operations are missing altogether.
 
-Data must be stored in a way, that storage space is used as effectively as possible while supporting the reconstruction of each revision, as it was seen by the database during the commits, in linear time, no matter if it's the very first revision or the most recent revision. Ideally, query time of old/past revisions, as well as the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
+The DBS must store data in a way that storage space is used as effectively as possible while supporting the reconstruction of each revision, as the database saw it during the commits. All this should be handled in linear time, whether it's the first revision or the most recent revision. Ideally, query time of old/past revisions and the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
-We not only support snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
+SirixDB not only supports snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
-The following time-travel query to be executed on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of what's possible:
+Executing the following time-travel query to on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of the possibilities:
 
 ```xquery
 let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z'))=>statuses
-let $foundStatus := for $status in bit:array-values($statuses)
+let $foundStatus := for $status in $statuses
   let $dateTimeCreated := xs:dateTime($status=>created_at)
   where $dateTimeCreated > xs:dateTime("2018-02-01T00:00:00") and not(exists(jn:previous($status)))
   order by $dateTimeCreated
