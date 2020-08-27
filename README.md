@@ -215,8 +215,7 @@ Other modules are currently not available (namely the GUI, the distributed packa
 
 ### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 
-The REST-API is asynchronous at its very core. We use Vert.x which is a toolkit, built on top of Netty. It is heavily inspired by Node.js but for the JVM. As such it uses event loop(s), that is thread(s), which never should by blocked by long running CPU tasks or disk bound I/O. We are using Kotlin with coroutines to keep the code simple.
-SirixDB uses OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance.
+The REST-API is asynchronous at its very core. We use Vert.x, which is a toolkit built on top of Netty. It is heavily inspired by Node.js but for the JVM. As such, it uses event loop(s), which is thread(s), which never should by blocked by long-running CPU tasks or disk-bound I/O. We are using Kotlin with coroutines to keep the code simple. SirixDB uses OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance.
 
 ### Start Docker Keycloak-Container using docker-compose
 For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test realm:
@@ -226,8 +225,8 @@ For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test
 
 ### Keycloak setup
 
-Keycloak can be set up as described in this excellent [tutorial](
-https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. Basically you can skip the steps 3 - 7 and and 10 and 11 and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you simply want to use the Docker Hub image.
+You can set up Keycloak as described in this excellent [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. You can skip steps 3 - 7 and 10, 11, and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests, the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image.
 
 1. Open your browser. URL: http://localhost:8080
 2. Login with username "admin", password "admin"
