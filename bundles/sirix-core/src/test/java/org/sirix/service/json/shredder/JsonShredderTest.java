@@ -115,6 +115,70 @@ public final class JsonShredderTest {
   }
 
   @Test
+  public void testArrayAsLastChild() throws IOException {
+    final var jsonPath = JSON.resolve("array.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+
+      trx.moveTo(1);
+      trx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = "[\"foo\",null,[],true,1.22,[]]";
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+    }
+  }
+
+  @Test
+  public void testArrayAsLeftSibling() throws IOException {
+    final var jsonPath = JSON.resolve("array.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+
+      trx.moveTo(3);
+      trx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("[]"));
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = "[\"foo\",[],null,[],true,1.22]";
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+    }
+  }
+
+  @Test
   public void testArrayAsRightSibling() throws IOException {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -140,6 +204,70 @@ public final class JsonShredderTest {
         final var serializer = new JsonSerializer.Builder(manager, writer).build();
         serializer.call();
         final var expected = "[\"foo\",null,[],[],true,1.22]";
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+    }
+  }
+
+  @Test
+  public void testObjectAsLastChild() throws IOException {
+    final var jsonPath = JSON.resolve("array.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+
+      trx.moveTo(1);
+      trx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"foo\":null}"));
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = "[\"foo\",null,[],true,1.22,{\"foo\":null}]";
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+    }
+  }
+
+  @Test
+  public void testObjectAsLeftSibling() throws IOException {
+    final var jsonPath = JSON.resolve("array.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+
+      trx.moveTo(4);
+      trx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("{\"foo\":null}"));
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = "[\"foo\",null,{\"foo\":null},[],true,1.22]";
         final var actual = writer.toString();
         JSONAssert.assertEquals(expected, actual, true);
       }
