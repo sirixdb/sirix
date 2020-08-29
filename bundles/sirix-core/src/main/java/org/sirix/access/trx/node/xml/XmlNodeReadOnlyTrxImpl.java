@@ -36,6 +36,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.xml.*;
@@ -129,7 +130,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
           newNode = Optional.empty();
         }
       } else {
-        newNode = getPageTransaction().getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        newNode = getPageTransaction().getRecord(nodeKey, IndexType.DOCUMENT, -1);
       }
     } catch (final SirixIOException | UncheckedIOException e) {
       newNode = Optional.empty();

@@ -3,6 +3,7 @@ package org.sirix.cache;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.index.IndexType;
 import org.sirix.page.*;
 import org.sirix.settings.Constants;
 
@@ -88,7 +89,7 @@ public final class TransactionIntentLog implements AutoCloseable {
           return true;
         } else if (page instanceof UnorderedKeyValuePage) {
           var dataPage = (UnorderedKeyValuePage) page;
-          return dataPage.getPageKind() != PageKind.RECORDPAGE;
+          return dataPage.getIndexType() != IndexType.DOCUMENT;
         }
         return false;
       }

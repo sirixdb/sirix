@@ -63,8 +63,8 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
 
       for (final Map.Entry<? extends K, ? extends V> entry : pages.get(0).entrySet()) {
         returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
@@ -91,7 +91,7 @@ public enum VersioningType {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
+      final T returnVal = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
       final T latest = pages.get(0);
       T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
@@ -140,8 +140,8 @@ public enum VersioningType {
 
       reference.setPageFragments(List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())));
 
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
 
       final T latest = firstPage;
       T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -224,7 +224,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal =
-          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadOnlyTrx());
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), firstPage.getPageReadOnlyTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -275,8 +275,8 @@ public enum VersioningType {
 
       reference.setPageFragments(previousPageFragmentKeys);
 
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
-      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
+      returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
       final boolean isFullDump = pages.size() == revToRestore;
 
       boolean filledPage = false;
@@ -361,7 +361,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal =
-          firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPageReadOnlyTrx());
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), firstPage.getPageReadOnlyTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -411,11 +411,11 @@ public enum VersioningType {
 
       reference.setPageFragments(previousPageFragmentKeys);
 
-      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
-      final T modifyingPage = firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
+      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      final T modifyingPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
       final T pageWithRecordsInSlidingWindow =
-          firstPage.newInstance(recordPageKey, firstPage.getPageKind(), pageReadTrx);
+          firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size() && !filledPage; i++) {

@@ -27,6 +27,7 @@ dependencies {
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
+    testImplementation testLibraries.commonsCollections4Tests
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +

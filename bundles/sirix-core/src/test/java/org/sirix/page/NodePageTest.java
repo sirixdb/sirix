@@ -37,6 +37,7 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -78,7 +79,7 @@ public final class NodePageTest {
   @Test
   public void testSerializeDeserialize() throws IOException {
     final UnorderedKeyValuePage page1 =
-        new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, pageReadTrx);
+        new UnorderedKeyValuePage(0L, IndexType.DOCUMENT, pageReadTrx);
     assertEquals(0L, page1.getPageKey());
 
     final NodeDelegate del = new NodeDelegate(0, 1, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());

@@ -14,6 +14,7 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
@@ -95,7 +96,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     this.resourceManager = resourceManager;
 
     final Optional<? extends DataRecord> node =
-        this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
+        this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
     currentNode = (StructNode) node.orElseThrow(() -> new IllegalStateException(
         "Node couldn't be fetched from persistent storage!"));
 
@@ -404,7 +405,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     Optional<? extends StructNode> newNode;
     try {
       // Immediately return node from item list if node key negative.
-      newNode = pageReadTrx.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
+      newNode = pageReadTrx.getRecord(nodeKey, IndexType.PATH_SUMMARY, 0);
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
     }

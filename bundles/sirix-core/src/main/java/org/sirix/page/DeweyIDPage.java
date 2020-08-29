@@ -26,6 +26,7 @@ import net.openhft.chronicle.map.ChronicleMap;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.node.DeweyIDNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
@@ -69,6 +70,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    */
   public DeweyIDPage() {
     delegate = new ReferencesPage4();
+    currentMaxLevelOfIndirectPages = 1;
   }
 
   /**
@@ -122,7 +124,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, PageKind.RECORDPAGE, pageReadTrx, log);
+      PageUtils.createTree(reference, IndexType.DEWEYID_TO_RECORDID, pageReadTrx, log);
       incrementAndGetMaxNodeKey();
     }
   }
@@ -162,20 +164,18 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   }
 
   public Optional<SirixDeweyID> getDeweyIdForNodeKey(final long nodeKey, final PageReadOnlyTrx pageReadOnlyTrx) {
-    final Optional<DeweyIDNode> node = pageReadOnlyTrx.getRecord(nodeKey, PageKind.DEWEYIDPAGE, 0);
+    final Optional<DeweyIDNode> node = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DEWEYID_TO_RECORDID, 0);
     return node.map(DeweyIDNode::getDeweyID);
   }
 
   public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final PageReadOnlyTrx pageReadOnlyTrx) {
     if (deweyIDsToNodeKeys == null) {
-      deweyIDsToNodeKeys = ChronicleMap
-          .of(SirixDeweyID.class, Long.class)
-          .name("deweyIDsToNodeKeysMap")
-          .entries(maxNodeKey)
-          .create();
+      deweyIDsToNodeKeys =
+          ChronicleMap.of(SirixDeweyID.class, Long.class).name("deweyIDsToNodeKeysMap").entries(maxNodeKey).create();
       for (long i = 1, l = maxNodeKey; i < l; i += 2) {
         final long nodeKeyOfNode = i;
-        final Optional<? extends DataRecord> deweyIDNode = pageReadOnlyTrx.getRecord(nodeKeyOfNode, PageKind.DEWEYIDPAGE, 0);
+        final Optional<? extends DataRecord> deweyIDNode =
+            pageReadOnlyTrx.getRecord(nodeKeyOfNode, IndexType.DEWEYID_TO_RECORDID, 0);
 
         if (deweyIDNode.isPresent() && deweyIDNode.get().getKind() != NodeKind.DELETE) {
           deweyIDsToNodeKeys.put(deweyIDNode.get().getDeweyID(), nodeKeyOfNode);
@@ -188,7 +188,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   public void setDeweyID(final SirixDeweyID deweyId, final PageTrx pageTrx) {
     final long nodeKey = maxNodeKey;
     final DeweyIDNode node = new DeweyIDNode(maxNodeKey, deweyId);
-    pageTrx.createRecord(maxNodeKey++, node, PageKind.DEWEYIDPAGE, 0);
+    pageTrx.createRecord(maxNodeKey++, node,  IndexType.DEWEYID_TO_RECORDID, 0);
     deweyIDsToNodeKeys.put(deweyId, nodeKey);
   }
 }

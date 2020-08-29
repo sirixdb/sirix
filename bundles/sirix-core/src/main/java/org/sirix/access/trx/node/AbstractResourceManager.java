@@ -19,6 +19,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.index.IndexType;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.io.IOStorage;
@@ -324,7 +325,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     @SuppressWarnings("unchecked")
     final Optional<? extends Node> node =
-        pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
+        pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node.isPresent()) {
       documentNode = node.get();
     } else {

@@ -1,12 +1,11 @@
 package org.sirix.api;
 
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -54,14 +53,13 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   /**
    * Get a record from persistent storage.
    *
-   * @param key      the unique record-ID
-   * @param pageKind the page kind from which to fetch the record
-   * @param index    the index number
+   * @param key       the unique record-ID
+   * @param indexType the index type
+   * @param index     the index number
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  <K, V> Optional<V> getRecord(@Nonnull K key,
-      @Nonnull PageKind pageKind, @Nonnegative int index);
+  <K, V> Optional<V> getRecord(@Nonnull K key, @Nonnull IndexType indexType, @Nonnegative int index);
 
   /**
    * Current reference to actual revision-root page.
@@ -122,8 +120,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
-      @Nonnull IndexLogKey indexLogKey);
+  <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(@Nonnull IndexLogKey indexLogKey);
 
   /**
    * Determines if transaction is closed or not.
@@ -151,11 +148,11 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Calculate record page key from a given record key.
    *
    * @param recordKey record key to find record page key for
-   * @param pageKind  the pageKind
+   * @param indexType the index type
    * @return record page key
    * @throws IllegalArgumentException if {code recordKey} &lt; 0
    */
-  long pageKey(@Nonnegative long recordKey, @Nonnull PageKind pageKind);
+  long pageKey(@Nonnegative long recordKey, @Nonnull IndexType indexType);
 
   /**
    * Get the {@link NamePage} associated with the current revision root.
@@ -209,13 +206,13 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    *                       a BPlusTree)
    * @param pageKey        the unique key of the page to search for
    * @param indexNumber    the index number or {@code -1}
-   * @param pageKind       the kind of subtree
+   * @param indexType      the index type
    * @return {@link PageReference} instance pointing to the page denoted by {@code key}
    * @throws SirixIOException         if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} &lt; 0
    */
   PageReference getReferenceToLeafOfSubtree(PageReference startReference, @Nonnegative long pageKey, int indexNumber,
-      @Nonnull PageKind pageKind);
+      @Nonnull IndexType indexType);
 
   /**
    * Get the {@link Reader} to read a page from persistent storage if needed.
@@ -243,10 +240,10 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   /**
    * Get the maximum level of the current indirect page tree.
    *
-   * @param pageKind         the page kind
+   * @param indexType        the index type
    * @param index            the index or {@code -1}
    * @param revisionRootPage the revision root page
    * @return The maximum level of the current indirect page tree.
    */
-  int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index, RevisionRootPage revisionRootPage);
+  int getCurrentMaxIndirectPageTreeLevel(IndexType indexType, int index, RevisionRootPage revisionRootPage);
 }

@@ -30,6 +30,7 @@ package org.sirix.access.trx.page;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.page.*;
 import org.sirix.settings.Constants;
 
@@ -57,9 +58,14 @@ public final class TreeModifierImpl implements TreeModifier {
       revisionRootPage = new RevisionRootPage(pageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
       // Prepare indirect tree to hold reference to prepared revision root nodePageReference.
-      final PageReference revisionRootPageReference = prepareLeafOfTree(pageRtx, log,
-          uberPage.getPageCountExp(PageKind.UBERPAGE), uberPage.getIndirectPageReference(),
-          uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, revisionRootPage);
+      final PageReference revisionRootPageReference = prepareLeafOfTree(pageRtx,
+                                                                        log,
+                                                                        uberPage.getPageCountExp(IndexType.REVISIONS),
+                                                                        uberPage.getIndirectPageReference(),
+                                                                        uberPage.getRevisionNumber(),
+                                                                        -1,
+                                                                        IndexType.REVISIONS,
+                                                                        revisionRootPage);
 
       // Link the prepared revision root nodePageReference with the prepared
       // indirect tree.
@@ -73,18 +79,18 @@ public final class TreeModifierImpl implements TreeModifier {
   @Override
   public PageReference prepareLeafOfTree(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       final int[] inpLevelPageCountExp, final PageReference startReference, @Nonnegative final long pageKey,
-      final int index, final PageKind pageKind, final RevisionRootPage revisionRootPage) {
+      final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;
 
     int offset;
     long levelKey = pageKey;
 
-    int maxHeight = pageRtx.getCurrentMaxIndirectPageTreeLevel(pageKind, index, revisionRootPage);
+    int maxHeight = pageRtx.getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
 
     // Check if we need an additional level of indirect pages.
     if (pageKey == (1L << inpLevelPageCountExp[inpLevelPageCountExp.length - maxHeight - 1])) {
-      maxHeight = incrementCurrentMaxIndirectPageTreeLevel(pageRtx, revisionRootPage, pageKind, index);
+      maxHeight = incrementCurrentMaxIndirectPageTreeLevel(pageRtx, revisionRootPage, indexType, index);
 
       // First, get the old referenced page.
       final IndirectPage oldPage = dereferenceOldIndirectPage(pageRtx, log, reference);
@@ -102,7 +108,7 @@ public final class TreeModifierImpl implements TreeModifier {
       // of the tree.
       final PageReference newPageReference = new PageReference();
       log.put(newPageReference, PageContainer.getInstance(page, page));
-      setNewIndirectPage(pageRtx, revisionRootPage, pageKind, index, newPageReference);
+      setNewIndirectPage(pageRtx, revisionRootPage, indexType, index, newPageReference);
 
       reference = newPageReference;
     }
@@ -136,31 +142,35 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   private void setNewIndirectPage(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
-      final PageKind pageKind, final int index, final PageReference pageReference) {
+      final IndexType indexType, final int index, final PageReference pageReference) {
     // $CASES-OMITTED$
-    switch (pageKind) {
-      case RECORDPAGE -> revisionRoot.setOrCreateReference(0, pageReference);
-      case UBERPAGE -> pageRtx.getUberPage().setOrCreateReference(0, pageReference);
-      case CASPAGE -> pageRtx.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case PATHPAGE -> pageRtx.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case NAMEPAGE -> pageRtx.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
-      case PATHSUMMARYPAGE -> pageRtx.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
+    switch (indexType) {
+      case REVISIONS -> pageRtx.getUberPage().setOrCreateReference(0, pageReference);
+      case DOCUMENT -> revisionRoot.setOrCreateReference(0, pageReference);
+      case CHANGED_NODES -> revisionRoot.setOrCreateReference(1, pageReference);
+      case RECORD_TO_REVISIONS -> revisionRoot.setOrCreateReference(2, pageReference);
+      case CAS -> pageRtx.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PATH -> pageRtx.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case NAME -> pageRtx.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PATH_SUMMARY -> pageRtx.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     }
   }
 
   private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx,
-      final RevisionRootPage revisionRoot, final PageKind pageKind, final int index) {
+      final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
     // $CASES-OMITTED$
-    return switch (pageKind) {
-      case UBERPAGE -> pageRtx.getUberPage().incrementAndGetCurrentMaxLevelOfIndirectPages();
-      case RECORDPAGE -> revisionRoot.incrementAndGetCurrentMaxLevelOfIndirectPages();
-      case CASPAGE -> pageRtx.getCASPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PATHPAGE -> pageRtx.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case NAMEPAGE -> pageRtx.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PATHSUMMARYPAGE -> pageRtx.getPathSummaryPage(revisionRoot)
-                                     .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+    return switch (indexType) {
+      case REVISIONS -> pageRtx.getUberPage().incrementAndGetCurrentMaxLevelOfIndirectPages();
+      case DOCUMENT -> revisionRoot.incrementAndGetCurrentMaxLevelOfDocumentIndexIndirectPages();
+      case CHANGED_NODES -> revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
+      case RECORD_TO_REVISIONS -> revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
+      case CAS -> pageRtx.getCASPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PATH -> pageRtx.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case NAME -> pageRtx.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PATH_SUMMARY -> pageRtx.getPathSummaryPage(revisionRoot)
+                                  .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     };

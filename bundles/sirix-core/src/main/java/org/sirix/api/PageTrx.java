@@ -5,6 +5,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
@@ -43,42 +44,42 @@ public interface PageTrx extends PageReadOnlyTrx {
    * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
    * (CoW). The record might be a node, in this case the key is the node.
    *
-   * @param key      optional key associated with the record to add (otherwise the record nodeKey is used)
-   * @param value    value to add (usually a node)
-   * @param pageKind kind of subtree the page belongs to
-   * @param index    the index number
+   * @param key       optional key associated with the record to add (otherwise the record nodeKey is used)
+   * @param value     value to add (usually a node)
+   * @param indexType the index type
+   * @param index     the index number
    * @return unmodified record for convenience
    * @throws SirixIOException     if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  <K, V> V createRecord(K key, @Nonnull V value, @Nonnull PageKind pageKind, int index);
+  <K, V> V createRecord(K key, @Nonnull V value, @Nonnull IndexType indexType, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
    * storing the page in the cache and setting up the entry for upcoming modification. The key of the
    * entry might be the node key and the value the node itself.
    *
-   * @param key      key of the entry to be modified
-   * @param pageKind the kind of subtree (for instance regular data pages or the kind of index pages)
-   * @param index    the index number
+   * @param key       key of the entry to be modified
+   * @param indexType the index type
+   * @param index     the index number
    * @return instance of the class implementing the {@link DataRecord} instance
    * @throws SirixIOException         if an I/O-error occurs
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code page} is {@code null}
    */
-  <K, V> V prepareRecordForModification(@Nonnegative K key, @Nonnull PageKind pageKind, int index);
+  <K, V> V prepareRecordForModification(@Nonnegative K key, @Nonnull IndexType indexType, int index);
 
   /**
    * Remove an entry from the storage.
    *
-   * @param key      entry key from entry to be removed
-   * @param pageKind denoting the kind of page (that is the subtree root kind)
-   * @param index    the index number
+   * @param key       entry key from entry to be removed
+   * @param indexType the index type
+   * @param index     the index number
    * @throws SirixIOException         if the removal fails
    * @throws IllegalArgumentException if {@code recordKey < 0}
-   * @throws NullPointerException     if {@code pageKind} is {@code null}
+   * @throws NullPointerException     if {@code indexType} is {@code null}
    */
-  <K> void removeRecord(K key, @Nonnull PageKind pageKind, int index);
+  <K> void removeRecord(K key, @Nonnull IndexType indexType, int index);
 
   /**
    * Creating a namekey for a given name.

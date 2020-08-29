@@ -20,6 +20,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
@@ -97,7 +98,7 @@ public class PageTest {
 
     // NodePage setup.
     final UnorderedKeyValuePage nodePage =
-        new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE, pageReadTrx);
+        new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record.getNodeKey(), record);
@@ -121,11 +122,11 @@ public class PageTest {
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashEntryNode);
-    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashCountEntryNode);
-    when(pageTrx.prepareRecordForModification(2L, PageKind.NAMEPAGE, 0)).thenReturn(hashCountEntryNode);
+    when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;
   }
 }

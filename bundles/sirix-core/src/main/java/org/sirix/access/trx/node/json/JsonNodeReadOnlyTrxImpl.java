@@ -19,6 +19,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.diff.JsonDiffSerializer;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.*;
@@ -214,7 +215,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
       if (nodeKey < 0) {
         newNode = Optional.empty();
       } else {
-        newNode = pageReadOnlyTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
       }
     } catch (final SirixIOException | UncheckedIOException e) {
       newNode = Optional.empty();

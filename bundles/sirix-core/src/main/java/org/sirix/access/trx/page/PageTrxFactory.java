@@ -41,9 +41,8 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IOStorage;
+import org.sirix.index.IndexType;
 import org.sirix.io.Writer;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
@@ -116,10 +115,12 @@ public final class PageTrxFactory {
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
     final RevisionRootPage newRevisionRootPage =
         treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
-    newRevisionRootPage.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
+    newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
+    newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
+    newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
 
     // First create revision tree if needed.
-    newRevisionRootPage.createNodeTree(pageRtx, log);
+    newRevisionRootPage.createDocumentIndexTree(pageRtx, log);
 
     if (usePathSummary) {
       // Create path summary tree if needed.
@@ -164,17 +165,22 @@ public final class PageTrxFactory {
         log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
       }
 
+      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getDeweyIdPageReference(), pageRtx))) {
+        final Page deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
+        log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
+      }
+
       final Page indirectPage =
-          pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectPageReference());
-      log.put(newRevisionRootPage.getIndirectPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
+          pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
+      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
 
       final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(pageRtx,
                                                                                      log,
-                                                                                     uberPage.getPageCountExp(PageKind.UBERPAGE),
+                                                                                     uberPage.getPageCountExp(IndexType.REVISIONS),
                                                                                      uberPage.getIndirectPageReference(),
                                                                                      uberPage.getRevisionNumber(),
                                                                                      -1,
-                                                                                     PageKind.UBERPAGE,
+                                                                                     IndexType.REVISIONS,
                                                                                      newRevisionRootPage);
 
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));

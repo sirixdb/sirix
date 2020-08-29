@@ -56,7 +56,7 @@ public enum PageKind {
     Page getInstance(final Page nodePage, final PageReadOnlyTrx pageReadTrx) {
       assert nodePage instanceof UnorderedKeyValuePage;
       final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-      return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(), pageReadTrx);
+      return new UnorderedKeyValuePage(page.getPageKey(), page.getIndexType(), pageReadTrx);
     }
   },
 
@@ -203,7 +203,7 @@ public enum PageKind {
     Page getInstance(final Page keyValuePage, final PageReadOnlyTrx pageReadTrx) {
       assert keyValuePage instanceof HashedKeyValuePage;
       final HashedKeyValuePage page = (HashedKeyValuePage) keyValuePage;
-      return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(), pageReadTrx);
+      return new UnorderedKeyValuePage(page.getPageKey(), page.getIndexType(), pageReadTrx);
     }
   },
 

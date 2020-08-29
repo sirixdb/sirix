@@ -5,6 +5,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.FullReferencesPage;
@@ -66,9 +67,9 @@ public final class PageUtils {
    * Create the initial tree structure.
    *
    * @param reference reference from revision root
-   * @param pageKind  the page kind
+   * @param indexType  the index type
    */
-  public static void createTree(@Nonnull PageReference reference, final PageKind pageKind,
+  public static void createTree(@Nonnull PageReference reference, final IndexType indexType,
       final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
@@ -76,7 +77,7 @@ public final class PageUtils {
 
     // Create new record page.
     final UnorderedKeyValuePage recordPage =
-        new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, pageReadTrx);
+        new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
 

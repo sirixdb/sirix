@@ -112,6 +112,8 @@ subprojects {
             events "failed"
             exceptionFormat "short"
         }
+
+        useJUnitPlatform()
     }
 
     spotless {
@@ -223,8 +225,8 @@ subprojects {
         useJUnit()
         jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
 
-//        minHeapSize = '2g'
-//        maxHeapSize = '7g'
+        minHeapSize = '2g'
+        maxHeapSize = '7g'
     }
 }
 

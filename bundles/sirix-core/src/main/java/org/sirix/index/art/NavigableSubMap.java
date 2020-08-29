@@ -9,7 +9,7 @@ import java.util.function.Consumer;
 abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		implements NavigableMap<K, V> {
 
-	final AdaptiveRadixTree<K, V> m;
+	final AdaptiveRadixTree<K, V> tree;
 
 	/**
 	 * Endpoints are represented as triples (fromStart, lo,
@@ -35,7 +35,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			if (m.compare(loBytes, 0, loBytes.length, hiBytes, 0, hiBytes.length) > 0)
 				throw new IllegalArgumentException("fromKey > toKey");
 		}
-		this.m = m;
+		this.tree = m;
 		this.fromStart = fromStart;
 		this.lo = lo;
 		this.loInclusive = loInclusive;
@@ -48,7 +48,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 	final boolean tooLow(K key) {
 		if (!fromStart) {
-			int c = m.compare(key, loBytes);
+			int c = tree.compare(key, loBytes);
 			// if c == 0 and if lower bound is exclusive
 			// then this key is too low
 			// else it is not, since it is as low as our lower bound
@@ -61,7 +61,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 	final boolean tooHigh(K key) {
 		if (!toEnd) {
-			int c = m.compare(key, hiBytes);
+			int c = tree.compare(key, hiBytes);
 			// if c == 0 and if upper bound is exclusive
 			// then this key is too higher
 			// else it is not, since it is as greater as our upper bound
@@ -80,8 +80,8 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		// if we don't have any upper nor lower bounds, then all keys are always in range.
 		// if we have a lower bound, then this key ought to be higher than our lower bound (closed, hence including).
 		// if we have an upper bound, then this key ought to be lower than our upper bound (closed, hence including).
-		return (fromStart || m.compare(key, loBytes) >= 0)
-				&& (toEnd || m.compare(key, hiBytes) <= 0);
+		return (fromStart || tree.compare(key, loBytes) >= 0)
+				&& (toEnd || tree.compare(key, hiBytes) <= 0);
 	}
 
 	final boolean inRange(K key, boolean inclusive) {
@@ -97,60 +97,60 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 	final LeafNode<K, V> absLowest() {
 		LeafNode<K, V> e =
-				(fromStart ? m.getFirstEntry() :
-						(loInclusive ? m.getCeilingEntry(loBytes) :
-								m.getHigherEntry(loBytes)));
+				(fromStart ? tree.getFirstEntry() :
+						(loInclusive ? tree.getCeilingEntry(loBytes) :
+								tree.getHigherEntry(loBytes)));
 		return (e == null || tooHigh(e.getKey())) ? null : e;
 	}
 
 	final LeafNode<K, V> absHighest() {
 		LeafNode<K, V> e =
-				(toEnd ? m.getLastEntry() :
-						(hiInclusive ? m.getFloorEntry(hiBytes) :
-								m.getLowerEntry(hiBytes)));
+				(toEnd ? tree.getLastEntry() :
+						(hiInclusive ? tree.getFloorEntry(hiBytes) :
+								tree.getLowerEntry(hiBytes)));
 		return (e == null || tooLow(e.getKey())) ? null : e;
 	}
 
 	final LeafNode<K, V> absCeiling(K key) {
 		if (tooLow(key))
 			return absLowest();
-		LeafNode<K, V> e = m.getCeilingEntry(key);
+		LeafNode<K, V> e = tree.getCeilingEntry(key);
 		return (e == null || tooHigh(e.getKey())) ? null : e;
 	}
 
 	final LeafNode<K, V> absHigher(K key) {
 		if (tooLow(key))
 			return absLowest();
-		LeafNode<K, V> e = m.getHigherEntry(key);
+		LeafNode<K, V> e = tree.getHigherEntry(key);
 		return (e == null || tooHigh(e.getKey())) ? null : e;
 	}
 
 	final LeafNode<K, V> absFloor(K key) {
 		if (tooHigh(key))
 			return absHighest();
-		LeafNode<K, V> e = m.getFloorEntry(key);
+		LeafNode<K, V> e = tree.getFloorEntry(key);
 		return (e == null || tooLow(e.getKey())) ? null : e;
 	}
 
 	final LeafNode<K, V> absLower(K key) {
 		if (tooHigh(key))
 			return absHighest();
-		LeafNode<K, V> e = m.getLowerEntry(key);
+		LeafNode<K, V> e = tree.getLowerEntry(key);
 		return (e == null || tooLow(e.getKey())) ? null : e;
 	}
 
 	/** Returns the absolute high fence for ascending traversal */
 	final LeafNode<K, V> absHighFence() {
 		return (toEnd ? null : (hiInclusive ?
-				m.getHigherEntry(hiBytes) :
-				m.getCeilingEntry(hiBytes))); // then hi itself (but we want the entry, hence traversal is required)
+				tree.getHigherEntry(hiBytes) :
+				tree.getCeilingEntry(hiBytes))); // then hi itself (but we want the entry, hence traversal is required)
 	}
 
 	/** Return the absolute low fence for descending traversal  */
 	final LeafNode<K, V> absLowFence() {
 		return (fromStart ? null : (loInclusive ?
-				m.getLowerEntry(loBytes) :
-				m.getFloorEntry(loBytes))); // then lo itself (but we want the entry, hence traversal is required)
+				tree.getLowerEntry(loBytes) :
+				tree.getFloorEntry(loBytes))); // then lo itself (but we want the entry, hence traversal is required)
 	}
 
 	// Abstract methods defined in ascending vs descending classes
@@ -183,34 +183,34 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	// public methods
 	@Override
 	public boolean isEmpty() {
-		return (fromStart && toEnd) ? m.isEmpty() : entrySet().isEmpty();
+		return (fromStart && toEnd) ? tree.isEmpty() : entrySet().isEmpty();
 	}
 
 	@Override
 	public int size() {
-		return (fromStart && toEnd) ? m.size() : entrySet().size();
+		return (fromStart && toEnd) ? tree.size() : entrySet().size();
 	}
 
 	@Override
 	public final boolean containsKey(Object key) {
-		return inRange((K) key) && m.containsKey(key);
+		return inRange((K) key) && tree.containsKey(key);
 	}
 
 	@Override
 	public final V put(K key, V value) {
 		if (!inRange(key))
 			throw new IllegalArgumentException("key out of range");
-		return m.put(key, value);
+		return tree.put(key, value);
 	}
 
 	@Override
 	public final V get(Object key) {
-		return !inRange((K) key) ? null : m.get(key);
+		return !inRange((K) key) ? null : tree.get(key);
 	}
 
 	@Override
 	public final V remove(Object key) {
-		return !inRange((K) key) ? null : m.remove(key);
+		return !inRange((K) key) ? null : tree.remove(key);
 	}
 
 	@Override
@@ -278,7 +278,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		LeafNode<K, V> e = subLowest();
 		Entry<K, V> result = AdaptiveRadixTree.exportEntry(e);
 		if (e != null)
-			m.deleteEntry(e);
+			tree.deleteEntry(e);
 		return result;
 	}
 
@@ -287,7 +287,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		LeafNode<K, V> e = subHighest();
 		Entry<K, V> result = AdaptiveRadixTree.exportEntry(e);
 		if (e != null)
-			m.deleteEntry(e);
+			tree.deleteEntry(e);
 		return result;
 	}
 
@@ -340,12 +340,12 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		@Override
 		public int size() {
 			if (fromStart && toEnd)
-				return m.size();
+				return tree.size();
 			// if size == -1, it is the first time we're calculating the size
 			// if sizeModCount != m.getModCount(), the map has had modification operations
 			// so it's size must've changed, recalculate.
-			if (size == -1 || sizeModCount != m.getModCount()) {
-				sizeModCount = m.getModCount();
+			if (size == -1 || sizeModCount != tree.getModCount()) {
+				sizeModCount = tree.getModCount();
 				size = 0;
 				Iterator<?> i = iterator();
 				while (i.hasNext()) {
@@ -371,7 +371,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			Object key = entry.getKey();
 			if (!inRange((K) key))
 				return false;
-			LeafNode<?, ?> node = m.getEntry(key);
+			LeafNode<?, ?> node = tree.getEntry(key);
 			return node != null &&
 					AdaptiveRadixTree.valEquals(node.getValue(), entry.getValue());
 		}
@@ -385,10 +385,10 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			Object key = entry.getKey();
 			if (!inRange((K) key))
 				return false;
-			LeafNode<K, V> node = m.getEntry(key);
+			LeafNode<K, V> node = tree.getEntry(key);
 			if (node != null && AdaptiveRadixTree.valEquals(node.getValue(),
                                                                                entry.getValue())) {
-				m.deleteEntry(node);
+				tree.deleteEntry(node);
 				return true;
 			}
 			return false;
@@ -413,7 +413,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 		SubMapIterator(LeafNode<K, V> first,
 				LeafNode<K, V> fence) {
-			expectedModCount = m.getModCount();
+			expectedModCount = tree.getModCount();
 			lastReturned = null;
 			next = first;
 			fenceKey = fence == null ? UNBOUNDED : fence.getKey();
@@ -428,7 +428,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			LeafNode<K, V> e = next;
 			if (e == null || e.getKey() == fenceKey)
 				throw new NoSuchElementException();
-			if (m.getModCount() != expectedModCount)
+			if (tree.getModCount() != expectedModCount)
 				throw new ConcurrentModificationException();
 			next = AdaptiveRadixTree.successor(e);
 			lastReturned = e;
@@ -439,7 +439,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			LeafNode<K, V> e = next;
 			if (e == null || e.getKey() == fenceKey)
 				throw new NoSuchElementException();
-			if (m.getModCount() != expectedModCount)
+			if (tree.getModCount() != expectedModCount)
 				throw new ConcurrentModificationException();
 			next = AdaptiveRadixTree.predecessor(e);
 			lastReturned = e;
@@ -450,14 +450,14 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		public void remove() {
 			if (lastReturned == null)
 				throw new IllegalStateException();
-			if (m.getModCount() != expectedModCount)
+			if (tree.getModCount() != expectedModCount)
 				throw new ConcurrentModificationException();
 			// deleted entries are replaced by their successors
 			//	if (lastReturned.left != null && lastReturned.right != null)
 			//		next = lastReturned;
-			m.deleteEntry(lastReturned);
+			tree.deleteEntry(lastReturned);
 			lastReturned = null;
-			expectedModCount = m.getModCount();
+			expectedModCount = tree.getModCount();
 		}
 	}
 

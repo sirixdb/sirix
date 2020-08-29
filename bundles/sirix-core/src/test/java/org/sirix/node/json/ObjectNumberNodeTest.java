@@ -53,14 +53,14 @@ public class ObjectNumberNodeTest {
   private PageTrx pageWriteTrx;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     JsonTestHelper.closeEverything();
   }
 
@@ -69,8 +69,12 @@ public class ObjectNumberNodeTest {
     // Create empty node.
     final double value = 10.87463D;
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, null);
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0L, 0l);
+    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
+                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                               0L,
+                                                               0l);
     final ObjectNumberNode node = new ObjectNumberNode(value, strucDel);
     node.setHash(node.computeHash());
     check(node);
@@ -79,8 +83,10 @@ public class ObjectNumberNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectNumberNode node2 =
-        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
+    final ObjectNumberNode node2 = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(new DataInputStream(in),
+                                                                                               node.getNodeKey(),
+                                                                                               null,
+                                                                                               pageWriteTrx);
     check(node2);
   }
 
