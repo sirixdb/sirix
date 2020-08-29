@@ -240,7 +240,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
   @Override
   public final long getMaxNodeKey() {
     assertNotClosed();
-    return pageReadOnlyTrx.getActualRevisionRootPage().getMaxNodeKey();
+    return pageReadOnlyTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
   }
 
   /**

@@ -2,6 +2,8 @@ package org.sirix.cache;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
+
+import org.sirix.index.IndexType;
 import org.sirix.page.PageKind;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -20,7 +22,7 @@ public final class IndexLogKey {
   private final long recordPageKey;
 
   /** The kind of index. */
-  private final PageKind pageKind;
+  private final IndexType indexType;
 
   /** The revision number. */
   private final int revisionNumber;
@@ -30,14 +32,14 @@ public final class IndexLogKey {
    *
    * @param recordPageKey the record page key
    * @param index the index number
-   * @param pageKind the page kind (kind of the index)
+   * @param indexType the index type
    * @param revisionNumber the revision number
    */
-  public IndexLogKey(final PageKind pageKind, final long recordPageKey,
+  public IndexLogKey(final IndexType indexType, final long recordPageKey,
       final @Nonnegative int index, final @Nonnegative int revisionNumber) {
     this.recordPageKey = recordPageKey;
     this.index = index;
-    this.pageKind = pageKind;
+    this.indexType = indexType;
     this.revisionNumber = revisionNumber;
   }
 
@@ -49,13 +51,13 @@ public final class IndexLogKey {
     return index;
   }
 
-  public PageKind getIndexType() {
-    return pageKind;
+  public IndexType getIndexType() {
+    return indexType;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(recordPageKey, index, pageKind, revisionNumber);
+    return Objects.hashCode(recordPageKey, index, indexType, revisionNumber);
   }
 
   @Override
@@ -63,7 +65,7 @@ public final class IndexLogKey {
     if (obj instanceof IndexLogKey) {
       final IndexLogKey other = (IndexLogKey) obj;
       return recordPageKey == other.recordPageKey && index == other.index
-          && pageKind == other.pageKind && revisionNumber == other.revisionNumber;
+          && indexType == other.indexType && revisionNumber == other.revisionNumber;
     }
     return false;
   }
@@ -73,7 +75,7 @@ public final class IndexLogKey {
     return MoreObjects.toStringHelper(this)
                       .add("recordPageKey", recordPageKey)
                       .add("index", index)
-                      .add("pageKind", pageKind)
+                      .add("indexType", indexType)
                       .add("revisionNumber", revisionNumber)
                       .toString();
   }

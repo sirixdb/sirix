@@ -3,6 +3,7 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
@@ -103,7 +104,7 @@ public final class CASPage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, PageKind.CASPAGE, pageReadTrx, log);
+      PageUtils.createTree(reference, IndexType.CAS, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);
       } else {

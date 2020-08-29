@@ -5,6 +5,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.DeweyIDNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
@@ -26,7 +27,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   private final int revision;
   private final long recordPageKey;
   private final PageReadOnlyTrx pageReadOnlyTrx;
-  private final PageKind pageKind;
+  private final IndexType indexType;
   private final ResourceConfiguration resourceConfig;
   private final RecordPersister recordPersister;
 
@@ -42,7 +43,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
     records = pageToClone.records;
     revision = pageToClone.revision;
     recordPageKey = pageToClone.recordPageKey;
-    pageKind = pageToClone.pageKind;
+    indexType = pageToClone.indexType;
     recordPersister = pageToClone.recordPersister;
   }
 
@@ -50,11 +51,10 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *
    * @param recordPageKey   base key assigned to this node page
-   * @param pageKind        the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
-   *                        ATTRIBUTEVALUEPAGE...)
+   * @param indexType       the index type
    * @param pageReadOnlyTrx the page reading transaction
    */
-  public HashedKeyValuePage(@Nonnegative final long recordPageKey, final PageKind pageKind,
+  public HashedKeyValuePage(@Nonnegative final long recordPageKey, final IndexType indexType,
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
@@ -67,7 +67,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
     records = new LinkedHashMap<>();
     this.pageReadOnlyTrx = pageReadOnlyTrx;
     revision = pageReadOnlyTrx.getRevisionNumber();
-    this.pageKind = pageKind;
+    this.indexType = indexType;
   }
 
   /**
@@ -85,10 +85,10 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
 
     final var size = in.readInt();
     records = new LinkedHashMap<>(size);
-    pageKind = PageKind.getKind(in.readByte());
+    indexType = IndexType.getType(in.readByte());
     recordPageKey = getVarLong(in);
 
-    if (pageKind == PageKind.DEWEYIDPAGE && resourceConfig.areDeweyIDsStored
+    if (indexType == IndexType.DEWEYID_TO_RECORDID && resourceConfig.areDeweyIDsStored
         && recordPersister instanceof NodePersistenter persistenter) {
       SirixDeweyID optionalDeweyId = null;
 
@@ -151,9 +151,9 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   }
 
   @Override
-  public <C extends KeyValuePage<K, DataRecord>> C newInstance(long recordPageKey, @Nonnull PageKind pageKind,
+  public <C extends KeyValuePage<K, DataRecord>> C newInstance(long recordPageKey, @Nonnull IndexType indexType,
       @Nonnull PageReadOnlyTrx pageReadOnlyTrx) {
-    return (C) new HashedKeyValuePage<K>(recordPageKey, pageKind, pageReadOnlyTrx);
+    return (C) new HashedKeyValuePage<K>(recordPageKey, indexType, pageReadOnlyTrx);
   }
 
   @Override
@@ -162,8 +162,8 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   }
 
   @Override
-  public PageKind getPageKind() {
-    return PageKind.DEWEYIDPAGE;
+  public IndexType getIndexType() {
+    return IndexType.DEWEYID_TO_RECORDID;
   }
 
   @Override
@@ -179,11 +179,11 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   @Override
   public void serialize(DataOutput out, SerializationType type) throws IOException {
     out.writeInt(records.size());
-    out.writeByte(pageKind.getID());
+    out.writeByte(indexType.getID());
     putVarLong(out, recordPageKey);
 
     // Check for dewey IDs.
-    if (pageKind == PageKind.DEWEYIDPAGE && resourceConfig.areDeweyIDsStored
+    if (indexType == IndexType.DEWEYID_TO_RECORDID && resourceConfig.areDeweyIDsStored
         && recordPersister instanceof NodePersistenter persistence && !records.isEmpty()) {
       final Set<K> recordKeys = records.keySet();
       final K firstRecord = recordKeys.iterator().next();

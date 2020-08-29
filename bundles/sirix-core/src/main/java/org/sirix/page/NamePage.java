@@ -25,6 +25,7 @@ import com.google.common.base.MoreObjects;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.index.name.Names;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
@@ -444,7 +445,7 @@ public final class NamePage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, PageKind.NAMEPAGE, pageReadTrx, log);
+      PageUtils.createTree(reference, IndexType.NAME, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);
       } else {

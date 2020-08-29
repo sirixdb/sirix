@@ -4,24 +4,16 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.access.trx.node.xml.InsertPos;
-import org.sirix.api.Axis;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.LevelOrderAxis;
-import org.sirix.axis.PostOrderAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathKindFilter;
 import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
@@ -32,7 +24,6 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
 import org.sirix.settings.Fixed;
 
 import javax.annotation.Nonnegative;
@@ -44,7 +35,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Path summary writer organizing the path classes of a resource.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     extends AbstractForwardingPathSummaryReader {
@@ -65,41 +55,57 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
      */
     MOVED,
 
-    /** A new {@link QName} is set. */
+    /**
+     * A new {@link QName} is set.
+     */
     SETNAME,
   }
 
-  /** Determines if a path subtree must be deleted or not. */
+  /**
+   * Determines if a path subtree must be deleted or not.
+   */
   private enum RemoveSubtreePath {
-    /** Yes, it must be deleted. */
+    /**
+     * Yes, it must be deleted.
+     */
     YES,
 
-    /** No, it must not be deleted. */
+    /**
+     * No, it must not be deleted.
+     */
     NO
   }
 
-  /** Sirix {@link PageTrx}. */
+  /**
+   * Sirix {@link PageTrx}.
+   */
   private final PageTrx pageTrx;
 
-  /** Sirix {@link PathSummaryReader}. */
+  /**
+   * Sirix {@link PathSummaryReader}.
+   */
   private final PathSummaryReader pathSummaryReader;
 
-  /** Sirix {@link NodeFactory} to create new nodes. */
+  /**
+   * Sirix {@link NodeFactory} to create new nodes.
+   */
   private final NodeFactory nodeFactory;
 
-  /** The read-only trx. */
+  /**
+   * The read-only trx.
+   */
   private final R nodeRtx;
 
   /**
    * Constructor.
    *
-   * @param pageTrx Sirix {@link PageTrx}
-   * @param resMgr The resource manager
+   * @param pageTrx     Sirix {@link PageTrx}
+   * @param resMgr      The resource manager
    * @param nodeFactory The node factory to create path nodes
-   * @param rtx the read-only trx
+   * @param rtx         the read-only trx
    */
-  public PathSummaryWriter(final PageTrx pageTrx,
-      final ResourceManager<R, ? extends NodeTrx> resMgr, final NodeFactory nodeFactory, final R rtx) {
+  public PathSummaryWriter(final PageTrx pageTrx, final ResourceManager<R, ? extends NodeTrx> resMgr,
+      final NodeFactory nodeFactory, final R rtx) {
     this.pageTrx = checkNotNull(pageTrx);
     pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);
     nodeRtx = checkNotNull(rtx);
@@ -118,7 +124,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Insert a new path node or increment the counter of an existing node and return the path node key.
    *
-   * @param name the name of the path node to search for
+   * @param name     the name of the path node to search for
    * @param pathKind the kind of the path node to search for
    * @return a path node key of the found node, or the path node key of a new inserted node
    * @throws SirixException if anything went wrong
@@ -135,16 +141,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long nodeKey = pathSummaryReader.getNodeKey();
     final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
-        new PathNameFilter(pathSummaryReader, pathKind == NodeKind.NAMESPACE
-            ? name.getPrefix()
-            : Utils.buildName(name)),
-        new PathKindFilter(pathSummaryReader, pathKind));
+                                       new PathNameFilter(pathSummaryReader,
+                                                          pathKind == NodeKind.NAMESPACE
+                                                              ? name.getPrefix()
+                                                              : Utils.buildName(name)),
+                                       new PathKindFilter(pathSummaryReader, pathKind));
     long retVal;
     if (axis.hasNext()) {
       axis.next();
       retVal = pathSummaryReader.getNodeKey();
-      final PathNode pathNode =
-          (PathNode) pageTrx.prepareRecordForModification(retVal, PageKind.PATHSUMMARYPAGE, 0);
+      final PathNode pathNode = pageTrx.prepareRecordForModification(retVal, IndexType.PATH_SUMMARY, 0);
       pathNode.incrementReferenceCount();
     } else {
       assert nodeKey == pathSummaryReader.getNodeKey();
@@ -175,9 +181,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Insert a path node as first child.
    *
-   * @param name {@link QNm} of the path node (not stored) twice
+   * @param name     {@link QNm} of the path node (not stored) twice
    * @param pathKind kind of node to index
-   * @param level level in the path summary
+   * @param level    level in the path summary
    * @return this path writer instance
    * @throws SirixException if an I/O error occurs
    */
@@ -189,7 +195,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     pathSummaryReader.putMapping(node.getNodeKey(), node);
     pathSummaryReader.moveTo(node.getNodeKey());
-    adaptForInsert(node, InsertPos.ASFIRSTCHILD, PageKind.PATHSUMMARYPAGE);
+    adaptForInsert(node);
     pathSummaryReader.moveTo(node.getNodeKey());
     pathSummaryReader.putQNameMapping(node, name);
 
@@ -199,33 +205,28 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Adapting everything for insert operations.
    *
-   * @param newNode pointer of the new node to be inserted
-   * @param insertPos determines the position where to insert
-   * @param pageKind kind of subtree root page
+   * @param newNode   pointer of the new node to be inserted
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final Node newNode, final InsertPos insertPos, final PageKind pageKind) {
+  private void adaptForInsert(final Node newNode) {
     assert newNode != null;
-    assert insertPos != null;
-    assert pageKind != null;
+    assert InsertPos.ASFIRSTCHILD != null;
+    assert IndexType.PATH_SUMMARY != null;
 
     if (newNode instanceof StructNode) {
       final StructNode strucNode = (StructNode) newNode;
-      final StructNode parent =
-          (StructNode) pageTrx.prepareRecordForModification(newNode.getParentKey(), pageKind, 0);
+      final StructNode parent = pageTrx.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
       parent.incrementChildCount();
-      if (insertPos == InsertPos.ASFIRSTCHILD) {
-        parent.setFirstChildKey(newNode.getNodeKey());
-      }
+      parent.setFirstChildKey(newNode.getNodeKey());
 
       if (strucNode.hasRightSibling()) {
         final StructNode rightSiblingNode =
-            (StructNode) pageTrx.prepareRecordForModification(strucNode.getRightSiblingKey(), pageKind, 0);
+            pageTrx.prepareRecordForModification(strucNode.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
         rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
       }
       if (strucNode.hasLeftSibling()) {
         final StructNode leftSiblingNode =
-            (StructNode) pageTrx.prepareRecordForModification(strucNode.getLeftSiblingKey(), pageKind, 0);
+            pageTrx.prepareRecordForModification(strucNode.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
         leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
       }
     }
@@ -234,10 +235,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Adapt path summary either for moves or {@code setQName(QName)}.
    *
-   * @param node the node for which the path node needs to be adapted
-   * @param name the new {@link QName} in case of a new one is set, the old {@link QName} otherwise
+   * @param node   the node for which the path node needs to be adapted
+   * @param name   the new {@link QName} in case of a new one is set, the old {@link QName} otherwise
    * @param uriKey uriKey of the new node
-   * @throws SirixException if a Sirix operation fails
+   * @throws SirixException       if a Sirix operation fails
    * @throws NullPointerException if {@code pNode} or {@code pQName} is null
    */
   public void adaptPathForChangedNode(final ImmutableNameNode node, final QNm name, final int uriKey,
@@ -254,8 +255,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       moveSummaryGetLevel(node);
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
-          new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
-          new PathKindFilter(pathSummaryReader, node.getKind()));
+                                         new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
+                                         new PathKindFilter(pathSummaryReader, node.getKind()));
       if (axis.hasNext()) {
         axis.next();
 
@@ -264,17 +265,21 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         pathSummaryReader.moveTo(nodeKey);
 
         // Found node.
-        processFoundPathNode(oldPathNodeKey, pathSummaryReader.getNodeKey(), node.getNodeKey(), uriKey, prefixKey,
-                             localNameKey, RemoveSubtreePath.YES, type);
+        processFoundPathNode(oldPathNodeKey,
+                             pathSummaryReader.getNodeKey(),
+                             node.getNodeKey(),
+                             uriKey,
+                             prefixKey,
+                             localNameKey);
       } else {
-        if (pathSummaryReader.getKind() == NodeKind.XML_DOCUMENT || pathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
+        if (pathSummaryReader.getKind() == NodeKind.XML_DOCUMENT
+            || pathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
           insertPathAsFirstChild(name, node.getKind(), 1);
         } else {
           /* The path summary just needs to be updated for the new renamed node. */
           pathSummaryReader.moveTo(oldPathNodeKey);
           final PathNode pathNode =
-              (PathNode) pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(),
-                                                              PageKind.PATHSUMMARYPAGE, 0);
+              pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
           pathNode.setPrefixKey(prefixKey);
           pathNode.setLocalNameKey(localNameKey);
           pathNode.setURIKey(uriKey);
@@ -287,8 +292,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
-          new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
-          new PathKindFilter(pathSummaryReader, node.getKind()));
+                                         new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
+                                         new PathKindFilter(pathSummaryReader, node.getKind()));
       if (axis.hasNext()) {
         axis.next();
 
@@ -297,8 +302,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         pathSummaryReader.moveTo(nodeKey);
 
         // Found node.
-        processFoundPathNode(oldPathNodeKey, pathSummaryReader.getNodeKey(), node.getNodeKey(), uriKey, prefixKey,
-                             localNameKey, RemoveSubtreePath.NO, type);
+        processFoundPathNode(oldPathNodeKey,
+                             pathSummaryReader.getNodeKey(),
+                             node.getNodeKey(),
+                             uriKey,
+                             prefixKey,
+                             localNameKey);
       } else {
         long nodeKey = decrementReferenceCountOrRemove(node);
 
@@ -306,7 +315,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
         // Not found => create new path nodes for the whole subtree.
         boolean firstRun = true;
-        for (final Axis descendants = new DescendantAxis(nodeRtx, IncludeSelf.YES); descendants.hasNext();) {
+        for (final Axis descendants = new DescendantAxis(nodeRtx, IncludeSelf.YES); descendants.hasNext(); ) {
           descendants.next();
           if (nodeRtx.getKind() == NodeKind.ELEMENT || nodeRtx.getKind() == NodeKind.OBJECT_KEY) {
             // Path Summary : New mapping.
@@ -318,9 +327,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
             }
             resetPathNodeKey(nodeRtx.getNodeKey());
 
-            if (nodeRtx instanceof XmlNodeReadOnlyTrx) {
-              final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) nodeRtx;
-
+            if (nodeRtx instanceof XmlNodeReadOnlyTrx rtx) {
               // Namespaces.
               for (int i = 0, nsps = rtx.getNamespaceCount(); i < nsps; i++) {
                 rtx.moveToNamespace(i);
@@ -373,7 +380,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     long nodeKey = pathSummaryReader.getNodeKey();
     nodeRtx.moveTo(node.getNodeKey());
 
-    for (final Axis descendants = new PostOrderAxis(nodeRtx, IncludeSelf.YES); descendants.hasNext();) {
+    for (final Axis descendants = new PostOrderAxis(nodeRtx, IncludeSelf.YES); descendants.hasNext(); ) {
       descendants.next();
 
       if (nodeRtx.getKind() == NodeKind.ELEMENT) {
@@ -406,22 +413,19 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    *
    * @param oldPathNodeKey key of old path node
    * @param newPathNodeKey key of new path node
-   * @param oldNodeKey key of old node
-   * @param uriKey key of URI
-   * @param prefixKey key of prefix
-   * @param localNameKey key of local name
-   * @param remove determines if a {@link PathNode} must be removed or not
-   * @param type type of operation
+   * @param oldNodeKey     key of old node
+   * @param uriKey         key of URI
+   * @param prefixKey      key of prefix
+   * @param localNameKey   key of local name
    * @throws SirixException if Sirix fails to do so
    */
   private void processFoundPathNode(final @Nonnegative long oldPathNodeKey, final @Nonnegative long newPathNodeKey,
-      final @Nonnegative long oldNodeKey, final int uriKey, final int prefixKey, final int localNameKey,
-      final RemoveSubtreePath remove, final OPType type) {
+      final @Nonnegative long oldNodeKey, final int uriKey, final int prefixKey, final int localNameKey) {
     nodeRtx.moveTo(oldNodeKey);
 
     // Set new reference count of the root.
-    final PathNode currNode = (PathNode) pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(),
-                                                                              PageKind.PATHSUMMARYPAGE, 0);
+    final PathNode currNode =
+        pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(currNode.getReferences() + 1);
     currNode.setLocalNameKey(localNameKey);
     currNode.setPrefixKey(prefixKey);
@@ -438,8 +442,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (movedNodeCursorToFirstChild && movedPathSummaryToFirstChild) {
       final long pathRootNodeKey = pathSummaryReader.getNodeKey();
 
-      for (final LevelOrderAxis levelOrderAxis =
-          new LevelOrderAxis.Builder(nodeRtx).includeSelf().build(); levelOrderAxis.hasNext();) {
+      for (final LevelOrderAxis levelOrderAxis = new LevelOrderAxis.Builder(nodeRtx).includeSelf().build();
+          levelOrderAxis.hasNext(); ) {
         levelOrderAxis.next();
 
         if (nodeRtx.getNode() instanceof ImmutableNameNode) {
@@ -449,8 +453,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         }
       }
     } else if (movedNodeCursorToFirstChild) {
-      for (final LevelOrderAxis levelOrderAxis =
-          new LevelOrderAxis.Builder(nodeRtx).includeSelf().build(); levelOrderAxis.hasNext();) {
+      for (final LevelOrderAxis levelOrderAxis = new LevelOrderAxis.Builder(nodeRtx).includeSelf().build();
+          levelOrderAxis.hasNext(); ) {
         levelOrderAxis.next();
 
         if (nodeRtx.getNode() instanceof ImmutableNameNode) {
@@ -489,8 +493,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Search for new path entry.
     final Axis axis =
         new FilterAxis<>(new LevelOrderAxis.Builder(pathSummaryReader).filterLevel(level).includeSelf().build(),
-            new PathNameFilter(pathSummaryReader, Utils.buildName(nodeRtx.getName())),
-            new PathKindFilter(pathSummaryReader, nodeRtx.getKind()));
+                         new PathNameFilter(pathSummaryReader, Utils.buildName(nodeRtx.getName())),
+                         new PathKindFilter(pathSummaryReader, nodeRtx.getKind()));
     if (axis.hasNext()) {
       axis.next();
 
@@ -541,21 +545,20 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void setNewPathNodeKey() {
-    final NameNode node =
-        (NameNode) pageTrx.prepareRecordForModification(nodeRtx.getNodeKey(), PageKind.RECORDPAGE, -1);
+    final NameNode node = pageTrx.prepareRecordForModification(nodeRtx.getNodeKey(), IndexType.DOCUMENT, -1);
     node.setPathNodeKey(pathSummaryReader.getNodeKey());
   }
 
   private void setReferenceCountToOne() {
-    final PathNode currNode = (PathNode) pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(),
-                                                                              PageKind.PATHSUMMARYPAGE, 0);
+    final PathNode currNode =
+        pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(1);
   }
 
   private void increaseReferenceCount() {
     // Set new reference count.
-    final PathNode currNode = (PathNode) pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(),
-                                                                              PageKind.PATHSUMMARYPAGE, 0);
+    final PathNode currNode =
+        pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(currNode.getReferences() + 1);
   }
 
@@ -591,7 +594,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything fails
    */
   private void resetPathNodeKey(final @Nonnegative long nodeKey) {
-    final NameNode currNode = (NameNode) pageTrx.prepareRecordForModification(nodeKey, PageKind.RECORDPAGE, -1);
+    final NameNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
   }
 
@@ -603,33 +606,31 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void removePathSummaryNode(final RemoveSubtreePath remove) {
     // Remove all descendant nodes.
     if (remove == RemoveSubtreePath.YES) {
-      for (final Axis axis = new DescendantAxis(pathSummaryReader); axis.hasNext();) {
+      for (final Axis axis = new DescendantAxis(pathSummaryReader); axis.hasNext(); ) {
         axis.next();
         pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
         pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
-        pageTrx.removeRecord(pathSummaryReader.getNodeKey(), PageKind.PATHSUMMARYPAGE, 0);
+        pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
       }
     }
 
     // Adapt left sibling node if there is one.
     if (pathSummaryReader.hasLeftSibling()) {
       final StructNode leftSibling =
-          (StructNode) pageTrx.prepareRecordForModification(pathSummaryReader.getLeftSiblingKey(),
-                                                            PageKind.PATHSUMMARYPAGE, 0);
+          pageTrx.prepareRecordForModification(pathSummaryReader.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
       leftSibling.setRightSiblingKey(pathSummaryReader.getRightSiblingKey());
     }
 
     // Adapt right sibling node if there is one.
     if (pathSummaryReader.hasRightSibling()) {
       final StructNode rightSibling =
-          (StructNode) pageTrx.prepareRecordForModification(pathSummaryReader.getRightSiblingKey(),
-                                                            PageKind.PATHSUMMARYPAGE, 0);
+          pageTrx.prepareRecordForModification(pathSummaryReader.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
       rightSibling.setLeftSiblingKey(pathSummaryReader.getLeftSiblingKey());
     }
 
     // Adapt parent. If node has no left sibling it is a first child.
-    StructNode parent = (StructNode) pageTrx.prepareRecordForModification(pathSummaryReader.getParentKey(),
-                                                                          PageKind.PATHSUMMARYPAGE, 0);
+    StructNode parent =
+        pageTrx.prepareRecordForModification(pathSummaryReader.getParentKey(), IndexType.PATH_SUMMARY, 0);
     if (!pathSummaryReader.hasLeftSibling()) {
       parent.setFirstChildKey(pathSummaryReader.getRightSiblingKey());
     }
@@ -638,7 +639,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Remove node.
     pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
     pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
-    pageTrx.removeRecord(pathSummaryReader.getNodeKey(), PageKind.PATHSUMMARYPAGE, 0);
+    pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
   }
 
   private void deleteOrDecrement() {
@@ -647,8 +648,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       if (pathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.NO);
       } else {
-        final PathNode pathNode = (PathNode) pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(),
-                                                                                  PageKind.PATHSUMMARYPAGE, 0);
+        final PathNode pathNode =
+            pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
         pathNode.decrementReferenceCount();
       }
     }
@@ -658,9 +659,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Decrements the reference-counter of the node or removes the path node if the reference-counter
    * would be zero otherwise.
    *
-   * @param node node which is going to removed from the storage
+   * @param node     node which is going to removed from the storage
    * @param nodeKind the node kind
-   * @param page the name page
+   * @param page     the name page
    * @throws SirixException if anything went wrong
    */
   public void remove(final ImmutableNameNode node, final NodeKind nodeKind, final NamePage page) {
@@ -671,8 +672,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         assert page.getCount(node.getLocalNameKey(), nodeKind, pageTrx) != 0;
         if (pathSummaryReader.getReferences() > 1) {
           final PathNode pathNode =
-              (PathNode) pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(),
-                                                              PageKind.PATHSUMMARYPAGE, 0);
+              pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
           pathNode.decrementReferenceCount();
         }
       }

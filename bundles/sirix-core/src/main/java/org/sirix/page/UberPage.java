@@ -25,6 +25,7 @@ import com.google.common.base.MoreObjects;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
@@ -247,28 +248,34 @@ public final class UberPage extends AbstractForwardingPage {
     final var pathSummaryPage = rootPage.getPathSummaryPageReference().getPage();
     log.put(rootPage.getPathSummaryPageReference(), PageContainer.getInstance(pathSummaryPage, pathSummaryPage));
 
+    final var deweyIDPage = rootPage.getDeweyIdPageReference().getPage();
+    log.put(rootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
+
     log.put(reference, PageContainer.getInstance(rootPage, rootPage));
   }
 
   /**
    * Get the page count exponent for the given page.
    *
-   * @param pageKind page to lookup the exponent in the constant definition
+   * @param indexType page to lookup the exponent in the constant definition
    * @return page count exponent
    */
-  public int[] getPageCountExp(final PageKind pageKind) {
+  public int[] getPageCountExp(final IndexType indexType) {
     int[] inpLevelPageCountExp;
-    switch (pageKind) {
-      case PATHSUMMARYPAGE:
+    switch (indexType) {
+      case PATH_SUMMARY:
         inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
-      case PATHPAGE:
-      case CASPAGE:
-      case NAMEPAGE:
-      case RECORDPAGE:
+      case DOCUMENT:
+      case CHANGED_NODES:
+      case RECORD_TO_REVISIONS:
+      case DEWEYID_TO_RECORDID:
+      case PATH:
+      case CAS:
+      case NAME:
         inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
-      case UBERPAGE:
+      case REVISIONS:
         inpLevelPageCountExp = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
       // $CASES-OMITTED$

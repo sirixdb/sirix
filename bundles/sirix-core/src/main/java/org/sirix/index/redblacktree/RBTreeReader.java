@@ -52,7 +52,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   /**
    * The index type.
    */
-  private final IndexType indexType;
+  final IndexType indexType;
 
   /**
    * The index number.
@@ -78,11 +78,6 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * {@link PageReadOnlyTrx} for persistent storage.
    */
   final PageReadOnlyTrx pageReadOnlyTrx;
-
-  /**
-   * Page kind.
-   */
-  final PageKind pageKind;
 
   /**
    * Index number.
@@ -136,17 +131,11 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     this.indexType = checkNotNull(indexType);
     this.indexNumber = indexNumber;
     revisionNumber = pageReadOnlyTrx.getRevisionNumber();
-    switch (indexType) {
-      case PATH -> pageKind = PageKind.PATHPAGE;
-      case CAS -> pageKind = PageKind.CASPAGE;
-      case NAME -> pageKind = PageKind.NAMEPAGE;
-      default -> throw new IllegalStateException();
-    }
     isClosed = false;
     this.index = indexNumber;
 
     final Optional<? extends DataRecord> node =
-        this.pageReadOnlyTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
+        this.pageReadOnlyTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
     currentNode = (StructNode) node.orElseThrow(() -> new IllegalStateException(
         "Node couldn't be fetched from persistent storage!"));
 
@@ -516,7 +505,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     Optional<? extends Node> newNode;
     try {
       // Immediately return node from item list if node key negative.
-      newNode = pageReadOnlyTrx.getRecord(nodeKey, pageKind, index);
+      newNode = pageReadOnlyTrx.getRecord(nodeKey, indexType, index);
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
     }

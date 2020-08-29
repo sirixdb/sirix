@@ -4,6 +4,7 @@ import org.sirix.access.trx.node.AbstractDeweyIDManager;
 import org.sirix.api.PageTrx;
 import org.sirix.axis.LevelOrderAxis;
 import org.sirix.exception.SirixException;
+import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
@@ -41,8 +42,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
 
     final long nodeKey = nodeTrx.getNodeKey();
 
-    final StructNode root = nodeTrx.getPageWtx()
-                                   .prepareRecordForModification(nodeKey, PageKind.RECORDPAGE, -1);
+    final StructNode root =
+        nodeTrx.getPageWtx().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
 
     adaptNonStructuralNodes(root);
@@ -54,10 +55,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
       int nspNr = 0;
       var previousNodeKey = nodeTrx.getNodeKey();
 
-      for (@SuppressWarnings("unused") final long key : LevelOrderAxis.newBuilder(nodeTrx)
-                                                                      .includeNonStructuralNodes()
-                                                                      .includeSelf()
-                                                                      .build()) {
+      for (final long ignored : LevelOrderAxis.newBuilder(nodeTrx).includeNonStructuralNodes().includeSelf().build()) {
         SirixDeweyID deweyID;
         if (nodeTrx.isAttribute()) {
           final long attNodeKey = nodeTrx.getNodeKey();
@@ -89,7 +87,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
           }
         }
 
-        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
 
         previousNodeKey = node.getNodeKey();
@@ -114,7 +112,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
         nodeTrx.moveToParent();
         nodeTrx.moveToAttribute(i);
 
-        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
 
         nodeTrx.moveToParent();
@@ -131,7 +129,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager {
         }
         nodeTrx.moveToNamespace(i);
 
-        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
 
         nodeTrx.moveToParent();

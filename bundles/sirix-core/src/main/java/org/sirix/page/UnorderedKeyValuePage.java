@@ -27,6 +27,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
@@ -97,9 +98,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   private final PageReadOnlyTrx pageReadOnlyTrx;
 
   /**
-   * The kind of page (in which subtree it resides).
+   * The index type.
    */
-  private final PageKind pageKind;
+  private final IndexType indexType;
 
   /**
    * Persistenter.
@@ -125,7 +126,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     slots = pageToClone.slots;
     deweyIDs = pageToClone.deweyIDs;
     this.pageReadOnlyTrx = pageReadOnlyTrx;
-    pageKind = pageToClone.pageKind;
+    indexType = pageToClone.indexType;
     recordPersister = pageToClone.recordPersister;
     resourceConfig = pageToClone.resourceConfig;
     revision = pageToClone.revision;
@@ -135,11 +136,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *
    * @param recordPageKey   base key assigned to this node page
-   * @param pageKind        the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE, TEXTVALUEPAGE,
-   *                        ATTRIBUTEVALUEPAGE...)
+   * @param indexType       the index type
    * @param pageReadOnlyTrx the page reading transaction
    */
-  public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
+  public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final IndexType indexType,
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
@@ -151,7 +151,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     records = new LinkedHashMap<>();
     slots = new LinkedHashMap<>();
     this.pageReadOnlyTrx = pageReadOnlyTrx;
-    this.pageKind = pageKind;
+    this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
 
@@ -229,7 +229,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       references.put(key, reference);
     }
     assert pageReadTrx != null : "pageReadTrx must not be null!";
-    pageKind = PageKind.getKind(in.readByte());
+    indexType = IndexType.getType(in.readByte());
   }
 
   private void deserializeRecordAndPutIntoMap(DataInput in, SirixDeweyID deweyId) {
@@ -349,7 +349,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       out.writeLong(entry.getValue().getKey());
     }
 
-    out.writeByte(pageKind.getID());
+    out.writeByte(indexType.getID());
   }
 
   private void serializeDeweyRecord(SirixDeweyID id, DataOutput out) throws IOException {
@@ -503,13 +503,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   @SuppressWarnings("unchecked")
   @Override
   public <C extends KeyValuePage<Long, DataRecord>> C newInstance(final long recordPageKey,
-      @Nonnull final PageKind pageKind, @Nonnull final PageReadOnlyTrx pageReadTrx) {
-    return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, pageReadTrx);
+      @Nonnull final IndexType indexType, @Nonnull final PageReadOnlyTrx pageReadTrx) {
+    return (C) new UnorderedKeyValuePage(recordPageKey, indexType, pageReadTrx);
   }
 
   @Override
-  public PageKind getPageKind() {
-    return pageKind;
+  public IndexType getIndexType() {
+    return indexType;
   }
 
   @Override

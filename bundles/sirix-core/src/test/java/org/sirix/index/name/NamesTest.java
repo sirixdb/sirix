@@ -1,17 +1,16 @@
 package org.sirix.index.name;
 
+import org.junit.Test;
+import org.sirix.api.PageTrx;
+import org.sirix.index.IndexType;
+import org.sirix.node.HashCountEntryNode;
+import org.sirix.node.HashEntryNode;
+
 import static org.junit.Assert.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertNotEquals;
-import org.junit.Test;
-import org.sirix.api.PageTrx;
-import org.sirix.node.HashCountEntryNode;
-import org.sirix.node.HashEntryNode;
-import org.sirix.page.PageKind;
 
 public final class NamesTest {
   @Test
@@ -32,11 +31,11 @@ public final class NamesTest {
 
     @SuppressWarnings("unchecked")
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashEntryNode);
-    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(PageKind.NAMEPAGE), eq(0))).thenReturn(
+    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashCountEntryNode);
-    when(pageTrx.prepareRecordForModification(2L, PageKind.NAMEPAGE, 0)).thenReturn(hashCountEntryNode);
+    when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;
   }
 

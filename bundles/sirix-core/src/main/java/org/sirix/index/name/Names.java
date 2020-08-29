@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
+import org.sirix.index.IndexType;
 import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
@@ -63,7 +64,7 @@ public final class Names {
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1, l = maxNodeKey; i < l; i += 2) {
       final long nodeKeyOfNode = i;
-      final Optional<? extends DataRecord> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, PageKind.NAMEPAGE, indexNumber);
+      final Optional<? extends DataRecord> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, IndexType.NAME, indexNumber);
 
       if (nameNode.isPresent() && nameNode.get().getKind() != NodeKind.DELETE) {
         final HashEntryNode hashEntryNode = (HashEntryNode) nameNode.orElseThrow(
@@ -76,7 +77,7 @@ public final class Names {
         final long nodeKeyOfCountNode = i + 1;
 
         final Optional<? extends DataRecord> countNode =
-            pageReadTrx.getRecord(nodeKeyOfCountNode, PageKind.NAMEPAGE, indexNumber);
+            pageReadTrx.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
 
         final HashCountEntryNode hashKeyToNameCountEntryNode =
             (HashCountEntryNode) countNode.orElseThrow(() -> new IllegalStateException(
@@ -102,13 +103,13 @@ public final class Names {
         nameMap.remove(key);
         countNameMapping.remove(key);
 
-        pageTrx.removeRecord(countNodeKey - 1, PageKind.NAMEPAGE, indexNumber);
-        pageTrx.removeRecord(countNodeKey, PageKind.NAMEPAGE, indexNumber);
+        pageTrx.removeRecord(countNodeKey - 1, IndexType.NAME, indexNumber);
+        pageTrx.removeRecord(countNodeKey, IndexType.NAME, indexNumber);
       } else {
         countNameMapping.put(key, prevValue - 1);
 
         final HashCountEntryNode hashCountEntryNode =
-            (HashCountEntryNode) pageTrx.prepareRecordForModification(countNodeKey, PageKind.NAMEPAGE, indexNumber);
+            (HashCountEntryNode) pageTrx.prepareRecordForModification(countNodeKey, IndexType.NAME, indexNumber);
         hashCountEntryNode.decrementValue();
       }
     }
@@ -159,10 +160,10 @@ public final class Names {
       final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, newKey, name);
       final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(maxNodeKey + 1, 1);
 
-      pageTrx.createRecord(maxNodeKey++, hashEntryNode, PageKind.NAMEPAGE, indexNumber);
+      pageTrx.createRecord(maxNodeKey++, hashEntryNode, IndexType.NAME, indexNumber);
 
       countNodeMap.put(newKey, maxNodeKey);
-      pageTrx.createRecord(maxNodeKey, hashCountEntryNode, PageKind.NAMEPAGE, indexNumber);
+      pageTrx.createRecord(maxNodeKey, hashCountEntryNode, IndexType.NAME, indexNumber);
 
       nameMap.put(newKey, checkNotNull(getBytes(name)));
       countNameMapping.put(newKey, 1);
@@ -176,7 +177,7 @@ public final class Names {
       final long nodeKey = countNodeMap.get(key);
 
       final HashCountEntryNode hashCountEntryNode =
-          (HashCountEntryNode) pageTrx.prepareRecordForModification(nodeKey, PageKind.NAMEPAGE, indexNumber);
+          (HashCountEntryNode) pageTrx.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
       hashCountEntryNode.incrementValue();
 
       return key;

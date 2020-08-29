@@ -13,7 +13,7 @@ final class AscendingSubMap<K, V> extends org.sirix.index.art.NavigableSubMap<K,
 
   @Override
   public Comparator<? super K> comparator() {
-    return m.comparator();
+    return tree.comparator();
   }
 
   @Override
@@ -22,7 +22,7 @@ final class AscendingSubMap<K, V> extends org.sirix.index.art.NavigableSubMap<K,
       throw new IllegalArgumentException("fromKey out of range");
     if (!inRange(toKey, toInclusive))
       throw new IllegalArgumentException("toKey out of range");
-    return new AscendingSubMap<>(m, false, fromKey, fromInclusive, false, toKey, toInclusive);
+    return new AscendingSubMap<>(tree, false, fromKey, fromInclusive, false, toKey, toInclusive);
   }
 
   // TODO: offer another ctor to take in loBytes
@@ -30,7 +30,7 @@ final class AscendingSubMap<K, V> extends org.sirix.index.art.NavigableSubMap<K,
   public NavigableMap<K, V> headMap(K toKey, boolean inclusive) {
     if (!inRange(toKey, inclusive))
       throw new IllegalArgumentException("toKey out of range");
-    return new AscendingSubMap<>(m, fromStart, lo, loInclusive, false, toKey, inclusive);
+    return new AscendingSubMap<>(tree, fromStart, lo, loInclusive, false, toKey, inclusive);
   }
 
   // TODO: offer another ctor to take in hiBytes
@@ -38,7 +38,7 @@ final class AscendingSubMap<K, V> extends org.sirix.index.art.NavigableSubMap<K,
   public NavigableMap<K, V> tailMap(K fromKey, boolean inclusive) {
     if (!inRange(fromKey, inclusive))
       throw new IllegalArgumentException("fromKey out of range");
-    return new AscendingSubMap<>(m, false, fromKey, inclusive, toEnd, hi, hiInclusive);
+    return new AscendingSubMap<>(tree, false, fromKey, inclusive, toEnd, hi, hiInclusive);
   }
 
   @Override
@@ -46,7 +46,7 @@ final class AscendingSubMap<K, V> extends org.sirix.index.art.NavigableSubMap<K,
     NavigableMap<K, V> mv = descendingMapView;
     return (mv != null)
         ? mv
-        : (descendingMapView = new DescendingSubMap<>(m, fromStart, lo, loInclusive, toEnd, hi, hiInclusive));
+        : (descendingMapView = new DescendingSubMap<>(tree, fromStart, lo, loInclusive, toEnd, hi, hiInclusive));
   }
 
   @Override

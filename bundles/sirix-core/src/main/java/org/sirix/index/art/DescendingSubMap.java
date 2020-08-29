@@ -11,7 +11,7 @@ final class DescendingSubMap<K, V> extends NavigableSubMap<K, V> {
 
   @Override
   public Comparator<? super K> comparator() {
-    return m.comparator();
+    return tree.comparator();
   }
 
   // create a new submap out of a submap.
@@ -22,21 +22,21 @@ final class DescendingSubMap<K, V> extends NavigableSubMap<K, V> {
       throw new IllegalArgumentException("fromKey out of range");
     if (!inRange(toKey, toInclusive))
       throw new IllegalArgumentException("toKey out of range");
-    return new DescendingSubMap<>(m, false, toKey, toInclusive, false, fromKey, fromInclusive);
+    return new DescendingSubMap<>(tree, false, toKey, toInclusive, false, fromKey, fromInclusive);
   }
 
   @Override
   public NavigableMap<K, V> headMap(K toKey, boolean inclusive) {
     if (!inRange(toKey, inclusive))
       throw new IllegalArgumentException("toKey out of range");
-    return new DescendingSubMap<>(m, false, toKey, inclusive, toEnd, hi, hiInclusive);
+    return new DescendingSubMap<>(tree, false, toKey, inclusive, toEnd, hi, hiInclusive);
   }
 
   @Override
   public NavigableMap<K, V> tailMap(K fromKey, boolean inclusive) {
     if (!inRange(fromKey, inclusive))
       throw new IllegalArgumentException("fromKey out of range");
-    return new DescendingSubMap<>(m, fromStart, lo, loInclusive, false, fromKey, inclusive);
+    return new DescendingSubMap<>(tree, fromStart, lo, loInclusive, false, fromKey, inclusive);
   }
 
   @Override
@@ -44,7 +44,7 @@ final class DescendingSubMap<K, V> extends NavigableSubMap<K, V> {
     NavigableMap<K, V> mapView = descendingMapView;
     return (mapView != null)
         ? mapView
-        : (descendingMapView = new AscendingSubMap<>(m, fromStart, lo, loInclusive, toEnd, hi, hiInclusive));
+        : (descendingMapView = new AscendingSubMap<>(tree, fromStart, lo, loInclusive, toEnd, hi, hiInclusive));
   }
 
   @Override
