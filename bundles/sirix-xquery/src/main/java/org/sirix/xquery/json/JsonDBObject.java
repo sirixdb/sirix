@@ -368,6 +368,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record rename(QNm field, QNm newFieldName) {
+    moveRtx();
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
 
@@ -384,6 +385,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record insert(QNm field, Sequence value) {
+    moveRtx();
     if (get(field) != null) {
       return this;
     }
@@ -429,6 +431,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record remove(QNm field) {
+    moveRtx();
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
 
