@@ -12,13 +12,29 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testSimpleDeleteQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}]')
+        """;
+    final String query = "for $i in jn:doc('mycol.jn','mydoc.jn') where deep-equal($i=>generic, 1) return delete json $i=>location";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
   public void testSimpleReplaceValueQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
         """;
     final String query = "for $i in jn:doc('mycol.jn','mydoc.jn') where deep-equal($i=>generic, 2) return replace json value of $i=>\"generic\" with 1";
-    final String assertion = "";
-    test(storeQuery, query, assertion);
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1,"location":{"state":"CA","city":"Los Angeles"}},{"generic":1,"location":{"state":"NY","city":"New York"}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
   }
 
   @Test
@@ -26,9 +42,12 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
         """;
-    final String query = "let $obj := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'),2) return replace json value of $obj=>location with {'state': 'CA', 'city': 'Los Angeles'}";
-    final String assertion = "";
-    test(storeQuery, query, assertion);
+    final String query = "let $obj := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'), 2) return replace json value of $obj=>location with {\"state\": \"NY\", \"city\": \"New York\"}";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1,"location":{"state":"NY","city":"New York"}},{"generic":2,"location":{"state":"NY","city":"New York"}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
   }
 
   @Test
