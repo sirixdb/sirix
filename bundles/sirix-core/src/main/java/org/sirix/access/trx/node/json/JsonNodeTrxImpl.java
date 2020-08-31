@@ -68,7 +68,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.*;
 import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.xml.shredder.InsertPosition;

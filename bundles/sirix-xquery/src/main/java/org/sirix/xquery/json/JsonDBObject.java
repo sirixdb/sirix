@@ -333,8 +333,6 @@ public final class JsonDBObject extends AbstractItem
 
   private void insertSubtree(Sequence value, JsonNodeTrx trx) {
     var json = serializeItem(value);
-    json = json.substring(1, json.length() - 1);
-
     final var jsonReader = JsonShredder.createStringReader(json);
     trx.insertSubtreeAsLastChild(jsonReader);
   }

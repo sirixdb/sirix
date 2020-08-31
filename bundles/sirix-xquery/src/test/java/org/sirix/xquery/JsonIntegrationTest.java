@@ -12,6 +12,26 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testSimpleReplaceValueQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
+        """;
+    final String query = "for $i in jn:doc('mycol.jn','mydoc.jn') where deep-equal($i=>generic, 2) return replace json value of $i=>\"generic\" with 1";
+    final String assertion = "";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testSubtreeReplaceValueQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
+        """;
+    final String query = "let $obj := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'),2) return replace json value of $obj=>location with {'state': 'CA', 'city': 'Los Angeles'}";
+    final String assertion = "";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testTimeTravelQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[]')
