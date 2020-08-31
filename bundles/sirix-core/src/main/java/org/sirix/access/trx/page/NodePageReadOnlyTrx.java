@@ -231,6 +231,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         default -> throw new IllegalStateException();
       };
 
+      //noinspection unchecked
       return (Optional<V>) page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(nodeKey))
                                .flatMap(this::checkItemIfDeleted);
     }
@@ -615,8 +616,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       case NAME -> getNamePage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
-      default -> throw new IllegalStateException(
-          "Only defined for node, path summary, text value and attribute value pages!");
     };
 
     return maxLevel;
