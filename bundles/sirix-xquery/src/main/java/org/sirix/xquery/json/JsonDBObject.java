@@ -37,7 +37,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -175,42 +174,30 @@ public final class JsonDBObject extends AbstractItem
   public boolean isNextOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isPreviousOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isFutureOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -220,25 +207,20 @@ public final class JsonDBObject extends AbstractItem
     if (this == other)
       return true;
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isEarlierOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -248,22 +230,20 @@ public final class JsonDBObject extends AbstractItem
     if (this == other)
       return true;
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isLastOf(final JsonDBObject other) {
     moveRtx();
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
+    final NodeReadOnlyTrx otherTrx = other.getTrx();
 
     return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
   }
@@ -272,11 +252,10 @@ public final class JsonDBObject extends AbstractItem
   public boolean isFirstOf(final JsonDBObject other) {
     moveRtx();
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
+    final NodeReadOnlyTrx otherTrx = other.getTrx();
 
     // Revision 0 is just the bootstrap revision and not accessed over here.
     return otherTrx.getRevisionNumber() == 1;
@@ -306,6 +285,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record replace(QNm field, Sequence value) {
+    moveRtx();
     if (rtx.hasChildren()) {
       modify(field, value);
       fields.put(field, value);
