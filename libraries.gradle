@@ -34,7 +34,8 @@ implLibraries = [
         vertxConfig              : 'io.vertx:vertx-config:3.8.5',
         kotlinStdlibJdk8         : 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.61',
         jsoup                    : 'org.jsoup:jsoup:1.11.3',
-        kotlinxCli               : 'org.jetbrains.kotlinx:kotlinx-cli:0.2.1'
+        kotlinxCli               : 'org.jetbrains.kotlinx:kotlinx-cli:0.2.1',
+        integercompression       : 'me.lemire.integercompression:JavaFastPFOR:0.1.12'
 ]
 
 testLibraries = [
@@ -52,5 +53,6 @@ testLibraries = [
         vertxJunit5              : 'io.vertx:vertx-junit5:3.8.4',
         jsonassert               : 'org.skyscreamer:jsonassert:1.5.0',
         kotestAssertions         : 'io.kotest:kotest-assertions-core-jvm:4.0.5',
+        commonsCollections4      : 'org.apache.commons:commons-collections4:4.3',
         commonsCollections4Tests : 'org.apache.commons:commons-collections4:4.3:tests'
 ]

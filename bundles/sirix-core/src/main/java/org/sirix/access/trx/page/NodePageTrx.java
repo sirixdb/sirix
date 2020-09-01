@@ -36,6 +36,7 @@ import org.sirix.index.IndexType;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
+import org.sirix.node.RevisionReferencesNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
@@ -54,6 +55,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -187,6 +189,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         record = oldRecord;
         ((UnorderedKeyValuePage) cont.getModified()).setRecord(nodeKey, record);
       }
+
       return (V) record;
     }
 
@@ -205,6 +208,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final long createdRecordKey = switch (indexType) {
         case DOCUMENT -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
         case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
+        case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
         case PATH_SUMMARY -> {
           final PathSummaryPage pathSummaryPage =
               ((PathSummaryPage) newRevisionRootPage.getPathSummaryPageReference().getPage());
@@ -234,6 +238,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     // TODO
+
     return null;
   }
 
@@ -243,8 +248,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     checkNotNull(recordKey);
 
     if (recordKey instanceof Long nodeKey) {
-      final long nodePageKey = pageRtx.pageKey(nodeKey, indexType);
-      final PageContainer cont = prepareRecordPage(nodePageKey, index, indexType);
+      final long recordPageKey = pageRtx.pageKey(nodeKey, indexType);
+      final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
       final Optional<DataRecord> node = getRecord(nodeKey, indexType, index);
       if (node.isPresent()) {
         final DataRecord nodeToDel = node.get();
@@ -501,7 +506,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
     }
 
-    mostRecentPageContainer = new MostRecentPageContainer(recordPageKey, indexNumber, indexType, pageContainer);
+    if (indexType != IndexType.RECORD_TO_REVISIONS) {
+      mostRecentPageContainer = new MostRecentPageContainer(recordPageKey, indexNumber, indexType, pageContainer);
+    }
 
     return pageContainer;
   }

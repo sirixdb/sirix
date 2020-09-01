@@ -23,6 +23,7 @@ package org.sirix.node;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.hash.HashFunction;
+import com.google.common.primitives.Ints;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
@@ -1637,6 +1638,43 @@ public enum NodeKind implements NodePersistenter {
     }
   },
 
+  REVISION_REFERENCES_NODE((byte) 35, RevisionReferencesNode.class) {
+    @Override
+    public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadOnlyTrx pageReadTrx) throws IOException {
+      final var length = source.readByte();
+      final var revisions = new int[length];
+      for (int i = 0; i < length; i++) {
+        revisions[i] = source.readInt();
+      }
+      final var uncompressedRevisions = INTEGRATED_INT_COMPRESSOR.uncompress(revisions);
+      return new RevisionReferencesNode(recordID, uncompressedRevisions);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
+        throws IOException {
+      final var revisionRefNode = (RevisionReferencesNode) record;
+      final var revisions = revisionRefNode.getRevisions();
+      final var compressedRevisions = INTEGRATED_INT_COMPRESSOR.compress(revisions);
+      sink.writeByte(compressedRevisions.length);
+      for (int i = 0, length = compressedRevisions.length; i < length; i++) {
+        sink.writeInt(compressedRevisions[i]);
+      }
+    }
+
+    @Override
+    public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) {
+      return null;
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) {
+    }
+  },
+
   /**
    * Node type not known.
    */
@@ -1668,12 +1706,12 @@ public enum NodeKind implements NodePersistenter {
   /**
    * Identifier.
    */
-  private final byte mId;
+  private final byte id;
 
   /**
    * Class.
    */
-  private final Class<? extends DataRecord> mClass;
+  private final Class<? extends DataRecord> clazz;
 
   /**
    * Mapping of keys -> nodes.
@@ -1687,8 +1725,8 @@ public enum NodeKind implements NodePersistenter {
 
   static {
     for (final NodeKind node : values()) {
-      INSTANCEFORID.put(node.mId, node);
-      INSTANCEFORCLASS.put(node.mClass, node);
+      INSTANCEFORID.put(node.id, node);
+      INSTANCEFORCLASS.put(node.clazz, node);
     }
   }
 
@@ -1699,8 +1737,8 @@ public enum NodeKind implements NodePersistenter {
    * @param clazz class
    */
   NodeKind(final byte id, final Class<? extends DataRecord> clazz) {
-    mId = id;
-    mClass = clazz;
+    this.id = id;
+    this.clazz = clazz;
   }
 
   /**
@@ -1709,7 +1747,7 @@ public enum NodeKind implements NodePersistenter {
    * @return the unique kind
    */
   public byte getId() {
-    return mId;
+    return id;
   }
 
   /**
@@ -1718,7 +1756,7 @@ public enum NodeKind implements NodePersistenter {
    * @return class of node
    */
   public Class<? extends DataRecord> getNodeClass() {
-    return mClass;
+    return clazz;
   }
 
   /**

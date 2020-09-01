@@ -50,19 +50,19 @@ public class AttributeNodeTest {
   private Holder mHolder;
 
   /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private PageReadOnlyTrx pageReadOnlyTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    pageReadOnlyTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
+    pageReadOnlyTrx.close();
     mHolder.close();
   }
 
@@ -82,10 +82,10 @@ public class AttributeNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageReadOnlyTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID(), mPageReadTrx);
+                                                                               node.getDeweyID(), pageReadOnlyTrx);
     check(node2);
   }
 

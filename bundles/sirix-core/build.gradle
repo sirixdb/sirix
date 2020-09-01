@@ -18,6 +18,7 @@ dependencies {
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.chronicleMap
+    implementation implLibraries.integercompression
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
@@ -27,6 +28,7 @@ dependencies {
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
+    testImplementation testLibraries.commonsCollections4
     testImplementation testLibraries.commonsCollections4Tests
 }
 
