@@ -23,7 +23,7 @@ public final class RevisionReferencesNode implements DataRecord {
 
   @Override
   public SirixDeweyID getDeweyID() {
-    throw new UnsupportedOperationException();
+    return null;
   }
 
   @Override

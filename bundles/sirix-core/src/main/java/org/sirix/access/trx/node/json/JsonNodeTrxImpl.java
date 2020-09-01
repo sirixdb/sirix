@@ -571,7 +571,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -610,7 +610,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -646,7 +646,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -682,7 +682,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -734,7 +734,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -787,7 +787,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -881,7 +881,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -926,7 +926,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -967,7 +967,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1008,7 +1008,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1043,7 +1043,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1078,7 +1078,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1154,7 +1154,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1204,7 +1204,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1259,7 +1259,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1293,7 +1293,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1339,7 +1339,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1385,7 +1385,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1415,7 +1415,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1445,7 +1445,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1523,7 +1523,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1570,7 +1570,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1601,7 +1601,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1632,7 +1632,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1675,7 +1675,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1718,7 +1718,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1749,7 +1749,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1780,7 +1780,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       return this;
     } finally {
@@ -1852,7 +1852,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       adaptForRemove(node);
       nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+       nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
 
       if (node.hasRightSibling()) {
         moveTo(node.getRightSiblingKey());
