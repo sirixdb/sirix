@@ -2281,6 +2281,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     // Recreate index listeners.
     indexController.createIndexListeners(indexController.getIndexes().getIndexDefs(), this);
+
+    nodeToRevisionsIndex.setPageTrx(pageTrx);
   }
 
   /**

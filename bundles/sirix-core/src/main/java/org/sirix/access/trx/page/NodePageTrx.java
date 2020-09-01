@@ -168,6 +168,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
+  public int getRevisionNumber() {
+    pageRtx.assertNotClosed();
+    return newRevisionRootPage.getRevision();
+  }
+
+  @Override
   public <K, V> V prepareRecordForModification(@Nonnull final K recordKey, @Nonnull final IndexType indexType,
       final int index) {
     pageRtx.assertNotClosed();
