@@ -28,6 +28,7 @@ import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.RecordToRevisionsIndex;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -37,11 +38,9 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.IOStorage;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -95,33 +94,34 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageWriteTrx, int maxNodeCount, TimeUnit timeUnit,
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
       int maxTime, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
-    final InternalJsonNodeReadOnlyTrx nodeReadTrx =
-        new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableJsonNode) documentNode);
+    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx =
+        new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableJsonNode) documentNode);
 
     // Node factory.
-    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageWriteTrx);
+    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
     final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, this, nodeFactory, nodeReadTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadOnlyTrx);
     } else {
       pathSummaryWriter = null;
     }
 
     return new JsonNodeTrxImpl(this,
-                               nodeReadTrx,
+                               nodeReadOnlyTrx,
                                pathSummaryWriter,
                                maxNodeCount,
                                timeUnit,
                                maxTime,
-                               new JsonNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageWriteTrx),
+                               new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
                                nodeFactory,
-                               afterCommitState);
+                               afterCommitState,
+                               new RecordToRevisionsIndex(pageTrx, nodeReadOnlyTrx.getRevisionNumber() + 1));
   }
 
   @SuppressWarnings("unchecked")
