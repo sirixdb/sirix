@@ -121,7 +121,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
                                new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
                                nodeFactory,
                                afterCommitState,
-                               new RecordToRevisionsIndex(pageTrx, nodeReadOnlyTrx.getRevisionNumber()));
+                               new RecordToRevisionsIndex(pageTrx));
   }
 
   @SuppressWarnings("unchecked")

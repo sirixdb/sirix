@@ -2,6 +2,7 @@ package org.sirix.xquery.json;
 
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.Tuple;
 import org.brackit.xquery.array.AbstractArray;
 import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.util.serialize.StringSerializer;
@@ -158,14 +159,13 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Array insert(int index, Sequence value) {
-    moveRtx();
     modify(index, value, index == rtx.getChildCount() ? Op.Append : Op.Insert);
     return this;
   }
 
   @Override
   public Array insert(IntNumeric index, Sequence value) {
-    modify(index.intValue(), value, Op.Insert);
+    insert(index.intValue(), value);
     return this;
   }
 
