@@ -65,11 +65,4 @@ public final class RevisionReferencesNodeTest {
 
     node.getRevision();
   }
-
-  @Test(expected = UnsupportedOperationException.class)
-  public void testGetDeweyIDMethodOperationNotSupportedException() {
-    final var node = new RevisionReferencesNode(1, new int[] {});
-
-    node.getDeweyID();
-  }
 }
