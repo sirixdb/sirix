@@ -24,7 +24,7 @@ import java.util.stream.StreamSupport;
 import static org.brackit.xquery.util.path.Path.parse;
 import static org.junit.Assert.*;
 
-public final class JsonAVLTreeIntegrationTest {
+public final class JsonRedBlackTreeIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   @Before
@@ -43,7 +43,7 @@ public final class JsonAVLTreeIntegrationTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
+      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var pathToGetSummary = parse("/paths/\\/business_service_providers\\/search/get/summary");
 
@@ -86,7 +86,7 @@ public final class JsonAVLTreeIntegrationTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
+      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDefs.NameIndexType.JSON);
 
@@ -181,7 +181,8 @@ public final class JsonAVLTreeIntegrationTest {
       assertTrue(nodeGreater.isPresent());
       assertEquals("twitteraccount", nodeGreater.get().getKey().getLocalName());
 
-      final var nodeGreaterNotPresent = allObjectKeyNamesIndexReader.getCurrentAVLNode(new QNm("type"), SearchMode.GREATER);
+      final var nodeGreaterNotPresent =
+          allObjectKeyNamesIndexReader.getCurrentAVLNode(new QNm("type"), SearchMode.GREATER);
 
       assertFalse(nodeGreaterNotPresent.isPresent());
 
@@ -226,7 +227,7 @@ public final class JsonAVLTreeIntegrationTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
+      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var pathToFeatureType = parse("/features/[]/type");
 
@@ -371,7 +372,7 @@ public final class JsonAVLTreeIntegrationTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber() - 1);
+      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var pathToFeatureType = parse("/features/[]/type");
 

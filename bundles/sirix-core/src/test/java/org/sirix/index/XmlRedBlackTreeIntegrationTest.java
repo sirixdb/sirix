@@ -30,7 +30,7 @@ import static org.junit.Assert.assertTrue;
  *
  * @author Johannes Lichtenberger
  */
-public final class XmlAVLTreeIntegrationTest {
+public final class XmlRedBlackTreeIntegrationTest {
 
   /**
    * {@link Holder} reference.
@@ -53,7 +53,7 @@ public final class XmlAVLTreeIntegrationTest {
   public void testCASAttributeIndex() throws PathException {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
 
     final IndexDef idxDef =
         IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/@foobar")), 0);
@@ -141,7 +141,7 @@ public final class XmlAVLTreeIntegrationTest {
   public void testCASTextIndex() {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
 
     final IndexDef idxDef =
         IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/blabla")), 0);

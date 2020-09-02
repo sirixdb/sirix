@@ -155,8 +155,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     getOrCreateReference(DEWEYID_REFERENCE_OFFSET).setPage(new DeweyIDPage());
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     maxNodeKeyInDocumentIndex = -1L;
-    maxNodeKeyInChangedNodesIndex = -1;
-    maxNodeKeyInRecordToRevisionsIndex = -1;
+    maxNodeKeyInChangedNodesIndex = -1L;
+    maxNodeKeyInRecordToRevisionsIndex = -1L;
     currentMaxLevelOfDocumentIndexIndirectPages = 1;
     currentMaxLevelOfChangedNodesIndirectPages = 1;
     currentMaxLevelOfRecordToRevisionsIndirectPages = 1;
@@ -490,7 +490,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param log         the transaction intent log
    */
   public void createRecordToRevisionsIndexTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
-    PageReference reference = getIndirectChangedNodesIndexPageReference();
+    PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
