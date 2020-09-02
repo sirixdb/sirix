@@ -17,13 +17,13 @@ import com.google.common.base.Objects;
  */
 public final class NodeReferences implements References {
   /** A {@link Set} of node-keys. */
-  private final Set<Long> mNodeKeys;
+  private final Set<Long> nodeKeys;
 
   /**
    * Default constructor.
    */
   public NodeReferences() {
-    mNodeKeys = new HashSet<>();
+    nodeKeys = new HashSet<>();
   }
 
   /**
@@ -33,40 +33,40 @@ public final class NodeReferences implements References {
    */
   public NodeReferences(final Set<Long> nodeKeys) {
     assert nodeKeys != null;
-    mNodeKeys = new HashSet<>(nodeKeys);
+    this.nodeKeys = new HashSet<>(nodeKeys);
   }
 
   @Override
   public boolean isPresent(final @Nonnegative long nodeKey) {
-    return mNodeKeys.contains(nodeKey);
+    return nodeKeys.contains(nodeKey);
   }
 
   @Override
   public Set<Long> getNodeKeys() {
-    return Collections.unmodifiableSet(mNodeKeys);
+    return Collections.unmodifiableSet(nodeKeys);
   }
 
   @Override
   public NodeReferences addNodeKey(final @Nonnegative long nodeKey) {
-    mNodeKeys.add(nodeKey);
+    nodeKeys.add(nodeKey);
     return this;
   }
 
   @Override
   public boolean removeNodeKey(@Nonnegative long nodeKey) {
-    return mNodeKeys.remove(nodeKey);
+    return nodeKeys.remove(nodeKey);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeKeys);
+    return Objects.hashCode(nodeKeys);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof NodeReferences) {
       final NodeReferences refs = (NodeReferences) obj;
-      return mNodeKeys.equals(refs.mNodeKeys);
+      return nodeKeys.equals(refs.nodeKeys);
     }
     return false;
   }
@@ -74,7 +74,7 @@ public final class NodeReferences implements References {
   @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-    for (final long nodeKey : mNodeKeys) {
+    for (final long nodeKey : nodeKeys) {
       helper.add("referenced node key", nodeKey);
     }
     return helper.toString();
@@ -82,11 +82,11 @@ public final class NodeReferences implements References {
 
   @Override
   public boolean hasNodeKeys() {
-    return !mNodeKeys.isEmpty();
+    return !nodeKeys.isEmpty();
   }
 
   @Override
   public boolean contains(@Nonnegative long nodeKey) {
-    return mNodeKeys.contains(nodeKey);
+    return nodeKeys.contains(nodeKey);
   }
 }

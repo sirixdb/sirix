@@ -42,6 +42,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.summary.PathSummaryWriter;
@@ -76,6 +77,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -230,7 +232,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
     this.pathSummaryWriter = Preconditions.checkNotNull(pathSummaryWriter);
 
-    indexController = resourceManager.getWtxIndexController(this.nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     pageTrx = (PageTrx) this.nodeReadOnlyTrx.getPageTrx();
     storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
 
@@ -1676,8 +1678,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     }
 
     // Recreate index listeners.
+    final var indexDefs = indexController.getIndexes().getIndexDefs();
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    indexController.createIndexListeners(indexController.getIndexes().getIndexDefs(), this);
+    indexController.createIndexListeners(indexDefs, this);
   }
 
   /**
