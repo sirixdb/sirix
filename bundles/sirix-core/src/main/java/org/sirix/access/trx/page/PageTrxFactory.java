@@ -121,6 +121,8 @@ public final class PageTrxFactory {
 
     // First create revision tree if needed.
     newRevisionRootPage.createDocumentIndexTree(pageRtx, log);
+    newRevisionRootPage.createChangedNodesIndexTree(pageRtx, log);
+    newRevisionRootPage.createRecordToRevisionsIndexTree(pageRtx, log);
 
     if (usePathSummary) {
       // Create path summary tree if needed.
