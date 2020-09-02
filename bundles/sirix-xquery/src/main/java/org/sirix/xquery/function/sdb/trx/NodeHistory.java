@@ -59,17 +59,25 @@ public final class NodeHistory extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-
     final NodeReadOnlyTrx rtx = item.getTrx();
+
+    final var resMgr = rtx.getResourceManager();
+    final var optionalRtxInMostRecentRevision =
+        resMgr.getNodeReadTrxByRevisionNumber(resMgr.getMostRecentRevisionNumber());
+    final NodeReadOnlyTrx rtxInMostRecentRevision;
+    if (optionalRtxInMostRecentRevision.isEmpty()) {
+      rtxInMostRecentRevision = resMgr.beginNodeReadOnlyTrx();
+    } else {
+      rtxInMostRecentRevision = optionalRtxInMostRecentRevision.get();
+    }
+
     final Optional<RevisionReferencesNode> optionalNode =
-        rtx.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+        rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     final RevisionReferencesNode node = optionalNode.orElseThrow(() -> new IllegalStateException());
 
     final int[] revisions = node.getRevisions();
     final List<Item> sequences = new ArrayList<>(revisions.length);
-
-    final var resMgr = rtx.getResourceManager();
 
     for (int i = 0, length = revisions.length; i < length; i++) {
       final var revision = revisions[i];

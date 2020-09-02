@@ -21,30 +21,30 @@ import java.util.Set;
 
 public final class CASIndexListener {
 
-  private final RBTreeWriter<CASValue, NodeReferences> mAVLTreeWriter;
-  private final PathSummaryReader mPathSummaryReader;
-  private final Set<Path<QNm>> mPaths;
-  private final Type mType;
+  private final RBTreeWriter<CASValue, NodeReferences> redBlackTreeWriter;
+  private final PathSummaryReader pathSummaryReader;
+  private final Set<Path<QNm>> paths;
+  private final Type type;
 
   public CASIndexListener(final PathSummaryReader pathSummaryReader,
-      final RBTreeWriter<CASValue, NodeReferences> avlTreeWriter, final Set<Path<QNm>> paths, final Type type) {
-    mPathSummaryReader = pathSummaryReader;
-    mAVLTreeWriter = avlTreeWriter;
-    mPaths = paths;
-    mType = type;
+      final RBTreeWriter<CASValue, NodeReferences> redBlackTreeWriter, final Set<Path<QNm>> paths, final Type type) {
+    this.pathSummaryReader = pathSummaryReader;
+    this.redBlackTreeWriter = redBlackTreeWriter;
+    this.paths = paths;
+    this.type = type;
   }
 
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
-    assert mPathSummaryReader.moveTo(pathNodeKey).hasMoved();
+    assert pathSummaryReader.moveTo(pathNodeKey).hasMoved();
     switch (type) {
       case INSERT:
-        if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
+        if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
           insert(node, pathNodeKey, value);
         }
         break;
       case DELETE:
-        if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
-          mAVLTreeWriter.remove(new CASValue(value, mType, pathNodeKey), node.getNodeKey());
+        if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
+          redBlackTreeWriter.remove(new CASValue(value, this.type, pathNodeKey), node.getNodeKey());
         }
         break;
       default:
@@ -54,14 +54,14 @@ public final class CASIndexListener {
   private void insert(final ImmutableNode node, final long pathNodeKey, final Str value) throws SirixIOException {
     boolean isOfType = false;
     try {
-      AtomicUtil.toType(value, mType);
+      AtomicUtil.toType(value, type);
       isOfType = true;
     } catch (final SirixRuntimeException e) {
     }
 
     if (isOfType) {
-      final CASValue indexValue = new CASValue(value, mType, pathNodeKey);
-      final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(indexValue, SearchMode.EQUAL);
+      final CASValue indexValue = new CASValue(value, type, pathNodeKey);
+      final Optional<NodeReferences> textReferences = redBlackTreeWriter.get(indexValue, SearchMode.EQUAL);
       if (textReferences.isPresent()) {
         setNodeReferences(node, new NodeReferences(textReferences.get().getNodeKeys()), indexValue);
       } else {
@@ -71,6 +71,6 @@ public final class CASIndexListener {
   }
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final CASValue indexValue) {
-    mAVLTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    redBlackTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 }

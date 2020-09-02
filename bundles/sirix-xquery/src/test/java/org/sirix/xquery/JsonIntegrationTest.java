@@ -12,6 +12,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testSimpleRemove() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1}, {"location": {"state": "CA", "city": "Los Angeles"}}]')
+        """;
+    final String query = "let $doc := jn:doc('mycol.jn','mydoc.jn') for $i at $pos in $doc where deep-equal($i=>generic, 1) return delete json $doc[[$pos - 1]]";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"location":{"state":"CA","city":"Los Angeles"}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
   public void testSimpleDeleteQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}]')

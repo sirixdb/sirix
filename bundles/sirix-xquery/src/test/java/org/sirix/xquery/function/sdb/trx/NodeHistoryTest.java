@@ -36,6 +36,8 @@ public class NodeHistoryTest extends TestCase {
         wtx.setStringValue("blabla").commit();
         wtx.moveTo(2);
         wtx.setStringValue("blablabla").commit();
+        wtx.moveTo(2);
+        wtx.remove().commit();
       }
     }
 
@@ -46,7 +48,7 @@ public class NodeHistoryTest extends TestCase {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use XQuery to load a JSON database/resource.
-      final String openQuery = "sdb:node-history(jn:doc('json-path1','mydoc.jn')[[0]])";
+      final String openQuery = "sdb:node-history(sdb:select-node(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, openQuery).serialize(ctx, printWriter);
