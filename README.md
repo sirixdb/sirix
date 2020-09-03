@@ -20,7 +20,9 @@
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-**We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats as relational data.**
+SirixDB uses a huge persistent (in the functional sense) tree of tries, whereas the snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page.
+
+SirixDB currently supports the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats as relational data.
 
 <!--
 <p>&nbsp;</p>
