@@ -123,7 +123,8 @@ public final class FullReferencesPage implements Page {
   @Override
   public final void commit(@Nonnull final PageTrx pageWriteTrx) {
     for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
+      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
+          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
         pageWriteTrx.commit(reference);
       }
     }

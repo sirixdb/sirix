@@ -36,7 +36,6 @@ import org.sirix.index.IndexType;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
-import org.sirix.node.RevisionReferencesNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
@@ -55,7 +54,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -77,7 +75,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   /**
    * Page writer to serialize.
    */
-  private final Writer pageWriter;
+  private final Writer storagePageReaderWriter;
 
   /**
    * Transaction intent log.
@@ -142,7 +140,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.treeModifier = checkNotNull(treeModifier);
-    pageWriter = checkNotNull(writer);
+    storagePageReaderWriter = checkNotNull(writer);
     this.log = checkNotNull(log);
     newRevisionRootPage = checkNotNull(revisionRootPage);
     this.pageRtx = checkNotNull(pageRtx);
@@ -344,7 +342,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Recursively commit indirectly referenced pages and then write self.f
     page.commit(this);
-    pageWriter.write(reference);
+    storagePageReaderWriter.write(reference);
 
     // Remove page reference.
     reference.setPage(null);
@@ -356,65 +354,67 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     pageRtx.resourceManager.getCommitLock().lock();
 
-    final Path commitFile = pageRtx.resourceManager.getCommitFile();
-    commitFile.toFile().deleteOnExit();
-    // Issues with windows that it's not created in the first time?
-    while (!Files.exists(commitFile)) {
-      try {
-        Files.createFile(commitFile);
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
-    }
-
-    final PageReference uberPageReference = new PageReference();
-    final UberPage uberPage = getUberPage();
-    uberPageReference.setPage(uberPage);
-    final int revision = uberPage.getRevisionNumber();
-
-    setUserIfPresent();
-
-    if (commitMessage != null) {
-      getActualRevisionRootPage().setCommitMessage(commitMessage);
-    }
-
-    // Recursively write indirectly referenced pages.
-    uberPage.commit(this);
-
-    uberPageReference.setPage(uberPage);
-    pageWriter.writeUberPageReference(uberPageReference);
-    uberPageReference.setPage(null);
-
-    final Path indexes = pageRtx.getResourceManager()
-                                .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                 .resolve(revision + ".xml");
-
-    if (!Files.exists(indexes)) {
-      try {
-        Files.createFile(indexes);
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
-    }
-
-    try (final OutputStream out = new FileOutputStream(indexes.toFile())) {
-      indexController.serialize(out);
-    } catch (final IOException e) {
-      throw new SirixIOException("Index definitions couldn't be serialized!", e);
-    }
-
-    log.truncate();
-
-    // Delete commit file which denotes that a commit must write the log in the data file.
     try {
-      Files.delete(commitFile);
-    } catch (final IOException e) {
-      throw new SirixIOException("Commit file couldn't be deleted!");
+      final Path commitFile = pageRtx.resourceManager.getCommitFile();
+      commitFile.toFile().deleteOnExit();
+      // Issues with windows that it's not created in the first time?
+      while (!Files.exists(commitFile)) {
+        try {
+          Files.createFile(commitFile);
+        } catch (final IOException e) {
+          throw new SirixIOException(e);
+        }
+      }
+
+      final PageReference uberPageReference = new PageReference();
+      final UberPage uberPage = getUberPage();
+      uberPageReference.setPage(uberPage);
+      final int revision = uberPage.getRevisionNumber();
+
+      setUserIfPresent();
+
+      if (commitMessage != null) {
+        getActualRevisionRootPage().setCommitMessage(commitMessage);
+      }
+
+      // Recursively write indirectly referenced pages.
+      uberPage.commit(this);
+
+      uberPageReference.setPage(uberPage);
+      storagePageReaderWriter.writeUberPageReference(uberPageReference);
+      uberPageReference.setPage(null);
+
+      final Path indexes = pageRtx.getResourceManager().getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                                                        .resolve(revision + ".xml");
+
+      if (!Files.exists(indexes)) {
+        try {
+          Files.createFile(indexes);
+        } catch (final IOException e) {
+          throw new SirixIOException(e);
+        }
+      }
+
+      try (final OutputStream out = new FileOutputStream(indexes.toFile())) {
+        indexController.serialize(out);
+      } catch (final IOException e) {
+        throw new SirixIOException("Index definitions couldn't be serialized!", e);
+      }
+
+      log.truncate();
+
+      // Delete commit file which denotes that a commit must write the log in the data file.
+      try {
+        Files.delete(commitFile);
+      } catch (final IOException e) {
+        throw new SirixIOException("Commit file couldn't be deleted!");
+      }
+
+    } finally {
+      pageRtx.resourceManager.getCommitLock().unlock();
     }
 
-    final UberPage commitedUberPage = (UberPage) pageWriter.read(pageWriter.readUberPageReference(), pageRtx);
-    pageRtx.resourceManager.getCommitLock().unlock();
-    return commitedUberPage;
+    return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
   }
 
   private void setUserIfPresent() {
@@ -431,7 +431,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public UberPage rollback() {
     pageRtx.assertNotClosed();
     log.truncate();
-    return (UberPage) pageWriter.read(pageWriter.readUberPageReference(), pageRtx);
+    return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
   }
 
   @Override
@@ -439,7 +439,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
-      final UberPage lastUberPage = (UberPage) pageWriter.read(pageWriter.readUberPageReference(), pageRtx);
+      final UberPage lastUberPage = (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
 
       pageRtx.resourceManager.setLastCommittedUberPage(lastUberPage);
 
@@ -449,7 +449,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       log.close();
       pageRtx.close();
-      pageWriter.close();
+      storagePageReaderWriter.close();
       isClosed = true;
     }
   }
@@ -567,7 +567,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public PageTrx truncateTo(final int revision) {
-    pageWriter.truncateTo(revision);
+    storagePageReaderWriter.truncateTo(revision);
     return this;
   }
 
