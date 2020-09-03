@@ -15,12 +15,12 @@
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
-<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Document Store</h1>
-<h2 align="center">Store and query revisions of your data efficiently</h2>
+<h1 align="center">SirixDB - An Evolutionary, accumulate-only DBMS</h1>
+<h2 align="center">Store and query small-sized snapshots of your data</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-**We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats.**
+**We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats as relational data.**
 
 <!--
 <p>&nbsp;</p>
