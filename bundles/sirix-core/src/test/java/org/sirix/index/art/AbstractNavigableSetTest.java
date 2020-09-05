@@ -1,7 +1,6 @@
 //package org.sirix.index.art;
 //
 //import org.apache.commons.collections4.BulkTest;
-//import org.apache.commons.collections4.set.AbstractSortedSetTest;
 //import org.junit.Assert;
 //
 //import java.util.NavigableSet;
