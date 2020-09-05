@@ -40,6 +40,7 @@ import org.sirix.api.PreCommitHook;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
+import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffDepth;
@@ -517,6 +518,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       if (commit == Commit.Implicit) {
         commit();
       }
+
+      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+        System.out.println(nodeReadOnlyTrx.getDeweyID());
+      }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     } finally {
@@ -668,6 +673,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
 
+      for (final long nodeKey : new DescendantAxis(nodeReadOnlyTrx)) {
+        System.out.println(nodeReadOnlyTrx.getDeweyID());
+      }
+
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
@@ -708,7 +717,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = structNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(structNode, key, NodeKind.OBJECT_KEY);
 
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
 
@@ -760,7 +769,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = structNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(structNode, key, NodeKind.OBJECT_KEY);
 
       final SirixDeweyID id =
           (structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID();
@@ -827,12 +836,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private long getPathNodeKey(final long nodeKey, final String name, final NodeKind kind) {
+  private long getPathNodeKey(final ImmutableNode node, final String name, final NodeKind kind) {
     moveToParentObjectKeyArrayOrDocumentRoot();
 
     final long pathNodeKey = buildPathSummary ? pathSummaryWriter.getPathNodeKey(new QNm(name), kind) : 0;
 
-    assert nodeReadOnlyTrx.moveTo(nodeKey).hasMoved();
+    nodeReadOnlyTrx.setCurrentNode(node);
 
     return pathNodeKey;
   }
@@ -863,7 +872,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = currentNode.getLeftSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(currentNode, key, NodeKind.OBJECT_KEY);
       moveTo(currentNode.getNodeKey());
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
@@ -908,7 +917,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(currentNode, key, NodeKind.OBJECT_KEY);
       moveTo(currentNode.getNodeKey());
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
@@ -951,7 +960,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currentNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "__array__", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
 
       final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
@@ -992,7 +1001,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = currentNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "__array__", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
 
       final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
@@ -1030,7 +1039,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long rightSibKey = currentNode.getNodeKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode, "array", NodeKind.ARRAY);
       moveTo(currentNode.getNodeKey());
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
@@ -1065,7 +1074,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode, "array", NodeKind.ARRAY);
       moveTo(currentNode.getNodeKey());
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
@@ -2495,47 +2504,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public JsonNodeTrx commit(final String commitMessage) {
-    nodeReadOnlyTrx.assertNotClosed();
-
-    // Optionally lock while commiting and assigning new instances.
-    acquireLockIfNecessary();
-    try {
-      state = State.Committing;
-
-      // Execute pre-commit hooks.
-      for (final PreCommitHook hook : preCommitHooks) {
-        hook.preCommit(this);
-      }
-
-      // Reset modification counter.
-      modificationCount = 0L;
-
-      final UberPage uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
-
-      // Remember succesfully committed uber page in resource manager.
-      resourceManager.setLastCommittedUberPage(uberPage);
-
-      if (resourceManager.getResourceConfig().storeDiffs()) {
-        serializeUpdateDiffs();
-      }
-
-      // Reinstantiate everything.
-      if (afterCommitState == AfterCommitState.KeepOpen) {
-        reInstantiate(getId(), getRevisionNumber());
-        state = State.Running;
-      } else {
-        state = State.Committed;
-      }
-    } finally {
-      unLockIfNecessary();
-    }
-
-    // Execute post-commit hooks.
-    for (final PostCommitHook hook : postCommitHooks) {
-      hook.postCommit(this);
-    }
-
-    return this;
+    return doCommit(commitMessage);
   }
 
   public void serializeUpdateDiffs() {
@@ -2597,6 +2566,51 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
       moveTo(nodeKey);
     }
+  }
+
+  @Override
+  public JsonNodeTrx doCommit(final String commitMessage) {
+    nodeReadOnlyTrx.assertNotClosed();
+
+    // Optionally lock while commiting and assigning new instances.
+    acquireLockIfNecessary();
+    try {
+      state = State.Committing;
+
+      // Execute pre-commit hooks.
+      for (final PreCommitHook hook : preCommitHooks) {
+        hook.preCommit(this);
+      }
+
+      // Reset modification counter.
+      modificationCount = 0L;
+
+      final UberPage uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
+
+      // Remember succesfully committed uber page in resource manager.
+      resourceManager.setLastCommittedUberPage(uberPage);
+
+      if (resourceManager.getResourceConfig().storeDiffs()) {
+        serializeUpdateDiffs();
+      }
+
+      // Reinstantiate everything.
+      if (afterCommitState == AfterCommitState.KeepOpen) {
+        reInstantiate(getId(), getRevisionNumber());
+        state = State.Running;
+      } else {
+        state = State.Committed;
+      }
+    } finally {
+      unLockIfNecessary();
+    }
+
+    // Execute post-commit hooks.
+    for (final PostCommitHook hook : postCommitHooks) {
+      hook.postCommit(this);
+    }
+
+    return this;
   }
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {

@@ -342,13 +342,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
   @Override
   public Move<T> moveToLastChild() {
     assertNotClosed();
-    if (getStructuralNode().hasFirstChild()) {
-      moveToFirstChild();
-
-      while (getStructuralNode().hasRightSibling()) {
-        moveToRightSibling();
-      }
-
+    if (getStructuralNode().hasLastChild()) {
+      moveTo(getStructuralNode().getLastChildKey());
       return Move.moved(thisInstance());
     }
     return Move.notMoved();
