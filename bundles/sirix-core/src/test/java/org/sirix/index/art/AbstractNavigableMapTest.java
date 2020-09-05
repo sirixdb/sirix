@@ -94,9 +94,7 @@
 //				this.getMap().get(null);
 //				fail("get(null) should throw NPE/IAE");
 //			}
-//			catch (NullPointerException var3) {
-//			}
-//			catch (IllegalArgumentException var4) {
+//			catch (NullPointerException | IllegalArgumentException ignored) {
 //			}
 //		}
 //	}
@@ -272,10 +270,10 @@
 //	}
 //
 //	/*
-//		copy of Entry is needed because Map.Entry is undefined after the map is modified.
-//		(see Javadoc of Map.Entry)
-//		https://stackoverflow.com/questions/45863470/treemap-iterator-remove-modifies-the-last-entry
-//	 */
+//  copy of Entry is needed because Map.Entry is undefined after the map is modified.
+//  (see Javadoc of Map.Entry)
+//  https://stackoverflow.com/questions/45863470/treemap-iterator-remove-modifies-the-last-entry
+// */
 //	private Map.Entry<K, V> removeIth(Map<K, V> m, int pos) {
 //		Iterator<Map.Entry<K, V>> it = m.entrySet().iterator();
 //		Map.Entry<K, V> toRemove = null;
@@ -318,6 +316,12 @@
 //	public static class TestNavigableKeySet<K, V> extends AbstractNavigableSetTest<K> {
 //		private final AbstractNavigableMapTest<K, V> main;
 //		private final boolean asc;
+//
+//		public TestNavigableKeySet() {
+//			super("TestNavigableKeySet");
+//			main = null;
+//			asc = true;
+//		}
 //
 //		public TestNavigableKeySet(AbstractNavigableMapTest<K, V> main, boolean asc) {
 //			super("TestNavigableKeySet");
