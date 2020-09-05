@@ -425,8 +425,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final var record = entry.getValue();
       final var recordID = record.getNodeKey();
       if (slots.get(recordID) == null) {
-        // Must be either a normal record or one which requires an
-        // Overflow page.
+        // Must be either a normal record or one which requires an overflow page.
         final byte[] data;
         try (final var output = new ByteArrayOutputStream(); final var out = new DataOutputStream(output)) {
           recordPersister.serialize(out, record, pageReadOnlyTrx);
@@ -438,14 +437,16 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
           reference.setPage(new OverflowPage(data));
           references.put(recordID, reference);
         } else {
-          if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyID() != null
-              && record.getNodeKey() != 0) {
-            deweyIDs.put(record.getDeweyID(), record.getNodeKey());
-          }
           slots.put(recordID, data);
         }
       }
+      if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyID() != null
+          && record.getNodeKey() != 0) {
+        deweyIDs.put(record.getDeweyID(), record.getNodeKey());
+      }
     }
+
+    assert deweyIDs.size() == 0 || deweyIDs.size() == entries.size() -1;
 
     addedReferences = true;
   }

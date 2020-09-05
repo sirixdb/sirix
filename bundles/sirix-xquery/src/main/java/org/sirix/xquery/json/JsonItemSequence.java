@@ -6,7 +6,6 @@ import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.node.NodeKind;
 import org.sirix.service.json.shredder.JsonShredder;
 
 import java.io.ByteArrayOutputStream;
