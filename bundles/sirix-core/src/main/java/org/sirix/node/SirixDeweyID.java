@@ -36,6 +36,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   private final static String divisionSeparator = ".";
 
   private final static int attributeRootDivisionValue = 1;
+
   private final static int recordValueRootDivisionValue = 0;
 
   // must be an even number! when a new DeweyID is calculated, and there is a
@@ -1163,6 +1164,16 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   public final SirixDeweyID getNewNamespaceID() {
     int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
     childDivisions[divisionValues.length] = SirixDeweyID.namespaceRootDivisionValue;
+    childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
+
+    SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);
+
+    return newID;
+  }
+
+  public final SirixDeweyID getNewRecordID() {
+    int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
+    childDivisions[divisionValues.length] = SirixDeweyID.recordValueRootDivisionValue;
     childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
 
     SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);

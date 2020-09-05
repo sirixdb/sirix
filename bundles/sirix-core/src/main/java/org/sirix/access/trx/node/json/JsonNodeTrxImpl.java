@@ -519,9 +519,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         commit();
       }
 
-      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-        System.out.println(nodeReadOnlyTrx.getDeweyID());
-      }
+//      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+//        System.out.println(nodeReadOnlyTrx.getDeweyID());
+//      }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     } finally {
@@ -672,10 +672,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
-
-      for (final long nodeKey : new DescendantAxis(nodeReadOnlyTrx)) {
-        System.out.println(nodeReadOnlyTrx.getDeweyID());
-      }
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
