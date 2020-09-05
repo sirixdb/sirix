@@ -15,12 +15,14 @@
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
-<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Document Store</h1>
-<h2 align="center">Store and query revisions of your data efficiently</h2>
+<h1 align="center">SirixDB - an evolutionary, accumulate-only DBMS</h1>
+<h2 align="center">Store and query small-sized snapshots of your data</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-**We currently support the storage and (time travel) querying of both XML - and JSON-data in our binary encoding which is tailored to support versioning. Our index-structures and the whole storage engine has been written from scratch to support versioning natively. In the future, we might also support the storage and querying of other data formats.**
+SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page.
+
+SirixDB currently supports the storage and (time travel) querying of both XML - and JSON-data in our binary encoding, tailored to support versioning. The index-structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement the storage and querying of other data formats as relational data.
 
 <!--
 <p>&nbsp;</p>
@@ -275,8 +277,6 @@ Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/
 ### Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Slack channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
-
-The following sections show different APIs to interact with Sirix.
 
 ## Getting Help
 
