@@ -446,7 +446,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       }
     }
 
-    assert deweyIDs.size() == 0 || deweyIDs.size() == entries.size() -1;
+    // assert deweyIDs.size() == 0 || deweyIDs.size() == entries.size() -1;
 
     addedReferences = true;
   }
