@@ -263,6 +263,21 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
+  public Move<? extends XmlNodeReadOnlyTrx> moveToLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      moveToFirstChild();
+
+      while (getStructuralNode().hasRightSibling()) {
+        moveToRightSibling();
+      }
+
+      return Move.moved(thisInstance());
+    }
+    return Move.notMoved();
+  }
+
+  @Override
   public Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
     assertNotClosed();
     if (currentNode.getKind() == NodeKind.ELEMENT) {
