@@ -171,7 +171,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Array insert(int index, Sequence value) {
-    modify(index, value, index == rtx.getChildCount() ? Op.Append : Op.Insert);
+    modify(index, value, index == -1 ? Op.Append : Op.Insert);
     return this;
   }
 

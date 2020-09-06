@@ -44,7 +44,7 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
 
   @Override
   public boolean hasLastChild() {
-    return structDelegate().hasFirstChild();
+    return structDelegate().hasLastChild();
   }
 
   @Override

@@ -15,7 +15,7 @@ import com.google.common.base.MoreObjects;
 public final class Moved<T extends NodeCursor> extends Move<T> {
 
   /** {@link NodeCursor} implementation. */
-  private final T mNodeCursor;
+  private final T nodeCursor;
 
   /**
    * Constructor.
@@ -23,7 +23,7 @@ public final class Moved<T extends NodeCursor> extends Move<T> {
    * @param nodeCursor the cursor which has been moved
    */
   public Moved(final T nodeCursor) {
-    mNodeCursor = checkNotNull(nodeCursor);
+    this.nodeCursor = checkNotNull(nodeCursor);
   }
 
   @Override
@@ -33,7 +33,7 @@ public final class Moved<T extends NodeCursor> extends Move<T> {
 
   @Override
   public T trx() {
-    return mNodeCursor;
+    return nodeCursor;
   }
 
   @Override
@@ -45,16 +45,16 @@ public final class Moved<T extends NodeCursor> extends Move<T> {
       return false;
 
     final Moved<?> other = (Moved<?>) object;
-    return mNodeCursor.equals(other.mNodeCursor);
+    return nodeCursor.equals(other.nodeCursor);
   }
 
   @Override
   public int hashCode() {
-    return 0x598df91c + mNodeCursor.hashCode();
+    return 0x598df91c + nodeCursor.hashCode();
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("cursor", mNodeCursor).toString();
+    return MoreObjects.toStringHelper(this).add("cursor", nodeCursor).toString();
   }
 }

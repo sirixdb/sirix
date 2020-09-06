@@ -25,6 +25,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -80,6 +81,22 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     checkArgument(trxId >= 0);
     this.trxId = trxId;
     isClosed = false;
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    assertNotClosed();
+    return getStructuralNode().hasLastChild();
+  }
+
+  @Override
+  public Move<JsonNodeReadOnlyTrx> moveToLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasLastChild()) {
+      moveTo(getStructuralNode().getLastChildKey());
+      return Move.moved(thisInstance());
+    }
+    return Move.notMoved();
   }
 
   @Override

@@ -68,7 +68,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   private final List<Long> mNamespaceKeys;
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
   /** The qualified name. */
   private final QNm mQNm;
@@ -88,7 +88,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
       final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
     mHash = hashCode;
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
     assert nameDel != null;
     mNameDel = nameDel;
     assert attributeKeys != null;
@@ -113,7 +113,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
       final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
     assert nameDel != null;
     mNameDel = nameDel;
     assert attributeKeys != null;
@@ -274,7 +274,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
                       .add("nameDelegate", mNameDel)
                       .add("nameSpaceKeys", mNamespaceKeys)
                       .add("attributeKeys", mAttributeKeys)
-                      .add("structDelegate", mStructNodeDel)
+                      .add("structDelegate", structNodeDel)
                       .toString();
   }
 
@@ -287,8 +287,8 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
@@ -340,12 +340,12 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   /**
@@ -375,11 +375,11 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return mStructNodeDel.getNodeDelegate().getDeweyID();
+    return structNodeDel.getNodeDelegate().getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return mStructNodeDel.getNodeDelegate().getTypeKey();
+    return structNodeDel.getNodeDelegate().getTypeKey();
   }
 }
