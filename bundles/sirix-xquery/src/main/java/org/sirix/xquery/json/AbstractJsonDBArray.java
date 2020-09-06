@@ -123,29 +123,23 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
       throw new IllegalStateException("Index " + index + " is out of range.");
     }
 
-    if (index != 0) {
-      moveToIndex(index, trx);
-    }
+    moveToIndex(index, trx);
 
-    if (op == Op.Replace || op == Op.Insert) {
-      final long ancorNodeKey;
-      if (trx.hasLeftSibling()) {
-        ancorNodeKey = trx.getLeftSiblingKey();
-      } else {
-        ancorNodeKey = trx.getParentKey();
-      }
-      if (op == Op.Replace) {
-        trx.remove();
-      }
-      trx.moveTo(ancorNodeKey);
+    final long ancorNodeKey;
+    if (trx.hasLeftSibling()) {
+      ancorNodeKey = trx.getLeftSiblingKey();
+    } else {
+      ancorNodeKey = trx.getParentKey();
     }
+    if (op == Op.Replace) {
+      trx.remove();
+    }
+    trx.moveTo(ancorNodeKey);
 
     jsonItemSequence.insert(value, trx, nodeKey);
 
     values = null;
   }
-
-
 
   private void moveToIndex(int index, JsonNodeTrx trx) {
     // must have children
@@ -171,7 +165,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Array insert(int index, Sequence value) {
-    modify(index, value, index == -1 ? Op.Append : Op.Insert);
+    modify(index, value, Op.Insert);
     return this;
   }
 
