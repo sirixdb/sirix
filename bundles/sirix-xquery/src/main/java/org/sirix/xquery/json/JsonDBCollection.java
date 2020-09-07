@@ -206,7 +206,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.hasFirstChild()) {
       rtx.moveToFirstChild();
-      return new JsonItemFactory().getSequence(rtx, this);
+      if (rtx.isObject())
+        return new JsonDBObject(rtx, this);
+      else if (rtx.isArray())
+        return new JsonDBArray(rtx, this);
     }
 
     return null;

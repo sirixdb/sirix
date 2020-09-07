@@ -5,36 +5,39 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
-import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
+import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.AuthRole
-import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.json.JsonSessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
+import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.json.BasicJsonDBStore
+import org.sirix.xquery.json.JsonDBCollection
 import org.sirix.xquery.node.BasicXmlDBStore
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
+import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
-class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
+class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
@@ -179,7 +182,6 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
                             routingContext
                         )
                     }
-
                 } else {
                     body = query(
                         xmlDBStore,
@@ -202,14 +204,13 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext,
+        queryCtx: SirixQueryContext?,
         endResultSeqIndex: Long?,
         routingContext: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
 
         executeQueryAndSerialize(
-            routingContext,
             xmlDBStore,
             jsonDBStore,
             out,
@@ -228,22 +229,18 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private fun executeQueryAndSerialize(
-        routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
         out: ByteArrayOutputStream,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext,
+        queryCtx: SirixQueryContext?,
         endResultSeqIndex: Long?
     ) {
         PrintStream(out).use { printStream ->
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
-                    XQuery(
-                        sirixCompileChain,
-                        query
-                    ).prettyPrint().serialize(
+                    XQuery(sirixCompileChain, query).prettyPrint().serialize(
                         queryCtx,
                         XmlDBSerializer(printStream, true, true)
                     )
@@ -254,10 +251,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
                         queryCtx,
                         startResultSeqIndex,
                         endResultSeqIndex,
-                        AuthRole.MODIFY,
-                        keycloak,
-                        routingContext.get("user"),
-                        XmlDBSerializer(printStream, true, true),
+                        XmlDBSerializer(printStream, true, true)
                     ) { serializer, startItem -> serializer.serialize(startItem) }
                 }
             }

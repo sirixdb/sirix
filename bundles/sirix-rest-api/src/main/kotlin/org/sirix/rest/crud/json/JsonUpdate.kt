@@ -7,6 +7,7 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.json.json
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.access.trx.node.json.objectvalue.*
@@ -185,7 +186,10 @@ class JsonUpdate(private val location: Path) {
 
                         if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
-                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
+
+                            if (hashCode == null) {
+                                throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
+                            }
 
                             if (wtx.hash != BigInteger(hashCode)) {
                                 throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
@@ -198,7 +202,7 @@ class JsonUpdate(private val location: Path) {
 
                         val jsonReader = JsonShredder.createStringReader(resFileToStore)
 
-                        val insertionModeByName = getInsertionModeByName(insertionModeAsString)
+                        val insertionModeByName = getInsertionModeByName(insertionModeAsString!!)
 
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
                             when (jsonReader.peek()) {

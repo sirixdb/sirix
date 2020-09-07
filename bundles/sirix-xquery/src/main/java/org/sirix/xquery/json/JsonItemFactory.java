@@ -1,6 +1,8 @@
 package org.sirix.xquery.json;
 
 import org.brackit.xquery.atomic.*;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.json.JsonItem;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 
 import java.math.BigDecimal;
@@ -8,7 +10,7 @@ import java.math.BigDecimal;
 public final class JsonItemFactory {
   public JsonItemFactory() {}
 
-  public JsonDBItem getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
+  public JsonItem getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     switch (rtx.getKind()) {
       case ARRAY:
         return new JsonDBArray(rtx, collection);

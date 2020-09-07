@@ -5,17 +5,15 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
-import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.AuthRole
-import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.xml.XmlSessionDBStore
@@ -29,7 +27,7 @@ import org.sirix.xquery.node.BasicXmlDBStore
 import java.io.StringWriter
 import java.nio.file.Path
 
-class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
+class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")
@@ -216,14 +214,13 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext,
+        queryCtx: SirixQueryContext?,
         endResultSeqIndex: Long?,
         routingContext: RoutingContext
     ): String {
         val out = StringBuilder()
 
         executeQueryAndSerialize(
-            routingContext,
             xmlDBStore,
             jsonDBStore,
             out,
@@ -242,25 +239,18 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private fun executeQueryAndSerialize(
-        routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
         out: StringBuilder,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext,
+        queryCtx: SirixQueryContext?,
         endResultSeqIndex: Long?
     ) {
         SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
                 val serializer = JsonDBSerializer(out, false)
-                PermissionCheckingXQuery(
-                    sirixCompileChain,
-                    query,
-                    AuthRole.MODIFY,
-                    keycloak,
-                    routingContext.get("user")
-                ).prettyPrint().serialize(queryCtx, serializer)
+                XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
             } else {
                 QuerySerializer.serializePaginated(
                     sirixCompileChain,
@@ -268,9 +258,6 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                     queryCtx,
                     startResultSeqIndex,
                     endResultSeqIndex,
-                    AuthRole.MODIFY,
-                    keycloak,
-                    routingContext.get("user"),
                     JsonDBSerializer(out, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }
             }
