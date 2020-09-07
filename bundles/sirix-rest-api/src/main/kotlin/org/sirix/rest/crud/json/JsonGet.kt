@@ -214,7 +214,7 @@ class JsonGet(private val location: Path) {
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext?,
+        queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?,
         routingContext: RoutingContext
     ): String {
@@ -244,7 +244,7 @@ class JsonGet(private val location: Path) {
         out: StringBuilder,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext?,
+        queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
     ) {
         SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->

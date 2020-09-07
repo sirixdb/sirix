@@ -9,9 +9,9 @@ import org.sirix.xquery.SirixQueryContext
 class QuerySerializer {
     companion object {
         fun serializePaginated(
-            sirixCompileChain: SirixCompileChain?,
+            sirixCompileChain: SirixCompileChain,
             query: String,
-            queryCtx: SirixQueryContext?,
+            queryCtx: SirixQueryContext,
             startResultSeqIndex: Long,
             endResultSeqIndex: Long?,
             serializer: Serializer,

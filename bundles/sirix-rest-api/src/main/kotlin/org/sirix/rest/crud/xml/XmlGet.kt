@@ -204,7 +204,7 @@ class XmlGet(private val location: Path) {
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext?,
+        queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?,
         routingContext: RoutingContext
     ): String {
@@ -234,7 +234,7 @@ class XmlGet(private val location: Path) {
         out: ByteArrayOutputStream,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext?,
+        queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
     ) {
         PrintStream(out).use { printStream ->
