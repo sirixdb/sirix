@@ -7,7 +7,6 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.access.trx.node.json.objectvalue.*
@@ -147,7 +146,7 @@ class JsonUpdate(private val location: Path) {
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
         if (databaseName == null || resource == null) {
-            IllegalArgumentException("Database name and resource name not given.")
+            throw IllegalArgumentException("Database name and resource name not given.")
         }
 
         val body = ctx.bodyAsString
@@ -186,23 +185,20 @@ class JsonUpdate(private val location: Path) {
 
                         if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
-
-                            if (hashCode == null) {
-                                IllegalStateException("Hash code is missing in ETag HTTP-Header.")
-                            }
+                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                IllegalArgumentException("Someone might have changed the resource in the meantime.")
+                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 
                         if (insertionModeAsString == null) {
-                            IllegalArgumentException("Insertion mode must be given.")
+                            throw IllegalArgumentException("Insertion mode must be given.")
                         }
 
                         val jsonReader = JsonShredder.createStringReader(resFileToStore)
 
-                        val insertionModeByName = getInsertionModeByName(insertionModeAsString!!)
+                        val insertionModeByName = getInsertionModeByName(insertionModeAsString)
 
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
                             when (jsonReader.peek()) {
