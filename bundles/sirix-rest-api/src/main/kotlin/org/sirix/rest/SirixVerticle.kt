@@ -186,14 +186,14 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location).handle(it)
         }
 
         get("/").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location).handle(it)
         }
 
         delete("/").coroutineHandler {
@@ -215,7 +215,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location).handle(it)
         }
 
         put("/:database").consumes("application/xml").coroutineHandler {
@@ -277,14 +277,14 @@ class SirixVerticle : CoroutineVerticle() {
                 Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
-                GetHandler(location, keycloak).handle(it)
+                GetHandler(location).handle(it)
             }
 
         get("/:database/:resource").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location).handle(it)
         }
 
         put("/:database/:resource").consumes("application/xml").coroutineHandler {

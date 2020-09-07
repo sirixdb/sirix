@@ -14,8 +14,7 @@ import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBStore
 import java.lang.IllegalStateException
 
-class XmlSessionDBStore(private val ctx: RoutingContext, private val dbStore: XmlDBStore, private val user: User) :
-    XmlDBStore by dbStore {
+class XmlSessionDBStore(private val ctx: RoutingContext, private val dbStore: XmlDBStore, private val user: User) : XmlDBStore by dbStore {
     override fun lookup(name: String): XmlDBCollection {
         checkIfAuthorized(name, AuthRole.VIEW)
 
@@ -57,7 +56,7 @@ class XmlSessionDBStore(private val ctx: RoutingContext, private val dbStore: Xm
             val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
 
             require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
-                throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
+                IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
             }
         }
     }
