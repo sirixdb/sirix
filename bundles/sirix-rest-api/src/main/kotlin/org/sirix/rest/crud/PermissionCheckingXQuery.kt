@@ -6,6 +6,10 @@ import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.handler.OAuth2AuthHandler
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import io.vertx.kotlin.ext.web.handler.authorizeAwait
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.brackit.xquery.ErrorCode
 import org.brackit.xquery.QueryContext
 import org.brackit.xquery.QueryException
@@ -53,15 +57,15 @@ class PermissionCheckingXQuery {
         this.user = user
     }
 
-    suspend fun execute(ctx: QueryContext): Sequence {
+    fun execute(ctx: QueryContext): Sequence {
         return run(ctx, true)
     }
 
-    suspend fun evaluate(ctx: QueryContext): Sequence {
+    fun evaluate(ctx: QueryContext): Sequence {
         return run(ctx, false)
     }
 
-    private suspend fun run(ctx: QueryContext, lazy: Boolean): Sequence {
+    private fun run(ctx: QueryContext, lazy: Boolean): Sequence {
         val body = module.body
             ?: throw QueryException(ErrorCode.BIT_DYN_INT_ERROR, "Module does not contain a query body.")
         val result = body.evaluate(ctx, TupleImpl())
@@ -69,8 +73,10 @@ class PermissionCheckingXQuery {
         if (body.isUpdating) {
             // val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
 
-            require(user.isAuthorizedAwait(role.keycloakRole())) {
-                throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
+            GlobalScope.launch {
+                require(user.isAuthorizedAwait(role.keycloakRole())) {
+                    throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
+                }
             }
         }
         if (!lazy || body.isUpdating) {
@@ -87,11 +93,11 @@ class PermissionCheckingXQuery {
         return result
     }
 
-    suspend fun serialize(ctx: QueryContext, out: PrintStream) {
+    fun serialize(ctx: QueryContext, out: PrintStream) {
         serialize(ctx, PrintWriter(out))
     }
 
-    suspend fun serialize(ctx: QueryContext, out: PrintWriter) {
+    fun serialize(ctx: QueryContext, out: PrintWriter) {
         val result = run(ctx, true)
         StringSerializer(out).use { serializer ->
             serializer.isFormat = isPrettyPrint
@@ -99,7 +105,7 @@ class PermissionCheckingXQuery {
         }
     }
 
-    suspend fun serialize(ctx: QueryContext, serializer: Serializer) {
+    fun serialize(ctx: QueryContext, serializer: Serializer) {
         val result = run(ctx, true)
         serializer.serialize(result)
     }

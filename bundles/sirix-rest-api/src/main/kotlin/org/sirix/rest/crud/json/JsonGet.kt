@@ -10,8 +10,6 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -186,20 +184,6 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                             }
                         }
 
-                        GlobalScope.launch {
-                            body = query(
-                                xmlDBStore,
-                                jsonDBStore,
-                                startResultSeqIndex,
-                                query,
-                                queryCtx,
-                                endResultSeqIndex,
-                                routingContext
-                            )
-                        }
-                    }
-                } else {
-                    GlobalScope.launch {
                         body = query(
                             xmlDBStore,
                             jsonDBStore,
@@ -210,6 +194,16 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                             routingContext
                         )
                     }
+                } else {
+                    body = query(
+                        xmlDBStore,
+                        jsonDBStore,
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex,
+                        routingContext
+                    )
                 }
 
                 promise.complete(body)
@@ -217,7 +211,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun query(
+    private fun query(
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
@@ -247,7 +241,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         return body
     }
 
-    private suspend fun executeQueryAndSerialize(
+    private fun executeQueryAndSerialize(
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
