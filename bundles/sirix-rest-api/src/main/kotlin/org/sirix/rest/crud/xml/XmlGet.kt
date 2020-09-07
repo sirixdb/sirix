@@ -11,15 +11,9 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.AuthRole
@@ -28,20 +22,16 @@ import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.json.JsonSessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
-import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.json.BasicJsonDBStore
-import org.sirix.xquery.json.JsonDBCollection
 import org.sirix.xquery.node.BasicXmlDBStore
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
-import java.security.Permission
 
 class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -178,21 +168,6 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                         queryCtx.contextItem = dbNode
 
-                        GlobalScope.launch {
-                            body = query(
-                                xmlDBStore,
-                                jsonDBStore,
-                                startResultSeqIndex,
-                                query,
-                                queryCtx,
-                                endResultSeqIndex,
-                                routingContext
-                            )
-                        }
-                    }
-
-                } else {
-                    GlobalScope.launch {
                         body = query(
                             xmlDBStore,
                             jsonDBStore,
@@ -203,6 +178,17 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
                             routingContext
                         )
                     }
+
+                } else {
+                    body = query(
+                        xmlDBStore,
+                        jsonDBStore,
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex,
+                        routingContext
+                    )
                 }
             }
 
@@ -210,7 +196,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun query(
+    private fun query(
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
@@ -240,7 +226,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
         return body
     }
 
-    private suspend fun executeQueryAndSerialize(
+    private fun executeQueryAndSerialize(
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
