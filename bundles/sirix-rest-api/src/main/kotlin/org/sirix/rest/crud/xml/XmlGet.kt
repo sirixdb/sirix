@@ -12,6 +12,7 @@ import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
+import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
@@ -239,12 +240,9 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
         PrintStream(out).use { printStream ->
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
-                    PermissionCheckingXQuery(
+                    XQuery(
                         sirixCompileChain,
-                        query,
-                        AuthRole.MODIFY,
-                        keycloak,
-                        routingContext.get("user")
+                        query
                     ).prettyPrint().serialize(
                         queryCtx,
                         XmlDBSerializer(printStream, true, true)
