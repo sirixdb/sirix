@@ -6,6 +6,7 @@ import org.brackit.xquery.array.AbstractArray;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.IntNumeric;
+import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.type.ArrayType;
@@ -183,6 +184,11 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   @Override
   public Array remove(int index) {
     final JsonNodeTrx trx = getReadWriteTrx();
+
+    if (index >= trx.getChildCount()) {
+      throw new QueryException(new QNm("Index " + index + " is out of bounds (" + trx.getChildCount() + ")."));
+    }
+
     moveToIndex(index, trx);
 
     trx.remove();
