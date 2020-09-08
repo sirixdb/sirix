@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
-<h1 align="center">an evolutionary, accumulate-only DBMS</h1>
-<p align="center">Store and query small-sized snapshots of your data</p>
+<h1 align="center">An evolutionary, accumulate-only DBMS</h1>
+<p align="center">Stores small-sized snapshots of your data and facilitates querying the full history</p>
 
 [![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
 [![All Contributors](https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square)](#contributors)
