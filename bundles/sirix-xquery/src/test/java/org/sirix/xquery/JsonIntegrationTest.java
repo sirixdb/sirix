@@ -25,6 +25,26 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testRemoveAll() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}},
+                                           {"generic": 2, "location": {"state": "NY", "city": "New York"}},
+                                           {"generic": 3, "location": {"state": "AL", "city": "Montgomery"}}]')
+        """.strip();
+    final String query = """
+          let $doc := jn:doc('mycol.jn','mydoc.jn')
+          let $m := for $i at $pos in $doc
+                    return $pos - 1
+          for $i in $m order by $i descending return delete json $doc[[$i]]
+        """.strip();
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          []
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
   public void testSimpleDeleteQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}]')
