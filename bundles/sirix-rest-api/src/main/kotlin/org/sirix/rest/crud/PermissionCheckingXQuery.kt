@@ -57,15 +57,15 @@ class PermissionCheckingXQuery {
         this.user = user
     }
 
-    fun execute(ctx: QueryContext): Sequence {
+    fun execute(ctx: QueryContext): Sequence? {
         return run(ctx, true)
     }
 
-    fun evaluate(ctx: QueryContext): Sequence {
+    fun evaluate(ctx: QueryContext): Sequence? {
         return run(ctx, false)
     }
 
-    private fun run(ctx: QueryContext, lazy: Boolean): Sequence {
+    private fun run(ctx: QueryContext, lazy: Boolean): Sequence? {
         val body = module.body
             ?: throw QueryException(ErrorCode.BIT_DYN_INT_ERROR, "Module does not contain a query body.")
         val result = body.evaluate(ctx, TupleImpl())
@@ -79,6 +79,7 @@ class PermissionCheckingXQuery {
                 }
             }
         }
+
         if (!lazy || body.isUpdating) {
             // iterate possibly lazy result sequence to "pull-in" all pending updates
             if (result != null && !(result is Item)) {
@@ -90,6 +91,7 @@ class PermissionCheckingXQuery {
 
             ctx.applyUpdates()
         }
+
         return result
     }
 
@@ -98,16 +100,20 @@ class PermissionCheckingXQuery {
     }
 
     fun serialize(ctx: QueryContext, out: PrintWriter) {
-        val result = run(ctx, true)
+        val result = run(ctx, true) ?: return
         StringSerializer(out).use { serializer ->
             serializer.isFormat = isPrettyPrint
-            serializer.serialize(result)
+            serializer.use {
+                serializer.serialize(result)
+            }
         }
     }
 
     fun serialize(ctx: QueryContext, serializer: Serializer) {
-        val result = run(ctx, true)
-        serializer.serialize(result)
+        val result = run(ctx, true) ?: return
+        serializer.use {
+            serializer.serialize(result);
+        }
     }
 
     fun prettyPrint(): PermissionCheckingXQuery {
