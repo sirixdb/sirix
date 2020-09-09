@@ -303,30 +303,30 @@ public final class JsonDBObject extends AbstractItem
     }
 
     if (value instanceof Array) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new ArrayValue());
+      trx.replaceObjectRecordValue(new ArrayValue());
       insertSubtree(value, trx);
     } else if (value instanceof Record) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new ObjectValue());
+      trx.replaceObjectRecordValue(new ObjectValue());
       insertSubtree(value, trx);
     } else if (value instanceof Str) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new StringValue(((Str) value).stringValue()));
+      trx.replaceObjectRecordValue(new StringValue(((Str) value).stringValue()));
     } else if (value instanceof Null) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new NullValue());
+      trx.replaceObjectRecordValue(new NullValue());
     } else if (value instanceof Bool) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new BooleanValue(value.booleanValue()));
+      trx.replaceObjectRecordValue(new BooleanValue(value.booleanValue()));
     } else if (value instanceof Numeric) {
       if (value instanceof Int) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int) value).intValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Int) value).intValue()));
       } else if (value instanceof Int32) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int32) value).intValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Int32) value).intValue()));
       } else if (value instanceof Int64) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int64) value).longValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Int64) value).longValue()));
       } else if (value instanceof Flt) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Flt) value).floatValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Flt) value).floatValue()));
       } else if (value instanceof Dbl) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Dbl) value).doubleValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Dbl) value).doubleValue()));
       } else if (value instanceof Dec) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Dec) value).decimalValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Dec) value).decimalValue()));
       }
     }
   }
