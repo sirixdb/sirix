@@ -4,12 +4,11 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.handler.OAuth2AuthHandler
+import io.vertx.kotlin.coroutines.awaitBlocking
+import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import io.vertx.kotlin.ext.web.handler.authorizeAwait
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import org.brackit.xquery.ErrorCode
 import org.brackit.xquery.QueryContext
 import org.brackit.xquery.QueryException
@@ -73,7 +72,8 @@ class PermissionCheckingXQuery {
         if (body.isUpdating) {
             // val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
 
-            GlobalScope.launch {
+            // FIXME: Better way?
+            runBlocking {
                 require(user.isAuthorizedAwait(role.keycloakRole())) {
                     throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
                 }
