@@ -812,6 +812,19 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
+  public void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
+    final var level = id.getLevel();
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
+                                        newNodeKey,
+                                        oldNodeKey,
+                                        id == null ? null : new DiffDepth(level, level));
+    if (id == null) {
+      updateOperationsUnordered.put(newNodeKey, diffTuple);
+    } else {
+      updateOperationsOrdered.put(id, diffTuple);
+    }
+  }
+
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
     final ObjectKeyNode objectKeyNode = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
     objectKeyNode.setFirstChildKey(getNodeKey());
@@ -1092,7 +1105,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx replaceObjectRecordValue(String key, ObjectRecordValue<?> value) {
+  public JsonNodeTrx replaceObjectRecordValue(ObjectRecordValue<?> value) {
     checkNotNull(value);
     acquireLockIfNecessary();
     try {
@@ -1106,10 +1119,15 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       moveToFirstChild();
 
       canRemoveValue = true;
+
+      final long oldValueNodeKey = getNodeKey();
       remove();
       moveTo(nodeKey);
-
       insertValue(value);
+
+      final ImmutableNode node = getCurrentNode();
+
+      adaptUpdateOperationsForReplace(node.getDeweyID(), oldValueNodeKey, node.getNodeKey());
 
       return this;
     } finally {
@@ -1813,8 +1831,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         throw new SirixUsageException("Document root can not be removed.");
       }
 
-      adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
-
       final var parentNodeKind = getParentKind();
 
       if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
@@ -1824,6 +1840,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
 
       canRemoveValue = false;
+
+      if (getParentKind() != NodeKind.OBJECT_KEY) {
+        adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
+      }
 
       // Remove subtree.
       for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
