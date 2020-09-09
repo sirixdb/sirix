@@ -245,6 +245,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   @Override
   public void close() {
     if (reader != null) {
+      reader.close();
       try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
         outChan.truncate(dataSegmentFileSize);
       } catch (IOException e) {
@@ -255,7 +256,6 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       } catch (IOException e) {
         throw new SirixIOException(e);
       }
-      reader.close();
     }
   }
 

@@ -34,7 +34,7 @@ import java.util.Optional;
  * signature is:
  * </p>
  * <ul>
- * <li><code>sdb:node-history($node as xs:structured-item) as xs:structured-item+</code></li>
+ * <li><code>sdb:node-history($item as xs:structured-item) as xs:structured-item+</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
