@@ -190,6 +190,7 @@ class JsonCreate(
             out,
             routingCtx,
             manager,
+            intArrayOf(1),
             null
         )
     }

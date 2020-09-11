@@ -50,7 +50,8 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
         database.use {
             val manager = database.openResourceManager(queryOptions.resource)
             manager.use {
-                val dbCollection = XmlDBCollection(options.location, database)
+                val dbCollection =
+                    XmlDBCollection(options.location, database)
 
                 dbCollection.use {
                     val revisionNumber = RevisionsHelper.getRevisionNumber(

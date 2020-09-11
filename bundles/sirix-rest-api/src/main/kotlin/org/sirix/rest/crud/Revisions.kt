@@ -13,7 +13,7 @@ class Revisions {
                 startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
                 endRevisionTimestamp: String?, manager: ResourceManager<R, W>, revision: String?,
                 revisionTimestamp: String?
-        ): Array<Int>
+        ): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
@@ -22,27 +22,27 @@ class Revisions {
                 startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
                 startRevisionTimestamp != null && endRevisionTimestamp != null -> {
                     val tspRevisions = parseTimestampRevisions(startRevisionTimestamp, endRevisionTimestamp)
-                    getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
+                    getRevisionNumbers(manager, tspRevisions).toList().toIntArray()
                 }
                 else -> getRevisionNumber(revision, revisionTimestamp, manager)
             }
         }
 
-        fun <R, W> getRevisionNumber(rev: String?, revTimestamp: String?, manager: ResourceManager<R, W>): Array<Int>
+        fun <R, W> getRevisionNumber(rev: String?, revTimestamp: String?, manager: ResourceManager<R, W>): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
                       W : NodeCursor {
             return if (rev != null) {
-                arrayOf(rev.toInt())
+                intArrayOf(rev.toInt())
             } else if (revTimestamp != null) {
                 var revision = getRevisionNumber(manager, revTimestamp)
                 if (revision == 0)
-                    arrayOf(++revision)
+                    intArrayOf(++revision)
                 else
-                    arrayOf(revision)
+                    intArrayOf(revision)
             } else {
-                arrayOf(manager.mostRecentRevisionNumber)
+                intArrayOf(manager.mostRecentRevisionNumber)
             }
         }
 
@@ -59,7 +59,7 @@ class Revisions {
         private fun <R, W> getRevisionNumbers(
                 manager: ResourceManager<R, W>,
                 revisions: Pair<LocalDateTime, LocalDateTime>
-        ): Array<Int>
+        ): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
@@ -72,11 +72,11 @@ class Revisions {
             if (firstRevisionNumber == 0) ++firstRevisionNumber
             if (lastRevisionNumber == 0) ++lastRevisionNumber
 
-            return (firstRevisionNumber..lastRevisionNumber).toSet().toTypedArray()
+            return (firstRevisionNumber..lastRevisionNumber).toSet().toIntArray()
         }
 
-        private fun parseIntRevisions(startRevision: String, endRevision: String): Array<Int> {
-            return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
+        private fun parseIntRevisions(startRevision: String, endRevision: String): IntArray {
+            return (startRevision.toInt()..endRevision.toInt()).toSet().toIntArray()
         }
 
         private fun parseTimestampRevisions(
