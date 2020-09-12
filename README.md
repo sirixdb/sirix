@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
-<h1 align="center">An evolutionary, accumulate-only database system</h1>
+<h1 align="center">An Evolutionary, Accumulate-Only Database System</h1>
 <p align="center">Stores small-sized, immutable snapshots of your data and facilitates querying the full history</p>
 
 <p align="center">
