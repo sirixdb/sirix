@@ -17,8 +17,8 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
    * modification at all.
    *
-   * @throws SirixException if this revision couldn't be commited
    * @return NodeTrx return current instance
+   * @throws SirixException if this revision couldn't be commited
    */
   NodeTrx commit();
 
@@ -27,16 +27,16 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * modification at all. The author assignes a commit message.
    *
    * @param commitMessage message of the commit
-   * @throws SirixException if this revision couldn't be committed
    * @return NodeTrx return current instance
+   * @throws SirixException if this revision couldn't be committed
    */
   NodeTrx commit(String commitMessage);
 
   /**
    * Rollback all modifications of the exclusive write transaction.
    *
-   * @throws SirixException if the changes in this revision couldn't be rollbacked
    * @return NodeTrx return current instance
+   * @throws SirixException if the changes in this revision couldn't be rollbacked
    */
   NodeTrx rollback();
 
@@ -89,7 +89,12 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
   @Override
   void close();
 
-  PageTrx<Long, DataRecord, UnorderedKeyValuePage> getPageWtx();
+  /**
+   * Get the page read-write transaction.
+   *
+   * @return the page read-write transaction used for reading pages from the index structure(s)
+   */
+  PageTrx getPageWtx();
 
   /**
    * Get the user who committed the revision you reverted to, if available.
@@ -98,5 +103,10 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    */
   Optional<User> getUserOfRevisionToRepresent();
 
+  /**
+   * Remove a node (with it's subtree if it has a subtree).
+   *
+   * @return this instance
+   */
   NodeTrx remove();
 }

@@ -240,7 +240,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
   @Override
   public final long getMaxNodeKey() {
     assertNotClosed();
-    return pageReadOnlyTrx.getActualRevisionRootPage().getMaxNodeKey();
+    return pageReadOnlyTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
   }
 
   /**
@@ -340,25 +340,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
   protected abstract T thisInstance();
 
   @Override
-  public Move<T> moveToLastChild() {
-    assertNotClosed();
-    if (getStructuralNode().hasFirstChild()) {
-      moveToFirstChild();
-
-      while (getStructuralNode().hasRightSibling()) {
-        moveToRightSibling();
-      }
-
-      return Move.moved(thisInstance());
-    }
-    return Move.notMoved();
-  }
-
-  @Override
   public boolean hasLastChild() {
     assertNotClosed();
     final long nodeKey = currentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() != null;
+    final boolean retVal = moveToLastChild().hasMoved();
     moveTo(nodeKey);
     return retVal;
   }

@@ -10,6 +10,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.io.StorageType;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.settings.VersioningType;
@@ -46,8 +47,9 @@ public final class JsonNodeTrxInsertTest {
                                                    .hashKind(HashType.NONE)
                                                    .buildPathSummary(false)
                                                    .versioningApproach(VersioningType.FULL)
+                                                   .storageType(StorageType.MEMORY_MAPPED)
                                                    .build());
-      try (final var manager = database.openResourceManager(resource); final var wtx = manager.beginNodeTrx(100, TimeUnit.MILLISECONDS)) {
+      try (final var manager = database.openResourceManager(resource); final var wtx = manager.beginNodeTrx()) {
         System.out.println("Start inserting");
 
         final long time = System.nanoTime();
@@ -59,8 +61,8 @@ public final class JsonNodeTrxInsertTest {
             """.strip();
 
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject),
-                                      JsonNodeTrx.Commit.No,
-                                      JsonNodeTrx.CheckParentNode.No);
+                                      JsonNodeTrx.Commit.Implicit,
+                                      JsonNodeTrx.CheckParentNode.Yes);
 
         for (int i = 0; i < 650_000; i++) {
           System.out.println(i);
@@ -69,7 +71,7 @@ public final class JsonNodeTrxInsertTest {
               """.strip().formatted(i);
 
           wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject),
-                                          JsonNodeTrx.Commit.No,
+                                          JsonNodeTrx.Commit.Implicit,
                                           JsonNodeTrx.CheckParentNode.No);
         }
 
@@ -146,6 +148,39 @@ public final class JsonNodeTrxInsertTest {
   }
 
   @Test
+  public void testInsertSubtreeArrayAsLastChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[[]]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeArrayAsLeftSibling() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("[]"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[[],[]]", writer.toString());
+    }
+  }
+
+  @Test
   public void testInsertSubtreeArrayAsRightSibling() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
          final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
@@ -175,6 +210,39 @@ public final class JsonNodeTrxInsertTest {
       serializer.call();
 
       assertEquals("[{}]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeObjectAsLastChild() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{}"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[{}]", writer.toString());
+    }
+  }
+
+  @Test
+  public void testInsertSubtreeObjectAsLeftSibling() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
+      wtx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("{}"));
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+
+      assertEquals("[{},{}]", writer.toString());
     }
   }
 

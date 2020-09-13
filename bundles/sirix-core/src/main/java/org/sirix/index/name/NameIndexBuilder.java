@@ -6,9 +6,9 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
-import org.sirix.index.avltree.AVLTreeWriter;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
+import org.sirix.index.redblacktree.RBTreeWriter;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -18,10 +18,10 @@ public final class NameIndexBuilder {
 
   public Set<QNm> mIncludes;
   public Set<QNm> mExcludes;
-  public AVLTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
+  public RBTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
 
   public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
-      final AVLTreeWriter<QNm, NodeReferences> avlTreeWriter) {
+      final RBTreeWriter<QNm, NodeReferences> avlTreeWriter) {
     mIncludes = includes;
     mExcludes = excludes;
     mAVLTreeWriter = avlTreeWriter;

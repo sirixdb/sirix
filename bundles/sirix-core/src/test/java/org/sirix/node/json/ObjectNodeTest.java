@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,12 +21,7 @@
 
 package org.sirix.node.json;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import com.google.common.hash.Hashing;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,17 +34,18 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+
+import static org.junit.Assert.*;
 
 /**
  * Object node test.
  */
 public class ObjectNodeTest {
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx pageTrx;
 
   private Database<JsonResourceManager> database;
 
@@ -57,7 +53,8 @@ public class ObjectNodeTest {
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    assert database != null;
+    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
@@ -69,21 +66,21 @@ public class ObjectNodeTest {
   public void testNode() throws IOException {
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final ObjectNode node = new ObjectNode(strucDel);
     node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ObjectNode node2 =
-        (ObjectNode) NodeKind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
+        (ObjectNode) NodeKind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 
-  private final void check(final ObjectNode node) {
+  private void check(final ObjectNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
@@ -91,9 +88,9 @@ public class ObjectNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
 
     assertEquals(NodeKind.OBJECT, node.getKind());
-    assertEquals(false, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasRightSibling());
+    assertFalse(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasRightSibling());
   }
 
 }

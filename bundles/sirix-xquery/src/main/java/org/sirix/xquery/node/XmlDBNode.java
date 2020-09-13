@@ -49,25 +49,25 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlDBNode.class));
 
   /** Sirix {@link XmlNodeReadOnlyTrx}. */
-  private final XmlNodeReadOnlyTrx mRtx;
+  private final XmlNodeReadOnlyTrx rtx;
 
   /** Sirix node key. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Kind of node. */
-  private final org.sirix.node.NodeKind mKind;
+  private final org.sirix.node.NodeKind kind;
 
   /** Collection this node is part of. */
-  private final XmlDBCollection mCollection;
+  private final XmlDBCollection collection;
 
   /** Determines if write-transaction is present. */
-  private final boolean mIsWtx;
+  private final boolean isWtx;
 
   /** {@link Scope} of node. */
-  private SirixScope mScope;
+  private SirixScope scope;
 
   /** Optional dewey ID. */
-  private final SirixDeweyID mDeweyID;
+  private final SirixDeweyID deweyID;
 
   /**
    * Constructor.
@@ -76,19 +76,19 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @param collection {@link XmlDBCollection} reference
    */
   public XmlDBNode(final XmlNodeReadOnlyTrx rtx, final XmlDBCollection collection) {
-    mCollection = Preconditions.checkNotNull(collection);
-    mRtx = Preconditions.checkNotNull(rtx);
-    mIsWtx = mRtx instanceof XmlNodeTrx;
-    mNodeKey = mRtx.getNodeKey();
-    mKind = mRtx.getKind();
-    mDeweyID = mRtx.getNode().getDeweyID();
+    this.collection = Preconditions.checkNotNull(collection);
+    this.rtx = Preconditions.checkNotNull(rtx);
+    isWtx = this.rtx instanceof XmlNodeTrx;
+    nodeKey = this.rtx.getNodeKey();
+    kind = this.rtx.getKind();
+    deweyID = this.rtx.getNode().getDeweyID();
   }
 
   /**
    * Create a new {@link NodeReadOnlyTrx} and move to node key.
    */
   private void moveRtx() {
-    mRtx.moveTo(mNodeKey);
+    rtx.moveTo(nodeKey);
   }
 
   /**
@@ -98,14 +98,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    */
   private org.sirix.node.interfaces.immutable.ImmutableNode getImmutableNode() {
     moveRtx();
-    return mRtx.getNode();
+    return rtx.getNode();
   }
 
   @Override
   public boolean isSelfOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       return node.getImmutableNode().getNodeKey() == this.getImmutableNode().getNodeKey();
     }
@@ -115,12 +114,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isParentOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (node.getImmutableNode().getParentKey() == mRtx.getNodeKey()) {
-        return true;
-      }
+      return node.getImmutableNode().getParentKey() == rtx.getNodeKey();
     }
     return false;
   }
@@ -128,11 +124,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isChildOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        return node.getImmutableNode().getNodeKey() == mRtx.getParentKey();
+      if (kind != org.sirix.node.NodeKind.ATTRIBUTE && kind != org.sirix.node.NodeKind.NAMESPACE) {
+        return node.getImmutableNode().getNodeKey() == rtx.getParentKey();
       }
     }
     return false;
@@ -142,17 +137,16 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isDescendantOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       moveRtx();
-      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID != null) {
-          return mDeweyID.isDescendantOf(node.mDeweyID);
+      if (kind != org.sirix.node.NodeKind.ATTRIBUTE && kind != org.sirix.node.NodeKind.NAMESPACE) {
+        if (deweyID != null) {
+          return deweyID.isDescendantOf(node.deweyID);
         } else {
-          for (final Axis axis = new AncestorAxis(mRtx); axis.hasNext();) {
+          for (final Axis axis = new AncestorAxis(rtx); axis.hasNext();) {
             axis.next();
-            if (node.getImmutableNode().getNodeKey() == mRtx.getNodeKey()) {
+            if (node.getImmutableNode().getNodeKey() == rtx.getNodeKey()) {
               retVal = true;
             }
           }
@@ -170,15 +164,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public XmlNodeReadOnlyTrx getTrx() {
     moveRtx();
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public boolean isDescendantOrSelfOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (isSelfOf(other)) {
         retVal = true;
@@ -192,11 +185,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isAncestorOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (mDeweyID != null) {
-        return mDeweyID.isAncestorOf(node.mDeweyID);
+      if (deweyID != null) {
+        return deweyID.isAncestorOf(node.deweyID);
       } else {
         return other.isDescendantOf(this);
       }
@@ -208,11 +200,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isAncestorOrSelfOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (mDeweyID != null) {
-        retVal = mDeweyID.isAncestorOf(node.mDeweyID);
+      if (deweyID != null) {
+        retVal = deweyID.isAncestorOf(node.deweyID);
       } else {
         if (isSelfOf(other)) {
           retVal = true;
@@ -228,13 +219,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isSiblingOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
-        if (mDeweyID != null) {
-          return mDeweyID.isSiblingOf(node.mDeweyID);
+        if (deweyID != null) {
+          return deweyID.isSiblingOf(node.deweyID);
         }
+        //noinspection ConstantConditions
         if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
             && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
                                                                                                   .getNodeKey()) {
@@ -249,16 +240,15 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingSiblingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID != null) {
-          return mDeweyID.isPrecedingSiblingOf(node.mDeweyID);
+      if (kind != org.sirix.node.NodeKind.ATTRIBUTE && kind != org.sirix.node.NodeKind.NAMESPACE) {
+        if (deweyID != null) {
+          return deweyID.isPrecedingSiblingOf(node.deweyID);
         } else {
-          while (mRtx.hasRightSibling()) {
-            mRtx.moveToRightSibling();
-            if (mRtx.getNodeKey() == node.getNodeKey()) {
+          while (rtx.hasRightSibling()) {
+            rtx.moveToRightSibling();
+            if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
             }
           }
@@ -270,16 +260,15 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingSiblingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID != null) {
-          return mDeweyID.isFollowingSiblingOf(node.mDeweyID);
+      if (kind != org.sirix.node.NodeKind.ATTRIBUTE && kind != org.sirix.node.NodeKind.NAMESPACE) {
+        if (deweyID != null) {
+          return deweyID.isFollowingSiblingOf(node.deweyID);
         } else {
-          while (mRtx.hasLeftSibling()) {
-            mRtx.moveToLeftSibling();
-            if (mRtx.getNodeKey() == node.getNodeKey()) {
+          while (rtx.hasLeftSibling()) {
+            rtx.moveToLeftSibling();
+            if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
             }
           }
@@ -291,16 +280,15 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID != null) {
-          return mDeweyID.isPrecedingOf(node.mDeweyID);
+      if (kind != org.sirix.node.NodeKind.ATTRIBUTE && kind != org.sirix.node.NodeKind.NAMESPACE) {
+        if (deweyID != null) {
+          return deweyID.isPrecedingOf(node.deweyID);
         } else {
-          for (final Axis axis = new FollowingAxis(mRtx); axis.hasNext();) {
+          for (final Axis axis = new FollowingAxis(rtx); axis.hasNext();) {
             axis.next();
-            if (mRtx.getNodeKey() == node.getNodeKey()) {
+            if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
             }
           }
@@ -312,16 +300,15 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID != null) {
-          return mDeweyID.isFollowingOf(node.mDeweyID);
+      if (kind != org.sirix.node.NodeKind.ATTRIBUTE && kind != org.sirix.node.NodeKind.NAMESPACE) {
+        if (deweyID != null) {
+          return deweyID.isFollowingOf(node.deweyID);
         } else {
-          for (final Axis axis = new PrecedingAxis(mRtx); axis.hasNext();) {
+          for (final Axis axis = new PrecedingAxis(rtx); axis.hasNext();) {
             axis.next();
-            if (mRtx.getNodeKey() == node.getNodeKey()) {
+            if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
             }
           }
@@ -335,10 +322,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isAttributeOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
+        //noinspection ConstantConditions
         if (getParent().getImmutableNode().getNodeKey() == node.getImmutableNode().getNodeKey()) {
           retVal = true;
         }
@@ -353,14 +340,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isDocumentOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (getKind() == Kind.DOCUMENT && other instanceof XmlDBNode) {
-      final XmlDBNode node = (XmlDBNode) other;
+    if (getKind() == Kind.DOCUMENT && other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       final NodeReadOnlyTrx rtx = node.getTrx();
-      if (rtx.getRevisionNumber() == mRtx.getRevisionNumber()
-          && rtx.getResourceManager().getResourceConfig().getID() == mRtx.getResourceManager()
-                                                                         .getResourceConfig()
-                                                                         .getID()) {
+      if (rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
+          && rtx.getResourceManager().getResourceConfig().getID() == this.rtx.getResourceManager()
+                                                                             .getResourceConfig()
+                                                                             .getID()) {
         retVal = true;
       }
     }
@@ -370,13 +356,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDocumentRoot() {
     moveRtx();
-    return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty();
+    return rtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean isRoot() {
     moveRtx();
-    return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+    return rtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -386,52 +372,44 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBCollection getCollection() {
-    return mCollection;
+    return collection;
   }
 
   @Override
   public Scope getScope() {
-    if (mScope == null && mKind == org.sirix.node.NodeKind.ELEMENT) {
-      mScope = new SirixScope(this);
+    if (scope == null && kind == org.sirix.node.NodeKind.ELEMENT) {
+      scope = new SirixScope(this);
     }
-    return mScope;
+    return scope;
   }
 
   @Override
   public Kind getKind() {
     moveRtx();
-    switch (mRtx.getKind()) {
-      case XML_DOCUMENT:
-        return Kind.DOCUMENT;
-      case ELEMENT:
-        return Kind.ELEMENT;
-      case TEXT:
-        return Kind.TEXT;
-      case COMMENT:
-        return Kind.COMMENT;
-      case PROCESSING_INSTRUCTION:
-        return Kind.PROCESSING_INSTRUCTION;
-      case NAMESPACE:
-        return Kind.NAMESPACE;
-      case ATTRIBUTE:
-        return Kind.ATTRIBUTE;
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException("Kind not known!");
-    }
+    // $CASES-OMITTED$
+    return switch (rtx.getKind()) {
+      case XML_DOCUMENT -> Kind.DOCUMENT;
+      case ELEMENT -> Kind.ELEMENT;
+      case TEXT -> Kind.TEXT;
+      case COMMENT -> Kind.COMMENT;
+      case PROCESSING_INSTRUCTION -> Kind.PROCESSING_INSTRUCTION;
+      case NAMESPACE -> Kind.NAMESPACE;
+      case ATTRIBUTE -> Kind.ATTRIBUTE;
+      default -> throw new IllegalStateException("Kind not known!");
+    };
   }
 
   @Override
   public QNm getName() {
     moveRtx();
-    return mRtx.getName();
+    return rtx.getName();
   }
 
   @Override
   public void setName(final QNm name) throws DocumentException {
-    if (mIsWtx) {
+    if (isWtx) {
       moveRtx();
-      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
+      final XmlNodeTrx wtx = (XmlNodeTrx) rtx;
       if (wtx.isNameNode()) {
         try {
           wtx.setName(name);
@@ -457,26 +435,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public Atomic getValue() {
     moveRtx();
 
-    final String value;
-    switch (mKind) {
-      case XML_DOCUMENT:
-      case ELEMENT:
-        value = expandString();
-        break;
-      case ATTRIBUTE:
-        value = emptyIfNull(mRtx.getValue());
-        break;
-      case TEXT:
-        value = mRtx.getValue();
-        break;
-      case COMMENT:
-      case PROCESSING_INSTRUCTION:
-        value = emptyIfNull(mRtx.getValue());
-        break;
-      // $CASES-OMITTED$
-      default:
-        value = "";
-    }
+    // $CASES-OMITTED$
+    final String value = switch (kind) {
+      case XML_DOCUMENT, ELEMENT -> expandString();
+      case ATTRIBUTE, COMMENT, PROCESSING_INSTRUCTION -> emptyIfNull(rtx.getValue());
+      case TEXT -> rtx.getValue();
+      default -> "";
+    };
     return new Una(value);
   }
 
@@ -499,11 +464,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    */
   private String expandString() {
     final StringBuilder buffer = new StringBuilder();
-    final Axis axis = new DescendantAxis(mRtx);
+    final Axis axis = new DescendantAxis(rtx);
     while (axis.hasNext()) {
       axis.next();
-      if (mRtx.isText()) {
-        buffer.append(mRtx.getValue());
+      if (rtx.isText()) {
+        buffer.append(rtx.getValue());
       }
     }
     return buffer.toString();
@@ -512,11 +477,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public void setValue(final Atomic value) throws DocumentException {
     moveRtx();
-    if (!mRtx.isValueNode()) {
+    if (!rtx.isValueNode()) {
       throw new DocumentException("Node has no value!");
     }
-    if (mIsWtx) {
-      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
+    if (isWtx) {
+      final XmlNodeTrx wtx = (XmlNodeTrx) rtx;
       try {
         wtx.setValue(value.stringValue());
       } catch (final SirixException e) {
@@ -537,67 +502,67 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public XmlDBNode getParent() {
     moveRtx();
-    return mRtx.hasParent()
-        ? new XmlDBNode(mRtx.moveToParent().trx(), mCollection)
+    return rtx.hasParent()
+        ? new XmlDBNode(rtx.moveToParent().trx(), collection)
         : null;
   }
 
   @Override
   public XmlDBNode getFirstChild() {
     moveRtx();
-    return mRtx.hasFirstChild()
-        ? new XmlDBNode(mRtx.moveToFirstChild().trx(), mCollection)
+    return rtx.hasFirstChild()
+        ? new XmlDBNode(rtx.moveToFirstChild().trx(), collection)
         : null;
   }
 
   @Override
   public XmlDBNode getLastChild() {
     moveRtx();
-    return mRtx.hasLastChild()
-        ? new XmlDBNode(mRtx.moveToLastChild().trx(), mCollection)
+    return rtx.hasLastChild()
+        ? new XmlDBNode(rtx.moveToLastChild().trx(), collection)
         : null;
   }
 
   @Override
   public Stream<XmlDBNode> getChildren() {
     moveRtx();
-    return new SirixNodeStream(new ChildAxis(mRtx), mCollection);
+    return new SirixNodeStream(new ChildAxis(rtx), collection);
   }
 
   // Returns all nodes in the subtree _including_ the subtree root.
   @Override
   public Stream<XmlDBNode> getSubtree() {
     moveRtx();
-    return new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(mRtx, IncludeSelf.YES)), mCollection);
+    return new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)), collection);
   }
 
   @Override
   public boolean hasChildren() {
     moveRtx();
-    return mRtx.getChildCount() > 0;
+    return rtx.getChildCount() > 0;
   }
 
   @Override
   public XmlDBNode getNextSibling() {
     moveRtx();
-    return mRtx.hasRightSibling()
-        ? new XmlDBNode(mRtx.moveToRightSibling().trx(), mCollection)
+    return rtx.hasRightSibling()
+        ? new XmlDBNode(rtx.moveToRightSibling().trx(), collection)
         : null;
   }
 
   @Override
   public XmlDBNode getPreviousSibling() {
     moveRtx();
-    return mRtx.hasLeftSibling()
-        ? new XmlDBNode(mRtx.moveToLeftSibling().trx(), mCollection)
+    return rtx.hasLeftSibling()
+        ? new XmlDBNode(rtx.moveToLeftSibling().trx(), collection)
         : null;
   }
 
   @Override
   public XmlDBNode append(final Kind kind, final QNm name, final Atomic value) {
-    if (mIsWtx) {
+    if (isWtx) {
       moveRtx();
-      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
+      final XmlNodeTrx wtx = (XmlNodeTrx) rtx;
       try {
         return append(wtx, kind, name, value);
       } catch (final SirixException e) {
@@ -616,69 +581,77 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private XmlDBNode append(final XmlNodeTrx wtx, final Kind kind, final QNm name, final Atomic value) {
     if (wtx.hasFirstChild()) {
       wtx.moveToLastChild();
-      switch (kind) {
-        case DOCUMENT:
-          break;
-        case ELEMENT:
-          wtx.insertElementAsRightSibling(name);
-          break;
-        case ATTRIBUTE:
-          wtx.insertAttribute(name, value.asStr().stringValue());
-          break;
-        case NAMESPACE:
-          wtx.insertNamespace(name);
-          break;
-        case TEXT:
-          wtx.insertTextAsRightSibling(value.asStr().stringValue());
-          break;
-        case COMMENT:
-          wtx.insertCommentAsRightSibling(value.asStr().stringValue());
-          break;
-        case PROCESSING_INSTRUCTION:
-          wtx.insertPIAsRightSibling(value.asStr().stringValue(), name.getLocalName());
-          break;
-        default:
-          throw new AssertionError(); // May not happen.
-      }
+      insertNodeAsRightSibling(wtx, kind, name, value);
     } else {
-      switch (kind) {
-        case DOCUMENT:
-          break;
-        case ELEMENT:
-          wtx.insertElementAsFirstChild(name);
-          break;
-        case ATTRIBUTE:
-          wtx.insertAttribute(name, value.asStr().stringValue());
-          break;
-        case NAMESPACE:
-          wtx.insertNamespace(name);
-          break;
-        case TEXT:
-          wtx.insertTextAsFirstChild(value.asStr().stringValue());
-          break;
-        case COMMENT:
-          wtx.insertCommentAsFirstChild(value.asStr().stringValue());
-          break;
-        case PROCESSING_INSTRUCTION:
-          wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
-          break;
-        default:
-          throw new AssertionError(); // May not happen.
-      }
+      insertNodeAsFirstChild(wtx, kind, name, value);
     }
 
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
+  }
+
+  private void insertNodeAsRightSibling(XmlNodeTrx wtx, Kind kind, QNm name, Atomic value) {
+    switch (kind) {
+      case DOCUMENT:
+        break;
+      case ELEMENT:
+        wtx.insertElementAsRightSibling(name);
+        break;
+      case ATTRIBUTE:
+        wtx.insertAttribute(name, value.asStr().stringValue());
+        break;
+      case NAMESPACE:
+        wtx.insertNamespace(name);
+        break;
+      case TEXT:
+        wtx.insertTextAsRightSibling(value.asStr().stringValue());
+        break;
+      case COMMENT:
+        wtx.insertCommentAsRightSibling(value.asStr().stringValue());
+        break;
+      case PROCESSING_INSTRUCTION:
+        wtx.insertPIAsRightSibling(value.asStr().stringValue(), name.getLocalName());
+        break;
+      default:
+        throw new AssertionError(); // May not happen.
+    }
+  }
+
+  private void insertNodeAsFirstChild(XmlNodeTrx wtx, Kind kind, QNm name, Atomic value) {
+    switch (kind) {
+      case DOCUMENT:
+        break;
+      case ELEMENT:
+        wtx.insertElementAsFirstChild(name);
+        break;
+      case ATTRIBUTE:
+        wtx.insertAttribute(name, value.asStr().stringValue());
+        break;
+      case NAMESPACE:
+        wtx.insertNamespace(name);
+        break;
+      case TEXT:
+        wtx.insertTextAsFirstChild(value.asStr().stringValue());
+        break;
+      case COMMENT:
+        wtx.insertCommentAsFirstChild(value.asStr().stringValue());
+        break;
+      case PROCESSING_INSTRUCTION:
+        wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
+        break;
+      default:
+        throw new AssertionError(); // May not happen.
+    }
   }
 
   @Override
   public XmlDBNode append(final Node<?> child) {
-    if (mIsWtx) {
+    if (isWtx) {
       moveRtx();
       try {
-        return append((XmlNodeTrx) mRtx, child);
+        return append((XmlNodeTrx) rtx, child);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -703,27 +676,27 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       if (wtx.hasFirstChild()) {
         wtx.moveToLastChild();
 
-        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
+        builder = new SubtreeBuilder(collection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       } else {
-        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
+        builder = new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
       }
       child.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode append(final SubtreeParser parser) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return append(mRtx, parser);
+        return append(rtx, parser);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -745,31 +718,31 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       }
 
       parser.parse(
-          new SubtreeBuilder(mCollection, (XmlNodeTrx) rtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList()));
+          new SubtreeBuilder(collection, (XmlNodeTrx) rtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList()));
 
       moveRtx();
       rtx.moveToFirstChild();
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new XmlDBNode(rtx, mCollection);
+    return new XmlDBNode(rtx, collection);
   }
 
   @Override
   public XmlDBNode prepend(final Kind kind, final QNm name, final Atomic value) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return prepend((XmlNodeTrx) mRtx, kind, name, value);
+        return prepend((XmlNodeTrx) rtx, kind, name, value);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        return prepend((XmlNodeTrx) mRtx, kind, name, value);
+        return prepend((XmlNodeTrx) rtx, kind, name, value);
       } catch (final DocumentException e) {
         wtx.rollback();
         wtx.close();
@@ -780,46 +753,23 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   private XmlDBNode prepend(final XmlNodeTrx wtx, final Kind kind, final QNm name, final Atomic value) {
     try {
-      switch (kind) {
-        case DOCUMENT:
-          break;
-        case ELEMENT:
-          wtx.insertElementAsFirstChild(name);
-          break;
-        case ATTRIBUTE:
-          wtx.insertAttribute(name, value.asStr().stringValue());
-          break;
-        case NAMESPACE:
-          wtx.insertNamespace(name);
-          break;
-        case TEXT:
-          wtx.insertTextAsFirstChild(value.asStr().stringValue());
-          break;
-        case COMMENT:
-          wtx.insertCommentAsFirstChild(value.asStr().stringValue());
-          break;
-        case PROCESSING_INSTRUCTION:
-          wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
-          break;
-        default:
-          throw new AssertionError(); // May not happen.
-      }
+      insertNodeAsFirstChild(wtx, kind, name, value);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
 
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode prepend(final Node<?> child) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return prepend((XmlNodeTrx) mRtx, child);
+        return prepend((XmlNodeTrx) rtx, child);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -843,27 +793,27 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       if (wtx.hasFirstChild()) {
         wtx.moveToFirstChild();
 
-        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
+        builder = new SubtreeBuilder(collection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       } else {
-        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
+        builder = new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
       }
       child.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode prepend(final SubtreeParser parser) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return prepend((XmlNodeTrx) mRtx, parser);
+        return prepend((XmlNodeTrx) rtx, parser);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -880,24 +830,24 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   private XmlDBNode prepend(final XmlNodeTrx wtx, final SubtreeParser parser) {
     try {
-      parser.parse(new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
+      parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
       moveRtx();
       wtx.moveToFirstChild();
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode insertBefore(final Kind kind, final QNm name, final Atomic value) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return insertBefore((XmlNodeTrx) mRtx, kind, name, value);
+        return insertBefore((XmlNodeTrx) rtx, kind, name, value);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -942,18 +892,18 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       throw new DocumentException(e);
     }
 
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode insertBefore(final Node<?> node) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return insertBefore((XmlNodeTrx) mRtx, node);
+        return insertBefore((XmlNodeTrx) rtx, node);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -973,25 +923,25 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       if (!(node.getKind() == Kind.ELEMENT))
         return insertBefore(wtx, node.getKind(), node.getName(), node.getValue());
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(collection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       node.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
 
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode insertBefore(final SubtreeParser parser) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return insertBefore((XmlNodeTrx) mRtx, parser);
+        return insertBefore((XmlNodeTrx) rtx, parser);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -1009,9 +959,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private XmlDBNode insertBefore(final XmlNodeTrx wtx, final SubtreeParser parser) {
     try {
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(collection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       parser.parse(builder);
-      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).trx(), mCollection);
+      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).trx(), collection);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
@@ -1019,13 +969,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertAfter(final Kind kind, final QNm name, final Atomic value) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return insertAfter((XmlNodeTrx) mRtx, kind, name, value);
+        return insertAfter((XmlNodeTrx) rtx, kind, name, value);
       } catch (final SirixException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw new DocumentException(e);
       }
     } else {
@@ -1042,43 +992,20 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   private XmlDBNode insertAfter(final XmlNodeTrx wtx, final Kind kind, final QNm name, final Atomic value)
       throws SirixException {
-    switch (kind) {
-      case DOCUMENT:
-        break;
-      case ELEMENT:
-        wtx.insertElementAsRightSibling(name);
-        break;
-      case ATTRIBUTE:
-        wtx.insertAttribute(name, value.asStr().stringValue());
-        break;
-      case NAMESPACE:
-        wtx.insertNamespace(name);
-        break;
-      case TEXT:
-        wtx.insertTextAsRightSibling(value.asStr().stringValue());
-        break;
-      case COMMENT:
-        wtx.insertCommentAsRightSibling(value.asStr().stringValue());
-        break;
-      case PROCESSING_INSTRUCTION:
-        wtx.insertPIAsRightSibling(value.asStr().stringValue(), name.getLocalName());
-        break;
-      default:
-        throw new AssertionError(); // Must not happen.
-    }
+    insertNodeAsRightSibling(wtx, kind, name, value);
 
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode insertAfter(final Node<?> node) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return insertAfter((XmlNodeTrx) mRtx, node);
+        return insertAfter((XmlNodeTrx) rtx, node);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -1099,24 +1026,24 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         return insertAfter(wtx, node.getKind(), node.getName(), node.getValue());
 
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(collection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       node.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new XmlDBNode(wtx, mCollection);
+    return new XmlDBNode(wtx, collection);
   }
 
   @Override
   public XmlDBNode insertAfter(final SubtreeParser parser) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return insertAfter((XmlNodeTrx) mRtx, parser);
+        return insertAfter((XmlNodeTrx) rtx, parser);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
@@ -1134,9 +1061,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private XmlDBNode insertAfter(final XmlNodeTrx wtx, final SubtreeParser parser) {
     try {
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(collection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       parser.parse(builder);
-      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).trx(), mCollection);
+      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).trx(), collection);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
@@ -1144,19 +1071,19 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode setAttribute(final Node<?> attribute) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return setAttribute((XmlNodeTrx) mRtx, attribute);
+        return setAttribute((XmlNodeTrx) rtx, attribute);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        wtx.moveTo(mNodeKey);
+        wtx.moveTo(nodeKey);
         return setAttribute(wtx, attribute);
       } catch (final DocumentException e) {
         wtx.rollback();
@@ -1175,26 +1102,26 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e);
       }
-      return new XmlDBNode(mRtx, mCollection);
+      return new XmlDBNode(rtx, collection);
     }
     throw new DocumentException("No element node selected!");
   }
 
   @Override
   public XmlDBNode setAttribute(final QNm name, final Atomic value) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return setAttribute((XmlNodeTrx) mRtx, name, value);
+        return setAttribute((XmlNodeTrx) rtx, name, value);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        wtx.moveTo(mNodeKey);
+        wtx.moveTo(nodeKey);
         return setAttribute(wtx, name, value);
       } catch (final DocumentException e) {
         wtx.rollback();
@@ -1211,26 +1138,26 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e);
       }
-      return new XmlDBNode(mRtx, mCollection);
+      return new XmlDBNode(rtx, collection);
     }
     throw new DocumentException("No element node selected!");
   }
 
   @Override
   public boolean deleteAttribute(final QNm name) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return deleteAttribute((XmlNodeTrx) mRtx, name);
+        return deleteAttribute((XmlNodeTrx) rtx, name);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        wtx.moveTo(mNodeKey);
+        wtx.moveTo(nodeKey);
         return deleteAttribute(wtx, name);
       } catch (final DocumentException e) {
         wtx.rollback();
@@ -1258,33 +1185,33 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public Stream<XmlDBNode> getAttributes() throws DocumentException {
     moveRtx();
-    return new SirixNodeStream(new AttributeAxis(mRtx), mCollection);
+    return new SirixNodeStream(new AttributeAxis(rtx), collection);
   }
 
   @Override
   public XmlDBNode getAttribute(final QNm name) {
     moveRtx();
-    if (mRtx.isElement() && mRtx.moveToAttributeByName(name).hasMoved()) {
-      return new XmlDBNode(mRtx, mCollection);
+    if (rtx.isElement() && rtx.moveToAttributeByName(name).hasMoved()) {
+      return new XmlDBNode(rtx, collection);
     }
     throw new DocumentException("No element selected!");
   }
 
   @Override
   public XmlDBNode replaceWith(final Node<?> node) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return replaceWith((XmlNodeTrx) mRtx, node);
+        return replaceWith((XmlNodeTrx) rtx, node);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        wtx.moveTo(mNodeKey);
+        wtx.moveTo(nodeKey);
         return replaceWith(wtx, node);
       } catch (final DocumentException e) {
         wtx.rollback();
@@ -1295,8 +1222,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   private XmlDBNode replaceWith(final XmlNodeTrx wtx, final Node<?> node) {
-    if (node instanceof XmlDBNode) {
-      final XmlDBNode other = (XmlDBNode) node;
+    if (node instanceof XmlDBNode other) {
       try {
         final XmlNodeReadOnlyTrx rtx = other.getTrx();
         rtx.moveTo(other.getNodeKey());
@@ -1304,7 +1230,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
       }
-      return new XmlDBNode(wtx, mCollection);
+      return new XmlDBNode(wtx, collection);
     } else {
       final SubtreeBuilder builder = createBuilder(wtx);
       node.parse(builder);
@@ -1318,19 +1244,19 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode replaceWith(final SubtreeParser parser) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return replaceWith((XmlNodeTrx) mRtx, parser);
+        return replaceWith((XmlNodeTrx) rtx, parser);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        wtx.moveTo(mNodeKey);
+        wtx.moveTo(nodeKey);
         return replaceWith(wtx, parser);
       } catch (final DocumentException e) {
         wtx.rollback();
@@ -1352,19 +1278,19 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode replaceWith(final Kind kind, final @Nullable QNm name, final @Nullable Atomic value) {
-    if (mIsWtx) {
+    if (isWtx) {
       try {
         moveRtx();
-        return replaceWith((XmlNodeTrx) mRtx, kind, name, value);
+        return replaceWith((XmlNodeTrx) rtx, kind, name, value);
       } catch (final DocumentException e) {
-        ((XmlNodeTrx) mRtx).rollback();
-        mRtx.close();
+        ((XmlNodeTrx) rtx).rollback();
+        rtx.close();
         throw e;
       }
     } else {
       final XmlNodeTrx wtx = getWtx();
       try {
-        wtx.moveTo(mNodeKey);
+        wtx.moveTo(nodeKey);
         return replaceWith(wtx, kind, name, value);
       } catch (final DocumentException e) {
         wtx.rollback();
@@ -1397,7 +1323,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     // Move to subtree root of new subtree.
     wtx.moveTo(nodeKey);
 
-    return new XmlDBNode(mRtx, mCollection);
+    return new XmlDBNode(rtx, collection);
   }
 
   private SubtreeBuilder createBuilder(final XmlNodeTrx wtx) {
@@ -1405,10 +1331,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     try {
       if (wtx.hasLeftSibling()) {
         wtx.moveToLeftSibling();
-        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
+        builder = new SubtreeBuilder(collection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       } else {
         wtx.moveToParent();
-        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
+        builder = new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
       }
     } catch (final SirixException e) {
       throw new DocumentException(e);
@@ -1424,13 +1350,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    */
   public long getNodeKey() {
     moveRtx();
-    return mNodeKey;
+    return nodeKey;
   }
 
   @Override
   public boolean hasAttributes() {
     moveRtx();
-    return mRtx.getAttributeCount() > 0;
+    return rtx.getAttributeCount() > 0;
   }
 
   /**
@@ -1441,8 +1367,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public int getSiblingPosition() {
     moveRtx();
     int index = 0;
-    while (mRtx.hasLeftSibling()) {
-      mRtx.moveToLeftSibling();
+    while (rtx.hasLeftSibling()) {
+      rtx.moveToLeftSibling();
       index++;
     }
     return index;
@@ -1450,9 +1376,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public void delete() {
-    if (mIsWtx) {
+    if (isWtx) {
       moveRtx();
-      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
+      final XmlNodeTrx wtx = (XmlNodeTrx) rtx;
       try {
         wtx.remove();
       } catch (final SirixException e) {
@@ -1473,17 +1399,17 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   private XmlNodeTrx getWtx() {
-    final XmlResourceManager resource = mRtx.getResourceManager();
+    final XmlResourceManager resource = rtx.getResourceManager();
     final XmlNodeTrx wtx;
     if (resource.hasRunningNodeWriteTrx() && resource.getNodeTrx().isPresent()) {
       wtx = resource.getNodeTrx().get();
     } else {
       wtx = resource.beginNodeTrx();
 
-      if (mRtx.getRevisionNumber() < resource.getMostRecentRevisionNumber())
-        wtx.revertTo(mRtx.getRevisionNumber());
+      if (rtx.getRevisionNumber() < resource.getMostRecentRevisionNumber())
+        wtx.revertTo(rtx.getRevisionNumber());
     }
-    wtx.moveTo(mNodeKey);
+    wtx.moveTo(nodeKey);
     return wtx;
   }
 
@@ -1504,7 +1430,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
 
     // Compare collection IDs.
-    final int firstCollectionID = mCollection.getID();
+    final int firstCollectionID = collection.getID();
     final int secondCollectionID = ((XmlDBCollection) otherNode.getCollection()).getID();
     if (firstCollectionID != secondCollectionID) {
       return firstCollectionID < secondCollectionID
@@ -1522,20 +1448,20 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
 
     // Temporal extension.
-    final Integer revision = mRtx.getRevisionNumber();
-    final int otherRevision = ((XmlDBNode) otherNode).mRtx.getRevisionNumber();
+    final Integer revision = rtx.getRevisionNumber();
+    final int otherRevision = ((XmlDBNode) otherNode).rtx.getRevisionNumber();
     if (revision != otherRevision) {
       return revision.compareTo(otherRevision);
     }
 
     // Then compare node keys.
-    if (mNodeKey == ((XmlDBNode) otherNode).mNodeKey) {
+    if (nodeKey == ((XmlDBNode) otherNode).nodeKey) {
       return 0;
     }
 
     // If dewey-IDs are present it's simply the comparison of dewey-IDs.
-    if (mDeweyID != null && ((XmlDBNode) otherNode).mDeweyID != null) {
-      return mDeweyID.compareTo(((XmlDBNode) otherNode).mDeweyID);
+    if (deweyID != null && ((XmlDBNode) otherNode).deweyID != null) {
+      return deweyID.compareTo(((XmlDBNode) otherNode).deweyID);
     }
 
     try {
@@ -1558,29 +1484,29 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (cat1 == cat2) {
           final XmlDBNode other = (XmlDBNode) otherNode;
           if (cat1 == 1) {
-            mRtx.moveToParent();
-            for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
-              mRtx.moveToNamespace(i);
-              if (mRtx.getNodeKey() == other.mNodeKey) {
+            rtx.moveToParent();
+            for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+              rtx.moveToNamespace(i);
+              if (rtx.getNodeKey() == other.nodeKey) {
                 return +1;
               }
-              if (mRtx.getNodeKey() == this.mNodeKey) {
+              if (rtx.getNodeKey() == this.nodeKey) {
                 return -1;
               }
-              mRtx.moveToParent();
+              rtx.moveToParent();
             }
           }
           if (cat1 == 2) {
-            mRtx.moveToParent();
-            for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
-              mRtx.moveToAttribute(i);
-              if (mRtx.getNodeKey() == other.mNodeKey) {
+            rtx.moveToParent();
+            for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+              rtx.moveToAttribute(i);
+              if (rtx.getNodeKey() == other.nodeKey) {
                 return +1;
               }
-              if (mRtx.getNodeKey() == this.mNodeKey) {
+              if (rtx.getNodeKey() == this.nodeKey) {
                 return -1;
               }
-              mRtx.moveToParent();
+              rtx.moveToParent();
             }
           }
           return this.getSiblingPosition() - ((XmlDBNode) otherNode).getSiblingPosition();
@@ -1656,33 +1582,24 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @return category number
    */
   private static int nodeCategories(final Kind kind) {
-    switch (kind) {
-      case DOCUMENT:
-        return 0;
-      case COMMENT:
-      case PROCESSING_INSTRUCTION:
-      case TEXT:
-      case ELEMENT:
-        return 3;
-      case ATTRIBUTE:
-        return 2;
-      case NAMESPACE:
-        return 1;
-      default:
-        throw new IllegalStateException("Node kind not known!");
-    }
+    return switch (kind) {
+      case DOCUMENT -> 0;
+      case COMMENT, PROCESSING_INSTRUCTION, TEXT, ELEMENT -> 3;
+      case ATTRIBUTE -> 2;
+      case NAMESPACE -> 1;
+    };
   }
 
   @Override
   public int hashCode() {
     moveRtx();
-    return Objects.hash(mRtx.getNodeKey(), mRtx.getValue(), mRtx.getName());
+    return Objects.hash(rtx.getNodeKey(), rtx.getValue(), rtx.getName());
   }
 
   @Override
   public String toString() {
     moveRtx();
-    return MoreObjects.toStringHelper(this).add("rtx", mRtx).toString();
+    return MoreObjects.toStringHelper(this).add("rtx", rtx).toString();
   }
 
   @Override
@@ -1694,14 +1611,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   private XmlDBNode moveTemporalAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis) {
     if (axis.hasNext()) {
       final var rtx = axis.next();
-      return new XmlDBNode(rtx, mCollection);
+      return new XmlDBNode(rtx, collection);
     }
 
     return null;
@@ -1711,21 +1628,21 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-        new PreviousAxis<>(mRtx.getResourceManager(), mRtx);
+        new PreviousAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public XmlDBNode getFirst() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public XmlDBNode getLast() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(mRtx.getResourceManager(), mRtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -1735,7 +1652,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixNodeStream(new PastAxis<>(rtx.getResourceManager(), rtx, include), collection);
   }
 
   @Override
@@ -1744,13 +1661,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixNodeStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include), collection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getAllTime() {
     moveRtx();
-    return new TemporalSirixNodeStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
+    return new TemporalSirixNodeStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
   }
 
   @Override
@@ -1760,10 +1677,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (this == other)
       return false;
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
   }
 
@@ -1774,10 +1690,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (this == other)
       return false;
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
   }
 
@@ -1788,10 +1703,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (this == other)
       return false;
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     return otherNode.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
   }
 
@@ -1802,10 +1716,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (this == other)
       return true;
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
   }
 
@@ -1816,10 +1729,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (this == other)
       return false;
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     return otherNode.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
   }
 
@@ -1830,10 +1742,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (this == other)
       return true;
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     return otherNode.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
   }
 
@@ -1841,10 +1752,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isLastOf(final TemporalNode<?> other) {
     moveRtx();
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
 
     return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
@@ -1854,10 +1764,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isFirstOf(final TemporalNode<?> other) {
     moveRtx();
 
-    if (!(other instanceof XmlDBNode))
+    if (!(other instanceof XmlDBNode otherNode))
       return false;
 
-    final XmlDBNode otherNode = (XmlDBNode) other;
     final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
 
     // Revision 0 is just the bootstrap revision and not accessed over here.
@@ -1871,7 +1780,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @throws SirixException if Sirix fails to get the path class record
    */
   public long getPCR() {
-    return mRtx.getPathNodeKey();
+    return rtx.getPathNodeKey();
   }
 
   /**
@@ -1881,6 +1790,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    *         configuration)
    */
   public SirixDeweyID getDeweyID() {
-    return mRtx.getDeweyID();
+    return rtx.getDeweyID();
   }
 }

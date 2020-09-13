@@ -38,10 +38,8 @@ import org.sirix.cache.BufferManager;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.IOStorage;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -56,28 +54,33 @@ import java.util.concurrent.locks.Lock;
 public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx>
     implements XmlResourceManager, InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
-  /** {@link XmlIndexController}s used for this session. */
+  /**
+   * {@link XmlIndexController}s used for this session.
+   */
   private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
 
-  /** {@link XmlIndexController}s used for this session. */
+  /**
+   * {@link XmlIndexController}s used for this session.
+   */
   private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
 
   /**
    * Package private constructor.
    *
-   * @param database {@link Database} for centralized operations on related sessions
+   * @param database      {@link Database} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
-   * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
+   * @param resourceConf  {@link DatabaseConfiguration} for general setting about the storage
    * @param bufferManager the cache of in-memory pages shared amongst all node transactions
-   * @param storage the storage itself, used for I/O
-   * @param uberPage the UberPage, which is the main entry point into a resource
-   * @param writeLock the write lock, which ensures, that only a single read-write transaction is
-   *        opened on a resource
-   * @param user a user, which interacts with SirixDB, might be {@code null}
+   * @param storage       the storage itself, used for I/O
+   * @param uberPage      the UberPage, which is the main entry point into a resource
+   * @param writeLock     the write lock, which ensures, that only a single read-write transaction is
+   *                      opened on a resource
+   * @param user          a user, which interacts with SirixDB, might be {@code null}
    */
   public XmlResourceManagerImpl(final Database<XmlResourceManager> database,
       final @Nonnull XmlResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock, final @Nullable User user) {
+      final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage,
+      final @Nonnull Lock writeLock, final @Nullable User user) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
 
     rtxIndexControllers = new ConcurrentHashMap<>();
@@ -90,26 +93,33 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode, AfterCommitState afterCommitState) {
+  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
+      int maxTime, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
-        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);
+        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
 
     // Node factory.
-    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageWriteTrx);
+    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
     final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, this, nodeFactory, nodeReadTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadTrx);
     } else {
       pathSummaryWriter = null;
     }
 
-    return new XmlNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
-        new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageWriteTrx), nodeFactory, afterCommitState);
+    return new XmlNodeTrxImpl(this,
+                              nodeReadTrx,
+                              pathSummaryWriter,
+                              maxNodeCount,
+                              timeUnit,
+                              maxTime,
+                              new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageTrx),
+                              nodeFactory,
+                              afterCommitState);
   }
 
   @Override

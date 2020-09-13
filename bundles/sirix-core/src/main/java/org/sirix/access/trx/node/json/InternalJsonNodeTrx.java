@@ -6,4 +6,6 @@ public interface InternalJsonNodeTrx extends JsonNodeTrx {
   JsonNodeTrx setBulkInsertion(boolean bulkInsertion);
 
   void adaptHashesInPostorderTraversal();
+
+  JsonNodeTrx doCommit(String commitMessage);
 }

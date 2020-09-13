@@ -8,20 +8,20 @@ import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
-import org.sirix.index.avltree.AVLTreeWriter;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
+import org.sirix.index.redblacktree.RBTreeWriter;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 public final class PathIndexListener {
 
-  private final AVLTreeWriter<Long, NodeReferences> avlTreeWriter;
+  private final RBTreeWriter<Long, NodeReferences> avlTreeWriter;
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
 
   public PathIndexListener(final Set<Path<QNm>> paths, final PathSummaryReader pathSummaryReader,
-      final AVLTreeWriter<Long, NodeReferences> avlTreeWriter) {
+      final RBTreeWriter<Long, NodeReferences> avlTreeWriter) {
     this.avlTreeWriter = avlTreeWriter;
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;

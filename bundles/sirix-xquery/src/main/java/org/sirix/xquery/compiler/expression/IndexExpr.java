@@ -18,7 +18,7 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.path.json.JsonPCRCollector;

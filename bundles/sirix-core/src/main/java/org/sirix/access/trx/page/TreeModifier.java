@@ -31,8 +31,8 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.page.IndirectPage;
-import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
@@ -67,14 +67,14 @@ public interface TreeModifier {
    * @param startReference the reference to start the tree traversal from
    * @param pageKey page key to lookup
    * @param indexNumber the index number or {@code -1} if a regular record page should be prepared
-   * @param pageKind the kind of page subtree
+   * @param indexType the index type
    * @param revisionRootPage the revision root page
    * @return {@link PageReference} instance pointing to the right {@link UnorderedKeyValuePage} with
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
   PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
-      PageReference startReference, @Nonnegative long pageKey, int indexNumber, PageKind pageKind,
+      PageReference startReference, @Nonnegative long pageKey, int indexNumber, IndexType indexType,
       RevisionRootPage revisionRootPage);
 
   /**

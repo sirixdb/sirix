@@ -2,7 +2,7 @@ package org.sirix.node.immutable.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
-import java.util.Optional;
+
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;

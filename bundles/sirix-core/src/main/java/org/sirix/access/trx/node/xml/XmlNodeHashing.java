@@ -16,11 +16,12 @@ final class XmlNodeHashing extends AbstractNodeHashing {
   /**
    * Constructor.
    *
-   * @param hashType the hash type used
+   * @param hashType        the hash type used
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx the page trx
+   * @param pageWriteTrx    the page trx
    */
-  XmlNodeHashing(final HashType hashType, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx) {
+  XmlNodeHashing(final HashType hashType, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
+      final PageTrx pageWriteTrx) {
     super(hashType, nodeReadOnlyTrx, pageWriteTrx);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
   }

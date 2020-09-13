@@ -51,7 +51,6 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;

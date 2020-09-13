@@ -26,16 +26,21 @@ import java.util.Set;
  * Index controller, used to control the handling of indexes.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class XmlIndexController extends AbstractIndexController<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
-  /** Type of change. */
+  /**
+   * Type of change.
+   */
   public enum ChangeType {
-    /** Insertion. */
+    /**
+     * Insertion.
+     */
     INSERT,
 
-    /** Deletion. */
+    /**
+     * Deletion.
+     */
     DELETE
   }
 
@@ -60,9 +65,8 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   /**
    * Create index builders.
    *
-   * @param indexDefs the {@link IndexDef}s
+   * @param indexDefs    the {@link IndexDef}s
    * @param nodeWriteTrx the {@link XmlNodeTrx}
-   *
    * @return the created index builder instances
    */
   Set<XmlNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
@@ -75,8 +79,10 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
           indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          indexBuilders.add(
-              createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
+                                                  nodeWriteTrx.getPageWtx(),
+                                                  nodeWriteTrx.getPathSummary(),
+                                                  indexDef));
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
@@ -97,19 +103,17 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return new PathFilter(paths, new XmlPCRCollector(rtx));
   }
 
-  private XmlNodeVisitor createPathIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
+  private XmlNodeVisitor createPathIndexBuilder(final PageTrx pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
+    return (XmlNodeVisitor) pathIndex.createBuilder(pageTrx, pathSummaryReader, indexDef);
+  }
+
+  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx, final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return (XmlNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
+    return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageTrx, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx,
-      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
-    return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
-  }
-
-  private XmlNodeVisitor createNameIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final IndexDef indexDef) {
+  private XmlNodeVisitor createNameIndexBuilder(final PageTrx pageWriteTrx, final IndexDef indexDef) {
     return (XmlNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 }
