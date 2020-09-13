@@ -79,9 +79,9 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
   protected void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
     if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150));
+      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000_000));
     } else {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000));
+      bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000_000));
     }
   }
 
@@ -96,8 +96,9 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
     boolean returnVal = true;
     resConfig.setDatabaseConfiguration(dbConfig);
-    final Path path =
-        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
+    final Path path = dbConfig.getDatabaseFile()
+                              .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                              .resolve(resConfig.resourcePath);
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;
@@ -183,8 +184,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     // Check that no running resource managers / sessions are opened.
     final var resourceManagers = new HashSet<>(DatabasesInternals.getOpenResourceManagers(resourceFile));
     if (!resourceManagers.isEmpty()) {
-      throw new IllegalStateException(
-          "Open resource managers found, must be closed first: " + resourceManagers);
+      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceManagers);
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.

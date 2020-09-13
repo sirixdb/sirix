@@ -12,6 +12,78 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testSimpleRemove() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1}, {"location": {"state": "CA", "city": "Los Angeles"}}]')
+        """;
+    final String query = "let $doc := jn:doc('mycol.jn','mydoc.jn') for $i at $pos in $doc where deep-equal($i=>generic, 1) return delete json $doc[[$pos - 1]]";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"location":{"state":"CA","city":"Los Angeles"}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
+  public void testRemoveAll() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}},
+                                           {"generic": 2, "location": {"state": "NY", "city": "New York"}},
+                                           {"generic": 3, "location": {"state": "AL", "city": "Montgomery"}}]')
+        """.strip();
+    final String query = """
+          let $doc := jn:doc('mycol.jn','mydoc.jn')
+          let $m := for $i at $pos in $doc
+                    return $pos - 1
+          for $i in $m order by $i descending return delete json $doc[[$i]]
+        """.strip();
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          []
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
+  public void testSimpleDeleteQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}]')
+        """;
+    final String query = "for $i in jn:doc('mycol.jn','mydoc.jn') where deep-equal($i=>generic, 1) return delete json $i=>location";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
+  public void testSimpleReplaceValueQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
+        """;
+    final String query = "for $i in jn:doc('mycol.jn','mydoc.jn') where deep-equal($i=>generic, 2) return replace json value of $i=>\"generic\" with 1";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1,"location":{"state":"CA","city":"Los Angeles"}},{"generic":1,"location":{"state":"NY","city":"New York"}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
+  public void testSubtreeReplaceValueQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
+        """;
+    final String query = "let $obj := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'), 2) return replace json value of $obj=>location with {\"state\": \"NY\", \"city\": \"New York\"}";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1,"location":{"state":"NY","city":"New York"}},{"generic":2,"location":{"state":"NY","city":"New York"}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
   public void testTimeTravelQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[]')

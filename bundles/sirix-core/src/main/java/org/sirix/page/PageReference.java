@@ -54,9 +54,6 @@ public final class PageReference {
   /** Persistent log key. */
   private long persistentLogKey = Constants.NULL_ID_LONG;
 
-//  /** Length in bytes. */
-//  private int length;
-
   /** The hash in bytes, generated from the referenced page-fragment. */
   private byte[] hashInBytes;
 
@@ -100,27 +97,6 @@ public final class PageReference {
   public Page getPage() {
     return page;
   }
-
-  //  /**
-  //   * Set the length of a referenced page in bytes.
-  //   *
-  //   * @param length the length
-  //   * @return this page reference
-  //   */
-  //  public PageReference setLength(final int length) {
-  //    checkArgument(length > 0, "Length must be > 0.");
-  //    this.length = length;
-  //    return this;
-  //  }
-  //
-  //  /**
-  //   * Get the length of a referenced page in the persistent storage (in bytes).
-  //   *
-  //   * @return the length of a referenced page in the persistent storage (in bytes)
-  //   */
-  //  public int getLength() {
-  //    return length;
-  //  }
 
   /**
    * Get start byte offset in file.

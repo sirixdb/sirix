@@ -37,7 +37,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -175,42 +174,30 @@ public final class JsonDBObject extends AbstractItem
   public boolean isNextOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isPreviousOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isFutureOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -220,25 +207,20 @@ public final class JsonDBObject extends AbstractItem
     if (this == other)
       return true;
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isEarlierOf(final JsonDBObject other) {
     moveRtx();
 
-    if (this == other)
+    if (this == other || other == null)
       return false;
 
-    if (!(other instanceof JsonDBObject))
-      return false;
-
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
   }
 
   @Override
@@ -248,22 +230,20 @@ public final class JsonDBObject extends AbstractItem
     if (this == other)
       return true;
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    return otherNode.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
+    return other.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
   }
 
   @Override
   public boolean isLastOf(final JsonDBObject other) {
     moveRtx();
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
+    final NodeReadOnlyTrx otherTrx = other.getTrx();
 
     return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
   }
@@ -272,11 +252,10 @@ public final class JsonDBObject extends AbstractItem
   public boolean isFirstOf(final JsonDBObject other) {
     moveRtx();
 
-    if (!(other instanceof JsonDBObject))
+    if (other == null)
       return false;
 
-    final JsonDBObject otherNode = other;
-    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
+    final NodeReadOnlyTrx otherTrx = other.getTrx();
 
     // Revision 0 is just the bootstrap revision and not accessed over here.
     return otherTrx.getRevisionNumber() == 1;
@@ -306,6 +285,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record replace(QNm field, Sequence value) {
+    moveRtx();
     if (rtx.hasChildren()) {
       modify(field, value);
       fields.put(field, value);
@@ -323,38 +303,36 @@ public final class JsonDBObject extends AbstractItem
     }
 
     if (value instanceof Array) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new ArrayValue());
+      trx.replaceObjectRecordValue(new ArrayValue());
       insertSubtree(value, trx);
     } else if (value instanceof Record) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new ObjectValue());
+      trx.replaceObjectRecordValue(new ObjectValue());
       insertSubtree(value, trx);
     } else if (value instanceof Str) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new StringValue(((Str) value).stringValue()));
+      trx.replaceObjectRecordValue(new StringValue(((Str) value).stringValue()));
     } else if (value instanceof Null) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new NullValue());
+      trx.replaceObjectRecordValue(new NullValue());
     } else if (value instanceof Bool) {
-      trx.replaceObjectRecordValue(field.getLocalName(), new BooleanValue(value.booleanValue()));
+      trx.replaceObjectRecordValue(new BooleanValue(value.booleanValue()));
     } else if (value instanceof Numeric) {
       if (value instanceof Int) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int) value).intValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Int) value).intValue()));
       } else if (value instanceof Int32) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int32) value).intValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Int32) value).intValue()));
       } else if (value instanceof Int64) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Int64) value).longValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Int64) value).longValue()));
       } else if (value instanceof Flt) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Flt) value).floatValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Flt) value).floatValue()));
       } else if (value instanceof Dbl) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Dbl) value).doubleValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Dbl) value).doubleValue()));
       } else if (value instanceof Dec) {
-        trx.replaceObjectRecordValue(field.getLocalName(), new NumberValue(((Dec) value).decimalValue()));
+        trx.replaceObjectRecordValue(new NumberValue(((Dec) value).decimalValue()));
       }
     }
   }
 
   private void insertSubtree(Sequence value, JsonNodeTrx trx) {
     var json = serializeItem(value);
-    json = json.substring(1, json.length() - 1);
-
     final var jsonReader = JsonShredder.createStringReader(json);
     trx.insertSubtreeAsLastChild(jsonReader);
   }
@@ -390,6 +368,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record rename(QNm field, QNm newFieldName) {
+    moveRtx();
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
 
@@ -406,6 +385,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record insert(QNm field, Sequence value) {
+    moveRtx();
     if (get(field) != null) {
       return this;
     }
@@ -451,6 +431,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Record remove(QNm field) {
+    moveRtx();
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
 

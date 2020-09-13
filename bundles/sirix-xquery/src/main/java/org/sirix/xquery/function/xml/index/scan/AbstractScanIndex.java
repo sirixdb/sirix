@@ -5,7 +5,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.sequence.BaseIter;
 import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.xdm.*;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeKeyStream;
 

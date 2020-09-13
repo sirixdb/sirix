@@ -2,6 +2,7 @@ package org.sirix.access.trx.node;
 
 import java.nio.file.Path;
 import java.util.concurrent.locks.Lock;
+
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -13,12 +14,18 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends ResourceManager<R, W> {
-  /** Abort a write transaction. */
+  /**
+   * Abort a write transaction.
+   */
   enum Abort {
-    /** Yes, abort. */
+    /**
+     * Yes, abort.
+     */
     YES,
 
-    /** No, don't abort. */
+    /**
+     * No, don't abort.
+     */
     NO
   }
 
@@ -26,8 +33,7 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertAccess(int revision);
 
-  PageTrx<Long, DataRecord, UnorderedKeyValuePage> createPageTransaction(long trxID, int revision, int i, Abort no,
-      boolean isBoundToNodeTrx);
+  PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
 
@@ -35,7 +41,7 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
 
   void closeWriteTransaction(long transactionID);
 
-  void setNodePageWriteTransaction(long transactionID, PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx);
+  void setNodePageWriteTransaction(long transactionID, PageTrx pageTrx);
 
   void closeNodePageWriteTransaction(long transactionID);
 

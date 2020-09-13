@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,13 +21,7 @@
 
 package org.sirix.node.json;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import com.google.common.hash.Hashing;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,16 +34,18 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Object record node test.
  */
 public class ObjectKeyNodeTest {
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx pageTrx;
 
   private Database<JsonResourceManager> database;
 
@@ -57,7 +53,7 @@ public class ObjectKeyNodeTest {
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
@@ -68,7 +64,7 @@ public class ObjectKeyNodeTest {
   @Test
   public void testNode() throws IOException {
     // Create empty node.
-    final int nameKey = pageWriteTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
+    final int nameKey = pageTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
     final String name = "foobar";
 
     final long pathNodeKey = 12;
@@ -80,10 +76,10 @@ public class ObjectKeyNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(new DataInputStream(in),
-        node.getNodeKey(), null, pageWriteTrx);
+    final ObjectKeyNode node2 =
+        (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
     check(node2, nameKey);
   }
 

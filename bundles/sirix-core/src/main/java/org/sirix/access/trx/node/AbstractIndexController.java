@@ -10,7 +10,7 @@ import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.*;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.*;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.cas.CASIndex;
@@ -20,9 +20,7 @@ import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnull;
 import java.io.OutputStream;
@@ -36,27 +34,37 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
-  /** The index types. */
+  /**
+   * The index types.
+   */
   protected final Indexes indexes;
 
-  /** Set of {@link ChangeListener}. */
+  /**
+   * Set of {@link ChangeListener}.
+   */
   private final Set<ChangeListener> listeners;
 
-  /** Used to provide path indexes. */
+  /**
+   * Used to provide path indexes.
+   */
   protected final PathIndex<?, ?> pathIndex;
 
-  /** Used to provide CAS indexes. */
+  /**
+   * Used to provide CAS indexes.
+   */
   protected final CASIndex<?, ?, R> casIndex;
 
-  /** Used to provide name indexes. */
+  /**
+   * Used to provide name indexes.
+   */
   protected final NameIndex<?, ?> nameIndex;
 
   /**
    * Constructor.
    *
-   * @param indexes the index definitions
+   * @param indexes   the index definitions
    * @param pathIndex the path index manager
-   * @param casIndex the CAS index manager
+   * @param casIndex  the CAS index manager
    * @param nameIndex the name index manager
    */
   public AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
@@ -124,18 +132,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return this;
   }
 
-  private ChangeListener createPathIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private ChangeListener createPathIndexListener(final PageTrx pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return pathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private ChangeListener createCASIndexListener(final PageTrx pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return casIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final IndexDef indexDef) {
+  private ChangeListener createNameIndexListener(final PageTrx pageWriteTrx, final IndexDef indexDef) {
     return nameIndex.createListener(pageWriteTrx, indexDef);
   }
 
@@ -153,7 +160,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   public CASFilter createCASFilter(final Set<String> stringPaths, final Atomic key, final SearchMode mode,
       final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
-    if (stringPaths.size() > 0) {
+    if (!stringPaths.isEmpty()) {
       for (final String path : stringPaths) {
         paths.add(Path.parse(path));
       }

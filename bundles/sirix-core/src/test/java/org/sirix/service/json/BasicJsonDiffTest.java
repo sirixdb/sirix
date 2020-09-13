@@ -103,4 +103,20 @@ public final class BasicJsonDiffTest {
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace.json")), diffRev1Rev2);
     }
   }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenDiff5() throws IOException {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"baz\":\"hello\"}"));
+      wtx.moveTo(2);
+      wtx.replaceObjectRecordValue(new StringValue("test"));
+      wtx.commit();
+
+      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace1.json")), diffRev1Rev2);
+    }
+  }
 }

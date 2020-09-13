@@ -7,6 +7,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.index.IndexType;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -17,7 +18,7 @@ import org.sirix.page.PageReference;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRecord> extends Page {
+public interface KeyValuePage<K, V> extends Page {
   /**
    * Entry set of all nodes in the page. Changes to the set are reflected in the internal data
    * structure
@@ -55,7 +56,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRec
    * @param key key to store
    * @param value value to store
    */
-  void setEntry(K key, @Nonnull V value);
+  void setRecord(K key, @Nonnull V value);
 
   Set<Entry<K, PageReference>> referenceEntrySet();
 
@@ -75,27 +76,26 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends DataRec
    * Create a new instance.
    *
    * @param recordPageKey the record page key
-   * @param pageKind the kind of page (in which subtree it is (NODEPAGE, PATHSUMMARYPAGE,
-   *        TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE))
+   * @param indexType the index type
    * @param pageReadTrx transaction to read pages
    * @return a new {@link KeyValuePage} instance
    */
   <C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-      @Nonnull PageKind pageKind, @Nonnull PageReadOnlyTrx pageReadTrx);
+      @Nonnull IndexType indexType, @Nonnull PageReadOnlyTrx pageReadTrx);
 
   /**
    * Get the {@link PageReadOnlyTrx}.
    *
    * @return page reading transaction
    */
-  PageReadOnlyTrx getPageReadTrx();
+  PageReadOnlyTrx getPageReadOnlyTrx();
 
   /**
-   * Get the page kind.
+   * Get the index type.
    *
-   * @return page kind
+   * @return index type
    */
-  PageKind getPageKind();
+  IndexType getIndexType();
 
   /**
    * Get the number of entries/slots/page references filled.

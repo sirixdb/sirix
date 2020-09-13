@@ -25,10 +25,9 @@ import com.google.common.base.MoreObjects;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.node.interfaces.DataRecord;
+import org.sirix.index.IndexType;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -43,10 +42,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class UberPage extends AbstractForwardingPage {
 
-  /** Offset of indirect page reference. */
+  /**
+   * Offset of indirect page reference.
+   */
   private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
-  /** Number of revisions. */
+  /**
+   * Number of revisions.
+   */
   private final int revisionCount;
 
   /**
@@ -54,19 +57,29 @@ public final class UberPage extends AbstractForwardingPage {
    */
   private boolean isBootstrap;
 
-  /** The references page instance. */
+  /**
+   * The references page instance.
+   */
   private Page delegate;
 
-  /** {@link RevisionRootPage} instance. */
+  /**
+   * {@link RevisionRootPage} instance.
+   */
   private RevisionRootPage rootPage;
 
-  /** The current most recent revision */
+  /**
+   * The current most recent revision
+   */
   private final int revision;
 
-  /** Key to previous uberpage in persistent storage. */
-  private long mPreviousUberPageKey;
+  /**
+   * Key to previous uberpage in persistent storage.
+   */
+  private long previousUberPageKey;
 
-  /** Current maximum level of indirect pages in the tree. */
+  /**
+   * Current maximum level of indirect pages in the tree.
+   */
   private int currentMaxLevelOfIndirectPages;
 
   /**
@@ -77,7 +90,7 @@ public final class UberPage extends AbstractForwardingPage {
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     revisionCount = Constants.UBP_ROOT_REVISION_COUNT;
     isBootstrap = true;
-    mPreviousUberPageKey = -1;
+    previousUberPageKey = -1;
     rootPage = null;
     currentMaxLevelOfIndirectPages = 1;
   }
@@ -85,17 +98,15 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Read uber page.
    *
-   * @param in input bytes
+   * @param in   input bytes
    * @param type the serialization type
    */
   protected UberPage(final DataInput in, final SerializationType type) throws IOException {
     delegate = new ReferencesPage4(in, type);
     revisionCount = in.readInt();
     if (in.readBoolean())
-      mPreviousUberPageKey = in.readLong();
-    revision = revisionCount == 0
-        ? 0
-        : revisionCount - 1;
+      previousUberPageKey = in.readLong();
+    revision = revisionCount == 0 ? 0 : revisionCount - 1;
     isBootstrap = false;
     rootPage = null;
     currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
@@ -104,7 +115,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Clone constructor.
    *
-   * @param committedUberPage page to clone
+   * @param committedUberPage   page to clone
    * @param previousUberPageKey the previous uber page key
    */
   public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
@@ -115,7 +126,7 @@ public final class UberPage extends AbstractForwardingPage {
     } else if (pageDelegate instanceof BitmapReferencesPage) {
       delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
     }
-    mPreviousUberPageKey = previousUberPageKey;
+    this.previousUberPageKey = previousUberPageKey;
     if (committedUberPage.isBootstrap()) {
       revision = committedUberPage.revision;
       revisionCount = committedUberPage.revisionCount;
@@ -131,7 +142,7 @@ public final class UberPage extends AbstractForwardingPage {
   }
 
   public long getPreviousUberPageKey() {
-    return mPreviousUberPageKey;
+    return previousUberPageKey;
   }
 
   /**
@@ -176,7 +187,7 @@ public final class UberPage extends AbstractForwardingPage {
     out.writeInt(revisionCount);
     out.writeBoolean(!isBootstrap);
     if (!isBootstrap) {
-      out.writeLong(mPreviousUberPageKey);
+      out.writeLong(previousUberPageKey);
     }
     out.writeByte(currentMaxLevelOfIndirectPages);
     isBootstrap = false;
@@ -237,28 +248,34 @@ public final class UberPage extends AbstractForwardingPage {
     final var pathSummaryPage = rootPage.getPathSummaryPageReference().getPage();
     log.put(rootPage.getPathSummaryPageReference(), PageContainer.getInstance(pathSummaryPage, pathSummaryPage));
 
+    final var deweyIDPage = rootPage.getDeweyIdPageReference().getPage();
+    log.put(rootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
+
     log.put(reference, PageContainer.getInstance(rootPage, rootPage));
   }
 
   /**
    * Get the page count exponent for the given page.
    *
-   * @param pageKind page to lookup the exponent in the constant definition
+   * @param indexType page to lookup the exponent in the constant definition
    * @return page count exponent
    */
-  public int[] getPageCountExp(final PageKind pageKind) {
+  public int[] getPageCountExp(final IndexType indexType) {
     int[] inpLevelPageCountExp;
-    switch (pageKind) {
-      case PATHSUMMARYPAGE:
+    switch (indexType) {
+      case PATH_SUMMARY:
         inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
-      case PATHPAGE:
-      case CASPAGE:
-      case NAMEPAGE:
-      case RECORDPAGE:
+      case DOCUMENT:
+      case CHANGED_NODES:
+      case RECORD_TO_REVISIONS:
+      case DEWEYID_TO_RECORDID:
+      case PATH:
+      case CAS:
+      case NAME:
         inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
-      case UBERPAGE:
+      case REVISIONS:
         inpLevelPageCountExp = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
       // $CASES-OMITTED$
@@ -278,8 +295,7 @@ public final class UberPage extends AbstractForwardingPage {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      final PageTrx<K, V, S> pageWriteTrx) {
+  public void commit(final PageTrx pageWriteTrx) {
     delegate.commit(pageWriteTrx);
   }
 }

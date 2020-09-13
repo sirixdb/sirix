@@ -3,9 +3,10 @@ package org.sirix.xquery.json;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.array.AbstractArray;
-import org.brackit.xquery.atomic.*;
-import org.brackit.xquery.util.serialize.StringSerializer;
-import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.atomic.Int64;
+import org.brackit.xquery.atomic.IntNumeric;
+import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.type.ArrayType;
@@ -22,11 +23,6 @@ import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.xquery.StructuredDBItem;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -108,26 +104,38 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return this;
   }
 
+  @Override
+  public Array append(Sequence value) {
+    final JsonNodeTrx trx = getReadWriteTrx();
+
+    if (trx.hasChildren()) {
+      trx.moveToLastChild();
+    }
+
+    jsonItemSequence.insert(value, trx, nodeKey);
+
+    return this;
+  }
+
   private void modify(int index, Sequence value, final Op op) {
     final JsonNodeTrx trx = getReadWriteTrx();
     if (index > trx.getChildCount()) {
       trx.close();
       throw new IllegalStateException("Index " + index + " is out of range.");
     }
+
     moveToIndex(index, trx);
 
-    if (op == Op.Replace || op == Op.Insert) {
-      final long ancorNodeKey;
-      if (trx.hasLeftSibling()) {
-        ancorNodeKey = trx.getLeftSiblingKey();
-      } else {
-        ancorNodeKey = trx.getParentKey();
-      }
-      if (op == Op.Replace) {
-        trx.remove();
-      }
-      trx.moveTo(ancorNodeKey);
+    final long ancorNodeKey;
+    if (trx.hasLeftSibling()) {
+      ancorNodeKey = trx.getLeftSiblingKey();
+    } else {
+      ancorNodeKey = trx.getParentKey();
     }
+    if (op == Op.Replace) {
+      trx.remove();
+    }
+    trx.moveTo(ancorNodeKey);
 
     jsonItemSequence.insert(value, trx, nodeKey);
 
@@ -158,14 +166,13 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Array insert(int index, Sequence value) {
-    moveRtx();
-    modify(index, value, index == rtx.getChildCount() ? Op.Append : Op.Insert);
+    modify(index, value, Op.Insert);
     return this;
   }
 
   @Override
   public Array insert(IntNumeric index, Sequence value) {
-    modify(index.intValue(), value, Op.Insert);
+    insert(index.intValue(), value);
     return this;
   }
 
@@ -177,6 +184,11 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   @Override
   public Array remove(int index) {
     final JsonNodeTrx trx = getReadWriteTrx();
+
+    if (index >= trx.getChildCount()) {
+      throw new QueryException(new QNm("Index " + index + " is out of bounds (" + trx.getChildCount() + ")."));
+    }
+
     moveToIndex(index, trx);
 
     trx.remove();

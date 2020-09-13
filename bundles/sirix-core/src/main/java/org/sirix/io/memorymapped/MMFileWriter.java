@@ -49,7 +49,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
 
-  private static final byte PAGE_FRAGMENT_WORD_ALIGN = 8;
+  private static final byte PAGE_FRAGMENT_WORD_ALIGN = 64;
 
   private static int TEST_BLOCK_SIZE = 64 * 1024; // Smallest safe block size for Windows 8+.
 
@@ -115,8 +115,13 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     this.revisionsOffsetSegment =
         MemorySegment.mapFromPath(revisionsOffsetFile, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
 
-    reader =
-        new MMFileReader(dataFile, revisionsOffsetFile, dataSegment, revisionsOffsetSegment, handler, serializationType, pagePersister);
+    reader = new MMFileReader(dataFile,
+                              revisionsOffsetFile,
+                              dataSegment,
+                              revisionsOffsetSegment,
+                              handler,
+                              serializationType,
+                              pagePersister);
   }
 
   @Override
@@ -201,7 +206,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
           // Must not happen.
       }
 
-//      pageReference.setLength(serializedPage.length + 4);
+      //      pageReference.setLength(serializedPage.length + 4);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
@@ -240,6 +245,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   @Override
   public void close() {
     if (reader != null) {
+      reader.close();
       try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
         outChan.truncate(dataSegmentFileSize);
       } catch (IOException e) {
@@ -250,7 +256,6 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       } catch (IOException e) {
         throw new SirixIOException(e);
       }
-      reader.close();
     }
   }
 
