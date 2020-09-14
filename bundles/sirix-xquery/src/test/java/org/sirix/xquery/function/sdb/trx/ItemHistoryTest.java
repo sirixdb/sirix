@@ -16,7 +16,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 
-public class NodeHistoryTest {
+public class ItemHistoryTest {
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
@@ -51,7 +51,7 @@ public class NodeHistoryTest {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use XQuery to load a JSON database/resource.
-      final String openQuery = "sdb:item-history(sdb:select-node(jn:doc('json-path1','mydoc.jn', 1), 2))";
+      final String openQuery = "sdb:item-history(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, openQuery).serialize(ctx, printWriter);
