@@ -1,6 +1,8 @@
 package org.sirix.xquery.function.sdb;
 
-import static org.sirix.xquery.function.sdb.trx.NodeHistory.NODE_HISTORY;
+import static org.sirix.xquery.function.sdb.trx.GetAuthorID.AUTHOR_ID;
+import static org.sirix.xquery.function.sdb.trx.GetAuthorName.*;
+import static org.sirix.xquery.function.sdb.trx.ItemHistory.NODE_HISTORY;
 import static org.sirix.xquery.function.xml.diff.Diff.DIFF;
 import static org.sirix.xquery.function.xml.index.SortByDocOrder.SORT;
 import static org.sirix.xquery.function.xml.index.create.CreateCASIndex.CREATE_CAS_INDEX;
@@ -96,8 +98,8 @@ public final class SDBFun {
                                        new Signature(new SequenceType(AtomicType.INT, Cardinality.One),
                                                      SequenceType.NODE)));
 
-    // move to
-    Functions.predefine(new SelectNode(SelectNode.SELECT_NODE,
+    // select item
+    Functions.predefine(new SelectItem(SelectItem.SELECT_NODE,
                                        new Signature(SequenceType.NODE,
                                                      SequenceType.NODE,
                                                      new SequenceType(AtomicType.INT, Cardinality.One))));
@@ -268,7 +270,13 @@ public final class SDBFun {
                                                  new SequenceType(AtomicType.STR, Cardinality.One),
                                                  new SequenceType(AtomicType.STR, Cardinality.One))));
 
-    // node-history
-    Functions.predefine(new NodeHistory(NODE_HISTORY, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM)));
+    // item-history
+    Functions.predefine(new ItemHistory(NODE_HISTORY, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM)));
+
+    // author-name
+    Functions.predefine(new GetAuthorName(AUTHOR_NAME, new Signature(SequenceType.STRING, SequenceType.NODE)));
+
+    // author-id
+    Functions.predefine(new GetAuthorID(AUTHOR_ID, new Signature(SequenceType.STRING, SequenceType.NODE)));
   }
 }
