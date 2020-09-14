@@ -10,7 +10,6 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
-import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -34,7 +33,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")
-        val resource: String? = ctx.pathParam("resource")
+        val resource = ctx.pathParam("resource")
         val jsonBody = ctx.bodyAsJson
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
@@ -73,19 +72,19 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                 val manager = database.openResourceManager(resource)
 
                 manager.use {
-                    if (query != null && query.isNotEmpty()) {
-                        body = queryResource(
+                    body = if (query != null && query.isNotEmpty()) {
+                        queryResource(
                             databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user
                         )
                     } else {
-                        val revisions: Array<Int> =
+                        val revisions: IntArray =
                             Revisions.getRevisionsToSerialize(
                                 startRevision, endRevision, startRevisionTimestamp,
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
 
-                        body = serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -132,7 +131,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         manager: JsonResourceManager?,
         dbCollection: JsonDBCollection?,
         nodeId: String?,
-        revisionNumber: Array<Int>?, query: String, routingContext: RoutingContext, vertxContext: Context,
+        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ): String? {
         return vertxContext.executeBlockingAwait { promise: Promise<String> ->
@@ -166,20 +165,20 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                             when (jsonItem) {
                                 is AbstractJsonDBArray<*> -> {
-                                    jsonItem.getCollection().setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
                                 is JsonDBObject -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
                                 is AtomicJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
                                 is NumericJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.getCollection(), jsonItem.getCollection().database)
+                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
                                 else -> throw IllegalStateException("Node type not known.")
                             }
@@ -279,7 +278,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private fun serializeResource(
-        manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
+        manager: JsonResourceManager, revisions: IntArray, nodeId: Long?,
         ctx: RoutingContext
     ): String {
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
@@ -292,7 +291,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
         if (nextTopLevelNodes == null) {
-            val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions.toIntArray())
+            val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
@@ -314,10 +313,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
             val serializer = serializerBuilder.build()
 
-            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
         } else {
             val serializerBuilder =
-                JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions.toIntArray())
+                JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
@@ -343,7 +342,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
             val serializer = serializerBuilder.build()
 
-            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
         }
     }
 }

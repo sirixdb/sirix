@@ -34,17 +34,17 @@ import java.util.Optional;
  * signature is:
  * </p>
  * <ul>
- * <li><code>sdb:node-history($item as xs:structured-item) as xs:structured-item+</code></li>
+ * <li><code>sdb:item-history($item as xs:structured-item) as xs:structured-item+</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
  */
-public final class NodeHistory extends AbstractFunction {
+public final class ItemHistory extends AbstractFunction {
 
   /**
    * Get function name.
    */
-  public final static QNm NODE_HISTORY = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "node-history");
+  public final static QNm NODE_HISTORY = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "item-history");
 
   /**
    * Constructor.
@@ -52,7 +52,7 @@ public final class NodeHistory extends AbstractFunction {
    * @param name      the name of the function
    * @param signature the signature of the function
    */
-  public NodeHistory(final QNm name, final Signature signature) {
+  public ItemHistory(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 

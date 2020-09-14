@@ -50,7 +50,7 @@ import java.nio.file.Path;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public final class GetNodeKeyTest {
+public final class XmlGetNodeKeyTest {
   /** The {@link Holder} instance. */
   private Holder holder;
 
