@@ -12,7 +12,6 @@ import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
-import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
@@ -37,8 +36,8 @@ import java.nio.file.Path
 class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val databaseName: String? = ctx.pathParam("database")
-        val resource: String? = ctx.pathParam("resource")
+        val databaseName: String = ctx.pathParam("database")
+        val resource: String = ctx.pathParam("resource")
         val jsonBody = ctx.bodyAsJson
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
@@ -52,7 +51,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private suspend fun get(
-        databaseName: String?, ctx: RoutingContext, resource: String?, query: String?,
+        databaseName: String, ctx: RoutingContext, resource: String, query: String?,
         vertxContext: Context, user: User
     ) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
@@ -79,19 +78,19 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
                 val manager = database.openResourceManager(resource)
 
                 manager.use {
-                    if (query != null && query.isNotEmpty()) {
-                        body = queryResource(
+                    body = if (query != null && query.isNotEmpty()) {
+                        queryResource(
                             databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user
                         )
                     } else {
-                        val revisions: Array<Int> =
+                        val revisions: IntArray =
                             Revisions.getRevisionsToSerialize(
                                 startRevision, endRevision, startRevisionTimestamp,
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
 
-                        body = serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -138,7 +137,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
         manager: XmlResourceManager?,
         dbCollection: XmlDBCollection?,
         nodeId: String?,
-        revisionNumber: Array<Int>?, query: String, routingContext: RoutingContext, vertxContext: Context,
+        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ): String? {
         return vertxContext.executeBlockingAwait { promise: Promise<String> ->
@@ -268,12 +267,12 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private fun serializeResource(
-        manager: XmlResourceManager, revisions: Array<Int>, nodeId: Long?,
+        manager: XmlResourceManager, revisions: IntArray, nodeId: Long?,
         ctx: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
 
-        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions.toIntArray())
+        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions)
 
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 

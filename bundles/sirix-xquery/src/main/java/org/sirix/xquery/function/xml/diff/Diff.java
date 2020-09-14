@@ -213,7 +213,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                 continue;
 
               if (newRtx.isAttribute()) {
-                buf.append("  insert node " + printNode(newRtx) + " into sdb:select-node($doc");
+                buf.append("  insert node " + printNode(newRtx) + " into sdb:select-item($doc");
                 buf.append(",");
                 buf.append(newRtx.getParentKey());
                 buf.append(")");
@@ -237,7 +237,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              buf.append("  delete nodes sdb:select-node($doc");
+              buf.append("  delete nodes sdb:select-item($doc");
               buf.append(", ");
               buf.append(diffTuple.getOldNodeKey());
               buf.append(")");
@@ -251,7 +251,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               if (newRtx.getKind() == NodeKind.ATTRIBUTE && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              buf.append("  replace node sdb:select-node($doc");
+              buf.append("  replace node sdb:select-item($doc");
               buf.append(", ");
               buf.append(diffTuple.getOldNodeKey());
               buf.append(") with ");
@@ -300,7 +300,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   private void replaceValue(final XmlNodeReadOnlyTrx newRtx, final DiffTuple diffTuple) {
-    buf.append("  replace value of node sdb:select-node($doc");
+    buf.append("  replace value of node sdb:select-item($doc");
     buf.append(", ");
     buf.append(diffTuple.getOldNodeKey());
     buf.append(") with ");
@@ -310,7 +310,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   private void renameNode(final XmlNodeReadOnlyTrx newRtx, final DiffTuple diffTuple) {
-    buf.append("  rename node sdb:select-node($doc");
+    buf.append("  rename node sdb:select-item($doc");
     buf.append(", ");
     buf.append(diffTuple.getOldNodeKey());
     buf.append(") as \"");
@@ -320,10 +320,10 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   private void buildUpdateStatement(final XmlNodeReadOnlyTrx rtx) {
     if (rtx.hasLeftSibling()) {
-      buf.append(" before sdb:select-node($doc");
+      buf.append(" before sdb:select-item($doc");
     } else {
       rtx.moveToParent();
-      buf.append(" as first into sdb:select-node($doc");
+      buf.append(" as first into sdb:select-item($doc");
     }
 
     buf.append(", ");
