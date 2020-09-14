@@ -75,7 +75,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
         """;
-    final String query = "let $obj := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'), 2) return replace json value of $obj=>location with {\"state\": \"NY\", \"city\": \"New York\"}";
+    final String query = "let $obj := sdb:select-item(jn:doc('mycol.jn','mydoc.jn'), 2) return replace json value of $obj=>location with {\"state\": \"NY\", \"city\": \"New York\"}";
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
     final String assertion = """
           [{"generic":1,"location":{"state":"NY","city":"New York"}},{"generic":2,"location":{"state":"NY","city":"New York"}}]
@@ -94,7 +94,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String updateQuery2 = """
           insert json {'generic': 1, 'location': {'state': 'CA', 'city': 'Los Angeles'}} into jn:doc('mycol.jn','mydoc.jn') at position 0
         """.strip();
-    final String query = "let $node := sdb:select-node(jn:doc('mycol.jn','mydoc.jn'), 1) let $result := for $rev in jn:all-times($node) return if (not(exists(jn:previous($rev)))) then sdb:revision($rev) else if (sdb:hash($rev) ne sdb:hash(jn:previous($rev))) then sdb:revision($rev) else () return for $i in $result order by $i descending return $i";
+    final String query = "let $node := sdb:select-item(jn:doc('mycol.jn','mydoc.jn'), 1) let $result := for $rev in jn:all-times($node) return if (not(exists(jn:previous($rev)))) then sdb:revision($rev) else if (sdb:hash($rev) ne sdb:hash(jn:previous($rev))) then sdb:revision($rev) else () return for $i in $result order by $i descending return $i";
     final String assertion = """
           3 2 1
         """.strip();
