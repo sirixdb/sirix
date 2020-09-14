@@ -23,16 +23,16 @@ import org.sirix.xquery.node.XmlDBNode;
  * Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:select-node($doc as xs:structured-item, $nodeKey as xs:integer) as xs:structured-item</code></li>
+ * <li><code>sdb:select-item($doc as xs:structured-item, $nodeKey as xs:integer) as xs:structured-item</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class SelectNode extends AbstractFunction {
+public final class SelectItem extends AbstractFunction {
 
   /** Move to function name. */
-  public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-node");
+  public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-item");
 
   /**
    * Constructor.
@@ -40,7 +40,7 @@ public final class SelectNode extends AbstractFunction {
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public SelectNode(final QNm name, final Signature signature) {
+  public SelectItem(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 

@@ -1,7 +1,9 @@
 package org.sirix.xquery.function.sdb.trx;
 
-import junit.framework.TestCase;
 import org.brackit.xquery.XQuery;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.ResourceConfiguration;
@@ -9,18 +11,19 @@ import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
-import org.sirix.xquery.json.JsonDBItem;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
 
-public class NodeHistoryTest extends TestCase {
-  @Override
-  protected void setUp() {
+public class NodeHistoryTest {
+  @Before
+  public void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @Override
-  protected void tearDown() {
+  @After
+  public void tearDown() {
     JsonTestHelper.closeEverything();
   }
 
@@ -48,11 +51,11 @@ public class NodeHistoryTest extends TestCase {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use XQuery to load a JSON database/resource.
-      final String openQuery = "sdb:node-history(sdb:select-node(jn:doc('json-path1','mydoc.jn', 1), 2))";
+      final String openQuery = "sdb:item-history(sdb:select-node(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, openQuery).serialize(ctx, printWriter);
-        assertEquals("\"bla\" \"blabla\" \"blablabla\"", out.toString());
+        Assert.assertEquals("\"bla\" \"blabla\" \"blablabla\"", out.toString());
       }
     }
   }
