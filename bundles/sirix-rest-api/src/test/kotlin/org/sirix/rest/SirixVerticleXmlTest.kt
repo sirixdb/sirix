@@ -177,7 +177,7 @@ class SirixVerticleXmlTest {
                             <rest:sequence xmlns:rest="https://sirix.io/rest">
                             let ${"$"}doc := xml:doc('database','resource1', 1)
                             return (
-                              insert nodes <xml>foo<bar/></xml> as first into sdb:select-node(${"$"}doc, 3)
+                              insert nodes <xml>foo<bar/></xml> as first into sdb:select-item(${"$"}doc, 3)
                             )
                             </rest:sequence>
                         """.trimIndent()
