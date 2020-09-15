@@ -29,7 +29,7 @@ import org.sirix.exception.SirixException;
 
 /**
  * Implements {@link DiffObservable}, which can be used for all classes, which implement the
- * {@link IDiff} interface.
+ * {@link DiffObservable} interface.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
@@ -39,37 +39,37 @@ abstract class AbstractDiffObservable implements DiffObservable {
   /**
    * {@link Set} of observers, which want to be notified of the encountered differences.
    */
-  private final Set<DiffObserver> mDiffObservers;
+  private final Set<DiffObserver> diffObservers;
 
   /**
    * Default constructor.
    */
   AbstractDiffObservable() {
-    mDiffObservers = new HashSet<>();
+    diffObservers = new HashSet<>();
   }
 
   @Override
   public final void fireDiff(final DiffType diff, final @Nonnull long newNodeKey,
       final @Nonnull long oldNodeKey, final @Nonnull DiffDepth depth) {
-    for (final DiffObserver observer : mDiffObservers) {
+    for (final DiffObserver observer : diffObservers) {
       observer.diffListener(diff, newNodeKey, oldNodeKey, depth);
     }
   }
 
   @Override
   public final void done() throws SirixException {
-    for (final DiffObserver observer : mDiffObservers) {
+    for (final DiffObserver observer : diffObservers) {
       observer.diffDone();
     }
   }
 
   @Override
   public final void addObserver(final DiffObserver observer) {
-    mDiffObservers.add(observer);
+    diffObservers.add(observer);
   }
 
   @Override
   public final void removeObserver(final DiffObserver observer) {
-    mDiffObservers.remove(observer);
+    diffObservers.remove(observer);
   }
 }
