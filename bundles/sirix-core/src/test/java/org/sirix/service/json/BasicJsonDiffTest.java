@@ -82,7 +82,8 @@ public final class BasicJsonDiffTest {
       wtx.commit();
 
       final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("emptyObjectDiffRev1Rev2.json")), diffRev1Rev2);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("emptyObjectDiffRev1Rev2.json")),
+                   diffRev1Rev2);
     }
   }
 
@@ -117,6 +118,58 @@ public final class BasicJsonDiffTest {
 
       final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace1.json")), diffRev1Rev2);
+    }
+  }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenDiff6() throws IOException {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.moveTo(1);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+                                                                           {"data":"data"}
+                                                                        """.strip()));
+      wtx.moveTo(1);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+                                                                            {"data":"data"}
+                                                                        """.strip()));
+      wtx.moveTo(1);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+                                                                            {"data":"data"}
+                                                                        """.strip()));
+      wtx.moveTo(2);
+      wtx.remove();
+      wtx.commit();
+
+      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 2, 5);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("deletion-at-eof.json")), diffRev1Rev2);
+    }
+  }
+
+  @Test
+  public void test_whenMultipleRevisionsExist_thenDiff7() throws IOException {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    assert database != null;
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+      wtx.moveTo(1);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+                                                                            {"data":"data"}
+                                                                        """.strip()));
+      wtx.moveTo(1);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+                                                                            {"data":"data"}
+                                                                        """.strip()));
+      wtx.moveTo(2);
+      wtx.remove();
+      wtx.commit();
+
+      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 2, 4);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace2.json")), diffRev1Rev2);
     }
   }
 }
