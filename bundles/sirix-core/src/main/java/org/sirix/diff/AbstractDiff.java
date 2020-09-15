@@ -252,35 +252,23 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         rootKey = oldRootKey;
         // First time it might be DiffType.INSERTED where the cursor doesn't move.
         if (diff == DiffType.INSERTED) {
-          diff = DiffType.DELETED;
-          final DiffDepth depth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
-          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-          emitNonStructuralDiff(newRtx, oldRtx, depth, diff);
+          emitDeleteDiff();
         }
         boolean moved = true;
         if (diffKind == DiffOptimized.HASHED && diff == DiffType.SAMEHASH) {
           moved = moveToFollowingNode(oldRtx, Revision.OLD);
           if (moved) {
-            diff = DiffType.DELETED;
-            final DiffDepth depth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
-            fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-            emitNonStructuralDiff(newRtx, oldRtx, depth, diff);
+            emitDeleteDiff();
           }
         }
         if (moved) {
           if (skipSubtrees) {
             while (moveToFollowingNode(oldRtx, Revision.OLD)) {
-              diff = DiffType.DELETED;
-              final DiffDepth diffDepth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
-              fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
-              emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
+              emitDeleteDiff();
             }
           } else {
             while (moveCursor(oldRtx, Revision.OLD, Move.DOCUMENT_ORDER)) {
-              diff = DiffType.DELETED;
-              final DiffDepth depth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
-              fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-              emitNonStructuralDiff(newRtx, oldRtx, depth, diff);
+              emitDeleteDiff();
             }
           }
         }
@@ -288,6 +276,13 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     }
 
     diffDone();
+  }
+
+  private void emitDeleteDiff() {
+    diff = DiffType.DELETED;
+    final DiffDepth diffDepth = new DiffDepth(this.depth.getNewDepth(), this.depth.getOldDepth());
+    fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+    emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
   }
 
   /**
