@@ -31,8 +31,8 @@ internal class QueryTest : CliCommandTest() {
         internal fun setup() {
             createJsonDatabase(sirixQueryTestFileJson)
             createXmlDatabase(sirixQueryTestFileXml)
-            setupTestDbJson(sirixQueryTestFileJson)
-            setupTestDbXml(sirixQueryTestFileXml)
+            setupTestDbJsonFromFile(sirixQueryTestFileJson)
+            setupTestDbXmlFromFile(sirixQueryTestFileXml)
         }
 
         @AfterAll

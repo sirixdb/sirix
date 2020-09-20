@@ -2,8 +2,10 @@ package org.sirix.cli.commands
 
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.sirix.cli.CliOptions
+import org.sirix.cli.MetaDataEnum
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -25,8 +27,8 @@ internal class UpdateTest : CliCommandTest() {
         internal fun setup() {
             createJsonDatabase(sirixQueryTestFileJson)
             createXmlDatabase(sirixQueryTestFileXml)
-            setupTestDbJson(sirixQueryTestFileJson)
-            setupTestDbXml(sirixQueryTestFileXml)
+            setupTestDbJsonFromString(sirixQueryTestFileJson, CliCommandTestConstants.TEST_JSON_DATA)
+            setupTestDbXmlFromString(sirixQueryTestFileXml, CliCommandTestConstants.TEST_XML_DATA)
         }
 
         @AfterAll
@@ -40,37 +42,47 @@ internal class UpdateTest : CliCommandTest() {
 
 
     @Test
-    fun testJsonSimple() {
-        val jsonUpdateStr = """
-                 {
-                   "foo": ["bar", null, 2.33],
-                   "bar": { "hello": "world", "helloo": true },
-                   "baz": "hello",
-                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
-                 }
-                """.trimIndent()
-
+    fun testJsonHappyPath() {
+        Query(CliOptions(sirixQueryTestFileJson, true), giveASimpleQueryOption()).execute()
 
         giveASimpleUpdateObject(
             sirixQueryTestFileJson,
-            jsonUpdateStr,
-            JsonInsertionMode.AS_RIGHT_SIBLING,
-            null
+            CliCommandTestConstants.TEST_JSON_DATA_MODIFIED,
+            JsonInsertionMode.AS_FIRST_CHILD,
+            null,
+            1
         ).execute()
 
+
+
+        Query(CliOptions(sirixQueryTestFileJson, false), giveASimpleQueryOption()).execute()
     }
+
 
     @Test
-    fun testXmlSimple() {
+    @Disabled
+    fun testXmlHappyPath() {
+        Query(CliOptions(sirixQueryTestFileXml, false), giveASimpleQueryOption()).execute()
 
+        giveASimpleUpdateObject(
+            sirixQueryTestFileXml,
+            CliCommandTestConstants.TEST_XML_DATA_MODIFIED,
+            JsonInsertionMode.AS_FIRST_CHILD,
+            null,
+            1
+        ).execute()
+
+        Query(CliOptions(sirixQueryTestFileXml, false), giveASimpleQueryOption()).execute()
     }
 
 
-    private fun giveASimpleUpdateObject(
+    fun giveASimpleUpdateObject(
         updateTestFile: String,
         updateStr: String,
         jsonInsertionMode: JsonInsertionMode?,
-        xmlInsertionMode: XmlInsertionMode?
+        xmlInsertionMode: XmlInsertionMode?,
+        nodeId: Long?
+
     ): Update {
 
         var insertionMode: String? = null
@@ -85,9 +97,32 @@ internal class UpdateTest : CliCommandTest() {
             CliOptions(updateTestFile, true),
             updateStr,
             CliCommandTestConstants.TEST_RESOURCE, insertionMode.replace('_', '-').toLowerCase(),
-            null,
+            nodeId,
             null,
             CliCommandTestConstants.TEST_USER
         )
     }
+
+    private fun giveASimpleQueryOption() =
+        QueryOptions(
+            queryStr = null,
+            resource = CliCommandTestConstants.TEST_RESOURCE,
+            revision = null,
+            revisionTimestamp = null,
+            startRevision = null,
+            endRevision = null,
+            startRevisionTimestamp = null,
+            endRevisionTimestamp = null,
+            nodeId = null,
+            nextTopLevelNodes = null,
+            lastTopLevelNodeKey = null,
+            startResultSeqIndex = null,
+            endResultSeqIndex = null,
+            maxLevel = null,
+            metaData = MetaDataEnum.NONE,
+            prettyPrint = true,
+            user = null
+        )
+
+
 }
