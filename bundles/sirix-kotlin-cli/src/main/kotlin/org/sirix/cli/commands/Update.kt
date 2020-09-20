@@ -11,11 +11,11 @@ import java.math.BigInteger
 
 class Update(
     options: CliOptions,
-    val updateStr: String,
+    private val updateStr: String,
     val resource: String,
-    val insertMode: String?,
-    val nodeId: Long?,
-    val hashCode: BigInteger?,
+    private val insertMode: String?,
+    private val nodeId: Long?,
+    private val hashCode: BigInteger?,
     val user: User?
 ) : CliCommand(options) {
 
@@ -46,11 +46,9 @@ class Update(
                     if (nodeId != null) {
                         wtx.moveTo(nodeId)
                     }
-
                     if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                         wtx.moveToFirstChild()
                     }
-
                     if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
                         if (hashCode == null) {
                             IllegalStateException("Hash code is missing required.")
@@ -60,13 +58,10 @@ class Update(
                             IllegalArgumentException("Someone might have changed the resource in the meantime.")
                         }
                     }
-
                     if (insertMode == null) {
                         IllegalArgumentException("Insertion mode must be given for JSON Databases.")
                     }
-
                     val jsonReader = JsonShredder.createStringReader(updateStr)
-
                     val insertionModeByName = JsonInsertionMode.getInsertionModeByName(insertMode!!)
 
                     if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
