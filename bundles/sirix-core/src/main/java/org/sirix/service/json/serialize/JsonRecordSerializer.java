@@ -440,6 +440,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
               }
             } else {
               rtx.moveToFirstChild();
+              
+              if (state == State.IS_OBJECT || state == State.IS_ARRAY) {
+                rtx.moveToFirstChild();
+              }
+               
               hasMoved = true;
             }
 
