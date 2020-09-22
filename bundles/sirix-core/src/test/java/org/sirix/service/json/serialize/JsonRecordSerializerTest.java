@@ -216,7 +216,7 @@ public final class JsonRecordSerializerTest {
             new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(2).withMetaData(true).build();
         jsonRecordSerializer.call();
 
-        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData1.json"));
+        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData3.json"));
 
         assertEquals(expected, stringWriter.toString());
       }
