@@ -197,4 +197,29 @@ public final class JsonRecordSerializerTest {
       }
     }
   }
+
+  @Test
+  public void serializeArrayWithMaxLevelAndMetaData3() throws IOException {
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+
+      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var wtx = resmgr.beginNodeTrx()) {
+        final var json = """
+                [{},"bla",{"foo":{"bar": "baz"}},null,[]]
+            """.strip();
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+
+        final var stringWriter = new StringWriter();
+        final var jsonRecordSerializer =
+            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(2).withMetaData(true).build();
+        jsonRecordSerializer.call();
+
+        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData1.json"));
+
+        assertEquals(expected, stringWriter.toString());
+      }
+    }
+  }
 }
