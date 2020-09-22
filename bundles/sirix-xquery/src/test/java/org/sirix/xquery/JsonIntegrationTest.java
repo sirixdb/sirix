@@ -144,13 +144,23 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
-  public void testInsertIntoArray() throws IOException {
+  public void testInsertIntoArray1() throws IOException {
     final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",true,false,null]')";
     final String updateQuery = """
           insert json (1, 2, 3) into jn:doc('mycol.jn','mydoc.jn') at position 3
         """;
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
     test(storeQuery, updateQuery, openQuery, "[\"foo\",true,false,[1,2,3],null]");
+  }
+
+  @Test
+  public void testInsertIntoArray2() throws IOException {
+    final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",true,false,null]')";
+    final String updateQuery = """
+          insert json { "name": "keyword" } into jn:doc('mycol.jn','mydoc.jn') at position 3
+        """;
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "[\"foo\",true,false,{\"name\":\"keyword\"},null]");
   }
 
   @Test

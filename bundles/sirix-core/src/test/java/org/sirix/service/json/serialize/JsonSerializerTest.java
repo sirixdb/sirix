@@ -1,4 +1,4 @@
-package org.sirix.service.json.serializer;
+package org.sirix.service.json.serialize;
 
 import static org.junit.Assert.assertEquals;
 
