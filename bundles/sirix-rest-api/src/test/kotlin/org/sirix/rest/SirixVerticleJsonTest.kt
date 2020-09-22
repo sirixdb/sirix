@@ -401,15 +401,11 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the serialization of the first N-records")
     fun testRecordSerializer(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
-                val expectedJson = """
-                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello"}
-                """.trimIndent()
-
                 val json = """
                  {
                    "foo": ["bar", null, 2.33],
@@ -446,7 +442,7 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpPutResponseJson.statusCode())
                 }
 
-                val httpGetResponseJson = client.getAbs("$server/database/resource?nextTopLevelNodes=3").putHeader(
+                var httpGetResponseJson = client.getAbs("$server/database/resource?nextTopLevelNodes=3").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -454,6 +450,30 @@ class SirixVerticleJsonTest {
                     .sendAwait()
 
                 testContext.verify {
+                    val expectedJson = """
+                         {"foo":["bar",null,2.33]},{"bar":{"hello":"world","helloo":true}},{"baz":"hello"}}
+                     """.trimIndent()
+
+                    JSONAssert.assertEquals(
+                        expectedJson,
+                        httpGetResponseJson.bodyAsString(),
+                        false
+                    )
+                    assertEquals(200, httpGetResponseJson.statusCode())
+                }
+
+                httpGetResponseJson = client.getAbs("$server/database/resource?nextTopLevelNodes=3&lastTopLevelNodeKey=13").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    val expectedJson = """
+                        {"tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                     """.trimIndent()
+
                     JSONAssert.assertEquals(
                         expectedJson,
                         httpGetResponseJson.bodyAsString(),
