@@ -459,7 +459,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                           withNodeKeyMetaData)
                                                                                       .build();
               jsonSerializer.call();
-              if (rtx.isObjectKey()) {
+              if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
                 out.append("}");
               }
               rtx.moveTo(nodeKey);
@@ -469,7 +469,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                   rtx.moveToRightSibling();
                   nodeKey = rtx.getNodeKey();
                   out.append(",");
-                  if (rtx.isObjectKey()) {
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
                     out.append("{");
                   }
                   jsonSerializer =
@@ -486,7 +486,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                               withNodeKeyMetaData)
                                                                                           .build();
                   jsonSerializer.call();
-                  if (rtx.isObjectKey()) {
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
                     out.append("}");
                   }
                   rtx.moveTo(nodeKey);
