@@ -440,11 +440,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
               }
             } else {
               rtx.moveToFirstChild();
-              
-              if (state == State.IS_OBJECT || state == State.IS_ARRAY) {
-                rtx.moveToFirstChild();
-              }
-               
               hasMoved = true;
             }
 
@@ -464,6 +459,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                           withNodeKeyMetaData)
                                                                                       .build();
               jsonSerializer.call();
+              if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
+                out.append("}");
+              }
               rtx.moveTo(nodeKey);
 
               if (rtx.hasRightSibling()) {
@@ -471,6 +469,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
                   rtx.moveToRightSibling();
                   nodeKey = rtx.getNodeKey();
                   out.append(",");
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
+                    out.append("{");
+                  }
                   jsonSerializer =
                       new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
                                                                                           .serializeStartNodeWithBrackets(
@@ -485,6 +486,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                               withNodeKeyMetaData)
                                                                                           .build();
                   jsonSerializer.call();
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
+                    out.append("}");
+                  }
                   rtx.moveTo(nodeKey);
                 }
               }
@@ -493,14 +497,15 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
           if (state == State.IS_OBJECT) {
             if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
-              out.append("}]");
+              out.append("]");
             }
             out.append("}");
           } else if (state == State.IS_ARRAY) {
             if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
-              out.append("}");
+              out.append("]}");
+            } else {
+              out.append("]");
             }
-            out.append("]");
           }
         }
 

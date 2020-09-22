@@ -400,6 +400,72 @@ class SirixVerticleJsonTest {
         }
     }
 
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the serialization of the first N-records")
+    fun testRecordSerializer(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectedJson = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello"}
+                """.trimIndent()
+
+                val json = """
+                 {
+                   "foo": ["bar", null, 2.33],
+                   "bar": { "hello": "world", "helloo": true },
+                   "baz": "hello",
+                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
+                 }
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                val httpPutResponseJson =
+                    client.putAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
+
+                testContext.verify {
+                    assertEquals(200, httpPutResponseJson.statusCode())
+                }
+
+                val httpGetResponseJson = client.getAbs("$server/database/resource?nextTopLevelNodes=3").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendAwait()
+
+                testContext.verify {
+                    JSONAssert.assertEquals(
+                        expectedJson,
+                        httpGetResponseJson.bodyAsString(),
+                        false
+                    )
+                    assertEquals(200, httpGetResponseJson.statusCode())
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)

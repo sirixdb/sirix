@@ -781,7 +781,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     }
 
     /**
-     * If the {@code startNodeKey} denotes an object key node "{}" are added, if .
+     * If the {@code startNodeKey} denotes an object key node "{}" are added.
      *
      * @param serializeStartNodeWithBrackets {@code true}, if brackets should be serialized, {@code false otherwise}
      * @return this reference
