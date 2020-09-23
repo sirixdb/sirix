@@ -3,12 +3,8 @@ package org.sirix.rest.crud
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.ext.web.handler.OAuth2AuthHandler
-import io.vertx.kotlin.coroutines.awaitBlocking
-import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
-import io.vertx.kotlin.ext.web.handler.authorizeAwait
-import kotlinx.coroutines.*
+import kotlinx.coroutines.runBlocking
 import org.brackit.xquery.ErrorCode
 import org.brackit.xquery.QueryContext
 import org.brackit.xquery.QueryException
@@ -23,15 +19,14 @@ import org.brackit.xquery.xdm.Sequence
 import org.sirix.rest.AuthRole
 import java.io.PrintStream
 import java.io.PrintWriter
-import java.lang.IllegalStateException
 
 /**
  * @author Johannes Lichtenberger
  */
 class PermissionCheckingXQuery {
-    val module: Module
-    var isPrettyPrint: Boolean = false
-    val role: AuthRole
+    private val module: Module
+    private var isPrettyPrint: Boolean = false
+    private val role: AuthRole
     val keycloak: OAuth2Auth
     val user: User
 
@@ -82,7 +77,7 @@ class PermissionCheckingXQuery {
 
         if (!lazy || body.isUpdating) {
             // iterate possibly lazy result sequence to "pull-in" all pending updates
-            if (result != null && !(result is Item)) {
+            if (result != null && result !is Item) {
                 result.iterate().use {
                     while (it.next() != null) {
                     }
@@ -100,7 +95,7 @@ class PermissionCheckingXQuery {
     }
 
     fun serialize(ctx: QueryContext, out: PrintWriter) {
-        val result = run(ctx, true) ?: return
+        val result: Sequence? = run(ctx, true)
         StringSerializer(out).use { serializer ->
             serializer.isFormat = isPrettyPrint
             serializer.use {
@@ -110,9 +105,9 @@ class PermissionCheckingXQuery {
     }
 
     fun serialize(ctx: QueryContext, serializer: Serializer) {
-        val result = run(ctx, true) ?: return
+        val result: Sequence? = run(ctx, true)
         serializer.use {
-            serializer.serialize(result);
+            serializer.serialize(result)
         }
     }
 
@@ -122,9 +117,9 @@ class PermissionCheckingXQuery {
     }
 
     companion object {
-        val DEBUG_CFG = "org.brackit.xquery.debug"
-        val DEBUG_DIR_CFG = "org.brackit.xquery.debugDir"
-        var DEBUG = Cfg.asBool(DEBUG_CFG, false)
-        var DEBUG_DIR = Cfg.asString(DEBUG_DIR_CFG, "debug/")
+        private const val DEBUG_CFG = "org.brackit.xquery.debug"
+        private const val DEBUG_DIR_CFG = "org.brackit.xquery.debugDir"
+        private var DEBUG = Cfg.asBool(DEBUG_CFG, false)
+        private var DEBUG_DIR = Cfg.asString(DEBUG_DIR_CFG, "debug/")
     }
 }
