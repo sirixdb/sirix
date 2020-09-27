@@ -42,6 +42,7 @@ internal class UpdateTest : CliCommandTest() {
 
 
     @Test
+    @Disabled
     fun testJsonHappyPath() {
         Query(CliOptions(sirixQueryTestFileJson, true), giveASimpleQueryOption()).execute()
 
