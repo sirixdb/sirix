@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
@@ -49,6 +50,7 @@ internal class XmlCreateTest : CliCommandTest() {
         super.removeTestDatabase(LOGGER)
     }
 
+    @Disabled
     @ParameterizedTest
     @MethodSource("dataCommandOptions")
     fun executeData(dataCommandOptions: DataCommandOptions) {

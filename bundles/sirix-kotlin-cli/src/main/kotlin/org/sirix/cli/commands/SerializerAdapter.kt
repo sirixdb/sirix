@@ -10,7 +10,7 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
 import java.io.StringWriter
 
-class QuerySerializerAdapter {
+class SerializerAdapter {
 
     var jsonSerializerBuilder: JsonSerializer.Builder? = null
     var jsonRecordSerializer: JsonRecordSerializer.Builder? = null
@@ -41,7 +41,7 @@ class QuerySerializerAdapter {
     }
 
 
-    fun revisions(revisions: IntArray): QuerySerializerAdapter {
+    fun revisions(revisions: IntArray): SerializerAdapter {
         if (jsonSerializerBuilder != null) {
             jsonSerializerBuilder!!.revisions(revisions)
 
@@ -53,7 +53,7 @@ class QuerySerializerAdapter {
         return this
     }
 
-    fun startNodeKey(nodeKey: Long?): QuerySerializerAdapter {
+    fun startNodeKey(nodeKey: Long?): SerializerAdapter {
         if (nodeKey != null) {
             if (jsonSerializerBuilder != null) {
                 jsonSerializerBuilder!!.startNodeKey(nodeKey)
@@ -66,7 +66,7 @@ class QuerySerializerAdapter {
         return this
     }
 
-    fun metadata(metaData: MetaDataEnum): QuerySerializerAdapter {
+    fun metadata(metaData: MetaDataEnum): SerializerAdapter {
         if (jsonSerializerBuilder != null) {
             when (metaData) {
                 MetaDataEnum.NODE_KEY_AND_CHILD_COUNT -> jsonSerializerBuilder!!.withNodeKeyAndChildCountMetaData(
@@ -97,7 +97,7 @@ class QuerySerializerAdapter {
         return this
     }
 
-    fun maxLevel(maxLevel: Long?): QuerySerializerAdapter {
+    fun maxLevel(maxLevel: Long?): SerializerAdapter {
         if (maxLevel != null) {
             if (jsonSerializerBuilder != null) {
                 jsonSerializerBuilder!!.maxLevel(maxLevel)
@@ -110,7 +110,7 @@ class QuerySerializerAdapter {
         return this
     }
 
-    fun prettyPrint(prettyPrint: Boolean?): QuerySerializerAdapter {
+    fun prettyPrint(prettyPrint: Boolean?): SerializerAdapter {
         if (prettyPrint != null && prettyPrint) {
             if (jsonSerializerBuilder != null) {
                 jsonSerializerBuilder!!.prettyPrint()
