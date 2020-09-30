@@ -24,28 +24,28 @@ import org.sirix.service.xml.shredder.InsertPosition;
 public final class SubtreeBuilder extends AbstractShredder implements SubtreeHandler {
 
   /** {@link SubtreeProcessor} for listeners. */
-  private final SubtreeProcessor<AbstractTemporalNode<XmlDBNode>> mSubtreeProcessor;
+  private final SubtreeProcessor<AbstractTemporalNode<XmlDBNode>> subtreeProcessor;
 
   /** Sirix {@link XmlNodeTrx}. */
-  private final XmlNodeTrx mWtx;
+  private final XmlNodeTrx wtx;
 
   /** Stack for saving the parent nodes. */
-  private final Deque<XmlDBNode> mParents;
+  private final Deque<XmlDBNode> parents;
 
   /** Collection. */
-  private final XmlDBCollection mCollection;
+  private final XmlDBCollection collection;
 
   /** First element. */
-  private boolean mFirst;
+  private boolean first;
 
   /** Start node key. */
-  private long mStartNodeKey;
+  private long startNodeKey;
 
   /** Stack of namespace mappings. */
-  private final Deque<QNm> mNamespaces;
+  private final Deque<QNm> namespaces;
 
   /** Stack of namespace mappings. */
-  private final Deque<String> mInsertedNamespacePrefixes;
+  private final Deque<String> insertedNamespacePrefixes;
 
   /**
    * Constructor.
@@ -59,13 +59,13 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
       final List<SubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
     super(wtx, insertPos);
     ((InternalXmlNodeTrx) wtx).setBulkInsertion(true);
-    mCollection = checkNotNull(collection);
-    mSubtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
-    mWtx = checkNotNull(wtx);
-    mParents = new ArrayDeque<>();
-    mFirst = true;
-    mNamespaces = new ArrayDeque<>();
-    mInsertedNamespacePrefixes = new ArrayDeque<>();
+    this.collection = checkNotNull(collection);
+    subtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
+    this.wtx = checkNotNull(wtx);
+    parents = new ArrayDeque<>();
+    first = true;
+    namespaces = new ArrayDeque<>();
+    insertedNamespacePrefixes = new ArrayDeque<>();
   }
 
   /**
@@ -74,15 +74,15 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
    * @return start node key
    */
   public long getStartNodeKey() {
-    return mStartNodeKey;
+    return startNodeKey;
   }
 
   @Override
   public void begin() throws DocumentException {
     try {
-      mSubtreeProcessor.notifyBegin();
+      subtreeProcessor.notifyBegin();
     } catch (final DocumentException e) {
-      mSubtreeProcessor.notifyFail();
+      subtreeProcessor.notifyFail();
       throw e;
     }
   }
@@ -90,9 +90,9 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void end() throws DocumentException {
     try {
-      mSubtreeProcessor.notifyEnd();
+      subtreeProcessor.notifyEnd();
     } catch (final DocumentException e) {
-      mSubtreeProcessor.notifyFail();
+      subtreeProcessor.notifyFail();
       throw e;
     }
   }
@@ -100,9 +100,9 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void beginFragment() throws DocumentException {
     try {
-      mSubtreeProcessor.notifyBeginFragment();
+      subtreeProcessor.notifyBeginFragment();
     } catch (final DocumentException e) {
-      mSubtreeProcessor.notifyFail();
+      subtreeProcessor.notifyFail();
       throw e;
     }
   }
@@ -110,9 +110,9 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void endFragment() throws DocumentException {
     try {
-      mSubtreeProcessor.notifyEndFragment();
+      subtreeProcessor.notifyEndFragment();
     } catch (final DocumentException e) {
-      mSubtreeProcessor.notifyFail();
+      subtreeProcessor.notifyFail();
       throw e;
     }
   }
@@ -120,9 +120,9 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void startDocument() throws DocumentException {
     try {
-      mSubtreeProcessor.notifyBeginDocument();
+      subtreeProcessor.notifyBeginDocument();
     } catch (final DocumentException e) {
-      mSubtreeProcessor.notifyFail();
+      subtreeProcessor.notifyFail();
       throw e;
     }
   }
@@ -130,39 +130,39 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void endDocument() throws DocumentException {
     try {
-      mSubtreeProcessor.notifyEndDocument();
-      ((InternalXmlNodeTrx) mWtx).adaptHashesInPostorderTraversal();
-      ((InternalXmlNodeTrx) mWtx).setBulkInsertion(false);
+      subtreeProcessor.notifyEndDocument();
+      ((InternalXmlNodeTrx) wtx).adaptHashesInPostorderTraversal();
+      ((InternalXmlNodeTrx) wtx).setBulkInsertion(false);
     } catch (final DocumentException e) {
-      mSubtreeProcessor.notifyFail();
+      subtreeProcessor.notifyFail();
       throw e;
     }
   }
 
   @Override
   public void fail() throws DocumentException {
-    mSubtreeProcessor.notifyFail();
+    subtreeProcessor.notifyFail();
   }
 
   @Override
   public void startMapping(final String prefix, final String uri) throws DocumentException {
-    mNamespaces.push(new QNm(uri, prefix, null));
+    namespaces.push(new QNm(uri, prefix, null));
   }
 
   @Override
   public void endMapping(final String prefix) throws DocumentException {
-    mInsertedNamespacePrefixes.pop();
+    insertedNamespacePrefixes.pop();
   }
 
   @Override
   public void comment(final Atomic content) throws DocumentException {
     try {
       processComment(content.asStr().stringValue());
-      if (mFirst) {
-        mFirst = false;
-        mStartNodeKey = mWtx.getNodeKey();
+      if (first) {
+        first = false;
+        startNodeKey = wtx.getNodeKey();
       }
-      mSubtreeProcessor.notifyComment(new XmlDBNode(mWtx, mCollection));
+      subtreeProcessor.notifyComment(new XmlDBNode(wtx, collection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -172,7 +172,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
     try {
       processPI(content.asStr().stringValue(), target.getLocalName());
-      mSubtreeProcessor.notifyProcessingInstruction(new XmlDBNode(mWtx, mCollection));
+      subtreeProcessor.notifyProcessingInstruction(new XmlDBNode(wtx, collection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -182,22 +182,22 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   public void startElement(final QNm name) throws DocumentException {
     try {
       processStartTag(name);
-      while (!mNamespaces.isEmpty()) {
-        final QNm namespace = mNamespaces.pop();
+      while (!namespaces.isEmpty()) {
+        final QNm namespace = namespaces.pop();
 
-        if (!mInsertedNamespacePrefixes.contains(namespace.getPrefix())) {
-          mWtx.insertNamespace(namespace).moveToParent();
+        if (!insertedNamespacePrefixes.contains(namespace.getPrefix())) {
+          wtx.insertNamespace(namespace).moveToParent();
         }
 
-        mInsertedNamespacePrefixes.push(namespace.getPrefix());
+        insertedNamespacePrefixes.push(namespace.getPrefix());
       }
-      if (mFirst) {
-        mFirst = false;
-        mStartNodeKey = mWtx.getNodeKey();
+      if (first) {
+        first = false;
+        startNodeKey = wtx.getNodeKey();
       }
-      final XmlDBNode node = new XmlDBNode(mWtx, mCollection);
-      mParents.push(node);
-      mSubtreeProcessor.notifyStartElement(node);
+      final XmlDBNode node = new XmlDBNode(wtx, collection);
+      parents.push(node);
+      subtreeProcessor.notifyStartElement(node);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -206,15 +206,15 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void endElement(final QNm name) throws DocumentException {
     processEndTag(name);
-    final XmlDBNode node = mParents.pop();
-    mSubtreeProcessor.notifyEndElement(node);
+    final XmlDBNode node = parents.pop();
+    subtreeProcessor.notifyEndElement(node);
   }
 
   @Override
   public void text(final Atomic content) throws DocumentException {
     try {
       processText(content.stringValue());
-      mSubtreeProcessor.notifyText(new XmlDBNode(mWtx, mCollection));
+      subtreeProcessor.notifyText(new XmlDBNode(wtx, collection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -223,9 +223,9 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void attribute(final QNm name, final Atomic value) throws DocumentException {
     try {
-      mWtx.insertAttribute(name, value.stringValue());
-      mWtx.moveToParent();
-      mSubtreeProcessor.notifyAttribute(new XmlDBNode(mWtx, mCollection));
+      wtx.insertAttribute(name, value.stringValue());
+      wtx.moveToParent();
+      subtreeProcessor.notifyAttribute(new XmlDBNode(wtx, collection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
