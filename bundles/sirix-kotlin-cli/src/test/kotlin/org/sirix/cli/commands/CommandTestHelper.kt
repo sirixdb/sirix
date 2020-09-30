@@ -10,6 +10,7 @@ import org.sirix.service.xml.shredder.XmlShredder
 import org.slf4j.Logger
 import java.io.File
 import java.io.FileInputStream
+import java.math.BigInteger
 import java.nio.file.Paths
 import java.util.*
 import javax.xml.stream.XMLEventReader
@@ -109,6 +110,21 @@ fun setupTestDbXml(sirixQueryTestFileXml: String, xmlEventReader: XMLEventReader
             }
         }
     }
+}
+
+fun getRootNodeHash(sirixQueryTestFileXml: String): BigInteger {
+    val database =
+        Databases.openXmlDatabase(Paths.get(sirixQueryTestFileXml), CliCommandTestConstants.TEST_USER)
+    return database.use {
+        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+        return@use manager.use {
+            val rtx = manager.beginNodeReadOnlyTrx()
+            return@use rtx.use {
+                return@use rtx.moveTo(1).trx().hash
+            }
+        }
+    }
+
 }
 
 
