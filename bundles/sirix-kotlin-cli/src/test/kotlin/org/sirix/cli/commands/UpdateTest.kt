@@ -88,14 +88,11 @@ internal class UpdateTest : CliCommandTest() {
             jsonInsertionMode!!.name
         }
 
-        val hash = getRootNodeHash(updateTestFile);
-
         return Update(
             CliOptions(updateTestFile, true),
             updateStr,
             CliCommandTestConstants.TEST_RESOURCE, insertionMode.replace('_', '-').toLowerCase(),
             nodeId,
-            hash,
             CliCommandTestConstants.TEST_USER
         )
     }

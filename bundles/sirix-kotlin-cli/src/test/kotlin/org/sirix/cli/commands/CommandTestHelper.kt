@@ -112,20 +112,5 @@ fun setupTestDbXml(sirixQueryTestFileXml: String, xmlEventReader: XMLEventReader
     }
 }
 
-fun getRootNodeHash(sirixQueryTestFileXml: String): BigInteger {
-    val database =
-        Databases.openXmlDatabase(Paths.get(sirixQueryTestFileXml), CliCommandTestConstants.TEST_USER)
-    return database.use {
-        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
-        return@use manager.use {
-            val rtx = manager.beginNodeReadOnlyTrx()
-            return@use rtx.use {
-                return@use rtx.moveTo(1).trx().hash
-            }
-        }
-    }
-
-}
-
 
 
