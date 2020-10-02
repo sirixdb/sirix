@@ -15,7 +15,6 @@ class Update(
     val resource: String,
     private val insertMode: String?,
     private val nodeId: Long?,
-    private val hashCode: BigInteger?,
     val user: User?
 ) : CliCommand(options) {
 
@@ -45,21 +44,15 @@ class Update(
                     if (nodeId != null) {
                         wtx.moveTo(nodeId)
                     }
+
                     if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                         wtx.moveToFirstChild()
                     }
-                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                        if (hashCode == null) {
-                            IllegalStateException("Hash code is missing required.")
-                        }
 
-                        if (wtx.hash != hashCode) {
-                            IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                        }
-                    }
                     if (insertMode == null) {
-                        IllegalArgumentException("Insertion mode must be given for JSON Databases.")
+                        throw IllegalArgumentException("Insertion mode must be given for JSON Databases.")
                     }
+
                     val jsonReader = JsonShredder.createStringReader(updateStr)
                     val insertionModeByName = JsonInsertionMode.getInsertionModeByName(insertMode!!)
 
@@ -116,17 +109,8 @@ class Update(
                     if (wtx.isDocumentRoot && wtx.hasFirstChild())
                         wtx.moveToFirstChild()
 
-                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                        if (hashCode == null) {
-                            throw IllegalStateException("Hash code is missing required.")
-                        }
-
-                        if (wtx.hash != hashCode) {
-                            throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                        }
-                    }
-
                     val xmlReader = XmlShredder.createStringReader(updateStr)
+
                     if (insertMode != null)
                         XmlInsertionMode.getInsertionModeByName(insertMode).insert(wtx, xmlReader)
                     else
@@ -140,6 +124,7 @@ class Update(
 
                     Pair(wtx.maxNodeKey, wtx.hash)
                 }
+
                 if (maxNodeKey > 5000) {
                     if (manager.resourceConfig.hashType == HashType.NONE) {
                         return null
