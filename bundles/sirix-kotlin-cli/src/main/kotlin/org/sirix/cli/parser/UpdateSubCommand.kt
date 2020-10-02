@@ -16,11 +16,9 @@ class UpdateSubCommand : AbstractUserCommand("update", "Update command") {
         "im",
         "JSON Databases: Required. Valid vales: [as-first-child, as-right-sibling]. XML Databases: Mapped to 'replace' if not set"
     )
-    val hashCode by option(CliArgType.BInteger(), "hash-code", "hc", "The hashcode of the update Node.")
     val updateStr by argument(ArgType.String, description = "The Udate String.")
 
-
     override fun createCliCommand(options: CliOptions): CliCommand {
-        return Update(options, updateStr, resource, insertMode, nodeId, hashCode, user)
+        return Update(options, updateStr, resource, insertMode, nodeId, user)
     }
 }

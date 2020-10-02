@@ -54,7 +54,7 @@ class Update(
                     }
 
                     val jsonReader = JsonShredder.createStringReader(updateStr)
-                    val insertionModeByName = JsonInsertionMode.getInsertionModeByName(insertMode!!)
+                    val insertionModeByName = JsonInsertionMode.getInsertionModeByName(insertMode)
 
                     if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
                         when (jsonReader.peek()) {
