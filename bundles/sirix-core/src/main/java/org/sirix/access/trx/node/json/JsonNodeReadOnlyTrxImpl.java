@@ -217,7 +217,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var deweyId = new SirixDeweyID(opAsJsonObject.getAsJsonPrimitive("deweyID").getAsString());
 
-    return deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() <= maxDepth;
+    return deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() - rootDeweyId.getLevel() <= maxDepth;
   }
 
   @Override
