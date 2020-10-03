@@ -1,7 +1,6 @@
 package org.sirix.xquery.json;
 
 import org.brackit.xquery.atomic.*;
-import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.json.JsonItem;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 
@@ -44,9 +43,7 @@ public final class JsonItemFactory {
         }
         // $CASES-OMITTED$
       default:
-        new AssertionError();
+        throw new AssertionError();
     }
-
-    return null;
   }
 }

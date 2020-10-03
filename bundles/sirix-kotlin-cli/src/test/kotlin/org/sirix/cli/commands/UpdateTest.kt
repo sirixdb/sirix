@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
+import org.sirix.access.Databases.openJsonDatabase
 import org.sirix.cli.CliOptions
 import org.sirix.cli.MetaDataEnum
 import org.slf4j.Logger
@@ -42,7 +43,6 @@ internal class UpdateTest : CliCommandTest() {
 
 
     @Test
-    @Disabled
     fun testJsonHappyPath() {
         Query(CliOptions(sirixQueryTestFileJson, true), giveASimpleQueryOption()).execute()
 
@@ -54,22 +54,19 @@ internal class UpdateTest : CliCommandTest() {
             1
         ).execute()
 
-
-
         Query(CliOptions(sirixQueryTestFileJson, false), giveASimpleQueryOption()).execute()
     }
 
 
     @Test
-    @Disabled
     fun testXmlHappyPath() {
         Query(CliOptions(sirixQueryTestFileXml, false), giveASimpleQueryOption()).execute()
 
         giveASimpleUpdateObject(
             sirixQueryTestFileXml,
             CliCommandTestConstants.TEST_XML_DATA_MODIFIED,
-            JsonInsertionMode.AS_FIRST_CHILD,
             null,
+            XmlInsertionMode.AS_FIRST_CHILD,
             1
         ).execute()
 
@@ -85,13 +82,10 @@ internal class UpdateTest : CliCommandTest() {
         nodeId: Long?
 
     ): Update {
-
-        var insertionMode: String? = null
-
-        if (jsonInsertionMode == null) {
-            insertionMode = xmlInsertionMode!!.name
+        val insertionMode = if (jsonInsertionMode == null) {
+            xmlInsertionMode!!.name
         } else {
-            insertionMode = jsonInsertionMode!!.name
+            jsonInsertionMode!!.name
         }
 
         return Update(
@@ -99,7 +93,6 @@ internal class UpdateTest : CliCommandTest() {
             updateStr,
             CliCommandTestConstants.TEST_RESOURCE, insertionMode.replace('_', '-').toLowerCase(),
             nodeId,
-            null,
             CliCommandTestConstants.TEST_USER
         )
     }

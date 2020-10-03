@@ -15,7 +15,6 @@ class Update(
     val resource: String,
     private val insertMode: String?,
     private val nodeId: Long?,
-    private val hashCode: BigInteger?,
     val user: User?
 ) : CliCommand(options) {
 
@@ -34,7 +33,6 @@ class Update(
     }
 
     private fun updateJson(): String? {
-
         val database = openJsonDatabase(user)
 
         database.use {
@@ -46,23 +44,17 @@ class Update(
                     if (nodeId != null) {
                         wtx.moveTo(nodeId)
                     }
+
                     if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                         wtx.moveToFirstChild()
                     }
-                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                        if (hashCode == null) {
-                            IllegalStateException("Hash code is missing required.")
-                        }
 
-                        if (wtx.hash != hashCode) {
-                            IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                        }
-                    }
                     if (insertMode == null) {
-                        IllegalArgumentException("Insertion mode must be given for JSON Databases.")
+                        throw IllegalArgumentException("Insertion mode must be given for JSON Databases.")
                     }
+
                     val jsonReader = JsonShredder.createStringReader(updateStr)
-                    val insertionModeByName = JsonInsertionMode.getInsertionModeByName(insertMode!!)
+                    val insertionModeByName = JsonInsertionMode.getInsertionModeByName(insertMode)
 
                     if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
                         when (jsonReader.peek()) {
@@ -99,12 +91,9 @@ class Update(
                 }
             }
         }
-
-
     }
 
     private fun updateXml(): String? {
-
         val database = openXmlDatabase(user)
 
         database.use {
@@ -112,50 +101,38 @@ class Update(
 
             manager.use {
                 val wtx = manager.beginNodeTrx()
-
-                manager.use {
-                    val wtx = manager.beginNodeTrx()
-                    val (maxNodeKey, hash) = wtx.use {
-                        if (nodeId != null) {
-                            wtx.moveTo(nodeId)
-                        }
-
-                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
-                            wtx.moveToFirstChild()
-
-                        if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                            if (hashCode == null) {
-                                IllegalStateException("Hash code is missing required.")
-                            }
-
-                            if (wtx.hash != hashCode) {
-                                IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                            }
-                        }
-
-                        val xmlReader = XmlShredder.createStringReader(resource)
-                        if (insertMode != null)
-                            XmlInsertionMode.getInsertionModeByName(insertMode).insert(wtx, xmlReader)
-                        else
-                            wtx.replaceNode(xmlReader)
-
-                        if (nodeId != null)
-                            wtx.moveTo(nodeId)
-
-                        if (wtx.isDocumentRoot && wtx.hasFirstChild())
-                            wtx.moveToFirstChild()
-
-                        Pair(wtx.maxNodeKey, wtx.hash)
+                val (maxNodeKey, hash) = wtx.use {
+                    if (nodeId != null) {
+                        wtx.moveTo(nodeId)
                     }
-                    if (maxNodeKey > 5000) {
-                        if (manager.resourceConfig.hashType == HashType.NONE) {
-                            return null
-                        } else {
-                            return hash.toString()
-                        }
+
+                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        wtx.moveToFirstChild()
+
+                    val xmlReader = XmlShredder.createStringReader(updateStr)
+
+                    if (insertMode != null)
+                        XmlInsertionMode.getInsertionModeByName(insertMode).insert(wtx, xmlReader)
+                    else
+                        wtx.replaceNode(xmlReader)
+
+                    if (nodeId != null)
+                        wtx.moveTo(nodeId)
+
+                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        wtx.moveToFirstChild()
+
+                    Pair(wtx.maxNodeKey, wtx.hash)
+                }
+
+                if (maxNodeKey > 5000) {
+                    if (manager.resourceConfig.hashType == HashType.NONE) {
+                        return null
                     } else {
-                        return SerializerAdapter(manager, null).prettyPrint(true).startNodeKey(nodeId).serialize()
+                        return hash.toString()
                     }
+                } else {
+                    return SerializerAdapter(manager, null).prettyPrint(true).startNodeKey(nodeId).serialize()
                 }
             }
         }

@@ -192,7 +192,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @return revision of file
    */
   @Override
-  public Long call() throws SirixException {
+  public Long call() {
     final long revision = wtx.getRevisionNumber();
     insertNewContent();
     commit.commit(wtx);
@@ -204,7 +204,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    *
    * @throws SirixException if something went wrong while inserting
    */
-  protected final void insertNewContent() throws SirixException {
+  protected final void insertNewContent() {
     try {
       boolean firstElement = true;
       int level = 0;
