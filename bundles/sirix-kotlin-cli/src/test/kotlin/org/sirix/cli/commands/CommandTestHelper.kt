@@ -10,6 +10,7 @@ import org.sirix.service.xml.shredder.XmlShredder
 import org.slf4j.Logger
 import java.io.File
 import java.io.FileInputStream
+import java.math.BigInteger
 import java.nio.file.Paths
 import java.util.*
 import javax.xml.stream.XMLEventReader
