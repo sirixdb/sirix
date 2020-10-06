@@ -5,7 +5,7 @@
 
 <p align="center">
     <a href="https://travis-ci.org/sirixdb/sirix" alt="Built Status"><img src="https://travis-ci.org/sirixdb/sirix.png"></img></a>
-    <a href="#contributors" alt="All Contributors"><img src="https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square"></img></a>
+    <a href="#contributors-" alt="All Contributors"><img src="https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square"></img></a>
     <a href="https://www.codefactor.io/repository/github/sirixdb/sirix" alt="Code Factor"><img src="ttps://www.codefactor.io/repository/github/sirixdb/sirix/badge"></img></a>
     <a href="http://makeapullrequest.com" alt="PRs Welcome"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square"></img></a>
     <a href="https://search.maven.org/search?q=g:io.sirix" alt="Maven Central"><img src="https://img.shields.io/maven-central/v/io.sirix/sirix-core.svg"></img></a>
@@ -50,7 +50,7 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
 -   [Getting Help](#getting-help)
     -   [Community Forum](#community-forum)
     -   [Join us on Slack](#join-us-on-slack)
--   [Contributors](#contributors)
+-   [Contributors](#contributors-)
 -   [License](#license)
 
 ## Keeping All Versions of Your Data By Sharing Structure
