@@ -33,7 +33,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
                                  indexDef.getID());
 
     final Iterator<RBNode<CASValue, NodeReferences>> iter =
-        reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+        reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
     return new IndexFilterAxis<>(iter, Set.of(filter));
   }
@@ -95,7 +95,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       }
     } else {
       final Iterator<RBNode<CASValue, NodeReferences>> iter =
-          reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+          reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
       return new IndexFilterAxis<>(iter, Set.of(filter));
     }
@@ -111,7 +111,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
       return firstFoundNode.map(theNode -> {
         // Iterate over subtree.
-        final Iterator<RBNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(theNode.getNodeKey());
+        final Iterator<RBNode<CASValue, NodeReferences>> iter = reader.new RBNodeIterator(theNode.getNodeKey());
 
         return (Iterator<NodeReferences>) new IndexFilterAxis<>(iter, Set.of(filter));
       }).orElse(Collections.emptyIterator());
@@ -122,7 +122,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       RBTreeReader<CASValue, NodeReferences> reader) {
     return node -> {
       // Iterate over subtree.
-      final Iterator<RBNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(node.getNodeKey());
+      final Iterator<RBNode<CASValue, NodeReferences>> iter = reader.new RBNodeIterator(node.getNodeKey());
 
       return new IndexFilterAxis<>(iter, Set.of(filter));
     };
