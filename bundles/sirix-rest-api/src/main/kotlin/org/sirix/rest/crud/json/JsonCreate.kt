@@ -234,7 +234,7 @@ class JsonCreate(
         manager: JsonResourceManager,
         resFileToStore: Path
     ): Long {
-        val wtx = manager.beginNodeTrx()
+        val wtx = manager.beginNodeTrx(10_000_000)
         return wtx.use {
             val eventReader = JsonShredder.createFileReader(resFileToStore)
             eventReader.use {

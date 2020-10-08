@@ -167,7 +167,7 @@ public final class JsonRedBlackTreeIntegrationTest {
                                    allObjectKeyNames.getType(),
                                    allObjectKeyNames.getID());
 
-      final var avlNodeIterator = allObjectKeyNamesIndexReader.new AVLNodeIterator(0);
+      final var avlNodeIterator = allObjectKeyNamesIndexReader.new RBNodeIterator(0);
 
       avlNodeIterator.forEachRemaining(avlNode -> {
         System.out.println(avlNode);
@@ -203,7 +203,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(nodeLessOrEqual.isPresent());
       assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
 
-      final var avlIterator = allObjectKeyNamesIndexReader.new AVLNodeIterator(0);
+      final var avlIterator = allObjectKeyNamesIndexReader.new RBNodeIterator(0);
 
       final var stream =
           StreamSupport.stream(Spliterators.spliteratorUnknownSize(avlIterator, Spliterator.ORDERED), false);
