@@ -206,7 +206,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         manager: XmlResourceManager,
         resFileToStore: Path
     ): Long {
-        val wtx = manager.beginNodeTrx(10_000_000)
+        val wtx = manager.beginNodeTrx()
         return wtx.use {
             val inputStream = FileInputStream(resFileToStore.toFile())
             return@use inputStream.use {
