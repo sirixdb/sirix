@@ -4,7 +4,6 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.brackit.xquery.node.parser.SubtreeParser

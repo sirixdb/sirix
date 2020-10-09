@@ -1,4 +1,5 @@
 apply from: "${rootDir}/libraries.gradle"
+apply plugin: 'kotlin'
 
 buildscript {
     ext.kotlin_version = '1.4.10'
@@ -6,6 +7,7 @@ buildscript {
         maven {
             url "https://plugins.gradle.org/m2/"
         }
+        mavenCentral()
     }
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.10.2"
@@ -247,4 +249,20 @@ task jacocoRootReport(type: JacocoReport) {
 coveralls {
     sourceDirs = subprojects.sourceSets.main.allSource.srcDirs.flatten()
     jacocoReportPath = "${buildDir}/reports/jacoco/jacocoRootReport/jacocoRootReport.xml"
+}
+repositories {
+    mavenCentral()
+}
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+}
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
 }

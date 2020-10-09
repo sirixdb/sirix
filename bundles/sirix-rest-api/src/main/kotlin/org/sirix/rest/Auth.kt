@@ -8,8 +8,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.json.json
 import io.vertx.kotlin.core.json.obj
-import io.vertx.kotlin.ext.auth.authenticateAwait
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -29,17 +28,17 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
             )
         }
 
-        val user = keycloak.authenticateAwait(tokenToAuthenticate)
+        val user = keycloak.authenticate(tokenToAuthenticate).await()
         val database = ctx.pathParam("database")
 
         val isAuthorized =
             if (database == null) {
                 false
             } else {
-                user.isAuthorizedAwait(role.databaseRole(database))
+                user.isAuthorized(role.databaseRole(database)).await()
             }
 
-        if (!isAuthorized && !user.isAuthorizedAwait(role.keycloakRole())) {
+        if (!isAuthorized && !user.isAuthorized(role.keycloakRole()).await()) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
         }
@@ -53,9 +52,9 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
     companion object {
         fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: AuthRole) {
             GlobalScope.launch(dispatcher) {
-                val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
+                val isAuthorized = user.isAuthorized(role.databaseRole(name)).await()
 
-                require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
+                require(isAuthorized || user.isAuthorized(role.keycloakRole()).await()) {
                     IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
                 }
             }

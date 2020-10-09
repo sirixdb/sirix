@@ -80,7 +80,7 @@ class HistoryHandler(private val location: Path) {
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .write(content)
-                .end()
+                .result()
         }
 
         return ctx.currentRoute()

@@ -4,6 +4,8 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.onCompleteAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
 import org.sirix.api.Database
@@ -70,7 +72,7 @@ class PathSummaryHandler(private val location: Path) {
                         .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                         .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
                         .write(content)
-                        .end()
+                        .result()
                 }
             }
         }

@@ -10,7 +10,7 @@ import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
-import io.vertx.ext.auth.oauth2.impl.OAuth2TokenImpl
+import io.vertx.ext.auth.oauth2.impl.AccessTokenImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -20,10 +20,10 @@ import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.core.http.listenAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.logoutAwait
-import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
+import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
 import kotlinx.coroutines.launch
@@ -83,7 +83,7 @@ class SirixVerticle : CoroutineVerticle() {
 
     private suspend fun createRouter() = Router.router(vertx).apply {
 
-        val oauth2Config = oAuth2ClientOptionsOf()
+        val oauth2Config = oAuth2OptionsOf()
             .setFlow(OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD")))
             .setSite(config.getString("keycloak.url"))
             .setClientID("sirix")
@@ -175,7 +175,7 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val token = OAuth2TokenImpl(keycloak, rc.bodyAsJson)
+            val token = AccessTokenImpl(rc.bodyAsJson, keycloak)
             token.logoutAwait()
             rc.response().end()
         }
@@ -367,7 +367,7 @@ class SirixVerticle : CoroutineVerticle() {
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
-        val user = keycloak.authenticateAwait(dataToAuthenticate)
+        val user = keycloak.authenticate(dataToAuthenticate).await()
         rc.response().end(user.principal().toString())
     }
 
@@ -376,7 +376,7 @@ class SirixVerticle : CoroutineVerticle() {
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
-        val token = OAuth2TokenImpl(keycloak, dataToAuthenticate)
+        val token = AccessTokenImpl(dataToAuthenticate, keycloak)
         token.refreshAwait()
         rc.response().end(token.principal().toString())
     }

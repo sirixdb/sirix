@@ -3,8 +3,8 @@ package org.sirix.rest.crud.json
 import com.google.gson.stream.JsonReader
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.sirix.rest.AuthRole
@@ -70,9 +70,9 @@ class JsonSessionDBStore(private val ctx: RoutingContext, private val dbStore: J
 
     private fun checkIfAuthorized(name: String, role: AuthRole) {
         GlobalScope.launch(ctx.vertx().dispatcher()) {
-            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
+            val isAuthorized = user.isAuthorized(role.databaseRole(name)).await()
 
-            require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
+            require(isAuthorized || user.isAuthorized(role.keycloakRole()).await()) {
                 IllegalStateException("User is not allowed to $role the database $name")
             }
         }

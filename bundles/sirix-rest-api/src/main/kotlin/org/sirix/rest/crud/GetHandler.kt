@@ -126,7 +126,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
                     .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                     .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
                     .write(content)
-                    .end()
+                    .result()
             }
         } else {
             with(acceptHeader) {

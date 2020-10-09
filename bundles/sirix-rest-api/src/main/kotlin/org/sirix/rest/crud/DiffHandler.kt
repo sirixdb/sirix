@@ -99,7 +99,7 @@ class DiffHandler(private val location: Path) {
                 diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
             )
             .write(diff)
-            .end()
+            .result()
 
         return ctx.currentRoute()
     }
