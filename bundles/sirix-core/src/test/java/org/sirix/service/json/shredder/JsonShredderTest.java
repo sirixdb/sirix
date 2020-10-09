@@ -66,7 +66,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -76,7 +75,6 @@ public final class JsonShredderTest {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                      .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                      .buildPathSummary(true)
-                                                     .hashKind(HashType.NONE)
                                                      .useTextCompression(false)
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);

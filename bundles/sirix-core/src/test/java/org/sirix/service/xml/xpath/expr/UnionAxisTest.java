@@ -58,29 +58,29 @@ public class UnionAxisTest {
 
     holder.getXmlNodeReadTrx().moveTo(1L);
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node() union child::node()"),
         new long[] {1L, 4L, 5L, 8L, 9L, 13L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node() | child::node()"),
         new long[] {1L, 4L, 5L, 8L, 9L, 13L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(),
             "child::node()/parent::node() | child::node() | self::node()"),
         new long[] {1L, 4L, 5L, 8L, 9L, 13L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(),
             "child::node()/parent::node() | child::node() | self::node()" + "union parent::node()"),
         new long[] {1L, 4L, 5L, 8L, 9L, 13L, 0L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node() union text() | descendant::node()"),
         new long[] {4L, 8L, 7L, 6L, 5L, 13L, 9L, 11L, 12L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "//c/ancestor::node() | //node()"),
         new long[] {5L, 1L, 9L, 4L, 8L, 13L, 6L, 7L, 11L, 12L});
 

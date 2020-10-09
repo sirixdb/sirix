@@ -50,11 +50,11 @@ public class NonStructuralWrapperAxisTest {
   public void testAxisConventions() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new NonStructuralWrapperAxis(new DescendantAxis(rtx)),
         new long[] {1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L, 13L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new NonStructuralWrapperAxis(new DescendantAxis(rtx.moveTo(9).trx())),
         new long[] {10L, 11L, 12L});
   }
