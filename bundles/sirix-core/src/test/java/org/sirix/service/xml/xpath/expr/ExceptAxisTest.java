@@ -58,23 +58,23 @@ public class ExceptAxisTest {
 
     holder.getXmlNodeReadTrx().moveTo(1L);
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node() except b"), new long[] {4L, 8L, 13L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node() except child::node()[attribute::p:x]"),
         new long[] {4L, 5L, 8L, 13L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node() except self::node()"),
         new long[] {});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "//node() except //text()"),
         new long[] {1L, 5L, 9L, 7L, 11L});
 
     holder.getXmlNodeReadTrx().moveTo(1L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node() except text()"),
         new long[] {7L, 6L, 5L});
 

@@ -51,20 +51,20 @@ public class PrecedingSiblingAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(12L);
-    AbsAxisTest.testIAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {11L});
+    AbsAxisTest.testAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {11L});
 
     rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {4L});
+    AbsAxisTest.testAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {4L});
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {4L, 5L, 8L, 9L});
+    AbsAxisTest.testAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {4L, 5L, 8L, 9L});
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {});
 
     rtx.moveTo(9L);
     rtx.moveToAttribute(0);
-    AbsAxisTest.testIAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {});
   }
 
 }

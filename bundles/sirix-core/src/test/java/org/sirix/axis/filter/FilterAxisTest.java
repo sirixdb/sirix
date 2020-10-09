@@ -56,7 +56,7 @@ public class FilterAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new FilterAxis(new DescendantAxis(rtx), new XmlNameFilter(rtx, "b")), new long[] {5L, 9L});
   }
 
@@ -65,7 +65,7 @@ public class FilterAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new FilterAxis(new DescendantAxis(rtx), new ValueFilter(rtx, "foo")), new long[] {6L});
   }
 
@@ -74,12 +74,12 @@ public class FilterAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "i"), new ValueFilter(rtx, "j")),
         new long[] {3L});
 
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "y"), new ValueFilter(rtx, "y")),
         new long[] {});
 

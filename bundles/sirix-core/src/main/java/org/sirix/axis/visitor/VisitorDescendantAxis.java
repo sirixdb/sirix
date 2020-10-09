@@ -168,7 +168,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // Determines if first call to hasNext().
     if (mFirst) {
       mFirst = false;
-      return isSelfIncluded() == IncludeSelf.YES
+      return includeSelf() == IncludeSelf.YES
           ? cursor.getNodeKey()
           : cursor.getFirstChildKey();
     }

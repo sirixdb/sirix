@@ -58,28 +58,28 @@ public class IntersectAxisTest {
 
     holder.getXmlNodeReadTrx().moveTo(1L);
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node() intersect b"), new long[] {5L, 9L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(),
             "child::node() intersect b intersect child::node()[@p:x]"),
         new long[] {9L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node() intersect child::node()[attribute::p:x]"),
         new long[] {9L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node() intersect self::node()"),
         new long[] {1L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "//node() intersect //text()"),
         new long[] {4L, 8L, 13L, 6L, 12L});
 
     holder.getXmlNodeReadTrx().moveTo(1L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node() intersect text()"),
         new long[] {4L, 8L});
 

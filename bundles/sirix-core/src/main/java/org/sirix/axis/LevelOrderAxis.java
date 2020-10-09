@@ -173,7 +173,7 @@ public final class LevelOrderAxis extends AbstractAxis {
         return done();
       }
 
-      if (isSelfIncluded() == IncludeSelf.YES) {
+      if (includeSelf() == IncludeSelf.YES) {
         return cursor.getNodeKey();
       } else {
         if (cursor.hasRightSibling()) {
