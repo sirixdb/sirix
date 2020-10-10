@@ -54,19 +54,19 @@ public class AttributeAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {});
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {3L});
+    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {3L});
 
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {10L});
+    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {10L});
 
     rtx.moveTo(12L);
-    AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {});
 
     rtx.moveTo(2L);
-    AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {});
   }
 
   @Test

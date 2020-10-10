@@ -740,7 +740,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    *
    * @author Johannes Lichtenberger
    */
-  public final class AVLNodeIterator extends AbstractIterator<RBNode<K, V>> {
+  public final class RBNodeIterator extends AbstractIterator<RBNode<K, V>> {
 
     /**
      * Determines if it's the first call.
@@ -763,7 +763,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
      * @param nodeKey node key to start from, root node of AVLTree is selected if
      *                {@code Fixed.DOCUMENT_NODE_KEY.getStandardProperty} is specified.
      */
-    public AVLNodeIterator(final long nodeKey) {
+    public RBNodeIterator(final long nodeKey) {
       first = true;
       keys = new ArrayDeque<>();
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");

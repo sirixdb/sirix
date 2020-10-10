@@ -51,12 +51,12 @@ public class ChildAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new ChildAxis(rtx), new long[] {4L, 5L, 8L, 9L, 13L});
+    AbsAxisTest.testAxisConventions(new ChildAxis(rtx), new long[] {4L, 5L, 8L, 9L, 13L});
 
     rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new ChildAxis(rtx), new long[] {6L, 7L});
+    AbsAxisTest.testAxisConventions(new ChildAxis(rtx), new long[] {6L, 7L});
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new ChildAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new ChildAxis(rtx), new long[] {});
   }
 }

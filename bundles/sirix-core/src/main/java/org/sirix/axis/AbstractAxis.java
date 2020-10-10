@@ -325,7 +325,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public final IncludeSelf isSelfIncluded() {
+  public final IncludeSelf includeSelf() {
     return includeSelf;
   }
 
