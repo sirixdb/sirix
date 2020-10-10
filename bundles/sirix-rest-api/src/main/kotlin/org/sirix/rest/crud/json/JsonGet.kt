@@ -84,7 +84,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
 
-                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -277,72 +277,77 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private fun serializeResource(
+    private suspend fun serializeResource(
         manager: JsonResourceManager, revisions: IntArray, nodeId: Long?,
-        ctx: RoutingContext
+        ctx: RoutingContext,
+        vertxContext: Context
     ): String {
-        val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
-        val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
+        val serializedString =  vertxContext.executeBlockingAwait { promise: Promise<String> ->
+            val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
+            val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
-        val out = StringWriter()
+            val out = StringWriter()
 
-        val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
-        val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
-        val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
+            val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
+            val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
+            val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
-        if (nextTopLevelNodes == null) {
-            val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
+            if (nextTopLevelNodes == null) {
+                val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
 
-            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+                nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
-            if (withMetaData != null) {
-                when (withMetaData) {
-                    "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
-                    "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
-                    else -> serializerBuilder.withMetaData(true)
+                if (withMetaData != null) {
+                    when (withMetaData) {
+                        "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
+                        "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                        else -> serializerBuilder.withMetaData(true)
+                    }
                 }
-            }
 
-            if (maxLevel != null) {
-                serializerBuilder.maxLevel(maxLevel.toLong())
-            }
-
-            if (prettyPrint != null) {
-                serializerBuilder.prettyPrint()
-            }
-
-            val serializer = serializerBuilder.build()
-
-            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
-        } else {
-            val serializerBuilder =
-                JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
-
-            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
-
-            if (withMetaData != null) {
-                when (withMetaData) {
-                    "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
-                    "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
-                    else -> serializerBuilder.withMetaData(true)
+                if (maxLevel != null) {
+                    serializerBuilder.maxLevel(maxLevel.toLong())
                 }
+
+                if (prettyPrint != null) {
+                    serializerBuilder.prettyPrint()
+                }
+
+                val serializer = serializerBuilder.build()
+
+                promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
+            } else {
+                val serializerBuilder =
+                    JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
+
+                nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+
+                if (withMetaData != null) {
+                    when (withMetaData) {
+                        "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
+                        "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                        else -> serializerBuilder.withMetaData(true)
+                    }
+                }
+
+                if (maxLevel != null) {
+                    serializerBuilder.maxLevel(maxLevel.toLong())
+                }
+
+                if (prettyPrint != null) {
+                    serializerBuilder.prettyPrint()
+                }
+
+                if (lastTopLevelNodeKey != null) {
+                    serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
+                }
+
+                val serializer = serializerBuilder.build()
+
+                promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
             }
-
-            if (maxLevel != null) {
-                serializerBuilder.maxLevel(maxLevel.toLong())
-            }
-
-            if (prettyPrint != null) {
-                serializerBuilder.prettyPrint()
-            }
-
-            if (lastTopLevelNodeKey != null) {
-                serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
-            }
-
-            val serializer = serializerBuilder.build()
-
-            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
         }
+
+        return serializedString!!
     }
 }

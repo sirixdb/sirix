@@ -37,7 +37,7 @@ public interface NameIndex<B, L extends ChangeListener> {
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
     } else {
       final Iterator<RBNode<QNm, NodeReferences>> iter =
-          reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+          reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
 
       return new IndexFilterAxis<>(iter, setFilter);

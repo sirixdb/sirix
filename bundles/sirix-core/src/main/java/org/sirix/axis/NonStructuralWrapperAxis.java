@@ -71,7 +71,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
   @Override
   protected long nextKey() {
     final XmlNodeReadOnlyTrx trx = mParentAxis.asXdmNodeReadTrx();
-    if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
+    if (mParentAxis.includeSelf() == IncludeSelf.NO || !mFirst) {
       final long nodeKey = nonStructural(trx);
       if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
         return nodeKey;

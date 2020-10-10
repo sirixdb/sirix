@@ -77,7 +77,7 @@ public final class DescendantAxis extends AbstractAxis {
     if (mFirst) {
       mFirst = false;
 
-      if (isSelfIncluded() == IncludeSelf.YES) {
+      if (includeSelf() == IncludeSelf.YES) {
         key = cursor.getNodeKey();
       } else {
         key = cursor.getFirstChildKey();

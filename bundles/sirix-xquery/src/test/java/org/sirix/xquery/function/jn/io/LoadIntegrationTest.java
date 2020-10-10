@@ -31,7 +31,6 @@ public final class LoadIntegrationTest extends TestCase {
 
   @Test
   public void test() {
-
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);

@@ -68,7 +68,7 @@ public final class PostOrderAxis extends AbstractAxis {
 
     // No subtree.
     if (!cursor.hasFirstChild() && cursor.getNodeKey() == getStartKey() || isStartKey) {
-      if (!isStartKey && isSelfIncluded() == IncludeSelf.YES) {
+      if (!isStartKey && includeSelf() == IncludeSelf.YES) {
         isStartKey = true;
         return cursor.getNodeKey();
       } else {
@@ -106,7 +106,7 @@ public final class PostOrderAxis extends AbstractAxis {
 
     // Traversal is at start key.
     if (key == getStartKey()) {
-      if (isSelfIncluded() == IncludeSelf.YES) {
+      if (includeSelf() == IncludeSelf.YES) {
         isStartKey = true;
         return key;
       } else {

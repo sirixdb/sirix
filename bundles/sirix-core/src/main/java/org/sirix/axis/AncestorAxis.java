@@ -69,7 +69,7 @@ public final class AncestorAxis extends AbstractAxis {
     final NodeCursor cursor = getCursor();
 
     // Self
-    if (mFirst && isSelfIncluded() == IncludeSelf.YES) {
+    if (mFirst && includeSelf() == IncludeSelf.YES) {
       mFirst = false;
       return cursor.getNodeKey();
     }
