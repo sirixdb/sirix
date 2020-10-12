@@ -16,6 +16,7 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.json.shredder.JsonShredder;
@@ -297,9 +298,9 @@ public final class JsonSerializerTest {
                                                                         .build();
       serializer.call();
 
-      final var expected =
-          Files.readString(JSON.resolve("test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
-                           StandardCharsets.UTF_8);
+      final var expected = Files.readString(JSON.resolve(
+          "test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+                                            StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -345,7 +346,8 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected =
-          Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"), StandardCharsets.UTF_8);
+          Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"),
+                           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -400,37 +402,30 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
-      try (final Writer writer = new StringWriter()) {
-        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(3).build();
-        serializer.call();
+      var serializedString = getSerializedStringFromMaxLevelAndNumberOfNodes(manager, 2, 3);
+      var expected = "{\"foo\":[]}";
+      assertEquals(expected, serializedString);
 
-        final var expected = "{\"foo\":[]}";
-        assertEquals(expected, writer.toString());
-      }
+      serializedString = getSerializedStringFromMaxLevelAndNumberOfNodes(manager, 2, 4);
+      assertEquals(expected, serializedString);
 
-      try (final Writer writer = new StringWriter()) {
-        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(4).build();
-        serializer.call();
+      serializedString = getSerializedStringFromMaxLevelAndNumberOfNodes(manager, 2, 5);
+      expected = "{\"foo\":[],\"bar\":{}}";
+      assertEquals(expected, serializedString);
 
-        final var expected = "{\"foo\":[]}";
-        assertEquals(expected, writer.toString());
-      }
+      serializedString = getSerializedStringFromMaxLevelAndNumberOfNodes(manager, 2, 6);
+      assertEquals(expected, serializedString);
+    }
+  }
 
-      try (final Writer writer = new StringWriter()) {
-        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(5).build();
-        serializer.call();
+  private String getSerializedStringFromMaxLevelAndNumberOfNodes(final JsonResourceManager manager, final int maxLevel,
+      final int numberOfNodes) throws IOException {
+    try (final Writer writer = new StringWriter()) {
+      final var serializer =
+          new JsonSerializer.Builder(manager, writer).maxLevel(maxLevel).numberOfNodes(numberOfNodes).build();
+      serializer.call();
 
-        final var expected = "{\"foo\":[],\"bar\":{}}";
-        assertEquals(expected, writer.toString());
-      }
-
-      try (final Writer writer = new StringWriter()) {
-        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(6).build();
-        serializer.call();
-
-        final var expected = "{\"foo\":[],\"bar\":{}}";
-        assertEquals(expected, writer.toString());
-      }
+      return writer.toString();
     }
   }
 
