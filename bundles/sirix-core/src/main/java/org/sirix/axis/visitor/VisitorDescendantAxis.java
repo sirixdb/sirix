@@ -54,13 +54,13 @@ import org.sirix.settings.Fixed;
 public final class VisitorDescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> mRightSiblingKeyStack;
+  private Deque<Long> rightSiblingKeyStack;
 
   /** Optional visitor. */
-  private NodeVisitor mVisitor;
+  private NodeVisitor visitor;
 
   /** Determines if it is the first call. */
-  private boolean mFirst;
+  private boolean isFirstCall;
 
   /**
    * Get a new builder instance.
@@ -76,13 +76,13 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   public static class Builder {
 
     /** Optional visitor. */
-    private NodeVisitor mVisitor;
+    private NodeVisitor visitor;
 
-    /** Sirix {@link XmlNodeReadOnlyTrx}. */
-    private final NodeCursor mRtx;
+    /** Sirix node cursor. */
+    private final NodeCursor rtx;
 
     /** Determines if current node should be included or not. */
-    private IncludeSelf mIncludeSelf = IncludeSelf.NO;
+    private IncludeSelf includeSelf = IncludeSelf.NO;
 
     /**
      * Constructor.
@@ -90,7 +90,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @param rtx Sirix {@link NodeCursor}
      */
     public Builder(final NodeCursor rtx) {
-      mRtx = checkNotNull(rtx);
+      this.rtx = checkNotNull(rtx);
     }
 
     /**
@@ -99,7 +99,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder includeSelf() {
-      mIncludeSelf = IncludeSelf.YES;
+      includeSelf = IncludeSelf.YES;
       return this;
     }
 
@@ -110,7 +110,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder visitor(final NodeVisitor visitor) {
-      mVisitor = checkNotNull(visitor);
+      this.visitor = checkNotNull(visitor);
       return this;
     }
 
@@ -130,15 +130,15 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    * @param builder the builder to construct a new instance
    */
   private VisitorDescendantAxis(final Builder builder) {
-    super(builder.mRtx, builder.mIncludeSelf);
-    mVisitor = builder.mVisitor;
+    super(builder.rtx, builder.includeSelf);
+    visitor = builder.visitor;
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<>();
+    isFirstCall = true;
+    rightSiblingKeyStack = new ArrayDeque<>();
   }
 
   @Override
@@ -146,11 +146,11 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // Visitor.
     VisitResult result = null;
 
-    if (mVisitor != null) {
+    if (visitor != null) {
       if (getTrx() instanceof XmlNodeReadOnlyTrx)
-        result = asXdmNodeReadTrx().acceptVisitor((XmlNodeVisitor) mVisitor);
+        result = asXdmNodeReadTrx().acceptVisitor((XmlNodeVisitor) visitor);
       else if (getTrx() instanceof JsonNodeReadOnlyTrx)
-        result = asJsonNodeReadTrx().acceptVisitor((JsonNodeVisitor) mVisitor);
+        result = asJsonNodeReadTrx().acceptVisitor((JsonNodeVisitor) visitor);
       else
         throw new AssertionError();
     }
@@ -166,8 +166,8 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     final NodeCursor cursor = getCursor();
 
     // Determines if first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
+    if (isFirstCall) {
+      isFirstCall = false;
       return includeSelf() == IncludeSelf.YES
           ? cursor.getNodeKey()
           : cursor.getFirstChildKey();
@@ -175,7 +175,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
     // If visitor is present and the the right sibling stack must be adapted.
     if (LocalVisitResult.SKIPSUBTREEPOPSTACK == result) {
-      mRightSiblingKeyStack.pop();
+      rightSiblingKeyStack.pop();
     }
 
     // If visitor is present and result is not
@@ -186,9 +186,9 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       if (cursor.hasFirstChild()) {
         final long key = cursor.getFirstChildKey();
         final long rightSiblNodeKey = cursor.getRightSiblingKey();
-        if (cursor.hasRightSibling() && (mRightSiblingKeyStack.isEmpty()
-            || mRightSiblingKeyStack.peek() != rightSiblNodeKey)) {
-          mRightSiblingKeyStack.push(rightSiblNodeKey);
+        if (cursor.hasRightSibling() && (rightSiblingKeyStack.isEmpty()
+            || rightSiblingKeyStack.peek() != rightSiblNodeKey)) {
+          rightSiblingKeyStack.push(rightSiblNodeKey);
         }
         return key;
       }
@@ -205,8 +205,8 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     }
 
     // Then follow right sibling on stack.
-    if (mRightSiblingKeyStack.size() > 0) {
-      final long nextKey = mRightSiblingKeyStack.pop();
+    if (rightSiblingKeyStack.size() > 0) {
+      final long nextKey = rightSiblingKeyStack.pop();
       return hasNextNode(nextKey, cursor.getNodeKey());
     }
 
