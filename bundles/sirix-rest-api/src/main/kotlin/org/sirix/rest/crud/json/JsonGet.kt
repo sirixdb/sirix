@@ -286,6 +286,8 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
             val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
             val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
+            val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
+
             val out = StringWriter()
 
             val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
@@ -311,6 +313,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 if (prettyPrint != null) {
                     serializerBuilder.prettyPrint()
+                }
+
+                if (numberOfNodes != null) {
+                    serializerBuilder.numberOfNodes(numberOfNodes)
                 }
 
                 val serializer = serializerBuilder.build()
@@ -347,6 +353,9 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                 promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
             }
         }
+
+        ctx.response().setStatusCode(200)
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
 
         return serializedString!!
     }
