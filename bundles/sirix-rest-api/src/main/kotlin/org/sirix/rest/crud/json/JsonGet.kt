@@ -348,6 +348,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                     serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
                 }
 
+                if (numberOfNodes != null) {
+                    serializerBuilder.numberOfNodes(numberOfNodes)
+                }
+
                 val serializer = serializerBuilder.build()
 
                 promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))

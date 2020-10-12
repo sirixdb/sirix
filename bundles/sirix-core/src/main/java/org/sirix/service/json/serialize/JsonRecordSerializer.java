@@ -28,6 +28,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final int numberOfRecords;
 
+  private final long numberOfNodes;
+
   private enum State {
     IS_OBJECT,
 
@@ -100,6 +102,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
     lastTopLevelNodeKey = builder.lastTopLevelNodeKey;
+    numberOfNodes = builder.maxNodes;
   }
 
   /**
@@ -217,6 +220,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
     private long lastTopLevelNodeKey;
 
+    private long maxNodes = Long.MAX_VALUE;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -290,6 +295,17 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     public Builder lastTopLevelNodeKey(final long nodeKey) {
       this.lastTopLevelNodeKey = nodeKey;
+      return this;
+    }
+
+    /**
+     * Specify the maximum of nodes.
+     *
+     * @param maxNodes max nodes to serialize
+     * @return this XMLSerializerBuilder reference
+     */
+    public Builder numberOfNodes(final long maxNodes) {
+      this.maxNodes = maxNodes;
       return this;
     }
 
@@ -421,6 +437,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                       withNodeKeyAndChildNodeKeyMetaData)
                                                                                   .withNodeKeyMetaData(
                                                                                       withNodeKeyMetaData)
+                                                                                  .numberOfNodes(numberOfNodes)
                                                                                   .build();
           jsonSerializer.emitNode(rtx);
 
@@ -457,6 +474,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                           withNodeKeyAndChildNodeKeyMetaData)
                                                                                       .withNodeKeyMetaData(
                                                                                           withNodeKeyMetaData)
+                                                                                      .numberOfNodes(numberOfNodes)
                                                                                       .build();
               jsonSerializer.call();
               if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
@@ -469,7 +487,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
                   rtx.moveToRightSibling();
                   nodeKey = rtx.getNodeKey();
                   out.append(",");
-                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData
+                      || withNodeKeyMetaData)) {
                     out.append("{");
                   }
                   jsonSerializer =
@@ -484,9 +503,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                               withNodeKeyAndChildNodeKeyMetaData)
                                                                                           .withNodeKeyMetaData(
                                                                                               withNodeKeyMetaData)
+                                                                                          .numberOfNodes(numberOfNodes)
                                                                                           .build();
                   jsonSerializer.call();
-                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData
+                      || withNodeKeyMetaData)) {
                     out.append("}");
                   }
                   rtx.moveTo(nodeKey);
