@@ -33,8 +33,6 @@ COPY bundles/sirix-rest-api/src/main/resources/sirix-conf.json ./
 VOLUME $VERTICLE_HOME
 EXPOSE 9443
 
-ENV JAVA_OPTS = "-Xms3g -Xmx8g"
-
 # Launch the verticle
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java $JAVA_OPTS --enable-preview --add-modules=jdk.incubator.foreign -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
+CMD ["exec java -Xms3g -Xmx8g --enable-preview --add-modules=jdk.incubator.foreign -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
