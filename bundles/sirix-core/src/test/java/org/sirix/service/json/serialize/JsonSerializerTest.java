@@ -395,6 +395,46 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testJsonDocumentWithMaxLevelAndNumberOfNodes() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(3).build();
+        serializer.call();
+
+        final var expected = "{\"foo\":[]}";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(4).build();
+        serializer.call();
+
+        final var expected = "{\"foo\":[]}";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(5).build();
+        serializer.call();
+
+        final var expected = "{\"foo\":[],\"bar\":{}}";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).numberOfNodes(6).build();
+        serializer.call();
+
+        final var expected = "{\"foo\":[],\"bar\":{}}";
+        assertEquals(expected, writer.toString());
+      }
+    }
+  }
+
+  @Test
   public void testJsonDocumentWithMaxLevelAndStartNodeKey() throws IOException {
     JsonTestHelper.createTestDocument();
 

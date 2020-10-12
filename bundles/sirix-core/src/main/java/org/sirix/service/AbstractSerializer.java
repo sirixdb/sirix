@@ -60,7 +60,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * Constructor.
    *
    * @param resMgr Sirix {@link ResourceManager}
-   * @param key key of root node from which to shredder the subtree
+   * @param key key of root node from which to serialize the subtree
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
@@ -125,7 +125,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         boolean closeElements = false;
         long key;
 
-        // Iterate over all nodes of the subtree including s.
+        // Iterate over all nodes of the subtree including self.
         while (descAxis.hasNext()) {
           key = descAxis.next();
 
@@ -149,14 +149,12 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           emitNode(rtx);
           rtx.moveTo(nodeKey);
 
-          // Push end element to stack if we are a start element with
-          // children.
+          // Push end element to stack if we are a start element with children.
           if (!rtx.isDocumentRoot() && (rtx.hasFirstChild() && isSubtreeGoingToBeVisited(rtx))) {
             stack.push(rtx.getNodeKey());
           }
 
-          // Remember to emit all pending end elements from stack if
-          // required.
+          // Remember to emit all pending end elements from stack if required.
           if ((!rtx.hasFirstChild() || isSubtreeGoingToBePruned(rtx)) && !rtx.hasRightSibling()) {
             closeElements = true;
           }
