@@ -60,7 +60,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   private NodeVisitor visitor;
 
   /** Determines if it is the first call. */
-  private boolean first;
+  private boolean isFirstCall;
 
   /**
    * Get a new builder instance.
@@ -137,7 +137,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    first = true;
+    isFirstCall = true;
     rightSiblingKeyStack = new ArrayDeque<>();
   }
 
@@ -166,8 +166,8 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     final NodeCursor cursor = getCursor();
 
     // Determines if first call to hasNext().
-    if (first) {
-      first = false;
+    if (isFirstCall) {
+      isFirstCall = false;
       return includeSelf() == IncludeSelf.YES
           ? cursor.getNodeKey()
           : cursor.getFirstChildKey();
