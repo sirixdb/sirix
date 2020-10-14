@@ -31,7 +31,7 @@ import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
-import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
@@ -105,7 +105,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   /**
    * Persistenter.
    */
-  private final RecordPersister recordPersister;
+  private final RecordSerializer recordPersister;
 
   /**
    * The resource configuration.

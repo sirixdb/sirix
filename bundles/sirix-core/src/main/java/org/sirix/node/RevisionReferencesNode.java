@@ -1,7 +1,7 @@
 package org.sirix.node;
 
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.node.interfaces.RecordSerializer;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -27,7 +27,7 @@ public final class RevisionReferencesNode implements DataRecord {
   }
 
   @Override
-  public RecordPersister getKind() {
+  public RecordSerializer getKind() {
     return NodeKind.REVISION_REFERENCES_NODE;
   }
 

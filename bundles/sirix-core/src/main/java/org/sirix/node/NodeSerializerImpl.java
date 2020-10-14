@@ -17,7 +17,7 @@ import java.util.Arrays;
  *
  * @author Johannes Lichtenberger
  */
-public final class NodePersistenterImpl implements NodePersistenter {
+public final class NodeSerializerImpl implements NodePersistenter {
   @Override
   public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
       final PageReadOnlyTrx pageReadTrx) throws IOException {
