@@ -32,8 +32,8 @@ import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.ByteHandlerKind;
 import org.sirix.io.bytepipe.SnappyCompressor;
-import org.sirix.node.NodePersistenterImpl;
-import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.node.NodeSerializerImpl;
+import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
 
@@ -180,9 +180,9 @@ public final class ResourceConfiguration {
   private static final int VERSIONS_TO_RESTORE = 3;
 
   /**
-   * Persistenter for records.
+   * Serializer for records.
    */
-  private static final RecordPersister PERSISTENTER = new NodePersistenterImpl();
+  private static final RecordSerializer NODE_SERIALIZER = new NodeSerializerImpl();
 
   // END FIXED STANDARD FIELDS
 
@@ -235,7 +235,7 @@ public final class ResourceConfiguration {
   /**
    * Persistents records / commonly nodes.
    */
-  public final RecordPersister recordPersister;
+  public final RecordSerializer recordPersister;
 
   /**
    * Unique ID.
@@ -262,6 +262,9 @@ public final class ResourceConfiguration {
    */
   private boolean storeChildCount;
 
+  /**
+   * Determines if diffs are going to be stored or not.
+   */
   private final boolean storeDiffs;
 
   // END MEMBERS FOR FIXED FIELDS
@@ -318,6 +321,11 @@ public final class ResourceConfiguration {
     return this;
   }
 
+  /**
+   * Get the storage type.
+   *
+   * @return The storage type.
+   */
   public StorageType getStorageType() {
     return storageType;
   }
@@ -537,7 +545,7 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[11]);
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
-      final RecordPersister persistenter = (RecordPersister) persistenterConstr.newInstance();
+      final RecordSerializer serializer = (RecordSerializer) persistenterConstr.newInstance();
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[12]);
       final boolean storeDiffs = jsonReader.nextBoolean();
@@ -556,7 +564,7 @@ public final class ResourceConfiguration {
              .versioningApproach(revisioning)
              .revisionsToRestore(revisionToRestore)
              .storageType(storage)
-             .persistenter(persistenter)
+             .persistenter(serializer)
              .useTextCompression(compression)
              .buildPathSummary(pathSummary)
              .useDeweyIDs(deweyIDsStored)
@@ -609,7 +617,7 @@ public final class ResourceConfiguration {
     /**
      * Record/Node persistenter.
      */
-    private RecordPersister persistenter = PERSISTENTER;
+    private RecordSerializer persistenter = NODE_SERIALIZER;
 
     /**
      * Resource for this session.
@@ -674,7 +682,7 @@ public final class ResourceConfiguration {
      * @param persistenter the record persistenter
      * @return reference to the builder object
      */
-    public Builder persistenter(final RecordPersister persistenter) {
+    public Builder persistenter(final RecordSerializer persistenter) {
       this.persistenter = checkNotNull(persistenter);
       return this;
     }
