@@ -35,6 +35,7 @@ import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.node.NodePersistenterImpl;
 import org.sirix.node.interfaces.RecordPersister;
 import org.sirix.settings.VersioningType;
+import org.sirix.utils.OS;
 
 import javax.annotation.Nonnegative;
 import java.io.FileReader;
@@ -67,34 +68,50 @@ public final class ResourceConfiguration {
    */
   public enum ResourcePaths {
 
-    /** Folder for storage of data. */
+    /**
+     * Folder for storage of data.
+     */
     DATA(Paths.get("data"), true),
 
-    /** Folder for the transaction log. */
+    /**
+     * Folder for the transaction log.
+     */
     TRANSACTION_INTENT_LOG(Paths.get("log"), true),
 
-    /** File to store the resource settings. */
+    /**
+     * File to store the resource settings.
+     */
     CONFIG_BINARY(Paths.get("ressetting.obj"), false),
 
-    /** File to store index definitions. */
+    /**
+     * File to store index definitions.
+     */
     INDEXES(Paths.get("indexes"), true),
 
-    /** Folder to store the encryption key. */
+    /**
+     * Folder to store the encryption key.
+     */
     ENCRYPTION_KEY(Paths.get("encryption"), true),
 
-    /** Folder to store the update operations. */
+    /**
+     * Folder to store the update operations.
+     */
     UPDATE_OPERATIONS(Paths.get("update-operations"), true);
 
-    /** Location of the file. */
+    /**
+     * Location of the file.
+     */
     private final Path path;
 
-    /** Is the location a folder or no? */
+    /**
+     * Is the location a folder or no?
+     */
     private final boolean isFolder;
 
     /**
      * Constructor.
      *
-     * @param path the path
+     * @param path     the path
      * @param isFolder determines if the path denotes a filer or not
      */
     ResourcePaths(final Path path, final boolean isFolder) {
@@ -125,7 +142,7 @@ public final class ResourceConfiguration {
      *
      * @param file to be checked
      * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if the
-     *         structure has more folders
+     * structure has more folders
      * @throws NullPointerException if {@code file} is {@code null}
      */
     public static int compareStructure(final Path file) {
@@ -141,67 +158,108 @@ public final class ResourceConfiguration {
   }
 
   // FIXED STANDARD FIELDS
-  /** Standard storage. */
-  private static final StorageType STORAGE = StorageType.MEMORY_MAPPED;
+  /**
+   * Standard storage.
+   */
+  private static final StorageType STORAGE =
+      OS.isWindows() ? StorageType.FILE : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE;
 
-  /** Standard versioning approach. */
+  /**
+   * Standard versioning approach.
+   */
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
-  /** Type of hashing. */
+  /**
+   * Type of hashing.
+   */
   private static final HashType HASHKIND = HashType.ROLLING;
 
-  /** Versions to restore. */
+  /**
+   * Versions to restore.
+   */
   private static final int VERSIONS_TO_RESTORE = 3;
 
-  /** Persistenter for records. */
+  /**
+   * Persistenter for records.
+   */
   private static final RecordPersister PERSISTENTER = new NodePersistenterImpl();
 
   // END FIXED STANDARD FIELDS
 
   // MEMBERS FOR FIXED FIELDS
-  /** Type of Storage (File, BerkeleyDB). */
+  /**
+   * Type of Storage (File, BerkeleyDB).
+   */
   public final StorageType storageType;
 
-  /** Kind of revisioning (Full, Incremental, Differential). */
+  /**
+   * Kind of revisioning (Full, Incremental, Differential).
+   */
   public final VersioningType revisioningType;
 
-  /** Kind of integrity hash (rolling, postorder). */
+  /**
+   * Kind of integrity hash (rolling, postorder).
+   */
   public final HashType hashType;
 
-  /** Number of revisions to restore a complete set of data. */
+  /**
+   * Number of revisions to restore a complete set of data.
+   */
   public final int numberOfRevisionsToRestore;
 
-  /** Byte handler pipeline. */
+  /**
+   * Byte handler pipeline.
+   */
   public final ByteHandlePipeline byteHandlePipeline;
 
-  /** Path for the resource to be associated. */
+  /**
+   * Path for the resource to be associated.
+   */
   public Path resourcePath;
 
-  /** DatabaseConfiguration for this {@link ResourceConfiguration}. */
+  /**
+   * DatabaseConfiguration for this {@link ResourceConfiguration}.
+   */
   private DatabaseConfiguration databaseConfig;
 
-  /** Determines if text-compression should be used or not (default is true). */
+  /**
+   * Determines if text-compression should be used or not (default is true).
+   */
   public final boolean useTextCompression;
 
-  /** Determines if a path summary should be build and kept up to date or not. */
+  /**
+   * Determines if a path summary should be build and kept up to date or not.
+   */
   public final boolean withPathSummary;
 
-  /** Persistents records / commonly nodes. */
+  /**
+   * Persistents records / commonly nodes.
+   */
   public final RecordPersister recordPersister;
 
-  /** Unique ID. */
+  /**
+   * Unique ID.
+   */
   private long id;
 
-  /** Determines if dewey IDs are generated and stored or not. */
+  /**
+   * Determines if dewey IDs are generated and stored or not.
+   */
   public final boolean areDeweyIDsStored;
 
-  /** The hash function used for hashing nodes. */
+  /**
+   * The hash function used for hashing nodes.
+   */
   public final HashFunction nodeHashFunction;
 
-  /** The name of the resource. */
+  /**
+   * The name of the resource.
+   */
   private String resourceName;
 
-  /** Determines whether resource child count should be tracked */
+  /**
+   * Determines whether resource child count should be tracked
+   */
   private boolean storeChildCount;
 
   private final boolean storeDiffs;
@@ -212,8 +270,8 @@ public final class ResourceConfiguration {
    * Get a new builder instance.
    *
    * @param resource the name of the resource
-   * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
    * @return {@link Builder} instance
+   * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
    */
   public static Builder newBuilder(final String resource) {
     return new Builder(resource);
@@ -242,8 +300,9 @@ public final class ResourceConfiguration {
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
     databaseConfig = checkNotNull(config);
-    resourcePath =
-        databaseConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+    resourcePath = databaseConfig.getDatabaseFile()
+                                 .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                 .resolve(resourceName);
     return this;
   }
 
@@ -338,7 +397,7 @@ public final class ResourceConfiguration {
     return resourcePath.resolve(ResourcePaths.CONFIG_BINARY.getPath());
   }
 
-  public boolean getStoreChildCount(){
+  public boolean getStoreChildCount() {
     return storeChildCount;
   }
 
@@ -346,8 +405,9 @@ public final class ResourceConfiguration {
    * JSON names.
    */
   private static final String[] JSONNAMES =
-      {"revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind",
-          "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs"};
+      { "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind",
+          "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter",
+          "storeDiffs" };
 
   /**
    * Serialize the configuration.
@@ -358,7 +418,7 @@ public final class ResourceConfiguration {
   public static void serialize(final ResourceConfiguration config) throws SirixIOException {
     final Path configFile = config.getConfigFile();
     try (final FileWriter fileWriter = new FileWriter(configFile.toFile());
-        final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
+         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
       // Versioning.
       jsonWriter.name(JSONNAMES[0]);
@@ -403,6 +463,7 @@ public final class ResourceConfiguration {
   /**
    * Deserializing a Resource configuration from a JSON-file from the persistent storage.
    * //todo add track child count parameter here
+   *
    * @param file where the resource lies in.
    * @return a complete {@link ResourceConfiguration} instance
    * @throws SirixIOException if an I/O error occurs
@@ -437,8 +498,7 @@ public final class ResourceConfiguration {
         jsonReader.endObject();
       }
       jsonReader.endArray();
-      final ByteHandlePipeline pipeline =
-          new ByteHandlePipeline(handlerList.toArray(new ByteHandler[0]));
+      final ByteHandlePipeline pipeline = new ByteHandlePipeline(handlerList.toArray(new ByteHandler[0]));
       // Storage type.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[4]);
@@ -506,8 +566,7 @@ public final class ResourceConfiguration {
       final ResourceConfiguration config = new ResourceConfiguration(builder);
       config.setDatabaseConfiguration(dbConfig);
       return config.setID(ID);
-    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException
-        | IllegalAccessException | InvocationTargetException e) {
+    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
       throw new SirixIOException(e);
     }
   }
@@ -517,43 +576,69 @@ public final class ResourceConfiguration {
    */
   public static final class Builder {
 
-    /** Determines if diffs should be stored or not. */
+    /**
+     * Determines if diffs should be stored or not.
+     */
     public boolean storeDiffs = true;
 
-    /** Hashing function for hashing nodes. */
+    /**
+     * Hashing function for hashing nodes.
+     */
     private HashFunction hashFunction = Hashing.sha256();
 
-    /** Type of Storage (File, Berkeley). */
+    /**
+     * Type of Storage (File, Berkeley).
+     */
     private StorageType type = STORAGE;
 
-    /** Kind of revisioning (Incremental, Differential). */
+    /**
+     * Kind of revisioning (Incremental, Differential).
+     */
     private VersioningType revisionKind = VERSIONING;
 
-    /** Kind of integrity hash (rolling, postorder). */
+    /**
+     * Kind of integrity hash (rolling, postorder).
+     */
     private HashType hashKind = HASHKIND;
 
-    /** Number of revisions to restore a complete set of data. */
+    /**
+     * Number of revisions to restore a complete set of data.
+     */
     private int revisionsToRestore = VERSIONS_TO_RESTORE;
 
-    /** Record/Node persistenter. */
+    /**
+     * Record/Node persistenter.
+     */
     private RecordPersister persistenter = PERSISTENTER;
 
-    /** Resource for this session. */
+    /**
+     * Resource for this session.
+     */
     private final String resource;
 
-    /** Determines if text-compression should be used or not (default is true). */
+    /**
+     * Determines if text-compression should be used or not (default is true).
+     */
     private boolean useTextCompression;
 
-    /** Byte handler pipeline. */
+    /**
+     * Byte handler pipeline.
+     */
     private ByteHandlePipeline byteHandler;
 
-    /** Determines if DeweyIDs should be used or not. */
+    /**
+     * Determines if DeweyIDs should be used or not.
+     */
     private boolean useDeweyIDs;
 
-    /** Determines if a path summary should be build or not. */
+    /**
+     * Determines if a path summary should be build or not.
+     */
     private boolean pathSummary;
 
-    /** Determines whether child count should be tracked or not. */
+    /**
+     * Determines whether child count should be tracked or not.
+     */
     private boolean storeChildCount;
 
     /**
@@ -653,7 +738,7 @@ public final class ResourceConfiguration {
     /**
      * Determines if DeweyIDs should be stored or not.
      *
-     * @param  useDeweyIDs flag whihc represents to use the deweyIds
+     * @param useDeweyIDs flag whihc represents to use the deweyIds
      * @return reference to the builder object
      */
     public Builder useDeweyIDs(final boolean useDeweyIDs) {
