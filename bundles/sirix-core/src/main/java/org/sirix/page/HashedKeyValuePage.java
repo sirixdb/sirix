@@ -7,11 +7,10 @@ import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.node.DeweyIDNode;
-import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
-import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.page.interfaces.KeyValuePage;
 
 import javax.annotation.Nonnegative;
@@ -29,7 +28,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   private final PageReadOnlyTrx pageReadOnlyTrx;
   private final IndexType indexType;
   private final ResourceConfiguration resourceConfig;
-  private final RecordPersister recordPersister;
+  private final RecordSerializer recordPersister;
 
   /**
    * Copy constructor.

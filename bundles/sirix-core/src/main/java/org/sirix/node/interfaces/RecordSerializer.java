@@ -14,7 +14,7 @@ import org.sirix.node.SirixDeweyID;
  * @author Johannes Lichtenberger
  *
  */
-public interface RecordPersister {
+public interface RecordSerializer {
   /**
    * Deserialize a record.
    *
