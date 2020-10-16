@@ -1,7 +1,7 @@
 package org.sirix.node;
 
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.node.interfaces.RecordSerializer;
 
 public final class DeweyIDNode implements DataRecord {
 
@@ -25,7 +25,7 @@ public final class DeweyIDNode implements DataRecord {
   }
 
   @Override
-  public RecordPersister getKind() {
+  public RecordSerializer getKind() {
     return NodeKind.DEWEY_ID_NODE;
   }
 
