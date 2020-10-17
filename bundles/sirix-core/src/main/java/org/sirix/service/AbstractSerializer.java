@@ -155,7 +155,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           }
 
           // Remember to emit all pending end elements from stack if required.
-          if ((!rtx.hasFirstChild() || isSubtreeGoingToBePruned(rtx)) && !rtx.hasRightSibling()) {
+          if ((!rtx.hasFirstChild() || isSubtreeGoingToBePruned(rtx)) && (!rtx.hasRightSibling() || areSiblingNodesGoingToBeSkipped(rtx))) {
             closeElements = true;
           }
         }
@@ -176,6 +176,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   }
 
   protected abstract void setTrxForVisitor(R rtx);
+
+  protected abstract boolean areSiblingNodesGoingToBeSkipped(R rtx);
 
   protected abstract boolean isSubtreeGoingToBePruned(R rtx);
 

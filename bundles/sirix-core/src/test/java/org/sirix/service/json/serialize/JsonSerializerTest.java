@@ -108,6 +108,44 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testJsonDocumentWithMaxChildren() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+      var serializedString = getSerializedStringWithMaxChildren(manager, 1);
+      var expected = Files.readString(JSON.resolve("jsonSerializer").resolve("document-with-1-maxChildren.json"),
+                                      StandardCharsets.UTF_8);
+      JSONAssert.assertEquals(expected, serializedString, true);
+
+      serializedString = getSerializedStringWithMaxChildren(manager, 2);
+      expected = Files.readString(JSON.resolve("jsonSerializer").resolve("document-with-2-maxChildren.json"),
+                                  StandardCharsets.UTF_8);
+      JSONAssert.assertEquals(expected, serializedString, true);
+
+      serializedString = getSerializedStringWithMaxChildren(manager, 3);
+      expected = Files.readString(JSON.resolve("jsonSerializer").resolve("document-with-3-maxChildren.json"),
+                                  StandardCharsets.UTF_8);
+      JSONAssert.assertEquals(expected, serializedString, true);
+
+      serializedString = getSerializedStringWithMaxChildren(manager, 4);
+      expected = Files.readString(JSON.resolve("jsonSerializer").resolve("document-with-4-maxChildren.json"),
+                                  StandardCharsets.UTF_8);
+      JSONAssert.assertEquals(expected, serializedString, true);
+    }
+  }
+
+  private String getSerializedStringWithMaxChildren(final JsonResourceManager manager, final int maxChildren)
+      throws IOException {
+    try (final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(manager, writer).maxChildren(maxChildren).build();
+      serializer.call();
+
+      return writer.toString();
+    }
+  }
+
+  @Test
   public void testJsonDocumentWithMetadata() throws IOException {
     JsonTestHelper.createTestDocument();
 
