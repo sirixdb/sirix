@@ -287,6 +287,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
             val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
             val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
+            val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
 
             val out = StringWriter()
 
@@ -309,6 +310,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 if (maxLevel != null) {
                     serializerBuilder.maxLevel(maxLevel.toLong())
+                }
+
+                if (maxChildren != null) {
+                    serializerBuilder.maxChildren(maxChildren.toLong())
                 }
 
                 if (prettyPrint != null) {
@@ -338,6 +343,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 if (maxLevel != null) {
                     serializerBuilder.maxLevel(maxLevel.toLong())
+                }
+
+                if (maxChildren != null) {
+                    serializerBuilder.maxChildren(maxChildren.toLong())
                 }
 
                 if (prettyPrint != null) {

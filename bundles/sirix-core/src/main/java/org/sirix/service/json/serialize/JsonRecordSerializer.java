@@ -30,6 +30,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final long numberOfNodes;
 
+  private final long maxChildNodes;
+
   private enum State {
     IS_OBJECT,
 
@@ -93,6 +95,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     this.resourceMgr = resourceMgr;
     initialize(revision, revisions);
     maxLevel = builder.maxLevel;
+    maxChildNodes = builder.maxChildNodes;
     out = builder.stream;
     indent = builder.indent;
     indentSpaces = builder.indentSpaces;
@@ -222,6 +225,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
     private long maxNodes = Long.MAX_VALUE;
 
+    private long maxChildNodes = Long.MAX_VALUE;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -317,6 +322,16 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     public Builder maxLevel(final long maxLevel) {
       this.maxLevel = maxLevel;
+      return this;
+    }
+
+    /**
+     * Sets the max number of child nodes to serialize.
+     *
+     * @return this reference
+     */
+    public Builder maxChildren(final long maxChildren) {
+      this.maxChildNodes = maxChildren;
       return this;
     }
 
@@ -467,6 +482,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                       .serializeStartNodeWithBrackets(
                                                                                           false)
                                                                                       .maxLevel(maxLevel)
+                                                                                      .maxChildren(maxChildNodes)
                                                                                       .serializeTimestamp(
                                                                                           serializeTimestamp)
                                                                                       .withMetaData(withMetaData)
@@ -496,6 +512,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                           .serializeStartNodeWithBrackets(
                                                                                               false)
                                                                                           .maxLevel(maxLevel)
+                                                                                          .maxChildren(maxChildNodes)
                                                                                           .serializeTimestamp(
                                                                                               serializeTimestamp)
                                                                                           .withMetaData(withMetaData)
