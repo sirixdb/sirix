@@ -209,7 +209,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     /**
      * Determines the maximum level to up to which to skip subtrees from serialization.
      */
-    private long maxLevel;
+    private long maxLevel = Long.MAX_VALUE;
 
     /**
      * Determines if nodeKey meta data should be serialized or not.
@@ -238,7 +238,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
     public Builder(final JsonResourceManager resourceMgr, final int numberOfRecords, final Appendable stream,
         final int... revisions) {
       this.numberOfRecords = numberOfRecords;
-      maxLevel = -1;
       nodeKey = 0;
       this.resourceMgr = checkNotNull(resourceMgr);
       this.stream = checkNotNull(stream);
