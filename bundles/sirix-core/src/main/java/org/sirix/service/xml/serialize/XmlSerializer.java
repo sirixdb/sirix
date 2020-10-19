@@ -451,6 +451,11 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
   }
 
+  @Override
+  protected boolean areSiblingNodesGoingToBeSkipped(final XmlNodeReadOnlyTrx rtx) {
+    return false;
+  }
+
   /**
    * Indentation of output.
    *
