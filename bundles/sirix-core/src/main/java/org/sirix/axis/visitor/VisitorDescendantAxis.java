@@ -207,7 +207,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   }
 
   @Nullable
-  private Long nextSiblingNodeKeyIfAvailable(VisitResult result, NodeCursor cursor) {
+  private long nextSiblingNodeKeyIfAvailable(VisitResult result, final NodeCursor cursor) {
     if (rightSiblingKeyStack.size() > 0) {
       final var nextKey = rightSiblingKeyStack.pop();
       final var nextNodeKey = getNextNodeKey(nextKey, cursor.getNodeKey());
