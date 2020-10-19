@@ -271,6 +271,8 @@ The fat-JAR in the future will be downloadable from the [maven repository](https
 ### Run the Integration Tests
 In order to run the integration tests under `bundles/sirix-rest-api/src/test/kotlin` make sure that you assign your admin user all the user-roles you have created in the Keycloak setup (last step). Make sure that Keycloak is running first and execute the tests in your favorite IDE for instance.
 
+Note that the following VM-parameters currently are needed: `-ea --enable-preview --add-modules=jdk.incubator.foreign?`
+
 ### Command-line tool
 We ship a (very) simple command-line tool for the sirix-xquery bundle:
 
