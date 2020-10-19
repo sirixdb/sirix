@@ -198,19 +198,19 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       // Then follow right sibling if there is one.
       if (cursor.hasRightSibling()) {
         final long nextKey = cursor.getRightSiblingKey();
-        return hasNextNode(nextKey, cursor.getNodeKey());
+        return getNextNodeKey(nextKey, cursor.getNodeKey());
       }
     }
 
     // Then follow right sibling on stack.
-    return nextSiblingNodeKeyIfAvailable(result, cursor, true);
+    return nextSiblingNodeKeyIfAvailable(result, cursor);
   }
 
   @Nullable
-  private Long nextSiblingNodeKeyIfAvailable(VisitResult result, NodeCursor cursor, boolean isFirstCall) {
+  private Long nextSiblingNodeKeyIfAvailable(VisitResult result, NodeCursor cursor) {
     if (rightSiblingKeyStack.size() > 0) {
-      long nextKey = rightSiblingKeyStack.pop();
-      long nextNodeKey = hasNextNode(nextKey, cursor.getNodeKey());
+      final var nextKey = rightSiblingKeyStack.pop();
+      final var nextNodeKey = getNextNodeKey(nextKey, cursor.getNodeKey());
 
       if (nextNodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
         return nextNodeKey;
@@ -231,7 +231,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
         }
 
         if (result == VisitResultType.SKIPSIBLINGS) {
-          return nextSiblingNodeKeyIfAvailable(result, cursor, false);
+          return nextSiblingNodeKeyIfAvailable(result, cursor);
         }
 
         cursor.moveTo(nodeKey);
@@ -243,13 +243,14 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * Determines if next node is not a right sibling of the current node.
+  /*
+   * Determines if next node is not a right sibling of the current node. If it is, the returned nodeKey will deliver
+   * the special null node key, to signal, that the traversal will end.
    *
+   * @param nextKey node key of the next node on the following axis (in a preorder traversal)
    * @param currKey node key of current node
    */
-  private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
-    // Fail if the subtree is finished.
+  private long getNextNodeKey(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
     final NodeCursor cursor = getCursor();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {
