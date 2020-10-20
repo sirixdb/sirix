@@ -76,8 +76,8 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_14
-        targetCompatibility = JavaVersion.VERSION_14
+        sourceCompatibility = JavaVersion.VERSION_15
+        targetCompatibility = JavaVersion.VERSION_15
         withSourcesJar()
         withJavadocJar()
 
@@ -90,7 +90,7 @@ subprojects {
         failOnError = false
         options {
             addBooleanOption('-enable-preview', true)
-            addStringOption('-release', '14')
+            addStringOption('-release', '15')
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
@@ -121,6 +121,10 @@ subprojects {
         java {
             licenseHeaderFile "${rootDir}/LICENSE"
         }
+    }
+    
+    jacoco {
+        toolVersion = "0.8.6"
     }
 
     jacocoTestReport {
