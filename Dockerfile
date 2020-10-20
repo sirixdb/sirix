@@ -1,7 +1,7 @@
 # Stage-1
 # Build jar
 
-FROM gradle:6.7-jdk15 as builder
+FROM gradle:6.7.0-jdk15 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
