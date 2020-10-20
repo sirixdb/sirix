@@ -29,7 +29,6 @@ import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
-import org.sirix.utils.OS;
 
 import java.io.*;
 import java.lang.invoke.VarHandle;
@@ -110,10 +109,10 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     }
 
     this.dataSegment =
-        MemorySegment.mapFromPath(checkNotNull(dataFile), currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFromPath(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
 
     this.revisionsOffsetSegment =
-        MemorySegment.mapFromPath(revisionsOffsetFile, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFromPath(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
 
     reader = new MMFileReader(dataFile,
                               revisionsOffsetFile,
@@ -231,7 +230,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
       ifSegmentIsAliveCloseSegment();
 
-      dataSegment = MemorySegment.mapFromPath(dataFile, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+      dataSegment = MemorySegment.mapFromPath(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
       reader.setDataSegment(dataSegment);
     }
   }
