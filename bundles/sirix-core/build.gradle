@@ -26,6 +26,7 @@ dependencies {
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
+    testImplementation testLibraries.byteBuddy
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.commonsCollections4
