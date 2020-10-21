@@ -5,15 +5,14 @@ LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
 # Basic environment variables
-ENV Xms 3g
-ENV XMX 8g
+ENV JAVA_OPTS "-Xms3g -Xmx8g"
 
 # Package jar
 COPY . .
 RUN gradle build --refresh-dependencies -x test
 
 # Stage-2
-# Copy jar and run the server 
+# Copy jar and run the server
 FROM openjdk:15-alpine as server
 RUN apk update && apk add --no-cache bash && apk add --no-cache gcompat
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
