@@ -23,7 +23,7 @@ public class NotMoved extends Move<NodeCursor> {
 
   @Override
   public NodeCursor trx() {
-    throw new NoSuchElementException("NotMoved.get() cannot be called on an absent value");
+    throw new NoSuchElementException("NotMoved.trx() cannot be called if the transaction hasn't moved");
   }
 
   @Override

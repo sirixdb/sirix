@@ -9,13 +9,8 @@ import kotlinx.cli.ExperimentalCli
 import kotlinx.cli.Subcommand
 import kotlinx.cli.required
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.parser.AbstractArgSubCommand
-import org.sirix.cli.parser.CreateResourceSubCommand
-import org.sirix.cli.parser.CreateSubcommand
-import org.sirix.cli.parser.DropResourceSubCommand
-import org.sirix.cli.parser.DropSubCommand
-import org.sirix.cli.parser.DumpResourceHistorySubCommand
-import org.sirix.cli.parser.QuerySubCommand
+import org.sirix.cli.commands.Update
+import org.sirix.cli.parser.*
 
 
 fun main(args: Array<String>) {
@@ -43,7 +38,8 @@ fun parseArgs(args: Array<String>): CliCommand? {
         CreateResourceSubCommand(),
         DropResourceSubCommand(),
         DumpResourceHistorySubCommand(),
-        QuerySubCommand()
+        QuerySubCommand(),
+        UpdateSubCommand()
     )
     argParser.subcommands(*subCommandList)
     argParser.parse(args)

@@ -144,7 +144,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     }
 
     private fun nextKeyForFirst(): Long {
-        return if (isSelfIncluded == IncludeSelf.YES) {
+        return if (includeSelf() == IncludeSelf.YES) {
             cursor.nodeKey
         } else {
             cursor.firstChildKey

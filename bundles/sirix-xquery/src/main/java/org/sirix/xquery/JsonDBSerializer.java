@@ -53,7 +53,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
 public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
@@ -75,14 +74,14 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
   @Override
   public void serialize(final Sequence sequence) {
     try {
-      if (sequence != null) {
-        if (first) {
-          first = false;
-          out.append("{\"rest\":[");
-        } else {
-          out.append(",");
-        }
+      if (first) {
+        first = false;
+        out.append("{\"rest\":[");
+      } else {
+        out.append(",");
+      }
 
+      if (sequence != null) {
         Item item = null;
         Iter it;
         if (sequence instanceof Array || sequence instanceof Record) {

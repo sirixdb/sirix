@@ -70,7 +70,7 @@ public class DocumentRootNodeTest {
     // Create empty node.
     final NodeDelegate nodeDel =
         new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-            Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+                         Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     final XmlDocumentRootNode node = new XmlDocumentRootNode(nodeDel, strucDel);

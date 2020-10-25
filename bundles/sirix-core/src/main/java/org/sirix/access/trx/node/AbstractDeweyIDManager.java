@@ -38,6 +38,25 @@ public abstract class AbstractDeweyIDManager<W extends NodeTrx & NodeCursor> {
   }
 
   /**
+   * Get an optional last child {@link SirixDeweyID} reference.
+   *
+   * @return optional last child {@link SirixDeweyID} reference
+   * @throws SirixException if generating an ID fails
+   */
+  public SirixDeweyID newLastChildID() {
+    SirixDeweyID id = null;
+    if (nodeTrx.storeDeweyIDs()) {
+      if (nodeTrx.hasLastChild()) {
+        nodeTrx.moveToLastChild();
+        id = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
+      } else {
+        id = nodeTrx.getDeweyID().getNewChildID();
+      }
+    }
+    return id;
+  }
+
+  /**
    * Get an optional left sibling {@link SirixDeweyID} reference.
    *
    * @return optional left sibling {@link SirixDeweyID} reference

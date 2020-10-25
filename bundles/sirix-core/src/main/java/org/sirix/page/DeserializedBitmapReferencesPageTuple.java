@@ -38,10 +38,10 @@ import java.util.List;
  */
 public final class DeserializedBitmapReferencesPageTuple {
   /** The page references. */
-  private final List<PageReference> mReferences;
+  private final List<PageReference> references;
 
   /** The bitmap. */
-  private final BitSet mBitmap;
+  private final BitSet bitmap;
 
   /**
    * Constructor.
@@ -50,8 +50,8 @@ public final class DeserializedBitmapReferencesPageTuple {
    * @param bitmap the bitmap
    */
   public DeserializedBitmapReferencesPageTuple(final List<PageReference> references, final BitSet bitmap) {
-    mReferences = references;
-    mBitmap = bitmap;
+    this.references = references;
+    this.bitmap = bitmap;
   }
 
   /**
@@ -60,7 +60,7 @@ public final class DeserializedBitmapReferencesPageTuple {
    * @return the bitmap
    */
   public BitSet getBitmap() {
-    return mBitmap;
+    return bitmap;
   }
 
   /**
@@ -69,6 +69,6 @@ public final class DeserializedBitmapReferencesPageTuple {
    * @return the references
    */
   public List<PageReference> getReferences() {
-    return mReferences;
+    return references;
   }
 }

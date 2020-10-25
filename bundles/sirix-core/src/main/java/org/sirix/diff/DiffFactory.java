@@ -165,46 +165,46 @@ public final class DiffFactory {
   public static final class Builder<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
 
     /** {@link ResourceManager} reference. */
-    final ResourceManager<R, W> mResMgr;
+    final ResourceManager<R, W> resMgr;
 
     /** Start key of new revision. */
-    transient long mNewStartKey;
+    transient long newStartKey;
 
     /** Start key of old revision. */
-    transient long mOldStartKey;
+    transient long oldStartKey;
 
     /** New revision. */
-    final int mNewRev;
+    final int newRev;
 
     /** Old revision. */
-    final int mOldRev;
+    final int oldRev;
 
     /** Depth of "root" node in new revision. */
-    transient int mNewDepth;
+    transient int newDepth;
 
     /** Depth of "root" node in old revision. */
-    transient int mOldDepth;
+    transient int oldDepth;
 
     /** Diff kind. */
-    final DiffOptimized mKind;
+    final DiffOptimized kind;
 
     /** {@link Set} of {@link DiffObserver}s. */
-    final Set<DiffObserver> mObservers;
+    final Set<DiffObserver> observers;
 
     /** Kind of diff to invoke. */
     transient DiffAlgorithm mDiffKind;
 
     /** Kind of hash. */
-    transient HashType mHashKind = HashType.ROLLING;
+    transient HashType hashKind = HashType.ROLLING;
 
     /** Set if the GUI is used. */
-    transient boolean mIsGUI = true;
+    transient boolean isGUI = true;
 
     /** Determines if subtrees are skipped after detecting an insert/delete... */
-    transient boolean mSkipSubtrees = false;
+    transient boolean skipSubtrees = false;
 
     /** The maximum depth. */
-      transient long mOldMaxDepth;
+      transient long oldMaxDepth;
 
     /**
      * Constructor.
@@ -217,13 +217,13 @@ public final class DiffFactory {
      */
     public Builder(final ResourceManager<R, W> resMgr, final @Nonnegative int newRev, final @Nonnegative int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
-      mResMgr = checkNotNull(resMgr);
+      this.resMgr = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
-      mNewRev = newRev;
+      this.newRev = newRev;
       checkArgument(oldRev >= 0, "paramOldRev must be >= 0!");
-      mOldRev = oldRev;
-      mKind = checkNotNull(diffKind);
-      mObservers = checkNotNull(observers);
+      this.oldRev = oldRev;
+      kind = checkNotNull(diffKind);
+      this.observers = checkNotNull(observers);
     }
 
     /**
@@ -233,7 +233,7 @@ public final class DiffFactory {
      * @return this builder
      */
     public Builder<R, W> isGUI(final boolean isGUI) {
-      mIsGUI = isGUI;
+      this.isGUI = isGUI;
       return this;
     }
 
@@ -245,7 +245,7 @@ public final class DiffFactory {
      */
     public Builder<R, W> oldStartKey(final @Nonnegative long oldKey) {
       checkArgument(oldKey >= 0, "oldKey must be >= 0!");
-      mOldStartKey = oldKey;
+      oldStartKey = oldKey;
       return this;
     }
 
@@ -257,7 +257,7 @@ public final class DiffFactory {
      */
     public Builder<R, W> oldMaxDepth(final @Nonnegative long oldMaxDepth) {
       checkArgument(oldMaxDepth >= 0, "oldMaxDepth must be >= 0!");
-      mOldMaxDepth = oldMaxDepth;
+      this.oldMaxDepth = oldMaxDepth;
       return this;
     }
 
@@ -269,7 +269,7 @@ public final class DiffFactory {
      */
     public Builder<R, W> newStartKey(final @Nonnegative long newKey) {
       checkArgument(newKey >= 0, "newKey must be >= 0!");
-      mNewStartKey = newKey;
+      newStartKey = newKey;
       return this;
     }
 
@@ -281,7 +281,7 @@ public final class DiffFactory {
      */
     public Builder<R, W> newDepth(final @Nonnegative int newDepth) {
       checkArgument(newDepth >= 0, "newDepth must be >= 0!");
-      mNewDepth = newDepth;
+      this.newDepth = newDepth;
       return this;
     }
 
@@ -293,7 +293,7 @@ public final class DiffFactory {
      */
     public Builder<R, W> oldDepth(final int oldDepth) {
       checkArgument(oldDepth >= 0, "oldDepth must be >= 0!");
-      mOldDepth = oldDepth;
+      this.oldDepth = oldDepth;
       return this;
     }
 
@@ -316,7 +316,7 @@ public final class DiffFactory {
      * @return this builder
      */
     public Builder<R, W> hashKind(final HashType kind) {
-      mHashKind = checkNotNull(kind);
+      hashKind = checkNotNull(kind);
       return this;
     }
 
@@ -327,7 +327,7 @@ public final class DiffFactory {
      * @return this builder
      */
     public Builder<R, W> skipSubtrees(final boolean skipSubtrees) {
-      mSkipSubtrees = skipSubtrees;
+      this.skipSubtrees = skipSubtrees;
       return this;
     }
   }

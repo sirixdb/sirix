@@ -66,7 +66,7 @@ public class CoroutineDescendantAxisTest {
 
     rtx.moveToDocumentRoot();
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new CoroutineDescendantAxis<>(rm), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
             ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -77,7 +77,7 @@ public class CoroutineDescendantAxisTest {
     }.test();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
             ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -90,7 +90,7 @@ public class CoroutineDescendantAxisTest {
     }.test();
 
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {11L, 12L});
+    AbsAxisTest.testAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {11L, 12L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L),
             null) {
       @Override
@@ -102,7 +102,7 @@ public class CoroutineDescendantAxisTest {
     }.test();
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
             Collections.<Long>emptyList(), null) {
       @Override
@@ -119,7 +119,7 @@ public class CoroutineDescendantAxisTest {
     final XmlResourceManager rm = holder.getResourceManager();
     final NodeCursor rtx = rm.beginNodeReadOnlyTrx();
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new CoroutineDescendantAxis<>(rm, IncludeSelf.YES),
         new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L,
             12L, 13L});
@@ -135,7 +135,7 @@ public class CoroutineDescendantAxisTest {
     }.test();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx),
         new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
@@ -149,7 +149,7 @@ public class CoroutineDescendantAxisTest {
     }.test();
 
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx), new long[] {9L, 11L, 12L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
             ImmutableList.of(9L, 11L, 12L), null) {
@@ -162,7 +162,7 @@ public class CoroutineDescendantAxisTest {
     }.test();
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx), new long[] {13L});
+    AbsAxisTest.testAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx), new long[] {13L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L),
             null) {
       @Override
@@ -183,7 +183,7 @@ public class CoroutineDescendantAxisTest {
 
     LocalDateTime time1 = LocalDateTime.now();
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
             new CoroutineDescendantAxis<>(rm), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
             ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -195,7 +195,7 @@ public class CoroutineDescendantAxisTest {
 
     LocalDateTime time2 = LocalDateTime.now();
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
             new DescendantAxis(rtx), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
             ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {

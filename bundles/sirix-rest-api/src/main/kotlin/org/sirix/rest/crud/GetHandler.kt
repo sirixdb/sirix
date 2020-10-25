@@ -5,6 +5,7 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
@@ -22,7 +23,7 @@ import java.nio.file.Path
 import java.util.stream.Collectors
 
 @Suppress("RedundantLambdaArrow")
-class GetHandler(private val location: Path) {
+class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
@@ -61,7 +62,7 @@ class GetHandler(private val location: Path) {
                 with(acceptHeader) {
                     when {
                         contains("application/json") -> {
-                            body = JsonGet(location).xquery(
+                            body = JsonGet(location, keycloak).xquery(
                                 null,
                                 null,
                                 null,
@@ -75,7 +76,7 @@ class GetHandler(private val location: Path) {
                             )
                         }
                         contains("application/xml") -> {
-                            body = XmlGet(location).xquery(
+                            body = XmlGet(location, keycloak).xquery(
                                 null,
                                 null,
                                 null,
@@ -89,7 +90,7 @@ class GetHandler(private val location: Path) {
                             )
                         }
                         else -> {
-                            body = JsonGet(location).xquery(
+                            body = JsonGet(location, keycloak).xquery(
                                 null,
                                 null,
                                 null,
@@ -131,9 +132,9 @@ class GetHandler(private val location: Path) {
             with(acceptHeader) {
                 @Suppress("IMPLICIT_CAST_TO_ANY")
                 when {
-                    contains("application/json") -> JsonGet(location).handle(ctx)
-                    contains("application/xml") -> XmlGet(location).handle(ctx)
-                    else -> JsonGet(location).handle(ctx)
+                    contains("application/json") -> JsonGet(location, keycloak).handle(ctx)
+                    contains("application/xml") -> XmlGet(location, keycloak).handle(ctx)
+                    else -> JsonGet(location, keycloak).handle(ctx)
                 }
             }
         }

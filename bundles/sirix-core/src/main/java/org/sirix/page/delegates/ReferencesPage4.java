@@ -23,11 +23,9 @@ package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.DeserializedReferencesPage4Tuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -86,7 +84,11 @@ public final class ReferencesPage4 implements Page {
 
     for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
       offsets.add(otherOffsets.get(offset));
-      references.add(new PageReference().setKey(pageToClone.getReferences().get(offset).getKey()));
+      final var pageReference = new PageReference();
+      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
+      pageReference.setKey(pageReferenceToClone.getKey());
+      pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
+      references.add(pageReference);
     }
   }
 
@@ -147,8 +149,7 @@ public final class ReferencesPage4 implements Page {
    * @param pageWriteTrx the page write transaction
    */
   @Override
-  public final <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
+  public final void commit(@Nonnull final PageTrx pageWriteTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageWriteTrx.commit(reference);

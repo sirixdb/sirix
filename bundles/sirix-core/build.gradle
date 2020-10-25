@@ -17,6 +17,8 @@ dependencies {
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
+    implementation implLibraries.chronicleMap
+    implementation implLibraries.integercompression
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
@@ -24,8 +26,11 @@ dependencies {
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
+    testImplementation testLibraries.byteBuddy
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
+    testImplementation testLibraries.commonsCollections4
+    testImplementation testLibraries.commonsCollections4Tests
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +

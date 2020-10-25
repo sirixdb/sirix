@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -42,8 +42,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
@@ -52,7 +50,7 @@ import com.google.common.hash.Hashing;
  */
 public class ArrayNodeTest {
 
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx;
+  private PageTrx pageTrx;
 
   private Database<JsonResourceManager> database;
 
@@ -60,7 +58,7 @@ public class ArrayNodeTest {
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
@@ -72,17 +70,17 @@ public class ArrayNodeTest {
   public void testNode() throws IOException {
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final ArrayNode node = new ArrayNode(strucDel, 18);
     node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ArrayNode node2 =
-        (ArrayNode) NodeKind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
+        (ArrayNode) NodeKind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 

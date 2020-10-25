@@ -51,12 +51,15 @@ public enum Fixed {
   DOCUMENT_NODE_KEY(0L),
 
   /** Null key for nodes. */
-  NULL_NODE_KEY(-1L);
+  NULL_NODE_KEY(-1L),
+
+  /** Invalid key to validate if Json or Xml */
+  INVALID_KEY_FOR_TYPE_CHECK(-2L);
 
   /**
    * Standard property.
    */
-  private final long mStandardProperty;
+  private final long standardProperty;
 
   /**
    * Private constructor.
@@ -64,7 +67,7 @@ public enum Fixed {
    * @param property property to set
    */
   private Fixed(final long property) {
-    mStandardProperty = property;
+    standardProperty = property;
   }
 
   /**
@@ -73,6 +76,6 @@ public enum Fixed {
    * @return the prop
    */
   public long getStandardProperty() {
-    return mStandardProperty;
+    return standardProperty;
   }
 }

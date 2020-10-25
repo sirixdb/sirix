@@ -22,6 +22,7 @@
 package org.sirix.utils;
 
 import org.sirix.settings.Constants;
+import org.sirix.exception.SirixRuntimeException;
 
 /**
  * 
@@ -49,25 +50,15 @@ public final class TypedValue {
    * @return Int.
    */
   public static int parseInt(final byte[] mBytes) {
-    int position = 0;
-    int value = ((mBytes[position++] & 127));
-    if ((mBytes[position - 1] & 128) != 0) {
-      value |= ((mBytes[position++] & 127)) << 7;
-      if ((mBytes[position - 1] & 128) != 0) {
-        value |= ((mBytes[position++] & 127)) << 14;
-        if ((mBytes[position - 1] & 128) != 0) {
-          value |= ((mBytes[position++] & 127)) << 21;
-          if ((mBytes[position - 1] & 128) != 0) {
-            value |= ((mBytes[position++] & 255)) << 28;
-          } else if ((mBytes[position - 1] & 64) != 0)
-            value |= 0xF0000000;
-        } else if ((mBytes[position - 1] & 64) != 0)
-          value |= 0xFFF00000;
-      } else if ((mBytes[position - 1] & 64) != 0)
-        value |= 0xFFFFE000;
-    } else if ((mBytes[position - 1] & 64) != 0)
-      value |= 0xFFFFFFC0;
-    return value;
+    try {
+      int value = (((mBytes[0] & 0xFF) << 24)
+                  | ((mBytes[1] & 0xFF) << 16)
+                  | ((mBytes[2] & 0xFF)  << 8)
+                  | (mBytes[3] & 0xFF));
+      return value;
+    } catch(final Exception e) {
+      throw new SirixRuntimeException(e.getLocalizedMessage());
+    }
   }
 
   /**
@@ -77,45 +68,27 @@ public final class TypedValue {
    * @return Long.
    */
   public static long parseLong(final byte[] mBytes) {
-    int position = 1;
-    long value = (mBytes[position++] & 255);
-    if (mBytes[position - 2] > 1) {
-      value += ((long) (mBytes[position++] & 255) << 8);
-      if (mBytes[position - 3] > 2) {
-        value += ((long) (mBytes[position++] & 255) << 16);
-        if (mBytes[position - 4] > 3) {
-          value += ((long) (mBytes[position++] & 255) << 24);
-          if (mBytes[position - 5] > 4) {
-            value += ((long) (mBytes[position++] & 255) << 32);
-            if (mBytes[position - 6] > 5) {
-              value += ((long) (mBytes[position++] & 255) << 40);
-              if (mBytes[position - 7] > 6) {
-                value += ((long) (mBytes[position++] & 255) << 48);
-                if (mBytes[position - 8] > 7) {
-                  value += ((long) mBytes[position++] << 56);
-                } else if ((mBytes[position - 1] & 128) != 0)
-                  value |= 0xFF000000000000L;
-              } else if ((mBytes[position - 1] & 128) != 0)
-                value |= 0xFFFF000000000000L;
-            } else if ((mBytes[position - 1] & 128) != 0)
-              value |= 0xFFFFFF0000000000L;
-          } else if ((mBytes[position - 1] & 128) != 0)
-            value |= 0xFFFFFFFF00000000L;
-        } else if ((mBytes[position - 1] & 128) != 0)
-          value |= 0xFFFFFFFFFF000000L;
-      } else if ((mBytes[position - 1] & 128) != 0)
-        value |= 0xFFFFFFFFFFFF0000L;
-    } else if ((mBytes[position - 1] & 128) != 0)
-      value |= 0xFFFFFFFFFFFFFF00L;
-    return value;
+    try {
+      long value = ((((long) mBytes[0] & 0xFF) << 56)
+                    | (((long) mBytes[1] & 0xFF) << 48)
+                    | (((long) mBytes[2] & 0xFF) << 40)
+                    | (((long) mBytes[3] & 0xFF) << 32)
+                    | (((long) mBytes[4] & 0xFF) << 24)
+                    | (((long) mBytes[5] & 0xFF) << 16)
+                    | (((long) mBytes[6] & 0xFF) << 8)
+                    | (((long) mBytes[7] & 0xFF)));
+      return value;
+    } catch (final Exception e) {
+      throw new SirixRuntimeException(e.getLocalizedMessage());
+    }
   }
 
   /**
-   * Get UTF-8 byte array from int. The given byte array yields a string representation if read with
+   * Get UTF-8 byte array from boolean. The given byte array yields a string representation if read with
    * parseString().
    * 
-   * @param mValue Int to encode as UTF-8 byte array.
-   * @return UTF-8-encoded byte array of int.
+   * @param mValue Boolean to encode as UTF-8 byte array.
+   * @return UTF-8-encoded byte array of boolean.
    */
   public static byte[] getBytes(final boolean mValue) {
     final byte[] bytes = new byte[1];
@@ -135,36 +108,15 @@ public final class TypedValue {
    * @return UTF-8-encoded byte array of int.
    */
   public static byte[] getBytes(final int mValue) {
-    final byte[] tmpBytes = new byte[5];
-    int position = 0;
-    tmpBytes[position++] = (byte) (mValue);
-    if (mValue > 63 || mValue < -64) {
-      tmpBytes[position - 1] |= 128;
-      tmpBytes[position++] = (byte) (mValue >> 7);
-      if (mValue > 8191 || mValue < -8192) {
-        tmpBytes[position - 1] |= 128;
-        tmpBytes[position++] = (byte) (mValue >> 14);
-        if (mValue > 1048575 || mValue < -1048576) {
-          tmpBytes[position - 1] |= 128;
-          tmpBytes[position++] = (byte) (mValue >> 21);
-          if (mValue > 268435455 || mValue < -268435456) {
-            tmpBytes[position - 1] |= 128;
-            tmpBytes[position++] = (byte) (mValue >> 28);
-          } else {
-            tmpBytes[position - 1] &= 127;
-          }
-        } else {
-          tmpBytes[position - 1] &= 127;
-        }
-      } else {
-        tmpBytes[position - 1] &= 127;
-      }
-    } else {
-      tmpBytes[position - 1] &= 127;
+    final byte[] bytes = new byte[4];
+    try {
+      bytes[0] = (byte) (mValue >> 24);
+      bytes[1] = (byte) (mValue >> 16);
+      bytes[2] = (byte) (mValue >> 8);
+      bytes[3] = (byte) mValue;
+    } catch (final Exception e) {
+      throw new SirixRuntimeException(e.getLocalizedMessage());
     }
-
-    final byte[] bytes = new byte[position];
-    System.arraycopy(tmpBytes, 0, bytes, 0, position);
     return bytes;
   }
 
@@ -176,48 +128,19 @@ public final class TypedValue {
    * @return UTF-8-encoded byte array of long.
    */
   public static byte[] getBytes(final long value) {
-    final byte[] tmpBytes = new byte[9];
-    int position = 1;
-    tmpBytes[position++] = (byte) value;
-    if (value > 127 || value < -128) {
-      tmpBytes[position++] = (byte) (value >> 8);
-      if (value > 32767 || value < -32768) {
-        tmpBytes[position++] = (byte) (value >>> 16);
-        if (value > 8388607 || value < -8388608) {
-          tmpBytes[position++] = (byte) (value >>> 24);
-          if (value > 2147483647 || value < -2147483648) {
-            tmpBytes[position++] = (byte) (value >>> 32);
-            if (value > (2 ^ 39) - 1 || value < -(2 ^ 39)) {
-              tmpBytes[position++] = (byte) (value >>> 40);
-              if (value > (2 ^ 47) - 1 || value < -(2 ^ 47)) {
-                tmpBytes[position++] = (byte) (value >>> 48);
-                if (value > (2 ^ 55) - 1 || value < -(2 ^ 55)) {
-                  tmpBytes[position++] = (byte) (value >>> 56);
-                  tmpBytes[position - 9] = (byte) 8;
-                } else {
-                  tmpBytes[position - 8] = (byte) 7;
-                }
-              } else {
-                tmpBytes[position - 7] = (byte) 6;
-              }
-            } else {
-              tmpBytes[position - 6] = (byte) 5;
-            }
-          } else {
-            tmpBytes[position - 5] = (byte) 4;
-          }
-        } else {
-          tmpBytes[position - 4] = (byte) 3;
-        }
-      } else {
-        tmpBytes[position - 3] = (byte) 2;
-      }
-    } else {
-      tmpBytes[position - 2] = (byte) 1;
+    final byte[] bytes = new byte[8];
+    try {
+      bytes[0] = (byte) (value >> 56);
+      bytes[1] = (byte) (value >> 48);
+      bytes[2] = (byte) (value >> 40);
+      bytes[3] = (byte) (value >> 32);
+      bytes[4] = (byte) (value >> 24);
+      bytes[5] = (byte) (value >> 16);
+      bytes[6] = (byte) (value >> 8);
+      bytes[7] = (byte) value;
+    } catch (final Exception e) {
+      throw new SirixRuntimeException(e.getLocalizedMessage());
     }
-
-    final byte[] bytes = new byte[position];
-    System.arraycopy(tmpBytes, 0, bytes, 0, position);
     return bytes;
   }
 
@@ -247,14 +170,11 @@ public final class TypedValue {
           }
         }
         bytes = builder.toString().getBytes(Constants.DEFAULT_ENCODING);
-
-        // bytes = value.replace("&", "&amp;").replace("<", "&lt;")
-        // .getBytes(IConstants.DEFAULT_ENCODING);
       }
+      return bytes;
     } catch (final Exception e) {
-      throw new RuntimeException("Could not convert String to byte[]: " + e.getLocalizedMessage());
+      throw new SirixRuntimeException("Could not convert String to byte[]: " + e.getLocalizedMessage());
     }
-    return bytes;
   }
 
   public static boolean equals(final byte[] mValue1, final byte[] mValue2) {

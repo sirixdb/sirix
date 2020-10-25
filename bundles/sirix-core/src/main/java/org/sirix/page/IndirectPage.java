@@ -22,6 +22,7 @@
 package org.sirix.page;
 
 import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.FullReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -35,7 +36,9 @@ import java.io.IOException;
  */
 public final class IndirectPage extends AbstractForwardingPage {
 
-  /** The reference delegate. */
+  /**
+   * The reference delegate.
+   */
   private Page delegate;
 
   /**
@@ -66,6 +69,8 @@ public final class IndirectPage extends AbstractForwardingPage {
       delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
     } else if (pageDelegate instanceof BitmapReferencesPage) {
       delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+    } else if (pageDelegate instanceof FullReferencesPage) {
+      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
     }
   }
 
@@ -84,10 +89,17 @@ public final class IndirectPage extends AbstractForwardingPage {
   @Override
   public PageReference getOrCreateReference(int offset) {
     PageReference reference = super.getOrCreateReference(offset);
+
     if (reference == null) {
-      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getOrCreateReference(offset);
+      if (delegate instanceof ReferencesPage4) {
+        delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+        reference = delegate.getOrCreateReference(offset);
+      } else if (delegate instanceof BitmapReferencesPage) {
+        delegate = new FullReferencesPage((BitmapReferencesPage) delegate());
+        reference = delegate.getOrCreateReference(offset);
+      }
     }
+
     return reference;
   }
 
@@ -97,6 +109,8 @@ public final class IndirectPage extends AbstractForwardingPage {
       out.writeByte(0);
     } else if (delegate instanceof BitmapReferencesPage) {
       out.writeByte(1);
+    } else if (delegate instanceof FullReferencesPage) {
+      out.writeByte(2);
     }
     super.serialize(out, type);
   }

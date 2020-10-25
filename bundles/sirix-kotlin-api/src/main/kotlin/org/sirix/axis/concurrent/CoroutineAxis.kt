@@ -66,7 +66,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
     private var finished: Boolean
 
     init {
-        require(rtx.id != childAxis.trx.id) { "The filter must be bound to another transaction but on the same revision/node!" }
+        require(rtx.id != childAxis.getTrx<R>().id) { "The filter must be bound to another transaction but on the same revision/node!" }
         producerAxis = Preconditions.checkNotNull(childAxis)
         results = Channel(M_CAPACITY)
         producer = CoroutineAxisHelper(producerAxis!!, results)

@@ -30,7 +30,7 @@ public final class PastAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
@@ -39,13 +39,13 @@ public final class PastAxisTest {
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void testPastOrSelfAxis() throws SirixException {
+  public void testPastOrSelfAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
@@ -60,7 +60,7 @@ public final class PastAxisTest {
   }
 
   @Test
-  public void testPastAxis() throws SirixException {
+  public void testPastAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
@@ -74,7 +74,7 @@ public final class PastAxisTest {
   }
 
   @Test
-  public void testPastAxisWithRemovedNode() throws SirixException {
+  public void testPastAxisWithRemovedNode() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       // Revision 4.
       wtx.commit();

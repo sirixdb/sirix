@@ -1,18 +1,18 @@
 apply from: "${rootDir}/libraries.gradle"
 
 buildscript {
-    ext.kotlin_version = '1.3.72'
+    ext.kotlin_version = '1.4.10'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
         }
     }
     dependencies {
-        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.10.1"
+        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.10.2"
         classpath 'net.researchgate:gradle-release:2.8.1'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.27.0"
         classpath "com.github.jengelman.gradle.plugins:shadow:5.2.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:5.1.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:5.7.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -76,17 +76,21 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_14
-        targetCompatibility = JavaVersion.VERSION_14
+        sourceCompatibility = JavaVersion.VERSION_15
+        targetCompatibility = JavaVersion.VERSION_15
         withSourcesJar()
         withJavadocJar()
+
+        if (JavaVersion.current() != targetCompatibility){
+            throw new GradleException("This build must be run with Java " + targetCompatibility.toString())
+        }
     }
 
     javadoc {
         failOnError = false
         options {
             addBooleanOption('-enable-preview', true)
-            addStringOption('-release', '14')
+            addStringOption('-release', '15')
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
@@ -108,6 +112,8 @@ subprojects {
             events "failed"
             exceptionFormat "short"
         }
+
+        useJUnitPlatform()
     }
 
     spotless {
@@ -115,6 +121,10 @@ subprojects {
         java {
             licenseHeaderFile "${rootDir}/LICENSE"
         }
+    }
+    
+    jacoco {
+        toolVersion = "0.8.6"
     }
 
     jacocoTestReport {
@@ -219,8 +229,8 @@ subprojects {
         useJUnit()
         jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
 
-//        minHeapSize = '2g'
-//        maxHeapSize = '7g'
+        minHeapSize = '2g'
+        maxHeapSize = '7g'
     }
 }
 

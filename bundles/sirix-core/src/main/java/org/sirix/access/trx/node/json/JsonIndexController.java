@@ -27,7 +27,6 @@ import java.util.Set;
  * Index controller, used to control the handling of indexes.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class JsonIndexController extends AbstractIndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
@@ -52,9 +51,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   /**
    * Create index builders.
    *
-   * @param indexDefs the {@link IndexDef}s
+   * @param indexDefs    the {@link IndexDef}s
    * @param nodeWriteTrx the {@link JsonNodeTrx}
-   *
    * @return the created index builder instances
    */
   Set<JsonNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
@@ -66,8 +64,10 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
           indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          indexBuilders.add(
-              createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
+                                                  nodeWriteTrx.getPageWtx(),
+                                                  nodeWriteTrx.getPathSummary(),
+                                                  indexDef));
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
@@ -80,7 +80,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   @Override
-  public PathFilter createPathFilter(final Set<String> queryString, final JsonNodeReadOnlyTrx rtx) throws PathException {
+  public PathFilter createPathFilter(final Set<String> queryString, final JsonNodeReadOnlyTrx rtx)
+      throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.size());
     for (final String path : queryString) {
       paths.add(Path.parse(path));
@@ -88,19 +89,17 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
-  private JsonNodeVisitor createPathIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private JsonNodeVisitor createPathIndexBuilder(final PageTrx pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return (JsonNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx,
-      final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx, final PageTrx pageWriteTrx,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createNameIndexBuilder(final PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageWriteTrx,
-      final IndexDef indexDef) {
+  private JsonNodeVisitor createNameIndexBuilder(final PageTrx pageWriteTrx, final IndexDef indexDef) {
     return (JsonNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 }

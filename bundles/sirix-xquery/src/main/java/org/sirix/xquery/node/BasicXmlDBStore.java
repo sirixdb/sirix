@@ -50,13 +50,13 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final ConcurrentMap<Database<XmlResourceManager>, XmlDBCollection> collections;
 
   /** {@link StorageType} instance. */
-  private final StorageType mStorageType;
+  private final StorageType storageType;
 
   /** The location to store created collections/databases. */
   private final Path location;
 
   /** Determines if a path summary should be built. */
-  private boolean mBuildPathSummary;
+  private final boolean buildPathSummary;
 
   /** Thread pool. */
   private final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
@@ -71,13 +71,13 @@ public final class BasicXmlDBStore implements XmlDBStore {
    */
   public static class Builder {
     /** Storage type. */
-    private StorageType mStorageType = StorageType.FILE;
+    private StorageType storageType = StorageType.FILE;
 
     /** The location to store created collections/databases. */
-    private Path mLocation = LOCATION;
+    private Path location = LOCATION;
 
     /** Determines if for resources a path summary should be build. */
-    private boolean mBuildPathSummary = true;
+    private boolean buildPathSummary = true;
 
     /**
      * Set the storage type (default: file backend).
@@ -86,7 +86,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder storageType(final StorageType storageType) {
-      mStorageType = checkNotNull(storageType);
+      this.storageType = checkNotNull(storageType);
       return this;
     }
 
@@ -97,7 +97,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
-      mBuildPathSummary = buildPathSummary;
+      this.buildPathSummary = buildPathSummary;
       return this;
     }
 
@@ -108,7 +108,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder location(final Path location) {
-      mLocation = checkNotNull(location);
+      this.location = checkNotNull(location);
       return this;
     }
 
@@ -130,9 +130,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private BasicXmlDBStore(final Builder builder) {
     databases = Collections.synchronizedSet(new HashSet<>());
     collections = new ConcurrentHashMap<>();
-    mStorageType = builder.mStorageType;
-    location = builder.mLocation;
-    mBuildPathSummary = builder.mBuildPathSummary;
+    storageType = builder.storageType;
+    location = builder.location;
+    buildPathSummary = builder.buildPathSummary;
   }
 
   /** Get the location of the generated collections/databases. */
@@ -201,8 +201,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
-                                                   .buildPathSummary(mBuildPathSummary)
-                                                   .storageType(mStorageType)
+                                                   .buildPathSummary(buildPathSummary)
+                                                   .storageType(storageType)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
@@ -236,8 +236,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
             final SubtreeParser nextParser = parser;
             final String resourceName = "resource" + i;
             pool.submit(() -> {
-              database.createResource(ResourceConfiguration.newBuilder(resourceName).storageType(
-                 mStorageType).useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
+              database.createResource(ResourceConfiguration.newBuilder(resourceName).storageType(storageType).useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
               try (final XmlResourceManager manager = database.openResourceManager(resourceName);
                    final XmlNodeTrx wtx = manager.beginNodeTrx()) {
                   final XmlDBCollection collection = new XmlDBCollection(collName, database);

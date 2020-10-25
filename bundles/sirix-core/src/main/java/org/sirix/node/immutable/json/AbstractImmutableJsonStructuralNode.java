@@ -24,6 +24,11 @@ public abstract class AbstractImmutableJsonStructuralNode implements ImmutableSt
   }
 
   @Override
+  public boolean hasLastChild() {
+    return structDelegate().hasLastChild();
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return structDelegate().hasLeftSibling();
   }
@@ -46,6 +51,11 @@ public abstract class AbstractImmutableJsonStructuralNode implements ImmutableSt
   @Override
   public long getFirstChildKey() {
     return structDelegate().getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return structDelegate().getLastChildKey();
   }
 
   @Override

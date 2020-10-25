@@ -13,7 +13,6 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 
@@ -55,7 +54,7 @@ class XmlUpdate(private val location: Path) {
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
         if (databaseName == null || resource == null) {
-            IllegalArgumentException("Database name and resource name not given.")
+            throw IllegalArgumentException("Database name and resource name not given.")
         }
 
         val body = ctx.bodyAsString
@@ -94,13 +93,10 @@ class XmlUpdate(private val location: Path) {
 
                         if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
-
-                            if (hashCode == null) {
-                                IllegalStateException("Hash code is missing in ETag HTTP-Header.")
-                            }
+                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                IllegalArgumentException("Someone might have changed the resource in the meantime.")
+                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 

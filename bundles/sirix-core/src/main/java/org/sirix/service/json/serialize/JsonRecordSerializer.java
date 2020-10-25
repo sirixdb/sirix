@@ -28,6 +28,10 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final int numberOfRecords;
 
+  private final long numberOfNodes;
+
+  private final long maxChildNodes;
+
   private enum State {
     IS_OBJECT,
 
@@ -91,6 +95,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     this.resourceMgr = resourceMgr;
     initialize(revision, revisions);
     maxLevel = builder.maxLevel;
+    maxChildNodes = builder.maxChildNodes;
     out = builder.stream;
     indent = builder.indent;
     indentSpaces = builder.indentSpaces;
@@ -100,6 +105,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
     lastTopLevelNodeKey = builder.lastTopLevelNodeKey;
+    numberOfNodes = builder.maxNodes;
   }
 
   /**
@@ -203,7 +209,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     /**
      * Determines the maximum level to up to which to skip subtrees from serialization.
      */
-    private long maxLevel;
+    private long maxLevel = Long.MAX_VALUE;
 
     /**
      * Determines if nodeKey meta data should be serialized or not.
@@ -217,6 +223,10 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
     private long lastTopLevelNodeKey;
 
+    private long maxNodes = Long.MAX_VALUE;
+
+    private long maxChildNodes = Long.MAX_VALUE;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -228,7 +238,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
     public Builder(final JsonResourceManager resourceMgr, final int numberOfRecords, final Appendable stream,
         final int... revisions) {
       this.numberOfRecords = numberOfRecords;
-      maxLevel = -1;
       nodeKey = 0;
       this.resourceMgr = checkNotNull(resourceMgr);
       this.stream = checkNotNull(stream);
@@ -294,6 +303,17 @@ public final class JsonRecordSerializer implements Callable<Void> {
     }
 
     /**
+     * Specify the maximum of nodes.
+     *
+     * @param maxNodes max nodes to serialize
+     * @return this XMLSerializerBuilder reference
+     */
+    public Builder numberOfNodes(final long maxNodes) {
+      this.maxNodes = maxNodes;
+      return this;
+    }
+
+    /**
      * Specify the maximum level.
      *
      * @param maxLevel the maximum level until which to serialize
@@ -301,6 +321,16 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     public Builder maxLevel(final long maxLevel) {
       this.maxLevel = maxLevel;
+      return this;
+    }
+
+    /**
+     * Sets the max number of child nodes to serialize.
+     *
+     * @return this reference
+     */
+    public Builder maxChildren(final long maxChildren) {
+      this.maxChildNodes = maxChildren;
       return this;
     }
 
@@ -421,6 +451,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                       withNodeKeyAndChildNodeKeyMetaData)
                                                                                   .withNodeKeyMetaData(
                                                                                       withNodeKeyMetaData)
+                                                                                  .numberOfNodes(numberOfNodes)
                                                                                   .build();
           jsonSerializer.emitNode(rtx);
 
@@ -450,6 +481,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                       .serializeStartNodeWithBrackets(
                                                                                           false)
                                                                                       .maxLevel(maxLevel)
+                                                                                      .maxChildren(maxChildNodes)
                                                                                       .serializeTimestamp(
                                                                                           serializeTimestamp)
                                                                                       .withMetaData(withMetaData)
@@ -457,8 +489,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                           withNodeKeyAndChildNodeKeyMetaData)
                                                                                       .withNodeKeyMetaData(
                                                                                           withNodeKeyMetaData)
+                                                                                      .numberOfNodes(numberOfNodes)
                                                                                       .build();
               jsonSerializer.call();
+              if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
+                out.append("}");
+              }
               rtx.moveTo(nodeKey);
 
               if (rtx.hasRightSibling()) {
@@ -466,11 +502,16 @@ public final class JsonRecordSerializer implements Callable<Void> {
                   rtx.moveToRightSibling();
                   nodeKey = rtx.getNodeKey();
                   out.append(",");
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData
+                      || withNodeKeyMetaData)) {
+                    out.append("{");
+                  }
                   jsonSerializer =
                       new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
                                                                                           .serializeStartNodeWithBrackets(
                                                                                               false)
                                                                                           .maxLevel(maxLevel)
+                                                                                          .maxChildren(maxChildNodes)
                                                                                           .serializeTimestamp(
                                                                                               serializeTimestamp)
                                                                                           .withMetaData(withMetaData)
@@ -478,8 +519,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
                                                                                               withNodeKeyAndChildNodeKeyMetaData)
                                                                                           .withNodeKeyMetaData(
                                                                                               withNodeKeyMetaData)
+                                                                                          .numberOfNodes(numberOfNodes)
                                                                                           .build();
                   jsonSerializer.call();
+                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData
+                      || withNodeKeyMetaData)) {
+                    out.append("}");
+                  }
                   rtx.moveTo(nodeKey);
                 }
               }
@@ -488,14 +534,15 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
           if (state == State.IS_OBJECT) {
             if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
-              out.append("}]");
+              out.append("]");
             }
             out.append("}");
           } else if (state == State.IS_ARRAY) {
             if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
-              out.append("}");
+              out.append("]}");
+            } else {
+              out.append("]");
             }
-            out.append("]");
           }
         }
 

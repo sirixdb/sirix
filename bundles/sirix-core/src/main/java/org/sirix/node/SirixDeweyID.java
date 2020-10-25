@@ -1,7 +1,7 @@
 /*
  * [New BSD License] Copyright (c) 2011-2012, Brackit Project Team <info@brackit.org> All rights
  * reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -9,7 +9,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the Brackit Project Team nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
@@ -22,23 +22,21 @@
 package org.sirix.node;
 
 import java.util.Arrays;
+
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.SimpleDeweyID;
 
 /**
- * 
  * @author Michael Haustein
  * @author Christian Mathis
  * @author Sebastian Baechle
- * 
  */
-public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
+public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
   private final static String divisionSeparator = ".";
 
-  private final static int rootNodeDivisionValue = 1;
-  private final static String rootNodeDivisionValueStr = Integer.toString(rootNodeDivisionValue);
   private final static int attributeRootDivisionValue = 1;
+
   private final static int recordValueRootDivisionValue = 0;
 
   // must be an even number! when a new DeweyID is calculated, and there is a
@@ -56,10 +54,10 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   // private final static byte[] divisionLengthArray =
   // {3,4,6,8,12,16,20,24,31};
 
-  private final static byte[] divisionLengthArray = {7, 14, 21, 28, 31};
+  private final static byte[] divisionLengthArray = { 7, 14, 21, 28, 31 };
 
-  private final static boolean[][] bitStringAsBoolean = {{false}, {true, false},
-      {true, true, false}, {true, true, true, false}, {true, true, true, true}};
+  private final static boolean[][] bitStringAsBoolean =
+      { { false }, { true, false }, { true, true, false }, { true, true, true, false }, { true, true, true, true } };
 
   // the maximum divisionvalue for the corresponding length
   // private final static int[] maxDivisionValue =
@@ -89,11 +87,9 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     for (int i = 0; i < divisionLengthArray.length; i++) {
       maxDivisionValue[i] = 1 << divisionLengthArray[i];
 
-      // for 0-reasons the 000 cannot be used
-      if (i == 0)
-        maxDivisionValue[i] -= 1;
-
-      // Because Division-Value 0 is allowed
+      /* for 0-reasons the 000 cannot be used
+       * Because Division-Value 0 is allowed
+       */
       if (i == 0)
         maxDivisionValue[i] -= 1;
 
@@ -109,16 +105,14 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     }
 
     if (maxDivisionValue[divisionLengthArray.length - 1] != Integer.MAX_VALUE) {
-      System.out.println(
-          "SirixDBDeweyID[static]: it is not possible " + "to handle all positive Integer values "
-              + "with the given divisionLengthArray!");
+      throw new SirixException(
+          "DeweyID: It is not possible to handle all positive Integer values with the given divisionLengthArray!");
     }
 
     // check if bitStringAsBoolean has as many rows as divisionLengthArray
     if (bitStringAsBoolean.length != divisionLengthArray.length) {
-      System.out.println(
-          "SirixDBDeweyID[static]: bitStringAsBoolean and "
-              + "divisionLengthArray must have equal rows!");
+      throw new SirixException(
+          "DeweyID: bitStringAsBoolean and divisionLengthArray must have equal rows!");
     }
 
     // now initialize the binaryTreeSuffixInit(this is the first Division
@@ -150,7 +144,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
         }
 
         if (binaryTreeSuffixInit[index] != 0) {
-          System.out.println("SirixDBDeweyID[static]: The " + "bitStringAsBoolean is not prefixfree!");
+          throw new SirixException("DeweyID: The bitStringAsBoolean is not prefixfree!");
         }
       }
       if (i == 0) {
@@ -262,8 +256,8 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
           binaryTreeSearchIndex = (((binaryTreeSearchIndex << 1) + 1));
         }
 
-        if ((binaryTreeSearchArray.length > binaryTreeSearchIndex)
-            && (binaryTreeSearchArray[binaryTreeSearchIndex] != 0)) {
+        if ((binaryTreeSearchArray.length > binaryTreeSearchIndex) && (binaryTreeSearchArray[binaryTreeSearchIndex]
+            != 0)) {
           // division found;
           prefixBit = false; // memorize we found the complete prefix
           suffixlength = binaryTreeSearchArray[binaryTreeSearchIndex];
@@ -364,8 +358,8 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
           binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 1));
         }
 
-        if ((binaryTreeSearchArray.length > binaryTreeSearchIndex)
-            && (binaryTreeSearchArray[binaryTreeSearchIndex] != 0)) {
+        if ((binaryTreeSearchArray.length > binaryTreeSearchIndex) && (binaryTreeSearchArray[binaryTreeSearchIndex]
+            != 0)) {
           // division found;
           prefixBit = false; // memorize we found the complete prefix
           suffixlength = binaryTreeSearchArray[binaryTreeSearchIndex];
@@ -462,8 +456,10 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     return divisionValues[division];
   }
 
-  // calculates the number of bits, that are needed to store the choosen
-  // division-value
+  /**
+   * Calculates the number of bits, that are needed to store the choosen
+   * division-value
+   */
   private int getDivisionBits(int division) {
     if (divisionValues[division] <= maxDivisionValue[0])
       return completeDivisionLengthArray[0];
@@ -485,9 +481,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
       return completeDivisionLengthArray[8];
   }
 
-  // sets the bits in the byteArray for the given division, which has to write
-  // its bits at position bitIndex
-  // returns the bitIndex where the next Division can start
+  /** 
+   * sets the bits in the byteArray for the given division, which has to write
+   * its bits at position bitIndex
+   * returns the bitIndex where the next Division can start
+   */
   private final int setDivisionBitArray(int[] divisionValues, byte[] byteArray, int division,
       int bitIndex) {
     int divisionSize = getDivisionBits(division);
@@ -495,17 +493,17 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     int suffix;
     boolean[] prefix;
 
-    prefixLength = divisionLengthArray[divisionLengthArray.length-1];
-    prefix = bitStringAsBoolean[divisionLengthArray.length-1];
-    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length-2] - 1;
+    prefixLength = divisionLengthArray[divisionLengthArray.length - 1];
+    prefix = bitStringAsBoolean[divisionLengthArray.length - 1];
+    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length - 2] - 1;
 
-    for (int i = 0; i < divisionLengthArray.length-2; i++){
-      if (divisionValues[division] <= maxDivisionValue[i]){
+    for (int i = 0; i < divisionLengthArray.length - 2; i++) {
+      if (divisionValues[division] <= maxDivisionValue[i]) {
         prefixLength = divisionLengthArray[i];
         prefix = bitStringAsBoolean[i];
-        if (i != 0){
-          suffix = divisionValues[division] - maxDivisionValue[i-1] - 1;
-        }else{
+        if (i != 0) {
+          suffix = divisionValues[division] - maxDivisionValue[i - 1] - 1;
+        } else {
           suffix = divisionValues[division] + 1;
         }
         break;
@@ -515,7 +513,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     // set the prefixbits
     for (int i = 0; i < prefix.length; i++) {
       if (prefix[i] == true) {
-        byteArray[bitIndex / 8] |= (int) Math.pow(2,7-(bitIndex % 8));
+        byteArray[bitIndex / 8] |= (int) Math.pow(2, 7 - (bitIndex % 8));
       }
       bitIndex++;
     }
@@ -526,7 +524,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
       k = k << divisionSize - prefix.length - i;
       if (suffix >= k) {
         suffix -= k;
-        byteArray[bitIndex / 8] |= (int) Math.pow(2,7-(bitIndex % 8));
+        byteArray[bitIndex / 8] |= (int) Math.pow(2, 7 - (bitIndex % 8));
       }
       bitIndex++;
     }
@@ -821,18 +819,18 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   }
 
   public boolean isAttribute() {
-    return ((level > 1) && (divisionValues.length > 2)
-        && (divisionValues[divisionValues.length - 2] == SirixDeweyID.attributeRootDivisionValue));
+    return ((level > 1) && (divisionValues.length > 2) && (divisionValues[divisionValues.length - 2]
+        == SirixDeweyID.attributeRootDivisionValue));
   }
 
   public boolean isRecordValue() {
-    return ((level > 1) && (divisionValues.length > 1)
-        && (divisionValues[divisionValues.length - 1] == SirixDeweyID.recordValueRootDivisionValue));
+    return ((level > 1) && (divisionValues.length > 1) && (divisionValues[divisionValues.length - 1]
+        == SirixDeweyID.recordValueRootDivisionValue));
   }
 
   public boolean isAttributeRoot() {
-    return ((level > 1) && (divisionValues.length > 1)
-        && (divisionValues[divisionValues.length - 1] == SirixDeweyID.attributeRootDivisionValue));
+    return ((level > 1) && (divisionValues.length > 1) && (divisionValues[divisionValues.length - 1]
+        == SirixDeweyID.attributeRootDivisionValue));
   }
 
   // ancestor or self semantics
@@ -861,7 +859,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
    * Like {@link #getAncestor(int)} but it checks in addition whether the ancestor has the given
    * DeweyID as prefix (or whether the ancestor is itself a prefix of the given DeweyID). If the
    * prefix condition is not satisfied, null is returned.
-   * 
+   *
    * @param level
    * @param requiredPrefix
    * @return
@@ -981,7 +979,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   }
 
   public static SirixDeweyID newBetween(SirixDeweyID deweyID1, SirixDeweyID deweyID2)
-      {
+  {
     // newBetween always returns ID of new node in same level!
 
     if ((deweyID1 == null) && (deweyID2 != null)) {
@@ -998,15 +996,13 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
       int divisions;
       int[] divisionValues;
-      if ((deweyID2.divisionValues[i] % 2 == 1) && (deweyID2.divisionValues[i] > 3)) { // odd
-                                                                                       // Division
-                                                                                       // >
-                                                                                       // 3
-        // last division / 2
+      if ((deweyID2.divisionValues[i] % 2 == 1) && (deweyID2.divisionValues[i] > 3)) {
+        // odd Division > 3, last division / 2
         divisions = deweyID2.getNumberOfDivisions();
         divisionValues = new int[divisions];
-        for (int j = 0; j < divisions - 1; j++)
+        for (int j = 0; j < divisions - 1; j++) {
           divisionValues[j] = deweyID2.divisionValues[j];
+        }
         divisionValues[divisions - 1] = deweyID2.divisionValues[divisions - 1] / 2;
         // make sure last division is odd
         if (divisionValues[divisions - 1] % 2 == 0)
@@ -1015,24 +1011,25 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
         // x.3 gets x.2.distanceToSibling+1
         divisions = deweyID2.getNumberOfDivisions() + 1;
         divisionValues = new int[divisions];
-        for (int j = 0; j < divisions - 1; j++)
+        for (int j = 0; j < divisions - 1; j++) {
           divisionValues[j] = deweyID2.divisionValues[j];
+        }
         divisionValues[i] = 2;
         divisionValues[i + 1] = distanceToSibling + 1;
       } else { // even division > 2
         // current division /2
         divisions = i + 1;
         divisionValues = new int[divisions];
-        for (int j = 0; j < divisions - 1; j++)
+        for (int j = 0; j < divisions - 1; j++) {
           divisionValues[j] = deweyID2.divisionValues[j];
+        }
         divisionValues[i] = deweyID2.divisionValues[i] / 2;
         // make sure last division is odd
         if (divisionValues[i] % 2 == 0)
           divisionValues[i]++;
       }
 
-      SirixDeweyID newID =
-          new SirixDeweyID(Arrays.copyOf(divisionValues, divisions), deweyID2.level);
+      SirixDeweyID newID = new SirixDeweyID(Arrays.copyOf(divisionValues, divisions), deweyID2.level);
       return newID;
     } else if ((deweyID1 != null) && (deweyID2 == null)) {
       int[] tmp = Arrays.copyOf(deweyID1.divisionValues, deweyID1.divisionValues.length);
@@ -1042,10 +1039,9 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     } else // two IDs given
     {
       if (deweyID1.compareTo(deweyID2) >= 0)
-        throw new SirixException(
-            "XTCdeweyID [newBetween]: deweyID1 is greater or equal to deweyID2");
+        throw new SirixException("DeweyID [newBetween]: deweyID1 is greater or equal to deweyID2");
       if (deweyID1.getParent().compareTo(deweyID2.getParent()) != 0)
-        throw new SirixException("XTCdeweyID [newBetween]: deweyID1 and deweyID2 are no siblings");
+        throw new SirixException("DeweyID [newBetween]: deweyID1 and deweyID2 are no siblings");
       // return new deweyID between deweyID1 and deweyID2
 
       // first scan to first different divisions
@@ -1060,8 +1056,9 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
         // between the two given IDs
         divisions = i + 1;
         divisionValues = new int[divisions];
-        for (int j = 0; j < divisions - 1; j++)
+        for (int j = 0; j < divisions - 1; j++) {
           divisionValues[j] = deweyID1.divisionValues[j];
+        }
 
         divisionValues[divisions - 1] = deweyID1.divisionValues[divisions - 1]
             + (deweyID2.divisionValues[divisions - 1] - deweyID1.divisionValues[divisions - 1]) / 2;
@@ -1075,14 +1072,16 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
           // odd division fits in
           divisions = i + 1;
           divisionValues = new int[divisions];
-          for (int j = 0; j < divisions - 1; j++)
+          for (int j = 0; j < divisions - 1; j++) {
             divisionValues[j] = deweyID1.divisionValues[j];
+          }
           divisionValues[divisions - 1] = deweyID1.divisionValues[divisions - 1] + 1;
         } else { // only even division fits in
           divisions = i + 2;
           divisionValues = new int[divisions];
-          for (int j = 0; j < divisions - 1; j++)
+          for (int j = 0; j < divisions - 1; j++) {
             divisionValues[j] = deweyID1.divisionValues[j];
+          }
           divisionValues[divisions - 2] += 1;
           divisionValues[divisions - 1] = distanceToSibling + 1;
         }
@@ -1101,15 +1100,17 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
             // add 2.distanceToSibling+1
             divisions = i + 2;
             divisionValues = new int[divisions];
-            for (int j = 0; j < divisions - 2; j++)
+            for (int j = 0; j < divisions - 2; j++) {
               divisionValues[j] = deweyID2.divisionValues[j];
+            }
             divisionValues[divisions - 2] = 2;
             divisionValues[divisions - 1] = distanceToSibling + 1;
           } else { // division >3
             divisions = i + 1;
             divisionValues = new int[divisions];
-            for (int j = 0; j < divisions; j++)
+            for (int j = 0; j < divisions; j++) {
               divisionValues[j] = deweyID2.divisionValues[j];
+            }
             divisionValues[divisions - 1] /= 2;
             // make sure division is odd
             if (divisionValues[divisions - 1] % 2 == 0)
@@ -1120,8 +1121,9 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
           i++;
           divisions = i + 1;
           divisionValues = new int[divisions];
-          for (int j = 0; j < divisions; j++)
+          for (int j = 0; j < divisions; j++) {
             divisionValues[j] = deweyID1.divisionValues[j];
+          }
           if (deweyID1.divisionValues[i] % 2 == 1) { // odd
             // last division + distanceToSibling
             divisionValues[divisions - 1] += distanceToSibling;
@@ -1138,12 +1140,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   }
 
   public final static SirixDeweyID newRootID() {
-    return new SirixDeweyID(new int[] {1}, 1);
+    return new SirixDeweyID(new int[] { 1 }, 1);
   }
 
   public final SirixDeweyID getNewChildID() {
-    return (level > 0) ? new SirixDeweyID(this, SirixDeweyID.distanceToSibling + 1)
-        : new SirixDeweyID(this, 1);
+    return (level > 0) ? new SirixDeweyID(this, SirixDeweyID.distanceToSibling + 1) : new SirixDeweyID(this, 1);
   }
 
   public final SirixDeweyID getNewChildID(int division) {
@@ -1163,6 +1164,16 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   public final SirixDeweyID getNewNamespaceID() {
     int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
     childDivisions[divisionValues.length] = SirixDeweyID.namespaceRootDivisionValue;
+    childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
+
+    SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);
+
+    return newID;
+  }
+
+  public final SirixDeweyID getNewRecordID() {
+    int[] childDivisions = Arrays.copyOf(divisionValues, divisionValues.length + 2);
+    childDivisions[divisionValues.length] = SirixDeweyID.recordValueRootDivisionValue;
     childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
 
     SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);
@@ -1261,7 +1272,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
   /**
    * Checks whether this DeweyID is a prefix of the other.
-   * 
+   *
    * @param other the other DeweyID
    * @return true if this DeweyID is a prefix of the other DeweyID
    */
@@ -1283,10 +1294,10 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   /**
    * Like {@link #compareTo(SirixDeweyID)} but without checking the collection ID. Only the
    * divisions are considered.
-   * 
+   *
    * @param deweyID the other DeweyID
    * @return -1 if this DeweyID is less than the other, 0 if they are equal, and 1 if this DeweyID
-   *         is greater than the other
+   * is greater than the other
    */
   public int compareReduced(SirixDeweyID deweyID) {
     if (this == deweyID) {
@@ -1311,10 +1322,10 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
   /**
    * Compares this DeweyID's parent with the given DeweyID (except for the collection ID).
-   * 
+   *
    * @param other the other DeweyID
    * @return a negative number if the parent is less than the other DeweyID, 0 if they are equal,
-   *         and a positive number if the parent is greater than the other DeweyID
+   * and a positive number if the parent is greater than the other DeweyID
    */
   public int compareParentTo(SirixDeweyID other) {
     int parentLength = this.divisionValues.length - 1;
@@ -1335,14 +1346,14 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
   /**
    * Checks whether this DeweyID is either a prefix or greater than the other DeweyID.
-   * 
+   *
    * @param other the other DeweyID
    * @return true if this DeweyID is a prefix or greater than the other DeweyID
    */
   public boolean isPrefixOrGreater(SirixDeweyID other) {
-    int upperBound =
-        (this.divisionValues.length <= other.divisionValues.length) ? this.divisionValues.length
-            : other.divisionValues.length;
+    int upperBound = (this.divisionValues.length <= other.divisionValues.length)
+        ? this.divisionValues.length
+        : other.divisionValues.length;
 
     for (int i = 0; i < upperBound; i++) {
       if (this.divisionValues[i] != other.divisionValues[i]) {
@@ -1356,10 +1367,10 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
   /**
    * Checks whether this DeweyID appended by the extraDivision is either a prefix or greater than
    * the other DeweyID.
-   * 
+   *
    * @param other the other DeweyID
    * @return true if this DeweyID appended by the extraDivision is a prefix or greater than the
-   *         other DeweyID
+   * other DeweyID
    */
   public boolean isPrefixOrGreater(int extraDivision, SirixDeweyID other) {
     boolean isShorter = (this.divisionValues.length < other.divisionValues.length);

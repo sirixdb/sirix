@@ -56,11 +56,6 @@ public final class MMFileReader implements Reader {
   final static int FIRST_BEACON = 12;
 
   /**
-   * Beacon of the other references.
-   */
-  final static int OTHER_BEACON = 4;
-
-  /**
    * Inflater to decompress.
    */
   final ByteHandler byteHandler;
@@ -84,8 +79,6 @@ public final class MMFileReader implements Reader {
    */
   private final PagePersister pagePersiter;
 
-  private final boolean isReaderWriter;
-
   private MemorySegment dataFileSegment;
 
   private MemorySegment revisionFileSegment;
@@ -107,19 +100,18 @@ public final class MMFileReader implements Reader {
    */
   public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
       final SerializationType type, final PagePersister pagePersistenter) throws IOException {
-    isReaderWriter = false;
     hashFunction = Hashing.sha256();
     this.dataFile = checkNotNull(dataFile);
     this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
-    dataFileSegment = dataFile.toFile().length() == 0
-        ? null
-        : MemorySegment.mapFromPath(checkNotNull(dataFile), dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
-    revisionFileSegment = dataFile.toFile().length() == 0
-        ? null
-        : MemorySegment.mapFromPath(revisionsOffsetFile,
+    dataFileSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
+                                    0,
+                                    dataFile.toFile().length(),
+                                    FileChannel.MapMode.READ_ONLY);
+    revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
+                                    0,
                                     revisionsOffsetFile.toFile().length(),
                                     FileChannel.MapMode.READ_ONLY);
   }
@@ -134,7 +126,6 @@ public final class MMFileReader implements Reader {
   public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final MemorySegment dataFileSegment,
       final MemorySegment revisionFileSegment, final ByteHandler handler, final SerializationType type,
       final PagePersister pagePersistenter) {
-    isReaderWriter = true;
     hashFunction = Hashing.sha256();
     this.dataFile = checkNotNull(dataFile);
     this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
@@ -148,13 +139,6 @@ public final class MMFileReader implements Reader {
   @Override
   public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
-      // due to zero length issue which is changed in Java 15
-      if (dataFileSegment == null) {
-        dataFileSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
-                                                    dataFile.toFile().length(),
-                                                    FileChannel.MapMode.READ_ONLY);
-      }
-
       final MemoryAddress baseAddress = dataFileSegment.baseAddress();
 
       final MemoryAddress baseAddressPlusOffsetPlusInt;
@@ -177,7 +161,7 @@ public final class MMFileReader implements Reader {
         default -> throw new AssertionError();
       };
 
-      reference.setLength(dataLength + MMFileReader.OTHER_BEACON);
+      //      reference.setLength(dataLength + MMFileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {
@@ -209,11 +193,12 @@ public final class MMFileReader implements Reader {
     try {
       if (dataFileSegment == null) {
         dataFileSegment =
-            MemorySegment.mapFromPath(dataFile, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
+            MemorySegment.mapFromPath(dataFile, 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
       }
 
       if (revisionFileSegment == null) {
         revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
+                                                        0,
                                                         revisionsOffsetFile.toFile().length(),
                                                         FileChannel.MapMode.READ_ONLY);
       }

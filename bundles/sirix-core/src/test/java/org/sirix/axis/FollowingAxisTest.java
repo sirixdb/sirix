@@ -27,47 +27,46 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.exception.SirixException;
 
-public class FollowingAxisTest {
+public final class FollowingAxisTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void testAxisConventions() throws SirixException {
+  public void testAxisConventions() {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {12L, 13L});
+    AbsAxisTest.testAxisConventions(new FollowingAxis(rtx), new long[] {12L, 13L});
 
     rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {8L, 9L, 11L, 12L, 13L});
+    AbsAxisTest.testAxisConventions(new FollowingAxis(rtx), new long[] {8L, 9L, 11L, 12L, 13L});
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new FollowingAxis(rtx), new long[] {});
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new FollowingAxis(rtx), new long[] {});
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new FollowingAxis(rtx), new long[] {});
 
     rtx.moveTo(9L);
     rtx.moveToAttribute(0);
-    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new FollowingAxis(rtx), new long[] {});
   }
 
 }

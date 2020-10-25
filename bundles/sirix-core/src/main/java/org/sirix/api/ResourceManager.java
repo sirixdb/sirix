@@ -28,12 +28,13 @@ import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.cache.RBIndexKey;
+import org.sirix.cache.Cache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -124,7 +125,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx();
+  PageTrx beginPageTrx();
 
   /**
    * Begin a new {@link PageTrx}.
@@ -134,7 +135,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixException           if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageTrx<Long, DataRecord, UnorderedKeyValuePage> beginPageTrx(@Nonnegative int revision);
+  PageTrx beginPageTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.
@@ -347,10 +348,32 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   Optional<R> getNodeReadTrxByTrxId(long ID);
 
+  /**
+   * Determines if this resource manager has a running read-write transaction.
+   *
+   * @return {@code true}, if a running read-write transaction is found, {code false} otherwise
+   */
   boolean hasRunningNodeWriteTrx();
 
+  /**
+   * Get a read-only transaction for a specific revision, if it exists.
+   *
+   * @param revision the revision number
+   * @return optional read-only transaction
+   */
   Optional<R> getNodeReadTrxByRevisionNumber(int revision);
 
+  /**
+   * Get the user associated with the current ressource manager session.
+   *
+   * @return the user
+   */
   Optional<User> getUser();
 
+  /**
+   * Get cache for index-structures.
+   *
+   * @return the cache
+   */
+  Cache<RBIndexKey, RBNode<?, ?>> getIndexCache();
 }

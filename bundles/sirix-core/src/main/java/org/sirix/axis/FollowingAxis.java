@@ -34,10 +34,10 @@ import org.sirix.api.NodeCursor;
 public final class FollowingAxis extends AbstractAxis {
 
   /** Determines if it's the first node. */
-  private boolean mIsFirst;
+  private boolean isFirst;
 
   /** {@link Deque} reference to save right sibling keys. */
-  private Deque<Long> mRightSiblingStack;
+  private Deque<Long> rightSiblingStack;
 
   /**
    * Constructor initializing internal state.
@@ -46,21 +46,21 @@ public final class FollowingAxis extends AbstractAxis {
    */
   public FollowingAxis(final NodeCursor cursor) {
     super(cursor);
-    mIsFirst = true;
-    mRightSiblingStack = new ArrayDeque<>();
+    isFirst = true;
+    rightSiblingStack = new ArrayDeque<>();
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mIsFirst = true;
-    mRightSiblingStack = new ArrayDeque<>();
+    isFirst = true;
+    rightSiblingStack = new ArrayDeque<>();
   }
 
   @Override
   protected long nextKey() {
     // Assure, that following is not evaluated on an attribute or a namespace.
-    if (mIsFirst) {
+    if (isFirst) {
       switch (getCursor().getKind()) {
         case ATTRIBUTE:
         case NAMESPACE:
@@ -73,8 +73,8 @@ public final class FollowingAxis extends AbstractAxis {
     final NodeCursor cursor = getCursor();
     final long currKey = cursor.getNodeKey();
 
-    if (mIsFirst) {
-      mIsFirst = false;
+    if (isFirst) {
+      isFirst = false;
 
       /*
        * The first following is either a right sibling, or the right sibling of the first ancestor
@@ -86,12 +86,13 @@ public final class FollowingAxis extends AbstractAxis {
 
         if (cursor.hasRightSibling()) {
           // Push right sibling on a stack to reduce path traversal.
-          mRightSiblingStack.push(cursor.getRightSiblingKey());
+          rightSiblingStack.push(cursor.getRightSiblingKey());
         }
 
         cursor.moveTo(currKey);
         return key;
       }
+
       // Try to find the right sibling of one of the ancestors.
       while (cursor.hasParent()) {
         cursor.moveToParent();
@@ -100,12 +101,13 @@ public final class FollowingAxis extends AbstractAxis {
           final long key = cursor.getNodeKey();
 
           if (cursor.hasRightSibling()) {
-            mRightSiblingStack.push(cursor.getRightSiblingKey());
+            rightSiblingStack.push(cursor.getRightSiblingKey());
           }
           cursor.moveTo(currKey);
           return key;
         }
       }
+
       // CurrentNode is last key in the document order.
       return done();
     }
@@ -117,14 +119,14 @@ public final class FollowingAxis extends AbstractAxis {
 
       if (cursor.hasRightSibling()) {
         // Push right sibling on a stack to reduce path traversal.
-        mRightSiblingStack.push(cursor.getRightSiblingKey());
+        rightSiblingStack.push(cursor.getRightSiblingKey());
       }
 
       cursor.moveTo(currKey);
       return key;
     }
 
-    if (mRightSiblingStack.isEmpty()) {
+    if (rightSiblingStack.isEmpty()) {
       // Try to find the right sibling of one of the ancestors.
       while (cursor.hasParent()) {
         cursor.moveToParent();
@@ -135,7 +137,7 @@ public final class FollowingAxis extends AbstractAxis {
           if (cursor.hasRightSibling()) {
             // Push right sibling on a stack to reduce path
             // traversal.
-            mRightSiblingStack.push(cursor.getRightSiblingKey());
+            rightSiblingStack.push(cursor.getRightSiblingKey());
           }
 
           cursor.moveTo(currKey);
@@ -144,12 +146,12 @@ public final class FollowingAxis extends AbstractAxis {
       }
     } else {
       // Get root key of sibling subtree.
-      cursor.moveTo(mRightSiblingStack.pop());
+      cursor.moveTo(rightSiblingStack.pop());
       final long key = cursor.getNodeKey();
 
       if (cursor.hasRightSibling()) {
         // Push right sibling on a stack to reduce path traversal.
-        mRightSiblingStack.push(cursor.getRightSiblingKey());
+        rightSiblingStack.push(cursor.getRightSiblingKey());
       }
 
       cursor.moveTo(currKey);

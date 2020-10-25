@@ -42,6 +42,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.index.IndexDef;
+import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.index.path.summary.PathSummaryWriter.OPType;
@@ -57,7 +59,6 @@ import org.sirix.node.xml.*;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -76,6 +77,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -179,7 +181,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /**
    * The page write trx.
    */
-  private PageTrx<Long, DataRecord, UnorderedKeyValuePage> pageTrx;
+  private PageTrx pageTrx;
 
   /**
    * Collection holding pre-commit hooks.
@@ -215,7 +217,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  @SuppressWarnings("unchecked")
   XmlNodeTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
@@ -231,8 +232,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
     this.pathSummaryWriter = Preconditions.checkNotNull(pathSummaryWriter);
 
-    indexController = resourceManager.getWtxIndexController(this.nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    pageTrx = (PageTrx<Long, DataRecord, UnorderedKeyValuePage>) this.nodeReadOnlyTrx.getPageTrx();
+    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+    pageTrx = (PageTrx) this.nodeReadOnlyTrx.getPageTrx();
     storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
 
     this.nodeFactory = Preconditions.checkNotNull(nodeFactory);
@@ -294,8 +295,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       Preconditions.checkArgument(fromKey != getCurrentNode().getNodeKey(),
                                   "Can't move itself to right sibling of itself!");
 
-      @SuppressWarnings("unchecked")
-      final var node = (Optional<? extends Node>) pageTrx.getRecord(fromKey, PageKind.RECORDPAGE, -1);
+      final Optional<DataRecord> node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
       if (node.isEmpty()) {
         throw new IllegalStateException("Node to move must exist!");
       }
@@ -303,7 +303,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       final var nodeToMove = node.get();
       if (nodeToMove instanceof StructNode && getCurrentNode().getKind() == NodeKind.ELEMENT) {
         // Safe to cast (because StructNode is a subtype of Node).
-        checkAncestors(nodeToMove);
+        checkAncestors((Node) nodeToMove);
         checkAccessAndCommit();
 
         final ElementNode nodeAnchor = (ElementNode) getCurrentNode();
@@ -324,8 +324,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           nodeHashing.adaptHashesWithAdd();
 
           // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode) {
-            final NameNode moved = (NameNode) toMove;
+          if (buildPathSummary && toMove instanceof NameNode moved) {
             pathSummaryWriter.adaptPathForChangedNode(moved,
                                                       getName(),
                                                       moved.getURIKey(),
@@ -429,19 +428,16 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       }
 
       // Save: Every node in the "usual" node page is of type Node.
-      @SuppressWarnings("unchecked")
-      final var node = (Optional<? extends Node>) pageTrx.getRecord(fromKey, PageKind.RECORDPAGE, -1);
+      final Optional<DataRecord> node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
       if (node.isEmpty()) {
         throw new IllegalStateException("Node to move must exist!");
       }
 
-      final Node nodeToMove = node.get();
-      if (nodeToMove instanceof StructNode && getCurrentNode() instanceof StructNode) {
-        final StructNode toMove = (StructNode) nodeToMove;
+      final DataRecord nodeToMove = node.get();
+      if (nodeToMove instanceof StructNode toMove && getCurrentNode() instanceof StructNode nodeAnchor) {
         checkAncestors(toMove);
         checkAccessAndCommit();
 
-        final StructNode nodeAnchor = (StructNode) getCurrentNode();
         if (nodeAnchor.getRightSiblingKey() != nodeToMove.getNodeKey()) {
           final long parentKey = toMove.getParentKey();
 
@@ -454,8 +450,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           nodeHashing.adaptHashesWithAdd();
 
           // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode) {
-            final NameNode moved = (NameNode) toMove;
+          if (buildPathSummary && toMove instanceof NameNode moved) {
             final OPType type = moved.getParentKey() == parentKey ? OPType.MOVED_ON_SAME_LEVEL : OPType.MOVED;
 
             if (type != OPType.MOVED_ON_SAME_LEVEL) {
@@ -510,8 +505,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
     // Modify nodes where the subtree has been moved from.
     // ==============================================================================
-    final StructNode parent =
-        (StructNode) pageTrx.prepareEntryForModification(fromNode.getParentKey(), PageKind.RECORDPAGE, -1);
+    final StructNode parent = pageTrx.prepareRecordForModification(fromNode.getParentKey(), IndexType.DOCUMENT, -1);
     switch (insertPos) {
       case ASRIGHTSIBLING:
         if (fromNode.getParentKey() != toNode.getParentKey() && storeChildCount) {
@@ -538,14 +532,14 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     // Adapt left sibling key of former right sibling.
     if (fromNode.hasRightSibling()) {
       final StructNode rightSibling =
-          (StructNode) pageTrx.prepareEntryForModification(fromNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(fromNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
       rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
     }
 
     // Adapt right sibling key of former left sibling.
     if (fromNode.hasLeftSibling()) {
       final StructNode leftSibling =
-          (StructNode) pageTrx.prepareEntryForModification(fromNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(fromNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
       leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
     }
 
@@ -561,10 +555,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
             moveTo(fromNode.getLeftSiblingKey());
             if (nodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
               final StructNode leftSibling =
-                  (StructNode) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getStructuralNode()
-                                                                                  .getLeftSiblingKey(),
-                                                                   PageKind.RECORDPAGE,
-                                                                   -1);
+                  pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getStructuralNode().getLeftSiblingKey(),
+                                                       IndexType.DOCUMENT,
+                                                       -1);
               leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
             }
             final long leftSiblingKey =
@@ -574,9 +567,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
                     : getCurrentNode().getNodeKey();
             moveTo(fromNode.getRightSiblingKey());
             final StructNode rightSibling =
-                (StructNode) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(),
-                                                                 PageKind.RECORDPAGE,
-                                                                 -1);
+                pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
             rightSibling.setLeftSiblingKey(leftSiblingKey);
             moveTo(fromNode.getLeftSiblingKey());
             remove();
@@ -584,10 +575,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           } else {
             if (nodeReadOnlyTrx.getStructuralNode().hasRightSibling()) {
               final StructNode rightSibling =
-                  (StructNode) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getStructuralNode()
-                                                                                  .getRightSiblingKey(),
-                                                                   PageKind.RECORDPAGE,
-                                                                   -1);
+                  pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getStructuralNode().getRightSiblingKey(),
+                                                       IndexType.DOCUMENT,
+                                                       -1);
               rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
             }
             final long rightSiblingKey =
@@ -597,9 +587,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
                     : getCurrentNode().getNodeKey();
             moveTo(fromNode.getLeftSiblingKey());
             final StructNode leftSibling =
-                (StructNode) pageTrx.prepareEntryForModification(getCurrentNode().getNodeKey(),
-                                                                 PageKind.RECORDPAGE,
-                                                                 -1);
+                pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
             leftSibling.setRightSiblingKey(rightSiblingKey);
             moveTo(fromNode.getRightSiblingKey());
             remove();
@@ -790,9 +778,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private void nonElementHashes() {
     while (getCurrentNode().getKind() != NodeKind.ELEMENT) {
       BigInteger hashToAdd = getCurrentNode().computeHash();
-      Node node = (Node) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(),
-                                                             PageKind.RECORDPAGE,
-                                                             -1);
+      Node node =
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setHash(hashToAdd);
 
       moveToRightSibling();
@@ -1215,8 +1202,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final long elementKey = getCurrentNode().getNodeKey();
         final AttributeNode node = nodeFactory.createAttributeNode(elementKey, name, attValue, pathNodeKey, id);
 
-        final Node parentNode =
-            (Node) pageTrx.prepareEntryForModification(node.getParentKey(), PageKind.RECORDPAGE, -1);
+        final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         ((ElementNode) parentNode).insertAttribute(node.getNodeKey(), node.getPrefixKey() + node.getLocalNameKey());
 
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -1267,8 +1253,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final SirixDeweyID id = deweyIDManager.newNamespaceID();
         final NamespaceNode node = nodeFactory.createNamespaceNode(elementKey, name, pathNodeKey, id);
 
-        final Node parentNode =
-            (Node) pageTrx.prepareEntryForModification(node.getParentKey(), PageKind.RECORDPAGE, -1);
+        final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         ((ElementNode) parentNode).insertNamespace(node.getNodeKey());
 
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -1329,7 +1314,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           removeValue();
 
           // Then remove node.
-          pageTrx.removeEntry(currentNode.getNodeKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
         }
 
         // Remove the name and value of subtree-root if necessary.
@@ -1357,22 +1342,20 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final AttributeNode node = (AttributeNode) nodeReadOnlyTrx.getCurrentNode();
 
         indexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
-        final ElementNode parent =
-            (ElementNode) pageTrx.prepareEntryForModification(node.getParentKey(), PageKind.RECORDPAGE, -1);
+        final ElementNode parent = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeAttribute(node.getNodeKey());
         nodeHashing.adaptHashesWithRemove();
-        pageTrx.removeEntry(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+        pageTrx.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
         removeName();
         moveToParent();
       } else if (getCurrentNode().getKind() == NodeKind.NAMESPACE) {
         final NamespaceNode node = (NamespaceNode) nodeReadOnlyTrx.getCurrentNode();
 
         indexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
-        final ElementNode parent =
-            (ElementNode) pageTrx.prepareEntryForModification(node.getParentKey(), PageKind.RECORDPAGE, -1);
+        final ElementNode parent = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeNamespace(node.getNodeKey());
         nodeHashing.adaptHashesWithRemove();
-        pageTrx.removeEntry(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+        pageTrx.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
         removeName();
         moveToParent();
       }
@@ -1403,14 +1386,14 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         moveToAttribute(i);
         removeName();
         removeValue();
-        pageTrx.removeEntry(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+        pageTrx.removeRecord(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         moveToParent();
       }
       final int nspCount = nodeReadOnlyTrx.getNamespaceCount();
       for (int i = 0; i < nspCount; i++) {
         moveToNamespace(i);
         removeName();
-        pageTrx.removeEntry(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+        pageTrx.removeRecord(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         moveToParent();
       }
     }
@@ -1422,8 +1405,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    * @throws SirixException if Sirix fails
    */
   private void removeName() {
-    if (getCurrentNode() instanceof ImmutableNameNode) {
-      final ImmutableNameNode node = (ImmutableNameNode) getCurrentNode();
+    if (getCurrentNode() instanceof ImmutableNameNode node) {
       indexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
@@ -1474,7 +1456,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
               : -1;
 
           // Set new keys for current node.
-          node = (NameNode) pageTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+          node = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
           node.setLocalNameKey(localNameKey);
           node.setURIKey(uriKey);
           node.setPrefixKey(prefixKey);
@@ -1525,9 +1507,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final byte[] byteVal = getBytes(value);
 
         final ValueNode node =
-            (ValueNode) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(),
-                                                            PageKind.RECORDPAGE,
-                                                            -1);
+            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         node.setValue(byteVal);
 
         nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
@@ -1694,8 +1674,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     }
 
     // Recreate index listeners.
+    final var indexDefs = indexController.getIndexes().getIndexDefs();
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    indexController.createIndexListeners(indexController.getIndexes().getIndexDefs(), this);
+    indexController.createIndexListeners(indexDefs, this);
   }
 
   /**
@@ -1750,25 +1731,27 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     assert insertPos != null;
 
     if (newNode instanceof StructNode) {
-      final StructNode strucNode = (StructNode) newNode;
-      final StructNode parent =
-          (StructNode) pageTrx.prepareEntryForModification(newNode.getParentKey(), PageKind.RECORDPAGE, -1);
+      final StructNode structNode = (StructNode) newNode;
+      final StructNode parent = pageTrx.prepareRecordForModification(newNode.getParentKey(), IndexType.DOCUMENT, -1);
+
       if (storeChildCount) {
         parent.incrementChildCount();
       }
+
       if (!((StructNode) newNode).hasLeftSibling()) {
         parent.setFirstChildKey(newNode.getNodeKey());
       }
 
-      if (strucNode.hasRightSibling()) {
+      if (structNode.hasRightSibling()) {
         final StructNode rightSiblingNode =
-            (StructNode) pageTrx.prepareEntryForModification(strucNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
-        rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
+            pageTrx.prepareRecordForModification(structNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
+        rightSiblingNode.setLeftSiblingKey(structNode.getNodeKey());
       }
-      if (strucNode.hasLeftSibling()) {
+
+      if (structNode.hasLeftSibling()) {
         final StructNode leftSiblingNode =
-            (StructNode) pageTrx.prepareEntryForModification(strucNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
-        leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
+            pageTrx.prepareRecordForModification(structNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
+        leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
       }
     }
   }
@@ -1807,7 +1790,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     // Adapt left sibling node if there is one.
     if (oldNode.hasLeftSibling()) {
       final StructNode leftSibling =
-          (StructNode) pageTrx.prepareEntryForModification(oldNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
+          pageTrx.prepareRecordForModification(oldNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
       if (concatenated) {
         moveTo(oldNode.getRightSiblingKey());
         leftSibling.setRightSiblingKey(((StructNode) getCurrentNode()).getRightSiblingKey());
@@ -1822,20 +1805,17 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       if (concatenated) {
         moveTo(oldNode.getRightSiblingKey());
         moveTo(nodeReadOnlyTrx.getStructuralNode().getRightSiblingKey());
-        rightSibling = (StructNode) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(),
-                                                                        PageKind.RECORDPAGE,
-                                                                        -1);
+        rightSibling =
+            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
       } else {
-        rightSibling =
-            (StructNode) pageTrx.prepareEntryForModification(oldNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
+        rightSibling = pageTrx.prepareRecordForModification(oldNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
         rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
       }
     }
 
     // Adapt parent, if node has now left sibling it is a first child.
-    StructNode parent =
-        (StructNode) pageTrx.prepareEntryForModification(oldNode.getParentKey(), PageKind.RECORDPAGE, -1);
+    StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), IndexType.DOCUMENT, -1);
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
@@ -1854,9 +1834,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       while (parent.hasParent()) {
         moveToParent();
         final StructNode ancestor =
-            (StructNode) pageTrx.prepareEntryForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(),
-                                                             PageKind.RECORDPAGE,
-                                                             -1);
+            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         ancestor.decrementDescendantCount();
         parent = ancestor;
       }
@@ -1866,7 +1844,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     // concatenated/merged.
     if (concatenated) {
       moveTo(oldNode.getRightSiblingKey());
-      pageTrx.removeEntry(nodeReadOnlyTrx.getNodeKey(), PageKind.RECORDPAGE, -1);
+      pageTrx.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     }
 
     // Remove non structural nodes of old node.
@@ -1877,7 +1855,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
     // Remove old node.
     moveTo(oldNode.getNodeKey());
-    pageTrx.removeEntry(oldNode.getNodeKey(), PageKind.RECORDPAGE, -1);
+    pageTrx.removeRecord(oldNode.getNodeKey(), IndexType.DOCUMENT, -1);
   }
 
   // ////////////////////////////////////////////////////////////
@@ -1990,48 +1968,27 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       case TEXT:
         final String textValue = rtx.getValue();
         switch (insert) {
-          case AS_FIRST_CHILD:
-            insertTextAsFirstChild(textValue);
-            break;
-          case AS_LEFT_SIBLING:
-            insertTextAsLeftSibling(textValue);
-            break;
-          case AS_RIGHT_SIBLING:
-            insertTextAsRightSibling(textValue);
-            break;
-          default:
-            throw new IllegalStateException();
+          case AS_FIRST_CHILD -> insertTextAsFirstChild(textValue);
+          case AS_LEFT_SIBLING -> insertTextAsLeftSibling(textValue);
+          case AS_RIGHT_SIBLING -> insertTextAsRightSibling(textValue);
+          default -> throw new IllegalStateException();
         }
         break;
       case PROCESSING_INSTRUCTION:
         switch (insert) {
-          case AS_FIRST_CHILD:
-            insertPIAsFirstChild(rtx.getName().getLocalName(), rtx.getValue());
-            break;
-          case AS_LEFT_SIBLING:
-            insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
-            break;
-          case AS_RIGHT_SIBLING:
-            insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
-            break;
-          default:
-            throw new IllegalStateException();
+          case AS_FIRST_CHILD -> insertPIAsFirstChild(rtx.getName().getLocalName(), rtx.getValue());
+          case AS_LEFT_SIBLING -> insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
+          case AS_RIGHT_SIBLING -> insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
+          default -> throw new IllegalStateException();
         }
         break;
       case COMMENT:
         final String commentValue = rtx.getValue();
         switch (insert) {
-          case AS_FIRST_CHILD:
-            insertCommentAsFirstChild(commentValue);
-            break;
-          case AS_LEFT_SIBLING:
-            insertCommentAsLeftSibling(commentValue);
-            break;
-          case AS_RIGHT_SIBLING:
-            insertCommentAsRightSibling(commentValue);
-            break;
-          default:
-            throw new IllegalStateException();
+          case AS_FIRST_CHILD -> insertCommentAsFirstChild(commentValue);
+          case AS_LEFT_SIBLING -> insertCommentAsLeftSibling(commentValue);
+          case AS_RIGHT_SIBLING -> insertCommentAsRightSibling(commentValue);
+          default -> throw new IllegalStateException();
         }
         break;
       // $CASES-OMITTED$
@@ -2096,41 +2053,36 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     checkNotNull(rtx);
     acquireLock();
     try {
+      /*
+       * #text1 <emptyElement/> #text2 | <emptyElement/> #text <emptyElement/>
+       *
+       * Replace 2nd node each time => with text node
+       */
+      // $CASES-OMITTED$
       switch (rtx.getKind()) {
-        case ELEMENT:
-        case TEXT:
-        case COMMENT:
-        case PROCESSING_INSTRUCTION:
+        case ELEMENT, TEXT, COMMENT, PROCESSING_INSTRUCTION -> {
           checkCurrentNode();
-
-          /*
-           * #text1 <emptyElement/> #text2 | <emptyElement/> #text <emptyElement/>
-           *
-           * Replace 2nd node each time => with text node
-           */
           if (isText()) {
             removeAndThenInsert(rtx);
           } else {
             insertAndThenRemove(rtx);
           }
-          break;
-        case ATTRIBUTE:
+        }
+        case ATTRIBUTE -> {
           if (getCurrentNode().getKind() != NodeKind.ATTRIBUTE) {
             throw new IllegalStateException("Current node must be an attribute node!");
           }
           remove();
           insertAttribute(rtx.getName(), rtx.getValue());
-          break;
-        case NAMESPACE:
+        }
+        case NAMESPACE -> {
           if (getCurrentNode().getKind() != NodeKind.NAMESPACE) {
             throw new IllegalStateException("Current node must be a namespace node!");
           }
           remove();
           insertNamespace(rtx.getName());
-          break;
-        // $CASES-OMITTED$
-        default:
-          throw new UnsupportedOperationException("Node type not supported!");
+        }
+        default -> throw new UnsupportedOperationException("Node type not supported!");
       }
     } finally {
       unLock();
@@ -2206,8 +2158,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XmlNodeTrxImpl) {
-      final XmlNodeTrxImpl wtx = (XmlNodeTrxImpl) obj;
+    if (obj instanceof XmlNodeTrxImpl wtx) {
       return Objects.equal(nodeReadOnlyTrx, wtx.nodeReadOnlyTrx);
     }
     return false;
@@ -2340,7 +2291,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
-  public PageTrx<Long, DataRecord, UnorderedKeyValuePage> getPageWtx() {
+  public PageTrx getPageWtx() {
     nodeReadOnlyTrx.assertNotClosed();
     return pageTrx;
   }

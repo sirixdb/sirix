@@ -5,43 +5,39 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.AuthRole
+import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.json.JsonSessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
-import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.json.BasicJsonDBStore
-import org.sirix.xquery.json.JsonDBCollection
 import org.sirix.xquery.node.BasicXmlDBStore
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
-class XmlGet(private val location: Path) {
+class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val databaseName: String? = ctx.pathParam("database")
-        val resource: String? = ctx.pathParam("resource")
+        val databaseName: String = ctx.pathParam("database")
+        val resource: String = ctx.pathParam("resource")
         val jsonBody = ctx.bodyAsJson
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
@@ -55,7 +51,7 @@ class XmlGet(private val location: Path) {
     }
 
     private suspend fun get(
-        databaseName: String?, ctx: RoutingContext, resource: String?, query: String?,
+        databaseName: String, ctx: RoutingContext, resource: String, query: String?,
         vertxContext: Context, user: User
     ) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
@@ -82,19 +78,19 @@ class XmlGet(private val location: Path) {
                 val manager = database.openResourceManager(resource)
 
                 manager.use {
-                    if (query != null && query.isNotEmpty()) {
-                        body = queryResource(
+                    body = if (query != null && query.isNotEmpty()) {
+                        queryResource(
                             databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user
                         )
                     } else {
-                        val revisions: Array<Int> =
+                        val revisions: IntArray =
                             Revisions.getRevisionsToSerialize(
                                 startRevision, endRevision, startRevisionTimestamp,
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
 
-                        body = serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -141,7 +137,7 @@ class XmlGet(private val location: Path) {
         manager: XmlResourceManager?,
         dbCollection: XmlDBCollection?,
         nodeId: String?,
-        revisionNumber: Array<Int>?, query: String, routingContext: RoutingContext, vertxContext: Context,
+        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ): String? {
         return vertxContext.executeBlockingAwait { promise: Promise<String> ->
@@ -182,6 +178,7 @@ class XmlGet(private val location: Path) {
                             routingContext
                         )
                     }
+
                 } else {
                     body = query(
                         xmlDBStore,
@@ -204,13 +201,14 @@ class XmlGet(private val location: Path) {
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext?,
+        queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?,
         routingContext: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
 
         executeQueryAndSerialize(
+            routingContext,
             xmlDBStore,
             jsonDBStore,
             out,
@@ -229,18 +227,25 @@ class XmlGet(private val location: Path) {
     }
 
     private fun executeQueryAndSerialize(
+        routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
         out: ByteArrayOutputStream,
         startResultSeqIndex: Long?,
         query: String,
-        queryCtx: SirixQueryContext?,
+        queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
     ) {
         PrintStream(out).use { printStream ->
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
-                    XQuery(sirixCompileChain, query).prettyPrint().serialize(
+                    PermissionCheckingXQuery(
+                        sirixCompileChain,
+                        query,
+                        AuthRole.MODIFY,
+                        keycloak,
+                        routingContext.get("user")
+                    ).prettyPrint().serialize(
                         queryCtx,
                         XmlDBSerializer(printStream, true, true)
                     )
@@ -251,7 +256,10 @@ class XmlGet(private val location: Path) {
                         queryCtx,
                         startResultSeqIndex,
                         endResultSeqIndex,
-                        XmlDBSerializer(printStream, true, true)
+                        AuthRole.MODIFY,
+                        keycloak,
+                        routingContext.get("user"),
+                        XmlDBSerializer(printStream, true, true),
                     ) { serializer, startItem -> serializer.serialize(startItem) }
                 }
             }
@@ -259,12 +267,12 @@ class XmlGet(private val location: Path) {
     }
 
     private fun serializeResource(
-        manager: XmlResourceManager, revisions: Array<Int>, nodeId: Long?,
+        manager: XmlResourceManager, revisions: IntArray, nodeId: Long?,
         ctx: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
 
-        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions.toIntArray())
+        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions)
 
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 

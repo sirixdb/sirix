@@ -2,7 +2,6 @@ package org.sirix.node.immutable.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
-import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
