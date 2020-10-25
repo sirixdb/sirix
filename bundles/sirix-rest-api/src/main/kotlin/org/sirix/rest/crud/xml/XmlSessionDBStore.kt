@@ -1,19 +1,14 @@
 package org.sirix.rest.crud.xml
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
-import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 import org.brackit.xquery.node.parser.SubtreeParser
 import org.brackit.xquery.xdm.Stream
 import org.sirix.rest.Auth
 import org.sirix.rest.AuthRole
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBStore
-import java.lang.IllegalStateException
 
 class XmlSessionDBStore(private val ctx: RoutingContext, private val dbStore: XmlDBStore, private val user: User) : XmlDBStore by dbStore {
     override fun lookup(name: String): XmlDBCollection {

@@ -3,7 +3,7 @@ package org.sirix.rest.crud
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.runBlocking
 import org.brackit.xquery.ErrorCode
 import org.brackit.xquery.QueryContext
@@ -69,7 +69,7 @@ class PermissionCheckingXQuery {
 
             // FIXME: Better way?
             runBlocking {
-                require(user.isAuthorizedAwait(role.keycloakRole())) {
+                require(user.isAuthorized(role.keycloakRole()).await()) {
                     throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
                 }
             }
