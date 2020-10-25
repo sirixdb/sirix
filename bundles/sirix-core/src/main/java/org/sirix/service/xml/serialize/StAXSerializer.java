@@ -305,7 +305,7 @@ public final class StAXSerializer implements XMLEventReader {
         rtx.moveTo(mStack.peek());
         emitEndTag(rtx);
       } else {
-        if (mFirst && mAxis.isSelfIncluded() == IncludeSelf.YES) {
+        if (mFirst && mAxis.includeSelf() == IncludeSelf.YES) {
           emitNode(rtx);
         } else {
           if (rtx.hasFirstChild()) {

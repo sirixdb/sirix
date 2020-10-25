@@ -2,7 +2,7 @@ services:
   - docker
 language: java
 jdk:
-  - openjdk14
+  - openjdk15
 branches:
   only:
     - master
@@ -17,7 +17,7 @@ jobs:
   include:
     - stage: test
       name: "Source Build"
-      jdk: openjdk14
+      jdk: openjdk15
       install: skip
       script: ./gradlew clean build --info --stacktrace --refresh-dependencies
       after_success:

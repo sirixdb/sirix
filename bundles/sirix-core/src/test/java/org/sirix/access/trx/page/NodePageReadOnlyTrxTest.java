@@ -4,6 +4,7 @@ import org.junit.Test;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.page.PageKind;
@@ -21,9 +22,9 @@ public final class NodePageReadOnlyTrxTest {
         mock(Reader.class), mock(TransactionIntentLog.class), mock(BufferManager.class),
         mock(RevisionRootPageReader.class));
 
-    assertEquals(0, trx.pageKey(1, PageKind.RECORDPAGE));
-    assertEquals(1023 / Constants.NDP_NODE_COUNT, trx.pageKey(1023, PageKind.RECORDPAGE));
-    assertEquals(1024 / Constants.NDP_NODE_COUNT, trx.pageKey(1024, PageKind.RECORDPAGE));
+    assertEquals(0, trx.pageKey(1, IndexType.DOCUMENT));
+    assertEquals(1023 / Constants.NDP_NODE_COUNT, trx.pageKey(1023, IndexType.DOCUMENT));
+    assertEquals(1024 / Constants.NDP_NODE_COUNT, trx.pageKey(1024, IndexType.DOCUMENT));
   }
 
   @Test

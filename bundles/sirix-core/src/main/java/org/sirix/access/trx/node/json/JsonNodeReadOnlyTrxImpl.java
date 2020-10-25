@@ -19,11 +19,13 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.diff.JsonDiffSerializer;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -79,6 +81,22 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     checkArgument(trxId >= 0);
     this.trxId = trxId;
     isClosed = false;
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    assertNotClosed();
+    return getStructuralNode().hasLastChild();
+  }
+
+  @Override
+  public Move<JsonNodeReadOnlyTrx> moveToLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasLastChild()) {
+      moveTo(getStructuralNode().getLastChildKey());
+      return Move.moved(thisInstance());
+    }
+    return Move.notMoved();
   }
 
   @Override
@@ -199,7 +217,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var deweyId = new SirixDeweyID(opAsJsonObject.getAsJsonPrimitive("deweyID").getAsString());
 
-    return deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() <= maxDepth;
+    return deweyId.isDescendantOrSelfOf(rootDeweyId) && deweyId.getLevel() - rootDeweyId.getLevel() <= maxDepth;
   }
 
   @Override
@@ -214,7 +232,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
       if (nodeKey < 0) {
         newNode = Optional.empty();
       } else {
-        newNode = pageReadOnlyTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
       }
     } catch (final SirixIOException | UncheckedIOException e) {
       newNode = Optional.empty();

@@ -58,18 +58,18 @@ public class XPathAxisWideTest {
     final Holder holder = Holder.generateRtx();
     holder.getXmlNodeReadTrx().moveToDocumentRoot();
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/continent[@id]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/continent[@name]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/continent[@id=\"f0_119\"]"), new long[] {2L});
 
-    AbsAxisTest.testIAxisConventions(
+    AbsAxisTest.testAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/continent[@name = \"Africa\"]"),
         new long[] {14L});
 

@@ -10,10 +10,10 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 
 public final class XmlCASIndexListener implements ChangeListener {
 
-  private final CASIndexListener mIndexListenerDelegate;
+  private final CASIndexListener indexListenerDelegate;
 
   public XmlCASIndexListener(final CASIndexListener indexListenerDelegate) {
-    mIndexListenerDelegate = indexListenerDelegate;
+    this.indexListenerDelegate = indexListenerDelegate;
   }
 
   @Override
@@ -21,11 +21,11 @@ public final class XmlCASIndexListener implements ChangeListener {
     if (node instanceof ValueNode) {
       final ValueNode valueNode = ((ValueNode) node);
 
-      mIndexListenerDelegate.listen(type, valueNode, pathNodeKey, new Str(valueNode.getValue()));
+      indexListenerDelegate.listen(type, valueNode, pathNodeKey, new Str(valueNode.getValue()));
     } else if (node instanceof ImmutableValueNode) {
       final ImmutableValueNode valueNode = ((ImmutableValueNode) node);
 
-      mIndexListenerDelegate.listen(type, node, pathNodeKey, new Str(valueNode.getValue()));
+      indexListenerDelegate.listen(type, node, pathNodeKey, new Str(valueNode.getValue()));
     }
   }
 }

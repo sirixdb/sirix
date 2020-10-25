@@ -48,7 +48,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
 
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8;
+  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 64;
 
   /**
    * Random access to work on.
@@ -163,7 +163,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           // Must not happen.
       }
 
-      pageReference.setLength(writtenPageLength);
+//      pageReference.setLength(writtenPageLength);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {

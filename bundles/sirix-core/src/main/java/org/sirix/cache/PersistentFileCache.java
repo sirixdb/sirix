@@ -26,7 +26,7 @@ public final class PersistentFileCache implements AutoCloseable {
 
     if (modifiedPage instanceof KeyValuePage) {
       final long peristKey = reference.getPersistentLogKey();
-      reference.setPersistentLogKey(peristKey + reference.getLength());
+//      reference.setPersistentLogKey(peristKey + reference.getLength());
       completePage = writer.read(reference, pageReadTrx);
       reference.setPersistentLogKey(peristKey);
     } else {
@@ -42,12 +42,12 @@ public final class PersistentFileCache implements AutoCloseable {
 
     if (container.getModified() instanceof KeyValuePage) {
       final long offset = reference.getPersistentLogKey();
-      int length = reference.getLength();
+//      int length = reference.getLength();
       reference.setPage(container.getComplete());
       writer.write(reference);
-      length += reference.getLength();
+//      length += reference.getLength();
       reference.setPersistentLogKey(offset);
-      reference.setLength(length);
+//      reference.setLength(length);
     }
 
     reference.setPage(null);

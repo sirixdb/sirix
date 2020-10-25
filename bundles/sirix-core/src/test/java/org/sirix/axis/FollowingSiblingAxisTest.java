@@ -50,20 +50,20 @@ public class FollowingSiblingAxisTest {
   public void testAxisConventions() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {13L});
+    AbsAxisTest.testAxisConventions(new FollowingSiblingAxis(rtx), new long[] {13L});
 
     rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {8L, 9L, 13L});
+    AbsAxisTest.testAxisConventions(new FollowingSiblingAxis(rtx), new long[] {8L, 9L, 13L});
 
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {5L, 8L, 9L, 13L});
+    AbsAxisTest.testAxisConventions(new FollowingSiblingAxis(rtx), new long[] {5L, 8L, 9L, 13L});
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
 
     rtx.moveTo(9L);
     rtx.moveToAttribute(0);
-    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
   }
 
 }

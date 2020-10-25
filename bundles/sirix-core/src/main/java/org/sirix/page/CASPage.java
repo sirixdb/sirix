@@ -3,6 +3,7 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
@@ -26,18 +27,18 @@ public final class CASPage extends AbstractForwardingPage {
   private Page delegate;
 
   /** Maximum node keys. */
-  private final Map<Integer, Long> mMaxNodeKeys;
+  private final Map<Integer, Long> maxNodeKeys;
 
   /** Current maximum levels of indirect pages in the tree. */
-  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
+  private final Map<Integer, Integer> currentMaxLevelsOfIndirectPages;
 
   /**
    * Constructor.
    */
   public CASPage() {
     delegate = new ReferencesPage4();
-    mMaxNodeKeys = new HashMap<>();
-    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
+    maxNodeKeys = new HashMap<>();
+    currentMaxLevelsOfIndirectPages = new HashMap<>();
   }
 
   /**
@@ -48,14 +49,14 @@ public final class CASPage extends AbstractForwardingPage {
   protected CASPage(final DataInput in, final SerializationType type) throws IOException {
     delegate = PageUtils.createDelegate(in, type);
     final int maxNodeKeySize = in.readInt();
-    mMaxNodeKeys = new HashMap<>(maxNodeKeySize);
+    maxNodeKeys = new HashMap<>(maxNodeKeySize);
     for (int i = 0; i < maxNodeKeySize; i++) {
-      mMaxNodeKeys.put(i, in.readLong());
+      maxNodeKeys.put(i, in.readLong());
     }
     final int currentMaxLevelOfIndirectPages = in.readInt();
-    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    currentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
+      currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
     }
   }
 
@@ -103,13 +104,13 @@ public final class CASPage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, PageKind.CASPAGE, index, pageReadTrx, log);
-      if (mMaxNodeKeys.get(index) == null) {
-        mMaxNodeKeys.put(index, 0L);
+      PageUtils.createTree(reference, IndexType.CAS, pageReadTrx, log);
+      if (maxNodeKeys.get(index) == null) {
+        maxNodeKeys.put(index, 0L);
       } else {
-        mMaxNodeKeys.put(index, mMaxNodeKeys.get(index) + 1);
+        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
       }
-      mCurrentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
+      currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
     }
   }
 
@@ -121,24 +122,24 @@ public final class CASPage extends AbstractForwardingPage {
       out.writeByte(1);
     }
     super.serialize(out, type);
-    final int maxNodeKeySize = mMaxNodeKeys.size();
+    final int maxNodeKeySize = maxNodeKeys.size();
     out.writeInt(maxNodeKeySize);
     for (int i = 0; i < maxNodeKeySize; i++) {
-      out.writeLong(mMaxNodeKeys.get(i));
+      out.writeLong(maxNodeKeys.get(i));
     }
-    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+      out.writeByte(currentMaxLevelsOfIndirectPages.get(i));
     }
   }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.get(index);
+    return currentMaxLevelsOfIndirectPages.get(index);
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.merge(
+    return currentMaxLevelsOfIndirectPages.merge(
         index, 1, Integer::sum);
   }
 
@@ -149,12 +150,12 @@ public final class CASPage extends AbstractForwardingPage {
    * @return the maximum node key stored
    */
   public long getMaxNodeKey(final int indexNo) {
-    return mMaxNodeKeys.get(indexNo);
+    return maxNodeKeys.get(indexNo);
   }
 
   public long incrementAndGetMaxNodeKey(final int indexNo) {
-    final long newMaxNodeKey = mMaxNodeKeys.get(indexNo) + 1;
-    mMaxNodeKeys.put(indexNo, newMaxNodeKey);
+    final long newMaxNodeKey = maxNodeKeys.get(indexNo) + 1;
+    maxNodeKeys.put(indexNo, newMaxNodeKey);
     return newMaxNodeKey;
   }
 }

@@ -1,6 +1,7 @@
 package org.sirix.axis.temporal;
 
 import java.util.Iterator;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -18,18 +19,21 @@ import com.google.common.collect.testing.IteratorTester;
  * Test {@link AllTimeAxis}.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class AllTimeAxisTest {
 
-  /** Number of iterations. */
+  /**
+   * Number of iterations.
+   */
   private static final int ITERATIONS = 5;
 
-  /** The {@link Holder} instance. */
+  /**
+   * The {@link Holder} instance.
+   */
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
@@ -38,18 +42,20 @@ public final class AllTimeAxisTest {
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void testAxis() throws SirixException {
+  public void testAxis() {
     try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-        final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-        final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
-      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(firstReader, secondReader, thirdReader), null) {
+         final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+         final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
+      new IteratorTester<>(ITERATIONS,
+                           IteratorFeature.UNMODIFIABLE,
+                           ImmutableList.of(firstReader, secondReader, thirdReader),
+                           null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new AllTimeAxis<>(holder.getResourceManager(), holder.getXmlNodeReadTrx());
@@ -59,7 +65,7 @@ public final class AllTimeAxisTest {
   }
 
   @Test
-  public void testAxisWithDeletedNode() throws SirixException {
+  public void testAxisWithDeletedNode() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertCommentAsRightSibling("foooooo");
@@ -75,17 +81,19 @@ public final class AllTimeAxisTest {
     }
 
     try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-        final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-        final XmlNodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
-        final XmlNodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
+         final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+         final XmlNodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+         final XmlNodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
 
       firstReader.moveTo(4);
       secondReader.moveTo(4);
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 
-      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
+      new IteratorTester<>(ITERATIONS,
+                           IteratorFeature.UNMODIFIABLE,
+                           ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader),
+                           null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new AllTimeAxis<>(fourthReader.getResourceManager(), fourthReader);

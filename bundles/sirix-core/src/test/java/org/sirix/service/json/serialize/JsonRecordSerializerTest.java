@@ -4,13 +4,22 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sirix.JsonTestHelper;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.service.json.shredder.JsonShredder;
 
+import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public final class JsonRecordSerializerTest {
+
+  private static final Path JSON = Paths.get("src", "test", "resources", "json", "jsonRecordSerializer");
 
   @BeforeEach
   public void setUp() {
@@ -20,6 +29,32 @@ public final class JsonRecordSerializerTest {
   @AfterEach
   public void tearDown() {
     JsonTestHelper.closeEverything();
+  }
+
+  @Test
+  public void serializeArray() {
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+
+      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var wtx = resmgr.beginNodeTrx()) {
+        final var json = """
+                [{},"bla",{"foo":"bar"},null,[]]
+            """.strip();
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+
+        final var stringWriter = new StringWriter();
+        final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).build();
+        jsonRecordSerializer.call();
+
+        final var expected = """
+               [{},"bla",{"foo":"bar"}]
+            """.strip();
+
+        assertEquals(expected, stringWriter.toString());
+      }
+    }
   }
 
   @Test
@@ -97,7 +132,7 @@ public final class JsonRecordSerializerTest {
   }
 
   @Test
-  public void serializeObjectWithMaxLevelAndMetaData() {
+  public void serializeObjectWithMaxLevelAndMetaData() throws IOException {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -107,11 +142,109 @@ public final class JsonRecordSerializerTest {
           new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).withMetaData(true).build();
       jsonRecordSerializer.call();
 
-      final var expected = """
-              {"metadata":{"nodeKey":1,"hash":"afc35014ae4a659c92ed4a99d1f35adb","type":"OBJECT","descendantCount":24,"childCount":4},"value":[{"key":"foo","metadata":{"nodeKey":2,"hash":"f63408ac19f84f635e2140a2a38dcaa2","type":"OBJECT_KEY","descendantCount":4},"value":{"metadata":{"nodeKey":3,"hash":"a709e167ce057fa71d7265aa0b0442fb","type":"ARRAY","descendantCount":3,"childCount":3},"value":[]},"key":"bar","metadata":{"nodeKey":7,"hash":"1e18013511712fbf0c45d36e766b12b4","type":"OBJECT_KEY","descendantCount":5},"value":{"metadata":{"nodeKey":8,"hash":"377c094c796c9cfd92e827ea27036683","type":"OBJECT","descendantCount":4,"childCount":2},"value":{}},"key":"baz","metadata":{"nodeKey":13,"hash":"b4dc5154b109389b469d2c1ace9337eb","type":"OBJECT_KEY","descendantCount":1},"value":{"metadata":{"nodeKey":14,"hash":"a5e5a7e7781375a358b2e752310ec785","type":"OBJECT_STRING_VALUE"},"value":"hello"}}]}
-          """.strip();
+      final var expected = Files.readString(JSON.resolve("serializeObjectWithMaxLevelAndMetaData.json"));
 
       assertEquals(expected, stringWriter.toString());
+    }
+  }
+
+  @Test
+  public void serializeArrayWithMaxLevelAndMetaData1() throws IOException {
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+
+      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var wtx = resmgr.beginNodeTrx()) {
+        final var json = """
+                [{},"bla",{"foo":{"bar": "baz"}},null,[]]
+            """.strip();
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+
+        final var stringWriter = new StringWriter();
+        final var jsonRecordSerializer =
+            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).withMetaData(true).build();
+        jsonRecordSerializer.call();
+
+        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData1.json"));
+
+        assertEquals(expected, stringWriter.toString());
+      }
+    }
+  }
+
+  @Test
+  public void serializeArrayWithMaxLevelAndMetaData2() throws IOException {
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+
+      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var wtx = resmgr.beginNodeTrx()) {
+        final var json = """
+                [[],"foo",null,[],{}]
+            """.strip();
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+
+        final var stringWriter = new StringWriter();
+        final var jsonRecordSerializer =
+            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).withMetaData(true).build();
+        jsonRecordSerializer.call();
+
+        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData2.json"));
+
+        assertEquals(expected, stringWriter.toString());
+      }
+    }
+  }
+
+  @Test
+  public void serializeArrayWithMaxLevelAndMetaData3() throws IOException {
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+
+      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var wtx = resmgr.beginNodeTrx()) {
+        final var json = """
+                [{},"bla",{"foo":{"bar": "baz"}},null,[]]
+            """.strip();
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+
+        final var stringWriter = new StringWriter();
+        final var jsonRecordSerializer =
+            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(2).withMetaData(true).build();
+        jsonRecordSerializer.call();
+
+        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData3.json"));
+
+        assertEquals(expected, stringWriter.toString());
+      }
+    }
+  }
+
+  @Test
+  public void serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode() throws IOException {
+    Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+
+      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var wtx = resmgr.beginNodeTrx()) {
+        final var json = """
+                [{},"bla",{"foo":{"bar": "baz"}},null,[]]
+            """.strip();
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
+
+        final var stringWriter = new StringWriter();
+        final var jsonRecordSerializer =
+            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(4).maxLevel(1).withMetaData(true).build();
+        jsonRecordSerializer.call();
+
+        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode.json"));
+
+        assertEquals(expected, stringWriter.toString());
+      }
     }
   }
 }

@@ -2,19 +2,21 @@ package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
+import io.vertx.kotlin.core.json.objobj
 import io.vertx.kotlin.ext.auth.authentication.authenticateAwait
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.authorization.KeycloakAuthorization
 import io.vertx.kotlin.coroutines.await
-
-//import io.vertx.kotlin.ext.auth.isAuthorizedAwait
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * Authentication.
@@ -50,5 +52,17 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
 
         ctx.request().resume()
         return ctx.currentRoute()
+    }
+
+    companion object {
+        fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: AuthRole) {
+            GlobalScope.launch(dispatcher) {
+                val isAuthorized = user.isAuthorized(role.databaseRole(name)).await()
+
+                require(isAuthorized || user.isAuthorized(role.keycloakRole())).await() {
+                    IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
+                }
+            }
+        }
     }
 }

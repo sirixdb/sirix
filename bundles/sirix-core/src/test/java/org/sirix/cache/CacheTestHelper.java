@@ -24,23 +24,24 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.PageKind;
+import org.sirix.index.IndexType;
 import org.sirix.page.UnorderedKeyValuePage;
-
-import java.util.List;
 
 /**
  * Helper class for testing the cache.
  *
  * @author Sebastian Graf, University of Konstanz
- *
  */
 public class CacheTestHelper {
 
-  /** Page reading transaction. */
+  /**
+   * Page reading transaction.
+   */
   public static PageReadOnlyTrx PAGE_READ_TRX;
 
-  /** Unordered record pages. */
+  /**
+   * Unordered record pages.
+   */
   protected static UnorderedKeyValuePage[][] PAGES;
 
   private static final int VERSIONSTORESTORE = 3;
@@ -55,13 +56,11 @@ public class CacheTestHelper {
     PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadOnlyTrx();
     PAGES = new UnorderedKeyValuePage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
-      final UnorderedKeyValuePage page =
-          new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, List.of(), PAGE_READ_TRX);
+      final UnorderedKeyValuePage page = new UnorderedKeyValuePage(i, IndexType.DOCUMENT, PAGE_READ_TRX);
       final UnorderedKeyValuePage[] revs = new UnorderedKeyValuePage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
-        PAGES[i][j + 1] = new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, List.of(),
-            PAGE_READ_TRX);
+        PAGES[i][j + 1] = new UnorderedKeyValuePage(i, IndexType.DOCUMENT, PAGE_READ_TRX);
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;

@@ -37,19 +37,20 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Forwarding the implementation of all methods in the {@link Page} interface to a delegate.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public abstract class AbstractForwardingPage extends ForwardingObject implements Page {
 
-  /** Constructor for use by subclasses. */
-  protected AbstractForwardingPage() {}
+  /**
+   * Constructor for use by subclasses.
+   */
+  protected AbstractForwardingPage() {
+  }
 
   @Override
   protected abstract Page delegate();
 
   @Override
-  public <K extends Comparable<? super K>, V extends DataRecord, S extends KeyValuePage<K, V>> void commit(
-      final PageTrx<K, V, S> pageWriteTrx) {
+  public void commit(final PageTrx pageWriteTrx) {
     delegate().commit(checkNotNull(pageWriteTrx));
   }
 

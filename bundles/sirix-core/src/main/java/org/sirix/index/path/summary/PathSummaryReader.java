@@ -14,6 +14,7 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
@@ -95,12 +96,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     this.resourceManager = resourceManager;
 
     final Optional<? extends DataRecord> node =
-        this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
-    if (node.isPresent()) {
-      currentNode = (StructNode) node.get();
-    } else {
-      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
-    }
+        this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
+    currentNode = (StructNode) node.orElseThrow(() -> new IllegalStateException(
+        "Node couldn't be fetched from persistent storage!"));
 
     pathNodeMapping = new HashMap<>();
     qnmMapping = new HashMap<>();
@@ -245,8 +243,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match a {@link QNm} with a specific level.
    *
-   * @param name  the QName
-   * @param level minimum level
+   * @param name     the QName
+   * @param level    minimum level
    * @param nodeKind the node type
    * @return a set with bits set for each matching path node
    */
@@ -407,10 +405,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     Optional<? extends StructNode> newNode;
     try {
       // Immediately return node from item list if node key negative.
-      @SuppressWarnings("unchecked")
-      final Optional<? extends StructNode> node =
-          (Optional<? extends StructNode>) pageReadTrx.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
-      newNode = node;
+      newNode = pageReadTrx.getRecord(nodeKey, IndexType.PATH_SUMMARY, 0);
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
     }
@@ -490,10 +485,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return structural node
    */
   private StructNode getStructuralNode() {
-    if (currentNode instanceof StructNode) {
+    if (currentNode != null) {
       return currentNode;
     }
-    return new NullNode(currentNode);
+    return new NullNode(null);
   }
 
   @Override
@@ -516,8 +511,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    final var pageReference = pageReadTrx.getActualRevisionRootPage()
-                                         .getPathSummaryPageReference();
+    final var pageReference = pageReadTrx.getActualRevisionRootPage().getPathSummaryPageReference();
 
     if (pageReference.getPage() == null) {
       pageReference.setPage(pageReadTrx.getReader().read(pageReference, pageReadTrx));
@@ -564,8 +558,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    if (currentNode instanceof PathNode) {
-      final PathNode node = (PathNode) currentNode;
+    if (currentNode instanceof PathNode node) {
       return pageReadTrx.getName(key, node.getPathKind());
     } else {
       return "";
@@ -640,8 +633,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 
-    if (currentNode instanceof PathNode) {
-      final PathNode node = (PathNode) currentNode;
+    if (currentNode instanceof PathNode node) {
       helper.add("uri", pageReadTrx.getName(node.getURIKey(), node.getPathKind()));
       helper.add("prefix", pageReadTrx.getName(node.getPrefixKey(), node.getPathKind()));
       helper.add("localName", pageReadTrx.getName(node.getLocalNameKey(), node.getPathKind()));
@@ -659,6 +651,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public int getLevel() {
     assertNotClosed();
     if (currentNode instanceof PathNode) {
+      assert getPathNode() != null;
       return getPathNode().getLevel();
     }
     return 0;
@@ -829,6 +822,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     if (currentNode.getKind() == NodeKind.XML_DOCUMENT) {
       return 1;
     } else {
+      assert getPathNode() != null;
       return getPathNode().getReferences();
     }
   }
@@ -836,10 +830,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    if (currentNode.getKind() == NodeKind.XML_DOCUMENT || currentNode == NodeKind.JSON_DOCUMENT) {
-      return true;
-    }
-    return false;
+    return currentNode.getKind() == NodeKind.XML_DOCUMENT || currentNode == NodeKind.JSON_DOCUMENT;
   }
 
   @Override
@@ -879,10 +870,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   public boolean isNameNode() {
     assertNotClosed();
-    if (currentNode instanceof NameNode) {
-      return true;
-    }
-    return false;
+    return currentNode instanceof NameNode;
   }
 
   public int getLocalNameKey() {

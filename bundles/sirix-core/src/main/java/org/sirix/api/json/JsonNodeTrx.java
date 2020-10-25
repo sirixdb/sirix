@@ -19,17 +19,29 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertObjectAsFirstChild();
 
+  JsonNodeTrx insertObjectAsLastChild();
+
+  JsonNodeTrx insertObjectAsLeftSibling();
+
   JsonNodeTrx insertObjectAsRightSibling();
 
   JsonNodeTrx insertObjectRecordAsFirstChild(String key, ObjectRecordValue<?> value);
+
+  JsonNodeTrx insertObjectRecordAsLastChild(String key, ObjectRecordValue<?> value);
+
+  JsonNodeTrx insertObjectRecordAsLeftSibling(String key, ObjectRecordValue<?> value);
 
   JsonNodeTrx insertObjectRecordAsRightSibling(String key, ObjectRecordValue<?> value);
 
   JsonNodeTrx insertArrayAsFirstChild();
 
+  JsonNodeTrx insertArrayAsLastChild();
+
+  JsonNodeTrx insertArrayAsLeftSibling();
+
   JsonNodeTrx insertArrayAsRightSibling();
 
-  JsonNodeTrx replaceObjectRecordValue(String key, ObjectRecordValue<?> value);
+  JsonNodeTrx replaceObjectRecordValue(ObjectRecordValue<?> value);
 
   JsonNodeTrx setObjectKeyName(String key);
 
@@ -43,29 +55,57 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertStringValueAsFirstChild(String value);
 
+  JsonNodeTrx insertStringValueAsLastChild(String value);
+
+  JsonNodeTrx insertStringValueAsLeftSibling(String value);
+
   JsonNodeTrx insertStringValueAsRightSibling(String value);
 
   JsonNodeTrx insertBooleanValueAsFirstChild(boolean value);
+
+  JsonNodeTrx insertBooleanValueAsLastChild(boolean value);
+
+  JsonNodeTrx insertBooleanValueAsLeftSibling(boolean value);
 
   JsonNodeTrx insertBooleanValueAsRightSibling(boolean value);
 
   JsonNodeTrx insertNumberValueAsFirstChild(Number value);
 
+  JsonNodeTrx insertNumberValueAsLastChild(Number value);
+
+  JsonNodeTrx insertNumberValueAsLeftSibling(Number value);
+
   JsonNodeTrx insertNumberValueAsRightSibling(Number value);
 
   JsonNodeTrx insertNullValueAsFirstChild();
+
+  JsonNodeTrx insertNullValueAsLastChild();
+
+  JsonNodeTrx insertNullValueAsLeftSibling();
 
   JsonNodeTrx insertNullValueAsRightSibling();
 
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader);
 
-  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
-
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit);
 
-  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
-
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 }

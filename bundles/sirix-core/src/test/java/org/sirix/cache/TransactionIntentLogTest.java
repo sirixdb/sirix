@@ -4,6 +4,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
+import org.sirix.index.IndexType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.io.file.FileWriter;
@@ -45,11 +46,11 @@ public class TransactionIntentLogTest {
       final var persistentCache = new PersistentFileCache(fileWriter);
       final var trxIntentLog = new TransactionIntentLog(persistentCache, 1);
 
-      final var firstCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
-      final var firstDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
+      final var firstCompletePage = new UnorderedKeyValuePage(1, IndexType.DOCUMENT, pageReadOnlyTrx);
+      final var firstDeltaPage = new UnorderedKeyValuePage(1, IndexType.DOCUMENT, pageReadOnlyTrx);
 
-      final var secondCompletePage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
-      final var secondDeltaPage = new UnorderedKeyValuePage(1, PageKind.RECORDPAGE, List.of(), pageReadOnlyTrx);
+      final var secondCompletePage = new UnorderedKeyValuePage(1, IndexType.DOCUMENT, pageReadOnlyTrx);
+      final var secondDeltaPage = new UnorderedKeyValuePage(1, IndexType.DOCUMENT, pageReadOnlyTrx);
 
       final var firstPageReference = new PageReference();
       final var secondPageReference = new PageReference();

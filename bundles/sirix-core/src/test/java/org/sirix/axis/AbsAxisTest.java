@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -41,21 +41,21 @@ public class AbsAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
-  public static void testIAxisConventions(final Axis axis, final long[] expectedKeys) {
+  public static void testAxisConventions(final Axis axis, final long[] expectedKeys) {
     // Axis Convention 1.
-    final long startKey = axis.asXdmNodeReadTrx().getNodeKey();
+    final long startKey = axis.getTrx().getNodeKey();
 
     final long[] keys = new long[expectedKeys.length];
     int offset = 0;
@@ -63,14 +63,14 @@ public class AbsAxisTest {
       axis.next();
       // Axis results.
       assertTrue(offset < expectedKeys.length);
-      keys[offset++] = axis.asXdmNodeReadTrx().getNodeKey();
+      keys[offset++] = axis.getTrx().getNodeKey();
 
       // Axis Convention 3.
-      axis.asXdmNodeReadTrx().moveToDocumentRoot();
+      axis.getTrx().moveToDocumentRoot();
     }
 
     // Axis Convention 5.
-    assertEquals(startKey, axis.asXdmNodeReadTrx().getNodeKey());
+    assertEquals(startKey, axis.getTrx().getNodeKey());
 
     // Axis results.
     assertArrayEquals(expectedKeys, keys);
@@ -78,7 +78,7 @@ public class AbsAxisTest {
 
   public static void testAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
     // IAxis Convention 1.
-    final long startKey = axis.asXdmNodeReadTrx().getNodeKey();
+    final long startKey = axis.getTrx().getNodeKey();
 
     final long[] keys = new long[expectedKeys.length];
     int offset = 0;
@@ -87,13 +87,13 @@ public class AbsAxisTest {
       while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
         // Axis results.
         assertTrue(offset < expectedKeys.length);
-        keys[offset++] = axis.asXdmNodeReadTrx().getNodeKey();
+        keys[offset++] = axis.getTrx().getNodeKey();
       }
     } catch (final NoSuchElementException e) {
     }
 
     // Axis Convention 5.
-    assertEquals(startKey, axis.asXdmNodeReadTrx().getNodeKey());
+    assertEquals(startKey, axis.getTrx().getNodeKey());
 
     // Axis results.
     assertArrayEquals(expectedKeys, keys);
@@ -114,14 +114,14 @@ public class AbsAxisTest {
   }
 
   @Test
-  public void testAxisUserExample() throws SirixException {
+  public void testAxisUserExample() {
     final Axis axis = new DescendantAxis(holder.getXmlNodeReadTrx());
     long count = 0L;
     while (axis.hasNext()) {
       axis.next();
       count += 1;
     }
-    Assert.assertEquals(10L, count);
+    assertEquals(10L, count);
   }
 
 }

@@ -5,8 +5,10 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.FullReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -16,13 +18,11 @@ import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.List;
 
 /**
  * Page utilities.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class PageUtils {
 
@@ -39,10 +39,11 @@ public final class PageUtils {
     if (hasToGrow) {
       if (pageDelegate instanceof ReferencesPage4) {
         pageDelegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) pageDelegate);
-        pageDelegate.setOrCreateReference(offset, pageReference);
       } else {
-        throw new IllegalStateException();
+        assert pageDelegate instanceof BitmapReferencesPage;
+        pageDelegate = new FullReferencesPage((BitmapReferencesPage) pageDelegate);
       }
+      pageDelegate.setOrCreateReference(offset, pageReference);
     }
 
     return pageDelegate;
@@ -51,14 +52,12 @@ public final class PageUtils {
   public static Page createDelegate(DataInput in, SerializationType type) {
     try {
       final byte kind = in.readByte();
-      switch (kind) {
-        case 0:
-          return new ReferencesPage4(in, type);
-        case 1:
-          return new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
-        default:
-          throw new IllegalStateException();
-      }
+      return switch (kind) {
+        case 0 -> new ReferencesPage4(in, type);
+        case 1 -> new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
+        case 2 -> new FullReferencesPage(in, type);
+        default -> throw new IllegalStateException();
+      };
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -68,29 +67,27 @@ public final class PageUtils {
    * Create the initial tree structure.
    *
    * @param reference reference from revision root
-   * @param pageKind the page kind
+   * @param indexType  the index type
    */
-  public static void createTree(@Nonnull PageReference reference, final PageKind pageKind, final int index,
+  public static void createTree(@Nonnull PageReference reference, final IndexType indexType,
       final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
     reference = page.getOrCreateReference(0);
 
     // Create new record page.
-    final UnorderedKeyValuePage recordPage = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-        List.of(), pageReadTrx);
+    final UnorderedKeyValuePage recordPage =
+        new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
 
     // Create a {@link DocumentRootNode}.
-    final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored
-        ? SirixDeweyID.newRootID()
-        : null;
+    final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;
 
     // TODO: Should be passed from the method... chaining up.
     final DatabaseType dbType = pageReadTrx.getResourceManager().getDatabase().getDatabaseConfig().getDatabaseType();
 
-    recordPage.setEntry(0L, dbType.getDocumentNode(id));
+    recordPage.setRecord(0L, dbType.getDocumentNode(id));
 
     log.put(reference, PageContainer.getInstance(recordPage, recordPage));
   }

@@ -13,7 +13,8 @@ class JsonSerializeHelper {
         out: StringWriter,
         ctx: RoutingContext,
         manager: JsonResourceManager,
-        nodeId: Long?
+        revisions: IntArray,
+        nodeId: Long?,
     ): String {
         serializer.call()
 
@@ -22,7 +23,7 @@ class JsonSerializeHelper {
         if (manager.resourceConfig.hashType == HashType.NONE) {
             writeResponseWithoutHashValue(ctx)
         } else {
-            writeResponseWithHashValue(manager, ctx, nodeId)
+            writeResponseWithHashValue(manager, revisions[0], ctx, nodeId)
         }
 
         return body
@@ -35,10 +36,11 @@ class JsonSerializeHelper {
 
     private fun writeResponseWithHashValue(
         manager: JsonResourceManager,
+        revision: Int,
         ctx: RoutingContext,
         nodeId: Long?
     ) {
-        val rtx = manager.beginNodeReadOnlyTrx()
+        val rtx = manager.beginNodeReadOnlyTrx(revision)
 
         rtx.use {
             val hash = if (nodeId == null)

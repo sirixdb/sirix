@@ -28,7 +28,7 @@ public interface DataRecord {
    * 
    * @return kind of node
    */
-  RecordPersister getKind();
+  RecordSerializer getKind();
 
   /**
    * Get the revision this node has been inserted.

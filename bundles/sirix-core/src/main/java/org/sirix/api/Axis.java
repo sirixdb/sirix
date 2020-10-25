@@ -1,6 +1,7 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
+
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -55,7 +56,7 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    *
    * @return {@link IncludeSelf} value
    */
-  IncludeSelf isSelfIncluded();
+  IncludeSelf includeSelf();
 
   /**
    * Get the start node key.
@@ -64,9 +65,26 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    */
   long getStartKey();
 
+  /**
+   * Get the path summary.
+   *
+   * @return the path summary
+   * @throws ClassCastException if the node cursor is no {@link PathSummaryReader}
+   */
   PathSummaryReader asPathSummary();
 
-  NodeReadOnlyTrx getTrx();
+  /**
+   * Get the transaction.
+   *
+   * @return the transaction
+   */
+  <T extends NodeReadOnlyTrx & NodeCursor> T getTrx();
 
+  /**
+   * Get the transaction associated with the axis.
+   *
+   * @return the transaction
+   * @throws ClassCastException if the node cursor is no {@link JsonNodeReadOnlyTrx}
+   */
   JsonNodeReadOnlyTrx asJsonNodeReadTrx();
 }

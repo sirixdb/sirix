@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,9 +22,12 @@
 package org.sirix.axis.visitor;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
+
+import org.jetbrains.annotations.Nullable;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
@@ -54,13 +57,13 @@ import org.sirix.settings.Fixed;
 public final class VisitorDescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> mRightSiblingKeyStack;
+  private Deque<Long> rightSiblingKeyStack;
 
   /** Optional visitor. */
-  private NodeVisitor mVisitor;
+  private NodeVisitor visitor;
 
   /** Determines if it is the first call. */
-  private boolean mFirst;
+  private boolean isFirstCall;
 
   /**
    * Get a new builder instance.
@@ -76,13 +79,13 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   public static class Builder {
 
     /** Optional visitor. */
-    private NodeVisitor mVisitor;
+    private NodeVisitor visitor;
 
-    /** Sirix {@link XmlNodeReadOnlyTrx}. */
-    private final NodeCursor mRtx;
+    /** Sirix node cursor. */
+    private final NodeCursor rtx;
 
     /** Determines if current node should be included or not. */
-    private IncludeSelf mIncludeSelf = IncludeSelf.NO;
+    private IncludeSelf includeSelf = IncludeSelf.NO;
 
     /**
      * Constructor.
@@ -90,7 +93,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @param rtx Sirix {@link NodeCursor}
      */
     public Builder(final NodeCursor rtx) {
-      mRtx = checkNotNull(rtx);
+      this.rtx = checkNotNull(rtx);
     }
 
     /**
@@ -99,7 +102,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder includeSelf() {
-      mIncludeSelf = IncludeSelf.YES;
+      includeSelf = IncludeSelf.YES;
       return this;
     }
 
@@ -110,7 +113,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder visitor(final NodeVisitor visitor) {
-      mVisitor = checkNotNull(visitor);
+      this.visitor = checkNotNull(visitor);
       return this;
     }
 
@@ -130,15 +133,15 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    * @param builder the builder to construct a new instance
    */
   private VisitorDescendantAxis(final Builder builder) {
-    super(builder.mRtx, builder.mIncludeSelf);
-    mVisitor = builder.mVisitor;
+    super(builder.rtx, builder.includeSelf);
+    visitor = builder.visitor;
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<>();
+    isFirstCall = true;
+    rightSiblingKeyStack = new ArrayDeque<>();
   }
 
   @Override
@@ -146,19 +149,18 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // Visitor.
     VisitResult result = null;
 
-    if (mVisitor != null) {
+    if (visitor != null) {
       if (getTrx() instanceof XmlNodeReadOnlyTrx)
-        result = asXdmNodeReadTrx().acceptVisitor((XmlNodeVisitor) mVisitor);
+        result = asXdmNodeReadTrx().acceptVisitor((XmlNodeVisitor) visitor);
       else if (getTrx() instanceof JsonNodeReadOnlyTrx)
-        result = asJsonNodeReadTrx().acceptVisitor((JsonNodeVisitor) mVisitor);
+        result = asJsonNodeReadTrx().acceptVisitor((JsonNodeVisitor) visitor);
       else
         throw new AssertionError();
     }
 
     resetToLastKey();
 
-    // If visitor is present and the return value is VisitResult.TERMINATE than
-    // return false.
+    // If visitor is present and the return value is VisitResult.TERMINATE, then return false.
     if (VisitResultType.TERMINATE == result) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -166,60 +168,89 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     final NodeCursor cursor = getCursor();
 
     // Determines if first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
-      return isSelfIncluded() == IncludeSelf.YES
-          ? cursor.getNodeKey()
-          : cursor.getFirstChildKey();
+    if (isFirstCall) {
+      isFirstCall = false;
+      return includeSelf() == IncludeSelf.YES ? cursor.getNodeKey() : cursor.getFirstChildKey();
     }
 
     // If visitor is present and the the right sibling stack must be adapted.
     if (LocalVisitResult.SKIPSUBTREEPOPSTACK == result) {
-      mRightSiblingKeyStack.pop();
+      rightSiblingKeyStack.pop();
     }
 
-    // If visitor is present and result is not
-    // VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK or visitor is
+    // If visitor is present and result is not VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK or visitor is
     // not present.
     if (result != VisitResultType.SKIPSUBTREE && result != LocalVisitResult.SKIPSUBTREEPOPSTACK) {
       // Always follow first child if there is one.
       if (cursor.hasFirstChild()) {
         final long key = cursor.getFirstChildKey();
         final long rightSiblNodeKey = cursor.getRightSiblingKey();
-        if (cursor.hasRightSibling() && (mRightSiblingKeyStack.isEmpty()
-            || mRightSiblingKeyStack.peek() != rightSiblNodeKey)) {
-          mRightSiblingKeyStack.push(rightSiblNodeKey);
+        if (cursor.hasRightSibling() && (rightSiblingKeyStack.isEmpty()
+            || rightSiblingKeyStack.peek() != rightSiblNodeKey)) {
+          rightSiblingKeyStack.push(rightSiblNodeKey);
         }
         return key;
       }
     }
 
-    // If visitor is present and result is not VisitResult.SKIPSIBLINGS or
-    // visitor is not present.
+    // If visitor is present and result is not VisitResult.SKIPSIBLINGS or visitor is not present.
     if (result != VisitResultType.SKIPSIBLINGS) {
       // Then follow right sibling if there is one.
       if (cursor.hasRightSibling()) {
         final long nextKey = cursor.getRightSiblingKey();
-        return hasNextNode(nextKey, cursor.getNodeKey());
+        return getNextNodeKey(nextKey, cursor.getNodeKey());
       }
     }
 
     // Then follow right sibling on stack.
-    if (mRightSiblingKeyStack.size() > 0) {
-      final long nextKey = mRightSiblingKeyStack.pop();
-      return hasNextNode(nextKey, cursor.getNodeKey());
+    return nextSiblingNodeKeyIfAvailable(result, cursor);
+  }
+
+  @Nullable
+  private long nextSiblingNodeKeyIfAvailable(VisitResult result, final NodeCursor cursor) {
+    if (rightSiblingKeyStack.size() > 0) {
+      final var nextKey = rightSiblingKeyStack.pop();
+      final var nextNodeKey = getNextNodeKey(nextKey, cursor.getNodeKey());
+
+      if (nextNodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        return nextNodeKey;
+      }
+
+      if (result == VisitResultType.SKIPSIBLINGS) {
+        final long nodeKey = cursor.getNodeKey();
+        cursor.moveTo(nextKey);
+
+        // Visitor.
+        if (visitor != null) {
+          if (getTrx() instanceof XmlNodeReadOnlyTrx)
+            result = asXdmNodeReadTrx().acceptVisitor((XmlNodeVisitor) visitor);
+          else if (getTrx() instanceof JsonNodeReadOnlyTrx)
+            result = asJsonNodeReadTrx().acceptVisitor((JsonNodeVisitor) visitor);
+          else
+            throw new AssertionError();
+        }
+
+        if (result == VisitResultType.SKIPSIBLINGS) {
+          return nextSiblingNodeKeyIfAvailable(result, cursor);
+        }
+
+        cursor.moveTo(nodeKey);
+      }
+
+      return nextNodeKey;
     }
 
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * Determines if next node is not a right sibling of the current node.
+  /*
+   * Determines if next node is not a right sibling of the current node. If it is, the returned nodeKey will deliver
+   * the special null node key, to signal, that the traversal will end.
    *
+   * @param nextKey node key of the next node on the following axis (in a preorder traversal)
    * @param currKey node key of current node
    */
-  private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
-    // Fail if the subtree is finished.
+  private long getNextNodeKey(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
     final NodeCursor cursor = getCursor();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {

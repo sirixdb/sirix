@@ -68,7 +68,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   private final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(SAXSerializer.class));
 
   /** SAX content handler. */
-  private ContentHandler mContHandler;
+  private ContentHandler contentHandler;
 
   /**
    * Constructor.
@@ -81,7 +81,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   public SAXSerializer(final XmlResourceManager resMgr, final ContentHandler handler, final @Nonnegative int revision,
       final int... revisions) {
     super(resMgr, null, revision, revisions);
-    mContHandler = handler;
+    contentHandler = handler;
   }
 
   @Override
@@ -112,8 +112,8 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
-      mContHandler.endPrefixMapping(qName.getPrefix());
-      mContHandler.endElement(mURI, qName.getLocalName(), Utils.buildName(qName));
+      contentHandler.endPrefixMapping(qName.getPrefix());
+      contentHandler.endElement(mURI, qName.getLocalName(), Utils.buildName(qName));
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -129,7 +129,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
       final AttributesImpl atts = new AttributesImpl();
       atts.addAttribute("sdb", "revision", "sdb:revision", "", Integer.toString(rtx.getRevisionNumber()));
       try {
-        mContHandler.startElement("https://sirix.io", "sirix-item", "sdb:sirix-item", atts);
+        contentHandler.startElement("https://sirix.io", "sirix-item", "sdb:sirix-item", atts);
       } catch (final SAXException e) {
         LOGGER.error(e.getMessage(), e);
       }
@@ -144,7 +144,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
 
     if (length > 1) {
       try {
-        mContHandler.endElement("https://sirix.io", "sirix-item", "sdb:sirix-item");
+        contentHandler.endElement("https://sirix.io", "sirix-item", "sdb:sirix-item");
       } catch (final SAXException e) {
         LOGGER.error(e.getMessage(), e);
       }
@@ -159,7 +159,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   private void generateComment(final XmlNodeReadOnlyTrx rtx) {
     try {
       final char[] content = rtx.getValue().toCharArray();
-      mContHandler.characters(content, 0, content.length);
+      contentHandler.characters(content, 0, content.length);
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -172,7 +172,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
    */
   private void generatePI(final XmlNodeReadOnlyTrx rtx) {
     try {
-      mContHandler.processingInstruction(rtx.getName().getLocalName(), rtx.getValue());
+      contentHandler.processingInstruction(rtx.getName().getLocalName(), rtx.getValue());
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -192,7 +192,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
       for (int i = 0, namesCount = rtx.getNamespaceCount(); i < namesCount; i++) {
         rtx.moveToNamespace(i);
         final QNm qName = rtx.getName();
-        mContHandler.startPrefixMapping(qName.getPrefix(), qName.getNamespaceURI());
+        contentHandler.startPrefixMapping(qName.getPrefix(), qName.getNamespaceURI());
         final String mURI = qName.getNamespaceURI();
         if (qName.getPrefix() == null || qName.getPrefix().length() == 0) {
           atts.addAttribute(mURI, "xmlns", "xmlns", "CDATA", mURI);
@@ -213,11 +213,11 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
 
       // Create SAX events.
       final QNm qName = rtx.getName();
-      mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName), atts);
+      contentHandler.startElement(qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName), atts);
 
       // Empty elements.
       if (!rtx.hasFirstChild()) {
-        mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName));
+        contentHandler.endElement(qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName));
       }
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
@@ -231,7 +231,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
    */
   private void generateText(final XmlNodeReadOnlyTrx rtx) {
     try {
-      mContHandler.characters(XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
+      contentHandler.characters(XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -247,6 +247,11 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   @Override
   protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
+    return false;
+  }
+
+  @Override
+  protected boolean areSiblingNodesGoingToBeSkipped(final XmlNodeReadOnlyTrx rtx) {
     return false;
   }
 
@@ -272,7 +277,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitStartDocument() {
     try {
-      mContHandler.startDocument();
+      contentHandler.startDocument();
 
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? (int) resMgr.getMostRecentRevisionNumber()
@@ -285,7 +290,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
 
         atts.addAttribute(ns, "xmlns", "xmlns:sdb", "", ns);
 
-        mContHandler.startElement("sdb", "sirix", "sdb:sirix", atts);
+        contentHandler.startElement("sdb", "sirix", "sdb:sirix", atts);
       }
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
@@ -300,10 +305,10 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
           : revisions.length;
 
       if (length > 1) {
-        mContHandler.endElement("sdb", "sirix", "sdb:sirix");
+        contentHandler.endElement("sdb", "sirix", "sdb:sirix");
       }
 
-      mContHandler.endDocument();
+      contentHandler.endDocument();
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -312,7 +317,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   /* Implements XMLReader method. */
   @Override
   public ContentHandler getContentHandler() {
-    return mContHandler;
+    return contentHandler;
   }
 
   /* Implements XMLReader method. */
@@ -366,7 +371,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   /* Implements XMLReader method. */
   @Override
   public void setContentHandler(final ContentHandler contentHandler) {
-    mContHandler = checkNotNull(contentHandler);
+    this.contentHandler = checkNotNull(contentHandler);
   }
 
   /* Implements XMLReader method. */

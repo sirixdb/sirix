@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2019.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -74,10 +74,9 @@ public final class HashCountEntryNode implements DataRecord {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof HashCountEntryNode))
+    if (!(obj instanceof HashCountEntryNode other))
       return false;
 
-    final HashCountEntryNode other = (HashCountEntryNode) obj;
     return Objects.equal(value, other.value);
   }
 

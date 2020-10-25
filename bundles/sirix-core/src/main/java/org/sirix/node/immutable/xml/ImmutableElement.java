@@ -2,7 +2,6 @@ package org.sirix.node.immutable.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
-import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
@@ -51,6 +50,11 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   }
 
   @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
   public boolean hasLeftSibling() {
     return mNode.hasLeftSibling();
   }
@@ -73,6 +77,11 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   @Override
   public long getFirstChildKey() {
     return mNode.getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

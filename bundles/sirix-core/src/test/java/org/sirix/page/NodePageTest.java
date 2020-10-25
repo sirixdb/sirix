@@ -28,7 +28,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
 
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -38,6 +37,7 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.index.IndexType;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -57,7 +57,7 @@ public final class NodePageTest {
   private Holder mHolder;
 
   /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private PageReadOnlyTrx pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
@@ -65,12 +65,12 @@ public final class NodePageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
+    pageReadTrx.close();
     mHolder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
@@ -79,7 +79,7 @@ public final class NodePageTest {
   @Test
   public void testSerializeDeserialize() throws IOException {
     final UnorderedKeyValuePage page1 =
-        new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, List.of(), mPageReadTrx);
+        new UnorderedKeyValuePage(0L, IndexType.DOCUMENT, pageReadTrx);
     assertEquals(0L, page1.getPageKey());
 
     final NodeDelegate del = new NodeDelegate(0, 1, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
@@ -93,7 +93,7 @@ public final class NodePageTest {
     node1.insertNamespace(99L);
     node1.insertNamespace(98L);
     assertEquals(0L, node1.getNodeKey());
-    page1.setEntry(node1.getNodeKey(), node1);
+    page1.setRecord(node1.getNodeKey(), node1);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     final DataOutputStream dataOut = new DataOutputStream(out);
@@ -101,7 +101,7 @@ public final class NodePageTest {
     pagePersister.serializePage(dataOut, page1, SerializationType.DATA);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) pagePersister.deserializePage(new DataInputStream(in),
-        mPageReadTrx, SerializationType.DATA);
+                                                                                              pageReadTrx, SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) page2.getValue(0l);
     assertEquals(0L, page2.getValue(0l).getNodeKey());

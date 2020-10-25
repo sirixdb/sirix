@@ -50,9 +50,9 @@ public class SelfAxisTest {
   public void testIterate() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {4L});
+    AbsAxisTest.testAxisConventions(new SelfAxis(rtx), new long[] {4L});
 
     rtx.moveTo(8L);
-    AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {8L});
+    AbsAxisTest.testAxisConventions(new SelfAxis(rtx), new long[] {8L});
   }
 }

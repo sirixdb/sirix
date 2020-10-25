@@ -1,10 +1,12 @@
 package org.sirix.access.trx.node.json;
 
 import org.sirix.access.trx.node.NodeFactory;
+import org.sirix.node.DeweyIDNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.json.*;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 /**
  * Node factory for creating nodes.
@@ -118,4 +120,11 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    */
   ObjectNullNode createJsonObjectNullNode(@Nonnegative long parentKey, SirixDeweyID id);
+
+  /**
+   * Create a {@link DeweyIDNode}.
+   *
+   * @param nodeKey node key
+   */
+  DeweyIDNode createDeweyIdNode(@Nonnegative long nodeKey, @Nonnull SirixDeweyID id);
 }
