@@ -191,18 +191,6 @@ public final class MMFileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      if (dataFileSegment == null) {
-        dataFileSegment =
-            MemorySegment.mapFromPath(dataFile, 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
-      }
-
-      if (revisionFileSegment == null) {
-        revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
-                                                        0,
-                                                        revisionsOffsetFile.toFile().length(),
-                                                        FileChannel.MapMode.READ_ONLY);
-      }
-
       final MemoryAddress revisionFileSegmentBaseAddress = revisionFileSegment.baseAddress();
       MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
 

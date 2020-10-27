@@ -66,12 +66,20 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
     return this;
   }
 
+  public long getNumberOfVisitedNodesPlusOne() {
+    return numberOfVisitedNodesPlusOne;
+  }
+
   public long getCurrentLevel() {
     return currentLevel;
   }
 
   public long getCurrentChildNodes() {
     return currentChildNodes;
+  }
+
+  public long getMaxNodes() {
+    return maxNodes;
   }
 
   public long getMaxLevel() {
