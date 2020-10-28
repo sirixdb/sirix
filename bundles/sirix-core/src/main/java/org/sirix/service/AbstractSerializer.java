@@ -37,6 +37,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /** Optional visitor. */
   protected final NodeVisitor visitor;
 
+  protected boolean hasToSkipSiblings;
+
   /**
    * Constructor.
    *
@@ -133,12 +135,12 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           if (closeElements) {
             while (!stack.isEmpty() && stack.peek() != rtx.getLeftSiblingKey()) {
               rtx.moveTo(stack.pop());
-              emitEndNode(rtx);
+              emitEndNode(rtx, false);
               rtx.moveTo(key);
             }
             if (!stack.isEmpty()) {
               rtx.moveTo(stack.pop());
-              emitEndNode(rtx);
+              emitEndNode(rtx, true);
             }
             rtx.moveTo(key);
             closeElements = false;
@@ -156,6 +158,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
           // Remember to emit all pending end elements from stack if required.
           if ((!rtx.hasFirstChild() || isSubtreeGoingToBePruned(rtx)) && (!rtx.hasRightSibling() || areSiblingNodesGoingToBeSkipped(rtx))) {
+            hasToSkipSiblings = areSiblingNodesGoingToBeSkipped(rtx);
             closeElements = true;
           }
         }
@@ -163,7 +166,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         // Finally emit all pending end elements.
         while (!stack.isEmpty() && stack.peek() != Constants.NULL_ID_LONG) {
           rtx.moveTo(stack.pop());
-          emitEndNode(rtx);
+          emitEndNode(rtx, false);
         }
 
         emitRevisionEndNode(rtx);
@@ -200,7 +203,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    *
    * @param rtx read-only transaction
    */
-  protected abstract void emitEndNode(R rtx);
+  protected abstract void emitEndNode(R rtx, boolean lastEndNode);
 
   /**
    * Emit a start tag, which specifies a revision.
