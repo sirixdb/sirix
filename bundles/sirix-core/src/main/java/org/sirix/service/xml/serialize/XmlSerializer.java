@@ -255,13 +255,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
   }
 
-  /**
-   * Emit end element.
-   *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
-   */
   @Override
-  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx, final boolean lastEndNode) {
     try {
       if (indent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1))
         indent();

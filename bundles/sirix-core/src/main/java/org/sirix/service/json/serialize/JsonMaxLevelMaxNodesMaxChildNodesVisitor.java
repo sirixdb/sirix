@@ -44,6 +44,8 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
 
   private final Deque<Long> currentChildNodesPerLevel = new ArrayDeque<>();
 
+  private long lastVisitedNodeKey;
+
   public JsonMaxLevelMaxNodesMaxChildNodesVisitor(final long startNodeKey, final IncludeSelf includeSelf,
       final long maxLevel, final long maxNodes, final long maxChildNodes) {
     this.startNodeKey = startNodeKey;
@@ -94,7 +96,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
     return lastVisitResultType;
   }
 
-  private VisitResult getVisitResultType() {
+  private VisitResult getVisitResultType(ImmutableStructNode node) {
     if (hasToTerminateTraversal()) {
       lastVisitResultType = VisitResultType.TERMINATE;
       return lastVisitResultType;
@@ -104,15 +106,28 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       return lastVisitResultType;
     }
     if (hasToSkipSiblingNodes()) {
+      final var nodeKey = rtx.getNodeKey();
+      if (!(rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.moveToParent().trx().hasRightSibling())) {
+        adaptCurrentChildNodes();
+        ancestorLevel(node);
+      }
+      rtx.moveTo(nodeKey);
       lastVisitResultType = VisitResultType.SKIPSIBLINGS;
       return lastVisitResultType;
     }
     lastVisitResultType = VisitResultType.CONTINUE;
+    lastVisitedNodeKey = rtx.getNodeKey();
     return lastVisitResultType;
   }
 
   private void adaptLevel(ImmutableStructNode node) {
-    if (node.hasFirstChild() && !isFirst) {
+    if (isFirst) {
+      return;
+    }
+    if (node.getNodeKey() != startNodeKey && node.getNodeKey() == lastVisitedNodeKey) {
+      return;
+    }
+    if (node.hasFirstChild() && currentChildNodes <= maxChildNodes) {
       currentLevel++;
 
       if (node.hasRightSibling()) {
@@ -120,31 +135,41 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       }
       currentChildNodes = 1;
 
-      if (deweyIDsAreStored && node.hasRightSibling()) {
+      if (deweyIDsAreStored && node.hasRightSibling() && currentChildNodes + 1 <= maxChildNodes) {
         rightSiblingNodeKeyStack.push(node.getRightSiblingKey());
       }
     } else if (!node.hasRightSibling()) {
-      adaptCurrentChildNodes();
-
-      if (deweyIDsAreStored) {
-        if (rightSiblingNodeKeyStack.isEmpty()) {
-          currentLevel = 1;
-        } else {
-          final long nextNodeKey = rightSiblingNodeKeyStack.pop();
-          rtx.moveTo(nextNodeKey);
-          currentLevel = rtx.getDeweyID().getLevel() - startNodeLevel;
-          rtx.moveTo(node.getNodeKey());
-        }
-      } else {
-        do {
-          if (rtx.getParentKind() != NodeKind.OBJECT_KEY) {
-            currentLevel--;
-          }
-          rtx.moveToParent();
-        } while (!rtx.hasRightSibling() && currentLevel > 1);
-      }
+      adaptChildNodesAndLevel(node);
     } else {
       currentChildNodes++;
+    }
+  }
+
+  private void adaptChildNodesAndLevel(ImmutableStructNode node) {
+    if (currentChildNodes <= maxChildNodes) {
+      adaptCurrentChildNodes();
+    }
+
+    ancestorLevel(node);
+  }
+
+  private void ancestorLevel(ImmutableStructNode node) {
+    if (deweyIDsAreStored) {
+      if (rightSiblingNodeKeyStack.isEmpty()) {
+        currentLevel = 1;
+      } else {
+        final long nextNodeKey = rightSiblingNodeKeyStack.pop();
+        rtx.moveTo(nextNodeKey);
+        currentLevel = rtx.getDeweyID().getLevel() - startNodeLevel;
+        rtx.moveTo(node.getNodeKey());
+      }
+    } else {
+      do {
+        if (rtx.getParentKind() != NodeKind.OBJECT_KEY) {
+          currentLevel--;
+        }
+        rtx.moveToParent();
+      } while (!rtx.hasRightSibling() && currentLevel > 1);
     }
   }
 
@@ -159,7 +184,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       numberOfVisitedNodesPlusOne++;
     }
     isFirst = false;
-    return getVisitResultType();
+    return getVisitResultType(node);
   }
 
   @Override
@@ -169,12 +194,12 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       numberOfVisitedNodesPlusOne++;
     }
     isFirst = false;
-    return getVisitResultType();
+    return getVisitResultType(node);
   }
 
   @Override
   public VisitResult visit(ImmutableObjectKeyNode node) {
-    if (deweyIDsAreStored && node.hasRightSibling() && currentChildNodes + 1 < maxChildNodes) {
+    if (deweyIDsAreStored && node.hasRightSibling() && currentChildNodes + 1 <= maxChildNodes) {
       rightSiblingNodeKeyStack.push(node.getRightSiblingKey());
     }
     adaptCurrentChildNodesForObjectKeyNodes(node);
@@ -185,7 +210,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
 
   private void adaptCurrentChildNodesForObjectKeyNodes(final ImmutableObjectKeyNode node) {
     if (node.hasFirstChild()) {
-      if (node.hasRightSibling() && currentChildNodes + 1 <= maxChildNodes) {
+      if (node.hasRightSibling() && currentChildNodes <= maxChildNodes) {
         currentChildNodesPerLevel.push(currentChildNodes);
       }
     } else if (node.hasRightSibling()) {
@@ -277,10 +302,16 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       return lastVisitResultType;
     }
     if (hasToSkipSiblingNodes()) {
-      adaptCurrentChildNodes();
+      final var nodeKey = rtx.getNodeKey();
+      if (!(rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.moveToParent().trx().hasRightSibling())) {
+        adaptCurrentChildNodes();
+        ancestorLevel(node);
+      }
+      rtx.moveTo(nodeKey);
       lastVisitResultType = VisitResultType.SKIPSIBLINGS;
       return lastVisitResultType;
     }
+    lastVisitedNodeKey = node.getNodeKey();
     return VisitResultType.CONTINUE;
   }
 
