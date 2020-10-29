@@ -160,8 +160,9 @@ public final class JsonSerializerTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(JSON.resolve("complex3.json")));
 
       var serializedString = getSerializedStringWithMaxChildren(manager, 2);
-      var expected = Files.readString(JSON.resolve("jsonSerializer").resolve("testJsonDocumentWithMaxChildren2").resolve("document-with-1-maxChildren.json"),
-          StandardCharsets.UTF_8);
+      var expected = Files.readString(JSON.resolve("jsonSerializer")
+                                          .resolve("testJsonDocumentWithMaxChildren2")
+                                          .resolve("document-with-1-maxChildren.json"), StandardCharsets.UTF_8);
       JSONAssert.assertEquals(expected, serializedString, true);
     }
   }
@@ -486,17 +487,17 @@ public final class JsonSerializerTest {
       var expected = "{\"foo\":[]}";
       assertEquals(expected, serializedString);
 
-//      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 7);
-//      expected = "{\"bar\":{}}";
-//      assertEquals(expected, serializedString);
-//
-//      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 7);
-//      expected = "{\"bar\":{\"hello\":\"world\",\"helloo\":true}}";
-//      assertEquals(expected, serializedString);
-//
-//      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 17);
-//      expected = "{\"foo\":\"bar\"}";
-//      assertEquals(expected, serializedString);
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 7);
+      expected = "{\"bar\":{}}";
+      assertEquals(expected, serializedString);
+
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 7);
+      expected = "{\"bar\":{\"hello\":\"world\",\"helloo\":true}}";
+      assertEquals(expected, serializedString);
+
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 17);
+      expected = "{\"foo\":\"bar\"}";
+      assertEquals(expected, serializedString);
 
       serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 16);
       expected = "[{},{},\"boo\",{},[]]";
@@ -597,28 +598,28 @@ public final class JsonSerializerTest {
       final var level = rtx.getDeweyID().getLevel();
 
       var serializedString =
-          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level + 1, 3, 1);
+          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level, 3, 1);
       var expected = """
           {"foo":[]}
           """.trim();
       assertEquals(expected, serializedString);
 
       serializedString =
-          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level + 1, 4, 1);
+          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level, 4, 1);
       expected = """
           {"foo":["bar"]}
           """.trim();
       assertEquals(expected, serializedString);
 
       serializedString =
-          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level + 1, 5, 2);
+          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level, 5, 2);
       expected = """
           {"foo":["bar",null]}
           """.trim();
       assertEquals(expected, serializedString);
 
       serializedString =
-          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level + 1, 6, 3);
+          getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level, 6, 3);
       expected = """
           {"foo":["bar",null,2.33]}
           """.trim();

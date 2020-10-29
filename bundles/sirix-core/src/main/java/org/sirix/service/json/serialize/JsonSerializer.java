@@ -152,7 +152,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendObjectStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (visitor != null && currentLevel() + 1 > maxLevel())) {
+          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendObjectEnd(false);
 
             if (withMetaDataField()) {
@@ -167,7 +167,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendArrayStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (visitor != null && currentLevel() + 1 > maxLevel())) {
+          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendArrayEnd(false);
 
             if (withMetaDataField()) {
@@ -347,7 +347,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     if (rtx.isObjectKey()) {
       return true;
     }
-    return visitor == null || currentLevel() + 1 <= maxLevel();
+
+    return visitor == null || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel()) || (hasToSkipSiblings && currentLevel() <= maxLevel());
   }
 
   @Override
@@ -358,7 +359,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     if (visitor == null) {
       return false;
     } else {
-      return currentLevel() + 1 > maxLevel();
+      return (!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (hasToSkipSiblings && currentLevel() > maxLevel());
     }
   }
 
