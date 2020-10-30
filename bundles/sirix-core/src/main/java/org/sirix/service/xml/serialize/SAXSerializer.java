@@ -108,7 +108,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
-  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx, final boolean lastEndNode) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
