@@ -152,7 +152,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendObjectStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
+          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (
+              hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendObjectEnd(false);
 
             if (withMetaDataField()) {
@@ -167,7 +168,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendArrayStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
+          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (
+              hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendArrayEnd(false);
 
             if (withMetaDataField()) {
@@ -348,37 +350,23 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       return true;
     }
 
-    return visitor == null || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel()) || (hasToSkipSiblings && currentLevel() <= maxLevel());
-  }
-
-  @Override
-  protected boolean isSubtreeGoingToBePruned(final JsonNodeReadOnlyTrx rtx) {
-    if (rtx.isObjectKey()) {
-      return false;
-    }
-    if (visitor == null) {
-      return false;
-    } else {
-      return (!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (hasToSkipSiblings && currentLevel() > maxLevel());
-    }
+    return visitor == null || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel()) || (hasToSkipSiblings
+        && currentLevel() <= maxLevel());
   }
 
   @Override
   protected boolean areSiblingNodesGoingToBeSkipped(JsonNodeReadOnlyTrx rtx) {
-    if (rtx.isObjectKey())
+    if (rtx.isObjectKey() || visitor == null) {
       return false;
-    if (visitor == null) {
-      return false;
-    } else {
-      return currentChildNodes() + 1 > maxChildNodes();
     }
+    return currentChildNodes() + 1 > maxChildNodes();
   }
 
   private void printCommaIfNeeded(final JsonNodeReadOnlyTrx rtx) throws IOException {
     final boolean hasRightSibling = rtx.hasRightSibling();
 
-    if (hasRightSibling && rtx.getNodeKey() != startNodeKey && (visitor == null || (visitor != null
-        && currentChildNodes() < maxChildNodes() && numberOfVisitedNodesPlusOne() < maxNumberOfNodes()))) {
+    if (hasRightSibling && rtx.getNodeKey() != startNodeKey && (visitor == null
+        || currentChildNodes() < maxChildNodes() && numberOfVisitedNodesPlusOne() < maxNumberOfNodes())) {
       appendSeparator();
     }
   }
@@ -429,9 +417,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     }
   }
 
-  private boolean hasToAppendSeparator(JsonNodeReadOnlyTrx rtx, VisitResultType lastVisitResultType, boolean lastEndNode) {
+  private boolean hasToAppendSeparator(JsonNodeReadOnlyTrx rtx, VisitResultType lastVisitResultType,
+      boolean lastEndNode) {
     return rtx.hasRightSibling() && rtx.getNodeKey() != startNodeKey && VisitResultType.TERMINATE != lastVisitResultType
-        && (visitor == null || (visitor != null && lastEndNode));
+        && (visitor == null || lastEndNode);
   }
 
   @Override

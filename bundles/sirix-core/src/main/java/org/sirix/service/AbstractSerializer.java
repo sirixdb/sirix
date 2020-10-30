@@ -186,8 +186,6 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
   protected abstract boolean areSiblingNodesGoingToBeSkipped(R rtx);
 
-  protected abstract boolean isSubtreeGoingToBePruned(R rtx);
-
   protected abstract boolean isSubtreeGoingToBeVisited(R rtx);
 
   /**
