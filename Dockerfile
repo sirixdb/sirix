@@ -36,4 +36,4 @@ EXPOSE 9443
 
 # Launch the verticle
 ENTRYPOINT ["sh", "-c"]
-CMD ["/usr/bin/java", "--enable-preview", "$JAVA_OPTS", "--add-modules=jdk.incubator.foreign", "-jar", "-Duser.home=$VERTICLE_HOME $VERTICLE_FILE", "-conf sirix-conf.json", "-cp VERTICLE_HOME/*"]
+CMD ["/usr/bin/java", "--enable-preview", "$JAVA_OPTS", "--add-modules=jdk.incubator.foreign", "-jar", "-Duser.home=$VERTICLE_HOME", "$VERTICLE_FILE", "-conf sirix-conf.json", "-cp VERTICLE_HOME/*"]
