@@ -420,6 +420,16 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     castVisitor().setTrx(rtx);
   }
 
+  @Override
+  protected boolean areSiblingNodesGoingToBeSkipped(XmlNodeReadOnlyTrx rtx) {
+    return false;
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
+    return visitor == null || currentLevel() + 1 < maxLevel();
+  }
+
   private long maxLevel() {
     return castVisitor().getMaxLevel();
   }
@@ -430,25 +440,6 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   private long currentLevel() {
     return castVisitor().getCurrentLevel();
-  }
-
-  @Override
-  protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
-    return visitor == null || currentLevel() + 1 < maxLevel();
-  }
-
-  @Override
-  protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
-    if (visitor == null) {
-      return false;
-    } else {
-      return currentLevel() + 1 >= maxLevel();
-    }
-  }
-
-  @Override
-  protected boolean areSiblingNodesGoingToBeSkipped(final XmlNodeReadOnlyTrx rtx) {
-    return false;
   }
 
   /**
