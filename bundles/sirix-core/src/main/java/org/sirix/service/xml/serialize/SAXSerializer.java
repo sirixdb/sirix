@@ -108,7 +108,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
-  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx, final boolean lastEndNode) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -122,7 +122,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
-        ? (int) resMgr.getMostRecentRevisionNumber()
+        ? resMgr.getMostRecentRevisionNumber()
         : revisions.length;
 
     if (length > 1) {
@@ -241,18 +241,13 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   protected void setTrxForVisitor(XmlNodeReadOnlyTrx rtx) {}
 
   @Override
+  protected boolean areSiblingNodesGoingToBeSkipped(XmlNodeReadOnlyTrx rtx) {
+    return false;
+  }
+
+  @Override
   protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
     return true;
-  }
-
-  @Override
-  protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
-    return false;
-  }
-
-  @Override
-  protected boolean areSiblingNodesGoingToBeSkipped(final XmlNodeReadOnlyTrx rtx) {
-    return false;
   }
 
   /**
@@ -280,7 +275,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
       contentHandler.startDocument();
 
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? (int) resMgr.getMostRecentRevisionNumber()
+          ? resMgr.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (length > 1) {
