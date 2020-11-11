@@ -18,14 +18,12 @@ import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.CorsHandler
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
-import io.vertx.kotlin.core.http.listenAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.authentication.authenticateAwait
-import io.vertx.kotlin.ext.auth.oauth2.logoutAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
-import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.*
@@ -78,7 +76,7 @@ class SirixVerticle : CoroutineVerticle() {
 
     private suspend fun listen(server: HttpServer, router: Router, port: Int) {
         server.requestHandler { router.handle(it) }
-            .listenAwait(config.getInteger("port", port))
+            .listen(config.getInteger("port", port)).await()
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
@@ -176,7 +174,7 @@ class SirixVerticle : CoroutineVerticle() {
 
         post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
             val token = AccessTokenImpl(rc.bodyAsJson, keycloak)
-            token.logoutAwait()
+            token.logout().await()
             rc.response().end()
         }
 
@@ -367,7 +365,7 @@ class SirixVerticle : CoroutineVerticle() {
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
-        val user = keycloak.authenticateAwait(dataToAuthenticate)
+        val user = keycloak.authenticate(dataToAuthenticate).await()
         rc.response().end(user.principal().toString())
     }
 
@@ -377,7 +375,7 @@ class SirixVerticle : CoroutineVerticle() {
         rc: RoutingContext
     ) {
         val token = AccessTokenImpl(dataToAuthenticate, keycloak)
-        token.refreshAwait()
+        token.refresh().await()
         rc.response().end(token.principal().toString())
     }
 
