@@ -12,6 +12,42 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testSimpleReplaceOp() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"first": 1, "second": 2}]')
+        """;
+    final String query = """
+      let $doc := jn:doc('mycol.jn','mydoc.jn')
+      let $rec := sdb:select-item($doc, 2)
+      let $update := jn:parse('{"first": 2, "second": 3}')
+      return for $key in bit:fields($update)
+             return replace json value of $rec=>$key with $update=>$key
+      """.stripIndent();
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+        [{"first":2,"second":3}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
+  public void testSimpleDerefWithVariable() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"first": 1, "second": 2}')
+        """;
+    final String query = """
+      let $doc := jn:doc('mycol.jn','mydoc.jn')
+      let $rec := sdb:select-item($doc, 1)
+      for $key in bit:fields($rec)
+      return $rec=>$key
+      """.stripIndent();
+    final String assertion = """
+          1 2
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testSimpleRemove() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1}, {"location": {"state": "CA", "city": "Los Angeles"}}]')
