@@ -12,6 +12,23 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testSimpleQuery() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')
+        """;
+    final String query = """
+       for $i in bit:array-values(jn:doc('mycol.jn','mydoc.jn'))
+       let $value := xs:string($i=>test)
+       where contains($value, 'test')
+       return $i
+      """.stripIndent();
+    final String assertion = """
+       {"test":"test string"}
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testDeleteOpWithVariable() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}]')
