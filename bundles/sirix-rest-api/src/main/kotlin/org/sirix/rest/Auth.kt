@@ -4,11 +4,12 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.json.json
 import io.vertx.kotlin.core.json.obj
-import io.vertx.kotlin.ext.auth.authentication.authenticateAwait
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.GlobalScope
@@ -17,7 +18,7 @@ import kotlinx.coroutines.launch
 /**
  * Authentication.
  */
-class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
+class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider, private val role: AuthRole) {
     suspend fun handle(ctx: RoutingContext): Route {
         ctx.request().pause()
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
@@ -29,17 +30,21 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
             )
         }
 
-        val user = keycloak.authenticateAwait(tokenToAuthenticate)
+        val user = keycloak.authenticate(tokenToAuthenticate).await()
         val database = ctx.pathParam("database")
+
+        authz.getAuthorizations(user).await()
 
         val isAuthorized =
             if (database == null) {
                 false
             } else {
-                user.isAuthorized(role.databaseRole(database)).await()
+                PermissionBasedAuthorization.create(role.databaseRole(database)).match(user)
+//                user.isAuthorized(role.databaseRole(database)).await()
             }
 
-        if (!isAuthorized && user.isAuthorized(role.keycloakRole()).await()) {
+//        if (!isAuthorized && user.isAuthorized(role.keycloakRole()).await()) {
+        if (!isAuthorized && PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
         }
@@ -51,11 +56,14 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
     }
 
     companion object {
-        fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: AuthRole) {
+        fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: AuthRole, authz: AuthorizationProvider) {
             GlobalScope.launch(dispatcher) {
-                val isAuthorized = user.isAuthorized(role.databaseRole(name)).await()
+                authz.getAuthorizations(user).await()
+//                val isAuthorized = user.isAuthorized(role.databaseRole(name)).await()
+                val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
 
-                require(isAuthorized || user.isAuthorized(role.keycloakRole()).await()) {
+//                require(isAuthorized || user.isAuthorized(role.keycloakRole()).await()) {
+                require(isAuthorized || PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
                     IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
                 }
             }
