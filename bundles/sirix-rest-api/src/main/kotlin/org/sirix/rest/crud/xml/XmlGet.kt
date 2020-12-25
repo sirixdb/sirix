@@ -246,7 +246,8 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                         query,
                         AuthRole.MODIFY,
                         keycloak,
-                        routingContext.get("user")
+                        routingContext.get("user"),
+                        authz
                     ).prettyPrint().serialize(
                         queryCtx,
                         XmlDBSerializer(printStream, true, true)
@@ -260,6 +261,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                         endResultSeqIndex,
                         AuthRole.MODIFY,
                         keycloak,
+                        authz,
                         routingContext.get("user"),
                         XmlDBSerializer(printStream, true, true),
                     ) { serializer, startItem -> serializer.serialize(startItem) }

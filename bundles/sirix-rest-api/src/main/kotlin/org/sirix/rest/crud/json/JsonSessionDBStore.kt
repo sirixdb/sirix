@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
+import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
@@ -80,7 +81,7 @@ class JsonSessionDBStore(
             authz.getAuthorizations(user).await()
             val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
 
-            require(isAuthorized || PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
+            require(isAuthorized || RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
                 IllegalStateException("User is not allowed to $role the database $name")
             }
         }

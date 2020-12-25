@@ -2,6 +2,9 @@ package org.sirix.rest.crud
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.AuthorizationProvider
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
+import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.runBlocking
@@ -29,26 +32,30 @@ class PermissionCheckingXQuery {
     private val role: AuthRole
     val keycloak: OAuth2Auth
     val user: User
+    val authz: AuthorizationProvider
 
-    constructor(module: Module, role: AuthRole, keycloak: OAuth2Auth, user: User) {
+    constructor(module: Module, role: AuthRole, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = module
         this.role = role
         this.keycloak = keycloak
         this.user = user
+        this.authz = authz
     }
 
-    constructor(query: String, role: AuthRole, keycloak: OAuth2Auth, user: User) {
+    constructor(query: String, role: AuthRole, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = CompileChain().compile(query)
         this.role = role
         this.keycloak = keycloak
         this.user = user
+        this.authz = authz
     }
 
-    constructor(chain: CompileChain, query: String, role: AuthRole, keycloak: OAuth2Auth, user: User) {
+    constructor(chain: CompileChain, query: String, role: AuthRole, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = chain.compile(query)
         this.role = role
         this.keycloak = keycloak
         this.user = user
+        this.authz = authz
     }
 
     fun execute(ctx: QueryContext): Sequence? {
@@ -69,7 +76,8 @@ class PermissionCheckingXQuery {
 
             // FIXME: Better way?
             runBlocking {
-                require(user.isAuthorized(role.keycloakRole()).await()) {
+                authz.getAuthorizations(user).await()
+                require(RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
                     throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
                 }
             }
