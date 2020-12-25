@@ -10,6 +10,7 @@ import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
+import io.vertx.ext.auth.oauth2.authorization.KeycloakAuthorization
 import io.vertx.ext.auth.oauth2.impl.AccessTokenImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
@@ -21,9 +22,8 @@ import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authentication.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
-import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
+import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.*
@@ -89,9 +89,9 @@ class SirixVerticle : CoroutineVerticle() {
             .setTokenPath(config.getString("token.path"))
             .setAuthorizationPath(config.getString("auth.path"))
 
-        val keycloak = KeycloakAuth.discoverAwait(
-            vertx, oauth2Config
-        )
+        val keycloak = KeycloakAuth.discover(vertx, oauth2Config).await()
+
+        val authz = KeycloakAuthorization.create()
 
         val allowedHeaders = HashSet<String>()
         allowedHeaders.add("x-requested-with")
@@ -180,71 +180,71 @@ class SirixVerticle : CoroutineVerticle() {
 
         // "/"
         post("/").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location, keycloak, authz).handle(it)
         }
 
         get("/").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location, keycloak, authz).handle(it)
         }
 
         delete("/").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
+            Auth(keycloak, authz, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            DeleteHandler(location).handle(it)
+            DeleteHandler(location, authz).handle(it)
         }
 
         // "/:database"
         post("/:database").consumes("multipart/form-data").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             CreateMultipleResources(location).handle(it)
         }
 
         get("/:database").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location, keycloak, authz).handle(it)
         }
 
         put("/:database").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             XmlCreate(location, false).handle(it)
         }
         put("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
             JsonCreate(location, true).handle(it)
         }
 
         delete("/:database").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
+            Auth(keycloak, authz, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            DeleteHandler(location).handle(it)
+            DeleteHandler(location, authz).handle(it)
         }
 
         // "/:database/:resource"
         head("/:database/:resource").produces("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlHead(location).handle(it)
         }
 
         head("/:database/:resource").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonHead(location).handle(it)
@@ -254,7 +254,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/xml")
             .produces("application/xml")
             .coroutineHandler {
-                Auth(keycloak, AuthRole.MODIFY).handle(it)
+                Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 XmlUpdate(location).handle(it)
@@ -263,7 +263,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/json")
             .produces("application/json")
             .coroutineHandler {
-                Auth(keycloak, AuthRole.MODIFY).handle(it)
+                Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 JsonUpdate(location).handle(it)
@@ -271,54 +271,54 @@ class SirixVerticle : CoroutineVerticle() {
 
         post("/:database/:resource")
             .coroutineHandler {
-                Auth(keycloak, AuthRole.VIEW).handle(it)
+                Auth(keycloak, authz, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
-                GetHandler(location, keycloak).handle(it)
+                GetHandler(location, keycloak, authz).handle(it)
             }
 
         get("/:database/:resource").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            GetHandler(location, keycloak).handle(it)
+            GetHandler(location, keycloak, authz).handle(it)
         }
 
         put("/:database/:resource").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
             XmlCreate(location, false).handle(it)
         }
         put("/:database/:resource").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
             JsonCreate(location, false).handle(it)
         }
 
         delete("/:database/:resource").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
+            Auth(keycloak, authz, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            DeleteHandler(location).handle(it)
+            DeleteHandler(location, authz).handle(it)
         }
 
         // "/:database/:resource/subroutes"
         get("/:database/:resource/history").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             HistoryHandler(location).handle(it)
         }
         get("/:database/:resource/diff").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             DiffHandler(location).handle(it)
         }
         get("/:database/:resource/pathSummary").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             PathSummaryHandler(location).handle(it)
