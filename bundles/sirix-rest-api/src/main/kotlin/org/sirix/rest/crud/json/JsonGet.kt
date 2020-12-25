@@ -261,7 +261,8 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                     query,
                     AuthRole.MODIFY,
                     keycloak,
-                    routingContext.get("user")
+                    routingContext.get("user"),
+                    authz
                 ).prettyPrint().serialize(queryCtx, serializer)
             } else {
                 QuerySerializer.serializePaginated(
@@ -272,6 +273,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                     endResultSeqIndex,
                     AuthRole.MODIFY,
                     keycloak,
+                    authz,
                     routingContext.get("user"),
                     JsonDBSerializer(out, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }

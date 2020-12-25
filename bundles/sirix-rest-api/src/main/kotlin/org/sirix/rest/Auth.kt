@@ -6,6 +6,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.AuthorizationProvider
+import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.json.json
@@ -40,10 +41,8 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
                 false
             } else {
                 PermissionBasedAuthorization.create(role.databaseRole(database)).match(user)
-//                user.isAuthorized(role.databaseRole(database)).await()
             }
 
-//        if (!isAuthorized && user.isAuthorized(role.keycloakRole()).await()) {
         if (!isAuthorized && PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
@@ -59,11 +58,9 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
         fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: AuthRole, authz: AuthorizationProvider) {
             GlobalScope.launch(dispatcher) {
                 authz.getAuthorizations(user).await()
-//                val isAuthorized = user.isAuthorized(role.databaseRole(name)).await()
                 val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
 
-//                require(isAuthorized || user.isAuthorized(role.keycloakRole()).await()) {
-                require(isAuthorized || PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
+                require(isAuthorized || RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
                     IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
                 }
             }
