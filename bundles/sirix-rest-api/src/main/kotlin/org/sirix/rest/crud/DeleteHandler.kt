@@ -5,6 +5,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.access.DatabasesInternals
@@ -22,7 +23,7 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
                 IllegalStateException("Open databases found: $openDatabases");
             }
 
-            ctx.vertx().executeBlockingAwait { _: Promise<Unit> ->
+            ctx.vertx().executeBlocking { _: Promise<Unit> ->
                 val databases = Files.list(location)
 
                 databases.use {
@@ -34,7 +35,7 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
                 }
 
                 ctx.response().setStatusCode(204).end()
-            }
+            }.await()
         } else {
             val databaseName = ctx.pathParam("database")
 
