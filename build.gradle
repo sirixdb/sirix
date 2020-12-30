@@ -1,7 +1,7 @@
 apply from: "${rootDir}/libraries.gradle"
 
 buildscript {
-    ext.kotlin_version = '1.4.21'
+    ext.kotlin_version = '1.4.21-2'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
