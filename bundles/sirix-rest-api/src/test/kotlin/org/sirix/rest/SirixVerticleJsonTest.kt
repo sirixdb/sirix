@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.extension.ExtendWith
 import org.skyscreamer.jsonassert.JSONAssert
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 
@@ -774,7 +775,7 @@ class SirixVerticleJsonTest {
                     assertEquals(200, response.statusCode())
                 }
 
-                val currentDateTime = LocalDateTime.now().plus(500, ChronoUnit.MILLIS)
+                val currentDateTime = LocalDateTime.now(ZoneId.of("UTC")).plus(500, ChronoUnit.MILLIS)
 
                 val currentDateTimeAsString = currentDateTime.toString()
 
