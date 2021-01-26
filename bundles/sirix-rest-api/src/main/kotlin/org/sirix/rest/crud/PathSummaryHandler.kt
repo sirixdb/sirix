@@ -5,6 +5,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.net.closeAwait
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
 import org.sirix.api.Database
@@ -24,7 +25,7 @@ class PathSummaryHandler(private val location: Path) {
                 DatabaseType.XML -> openXmlDatabase(location.resolve(databaseName))
             }
 
-        context.executeBlockingAwait<String> {
+        context.executeBlocking<String> {
             database.use {
                 val manager = database.openResourceManager(resourceName)
 
@@ -74,7 +75,7 @@ class PathSummaryHandler(private val location: Path) {
                     res.end()
                 }
             }
-        }
+        }.await()
 
         return ctx.currentRoute()
     }

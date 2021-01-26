@@ -7,6 +7,7 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.access.trx.node.json.objectvalue.*
@@ -163,7 +164,7 @@ class JsonUpdate(private val location: Path) {
     ) {
         val vertxContext = ctx.vertx().orCreateContext
 
-        vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
+        vertxContext.executeBlocking { promise: Promise<Nothing> ->
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
@@ -259,6 +260,6 @@ class JsonUpdate(private val location: Path) {
             }
 
             promise.complete(null)
-        }
+        }.await()
     }
 }

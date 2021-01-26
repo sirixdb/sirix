@@ -11,6 +11,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -144,7 +145,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, p
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Promise<Unit> ->
+        context.executeBlocking { _: Promise<Unit> ->
             val databases = Files.list(location)
 
             val buffer = StringBuilder()
@@ -184,7 +185,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, p
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .end(content)
-        }
+        }.await()
     }
 
     private fun emitResourcesOfDatabase(
