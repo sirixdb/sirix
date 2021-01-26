@@ -95,7 +95,7 @@ javadocJar.dependsOn dokkaJavadoc*/
 
 test.dependsOn copyCertificates
 test.dependsOn composeUp
-test.finalizedBy composeDownForced
+//test.finalizedBy composeDownForced
 
 dockerCompose {
     useComposeFiles = ["${projectDir}/src/test/resources/docker-compose.yml"]

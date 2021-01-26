@@ -13,6 +13,7 @@ import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.json.json
 import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.awaitBlocking
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope

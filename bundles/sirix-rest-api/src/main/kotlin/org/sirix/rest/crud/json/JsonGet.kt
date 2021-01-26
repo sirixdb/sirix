@@ -286,7 +286,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         ctx: RoutingContext,
         vertxContext: Context
     ): String {
-        val serializedString =  vertxContext.executeBlockingAwait { promise: Promise<String> ->
+        val serializedString =  vertxContext.executeBlocking { promise: Promise<String> ->
             val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
             val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
@@ -369,7 +369,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
 
                 promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
             }
-        }
+        }.await()
 
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")

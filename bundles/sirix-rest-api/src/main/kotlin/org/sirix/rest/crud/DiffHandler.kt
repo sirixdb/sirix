@@ -7,6 +7,7 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
 import org.sirix.access.ResourceConfiguration
@@ -32,7 +33,7 @@ class DiffHandler(private val location: Path) {
 
         val database = openDatabase(databaseName)
 
-        val diff = context.executeBlockingAwait<String> { resultPromise ->
+        val diff = context.executeBlocking<String> { resultPromise ->
             database.use {
                 val resourceManager = database.openResourceManager(resourceName)
 
@@ -43,7 +44,7 @@ class DiffHandler(private val location: Path) {
 
                         if (firstRevision == null || secondRevision == null) {
                             ctx.fail(IllegalArgumentException("First and second revision must be specified."))
-                            return@executeBlockingAwait
+                            return@executeBlocking
                         }
 
                         val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)
@@ -90,7 +91,7 @@ class DiffHandler(private val location: Path) {
                     }
                 }
             }
-        }
+        }.await()
 
         val res = ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")

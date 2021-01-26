@@ -11,6 +11,7 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.http.pipeToAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -118,12 +119,12 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
         }
 
-        val file = ctx.vertx().fileSystem().openAwait(
+        val file = ctx.vertx().fileSystem().open(
             filePath.toString(),
             OpenOptions()
-        )
+        ).await()
         ctx.request().resume()
-        ctx.request().pipeToAwait(file)
+        ctx.request().pipeTo(file).await()
 
         withContext(Dispatchers.IO) {
             var body: String? = null
@@ -172,7 +173,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         dbFile: Path,
         context: Context
     ): DatabaseConfiguration? {
-        return context.executeBlockingAwait { promise: Promise<DatabaseConfiguration> ->
+        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
@@ -186,7 +187,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             }
 
             promise.complete(dbConfig)
-        }
+        }.await()
     }
 
     private suspend fun createOrRemoveAndCreateResource(
