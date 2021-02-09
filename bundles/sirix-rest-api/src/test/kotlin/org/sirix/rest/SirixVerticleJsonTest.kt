@@ -62,6 +62,8 @@ class SirixVerticleJsonTest {
 
                 if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
+                } else {
+                    testContext.failNow(httpResponse.bodyAsString())
                 }
             }
         }
