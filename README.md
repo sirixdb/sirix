@@ -4,7 +4,6 @@
 <p align="center">Stores small-sized, immutable snapshots of your data and facilitates querying the full history</p>
 
 <p align="center">
-    <a href="https://travis-ci.org/sirixdb/sirix" alt="Built Status"><img src="https://travis-ci.org/sirixdb/sirix.png"></img></a>
     <a href="#contributors-" alt="All Contributors"><img src="https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square"></img></a>
     <a href="https://www.codefactor.io/repository/github/sirixdb/sirix" alt="Code Factor"><img src="ttps://www.codefactor.io/repository/github/sirixdb/sirix/badge"></img></a>
     <a href="http://makeapullrequest.com" alt="PRs Welcome"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square"></img></a>
