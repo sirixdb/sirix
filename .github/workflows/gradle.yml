@@ -1,0 +1,57 @@
+# This workflow will build a Java project with Gradle
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-gradle
+
+name: Java CI with Gradle
+on:
+  push:
+    branches:
+      - master
+      - '[0-9]+.[0-9]+'
+  pull_request:
+    branches:
+      - master
+      - '[0-9]+.[0-9]+'
+  schedule:
+    - cron:  '0 4 * * *'
+jobs:
+  Test:
+    name: Run tests
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        profile: [""]
+        jdk: [15]
+        include:
+          - os: ubuntu-latest
+            jdk: 15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install JDK
+        uses: joschi/setup-jdk@v2
+        with:
+          java-version: ${{ matrix.jdk }}
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Build with Gradle
+        run: ./gradlew clean build --info --stacktrace --refresh-dependencies
+  Deploy:
+    name: Deploy to OSSRH
+    if: ${{ github.repository_owner == 'sirixdb' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+    needs: Test
+    runs-on: ubuntu-latest
+    env:
+      SONATYPE_NEXUS_USERNAME: ${{ secrets.SONATYPE_NEXUS_USERNAME }}
+      SONATYPE_NEXUS_PASSWORD: ${{ secrets.SONATYPE_NEXUS_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install JDK
+        uses: joschi/setup-jdk@v2
+        with:
+          java-version: 15
+      - name: Gradle deploy
+        run: ./gradlew travisReleaseSnapshot --info
+      - name: Docker Hub deploy
+        run: bash docker_push.sh

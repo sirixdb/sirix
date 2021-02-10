@@ -25,6 +25,7 @@ import org.sirix.xquery.StructuredDBItem;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> extends AbstractArray
     implements TemporalJsonDBItem<T>, JsonDBItem, Array, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -423,5 +424,20 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   public int len() {
     moveRtx();
     return (int) rtx.getChildCount();
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (this == other)
+      return true;
+    if (other == null || getClass() != other.getClass())
+      return false;
+    AbstractJsonDBArray<?> that = (AbstractJsonDBArray<?>) other;
+    return nodeKey == that.nodeKey;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(nodeKey);
   }
 }

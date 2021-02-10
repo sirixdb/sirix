@@ -56,9 +56,9 @@ class DiffHandler(private val location: Path) {
                         if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
                             if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
                                 val diffPath = resourceManager.getResourceConfig()
-                                    .resource
-                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
-                                    .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
+                                        .resource
+                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
+                                        .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
 
                                 resultPromise.complete(Files.readString(diffPath))
                             } else {
@@ -66,26 +66,26 @@ class DiffHandler(private val location: Path) {
 
                                 rtx.use {
                                     useUpdateOperations(
-                                        rtx,
-                                        startNodeKeyAsLong,
-                                        databaseName,
-                                        resourceName,
-                                        firstRevision,
-                                        secondRevision,
-                                        maxDepthAsLong,
-                                        resultPromise
+                                            rtx,
+                                            startNodeKeyAsLong,
+                                            databaseName,
+                                            resourceName,
+                                            firstRevision,
+                                            secondRevision,
+                                            maxDepthAsLong,
+                                            resultPromise
                                     )
                                 }
                             }
                         } else {
                             resultPromise.complete(
-                                BasicJsonDiff().generateDiff(
-                                    resourceManager,
-                                    firstRevision.toInt(),
-                                    secondRevision.toInt(),
-                                    startNodeKeyAsLong,
-                                    maxDepthAsLong
-                                )
+                                    BasicJsonDiff().generateDiff(
+                                            resourceManager,
+                                            firstRevision.toInt(),
+                                            secondRevision.toInt(),
+                                            startNodeKeyAsLong,
+                                            maxDepthAsLong
+                                    )
                             )
                         }
                     }
@@ -106,26 +106,26 @@ class DiffHandler(private val location: Path) {
     }
 
     private fun useUpdateOperations(
-        rtx: JsonNodeReadOnlyTrx,
-        startNodeKeyAsLong: Long,
-        databaseName: String,
-        resourceName: String,
-        firstRevision: String,
-        secondRevision: String,
-        maxDepthAsLong: Long,
-        resultPromise: Promise<String>
+            rtx: JsonNodeReadOnlyTrx,
+            startNodeKeyAsLong: Long,
+            databaseName: String,
+            resourceName: String,
+            firstRevision: String,
+            secondRevision: String,
+            maxDepthAsLong: Long,
+            resultPromise: Promise<String>
     ) {
         rtx.moveTo(startNodeKeyAsLong)
         val metaInfo = createMetaInfo(
-            databaseName,
-            resourceName,
-            firstRevision.toInt(),
-            secondRevision.toInt()
+                databaseName,
+                resourceName,
+                firstRevision.toInt(),
+                secondRevision.toInt()
         )
 
         val diffs = metaInfo.getAsJsonArray("diffs")
         val updateOperations =
-            rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
+                rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
         updateOperations.forEach { diffs.add(it) }
         val json = metaInfo.toString()
         resultPromise.complete(json)
@@ -140,8 +140,8 @@ class DiffHandler(private val location: Path) {
     }
 
     private fun createMetaInfo(
-        databaseName: String, resourceName: String, oldRevision: Int,
-        newRevision: Int
+            databaseName: String, resourceName: String, oldRevision: Int,
+            newRevision: Int
     ): JsonObject {
         val json = JsonObject()
         json.addProperty("database", databaseName)
