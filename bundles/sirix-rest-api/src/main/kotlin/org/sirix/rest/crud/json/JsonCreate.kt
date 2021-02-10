@@ -11,6 +11,7 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.deleteAwait
 import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.http.pipeToAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
@@ -129,13 +130,13 @@ class JsonCreate(
             fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
         }
 
-        val file = ctx.vertx().fileSystem().openAwait(
+        val file = ctx.vertx().fileSystem().open(
             filePath.toString(),
             OpenOptions()
-        )
+        ).await()
 
         ctx.request().resume()
-        ctx.request().pipeToAwait(file)
+        ctx.request().pipeTo(file).await()
 
         withContext(Dispatchers.IO) {
             var body: String? = null
@@ -158,7 +159,7 @@ class JsonCreate(
                     val pathToFile = filePath.toPath()
                     val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-                    ctx.vertx().fileSystem().deleteAwait(pathToFile.toAbsolutePath().toString())
+                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
 
                     if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                         body = serializeJson(manager, ctx)
@@ -199,7 +200,7 @@ class JsonCreate(
         dbFile: Path,
         context: Context
     ): DatabaseConfiguration? {
-        return context.executeBlockingAwait { promise: Promise<DatabaseConfiguration> ->
+        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
@@ -213,7 +214,7 @@ class JsonCreate(
             }
 
             promise.complete(dbConfig)
-        }
+        }.await()
     }
 
     private fun createOrRemoveAndCreateResource(

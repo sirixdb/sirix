@@ -5,11 +5,13 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
@@ -33,7 +35,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Path
 
-class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
+class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName: String = ctx.pathParam("database")
@@ -140,10 +142,10 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ): String? {
-        return vertxContext.executeBlockingAwait { promise: Promise<String> ->
+        return vertxContext.executeBlocking { promise: Promise<String> ->
             // Initialize queryResource context and store.
-            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
-            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
+            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
+            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
 
             val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
                 xmlDBStore,
@@ -193,7 +195,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
             }
 
             promise.complete(body)
-        }
+        }.await()
     }
 
     private fun query(
@@ -244,7 +246,8 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
                         query,
                         AuthRole.MODIFY,
                         keycloak,
-                        routingContext.get("user")
+                        routingContext.get("user"),
+                        authz
                     ).prettyPrint().serialize(
                         queryCtx,
                         XmlDBSerializer(printStream, true, true)
@@ -258,6 +261,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth) {
                         endResultSeqIndex,
                         AuthRole.MODIFY,
                         keycloak,
+                        authz,
                         routingContext.get("user"),
                         XmlDBSerializer(printStream, true, true),
                     ) { serializer, startItem -> serializer.serialize(startItem) }
