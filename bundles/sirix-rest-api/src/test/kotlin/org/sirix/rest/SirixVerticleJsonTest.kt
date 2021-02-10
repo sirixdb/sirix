@@ -62,6 +62,8 @@ class SirixVerticleJsonTest {
 
                 if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
+                } else {
+                    testContext.failNow(IllegalStateException("Failed to delete databases."))
                 }
             }
         }
@@ -834,7 +836,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start index")
     fun testPostQueryWithStartIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1435,7 +1437,6 @@ class SirixVerticleJsonTest {
                         false
                     )
                     assertEquals(200, response.statusCode())
-                    testContext.completeNow()
                 }
 
                 hashCode = response.getHeader(HttpHeaders.ETAG.toString())
@@ -1481,6 +1482,12 @@ class SirixVerticleJsonTest {
                     )
                     assertEquals(200, response.statusCode())
                 }
+
+                response = client.headAbs("$server$serverPath?nodeId=3").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                 hashCode = response.getHeader(HttpHeaders.ETAG.toString())
 
@@ -1584,7 +1591,7 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     val expectUpdatedString = """
-                        {"foo":[false,null,"test",0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                        {"foo":[{"tadaa:":3},false,null,"test",0,"bar",null,2.33,false,"foobar",44,null,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
                     """.trimIndent()
                     JSONAssert.assertEquals(
                         expectUpdatedString.replace("\n", System.getProperty("line.separator")),
