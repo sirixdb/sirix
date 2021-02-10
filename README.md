@@ -4,7 +4,7 @@
 <p align="center">Stores small-sized, immutable snapshots of your data and facilitates querying the full history</p>
 
 <p align="center">
-    ![CI Status](https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg)    
+    <a href="https://github.com/sirixdb/sirix/actions" alt="CI Build Status"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg"/></a>
     <a href="#contributors-" alt="All Contributors"><img src="https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square"></img></a>
     <a href="https://www.codefactor.io/repository/github/sirixdb/sirix" alt="Code Factor"><img src="ttps://www.codefactor.io/repository/github/sirixdb/sirix/badge"></img></a>
     <a href="http://makeapullrequest.com" alt="PRs Welcome"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square"></img></a>
