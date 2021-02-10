@@ -1687,7 +1687,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         node = nodeFactory.createJsonObjectNullNode(parentKey, id);
       } else {
         id = deweyIDManager.newFirstChildID();
-        final long rightSibKey = structNode.getRightSiblingKey();
+        final long rightSibKey = structNode.getFirstChildKey();
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey, id);
       }
