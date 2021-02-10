@@ -38,9 +38,7 @@ task uploadPublications {
 }
 
 task travisReleaseSnapshot {
-    if ("${version}".endsWith('SNAPSHOT') &&
-            System.getenv("TRAVIS_PULL_REQUEST") == "false" &&
-            System.getenv("TRAVIS_BRANCH") == "master") {
+    if ("${version}".endsWith('SNAPSHOT')) {
         dependsOn uploadPublications
     }
 }
