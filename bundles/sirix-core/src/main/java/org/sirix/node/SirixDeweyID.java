@@ -991,7 +991,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
 
       i++;
       // skip the 2s
-      while (deweyID2.divisionValues[i] == 2)
+      while (deweyID2.divisionValues[i] == 2 || deweyID2.divisionValues[i] == recordValueRootDivisionValue)
         i++;
 
       int divisions;

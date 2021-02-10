@@ -50,7 +50,7 @@ class JsonCreate(
         }
 
         if (databaseName == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
+            throw IllegalArgumentException("Database name and resource data to store not given.")
         } else {
             if (createMultipleResources) {
                 createMultipleResources(databaseName, ctx)
