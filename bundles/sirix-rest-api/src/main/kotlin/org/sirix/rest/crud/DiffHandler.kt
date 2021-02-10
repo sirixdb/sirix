@@ -52,7 +52,7 @@ class DiffHandler(private val location: Path) {
                         val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
                         val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: Long.MAX_VALUE
 
-                        if (resourceManager.resourceConfig.areDeweyIDsStored && (secondRevision.toInt() - 1 == firstRevision.toInt())) {
+                        if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
                             if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
                                 val diffPath = resourceManager.getResourceConfig()
                                         .resource
