@@ -1487,7 +1487,7 @@ class SirixVerticleJsonTest {
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().await()
 
                 hashCode = response.getHeader(HttpHeaders.ETAG.toString())
 
