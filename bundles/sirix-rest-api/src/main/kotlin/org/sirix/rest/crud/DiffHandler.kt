@@ -6,19 +6,25 @@ import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
+import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.BasicJsonDiff
+import org.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.function.Consumer
+
+/**
+ * [LogWrapper] reference.
+ */
+private val LOGGER = LogWrapper(LoggerFactory.getLogger(DiffHandler::class.java))
 
 class DiffHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -92,6 +98,8 @@ class DiffHandler(private val location: Path) {
                 }
             }
         }.await()
+
+        LOGGER.debug("Open databases: ${DatabasesInternals.getOpenDatabases()}")
 
         val res = ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
