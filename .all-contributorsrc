@@ -238,6 +238,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "mosheduminer",
+      "name": "Moshe Uminer",
+      "avatar_url": "https://avatars.githubusercontent.com/u/47164590?v=4",
+      "profile": "https://github.com/mosheduminer",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

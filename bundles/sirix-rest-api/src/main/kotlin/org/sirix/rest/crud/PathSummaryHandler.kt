@@ -3,7 +3,9 @@ package org.sirix.rest.crud
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.core.net.closeAwait
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
 import org.sirix.api.Database
@@ -23,12 +25,12 @@ class PathSummaryHandler(private val location: Path) {
                 DatabaseType.XML -> openXmlDatabase(location.resolve(databaseName))
             }
 
-        context.executeBlockingAwait<String> {
+        context.executeBlocking<String> {
+            val buffer = StringBuilder()
             database.use {
                 val manager = database.openResourceManager(resourceName)
 
                 manager.use {
-                    val buffer = StringBuilder()
                     if (manager.getResourceConfig().withPathSummary) {
                         val revision = ctx.queryParam("revision")[0]
 
@@ -63,17 +65,17 @@ class PathSummaryHandler(private val location: Path) {
                     } else {
                         buffer.append("{\"pathSummary\":[]}")
                     }
-
-                    val content = buffer.toString()
-
-                    ctx.response().setStatusCode(200)
-                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                        .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                        .write(content)
-                        .end()
                 }
             }
-        }
+
+            val content = buffer.toString()
+
+            val res = ctx.response().setStatusCode(200)
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+            res.write(content)
+            res.end()
+        }.await()
 
         return ctx.currentRoute()
     }

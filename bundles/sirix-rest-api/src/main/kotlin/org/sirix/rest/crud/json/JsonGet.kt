@@ -5,11 +5,13 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -29,7 +31,7 @@ import org.sirix.xquery.node.BasicXmlDBStore
 import java.io.StringWriter
 import java.nio.file.Path
 
-class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
+class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")
@@ -134,10 +136,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ): String? {
-        return vertxContext.executeBlockingAwait { promise: Promise<String> ->
+        return vertxContext.executeBlocking { promise: Promise<String> ->
             // Initialize queryResource context and store.
-            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
-            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
+            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
+            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
 
             val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
                 xmlDBStore,
@@ -208,7 +210,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 promise.complete(body)
             }
-        }
+        }.await()
     }
 
     private fun query(
@@ -259,7 +261,8 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                     query,
                     AuthRole.MODIFY,
                     keycloak,
-                    routingContext.get("user")
+                    routingContext.get("user"),
+                    authz
                 ).prettyPrint().serialize(queryCtx, serializer)
             } else {
                 QuerySerializer.serializePaginated(
@@ -270,6 +273,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
                     endResultSeqIndex,
                     AuthRole.MODIFY,
                     keycloak,
+                    authz,
                     routingContext.get("user"),
                     JsonDBSerializer(out, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }
@@ -282,7 +286,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
         ctx: RoutingContext,
         vertxContext: Context
     ): String {
-        val serializedString =  vertxContext.executeBlockingAwait { promise: Promise<String> ->
+        val serializedString =  vertxContext.executeBlocking { promise: Promise<String> ->
             val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
             val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
@@ -365,7 +369,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
             }
-        }
+        }.await()
 
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")

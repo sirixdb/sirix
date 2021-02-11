@@ -7,6 +7,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
@@ -27,9 +28,9 @@ class XmlHead(private val location: Path) {
             return ctx.currentRoute()
         }
 
-        ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
+        ctx.vertx().orCreateContext.executeBlocking { _: Promise<Unit> ->
             head(databaseName, ctx, resource)
-        }
+        }.await()
 
         return ctx.currentRoute()
     }
