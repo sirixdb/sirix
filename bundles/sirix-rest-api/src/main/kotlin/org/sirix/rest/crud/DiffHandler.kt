@@ -6,18 +6,25 @@ import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
+import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.BasicJsonDiff
+import org.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.function.Consumer
+
+/**
+ * [LogWrapper] reference.
+ */
+private val LOGGER = LogWrapper(LoggerFactory.getLogger(DiffHandler::class.java))
 
 class DiffHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -32,7 +39,7 @@ class DiffHandler(private val location: Path) {
 
         val database = openDatabase(databaseName)
 
-        val diff = context.executeBlockingAwait<String> { resultPromise ->
+        val diff = context.executeBlocking<String> { resultPromise ->
             database.use {
                 val resourceManager = database.openResourceManager(resourceName)
 
@@ -43,7 +50,7 @@ class DiffHandler(private val location: Path) {
 
                         if (firstRevision == null || secondRevision == null) {
                             ctx.fail(IllegalArgumentException("First and second revision must be specified."))
-                            return@executeBlockingAwait
+                            return@executeBlocking
                         }
 
                         val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)
@@ -90,16 +97,18 @@ class DiffHandler(private val location: Path) {
                     }
                 }
             }
-        }
+        }.await()
 
-        ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(
-                        HttpHeaders.CONTENT_LENGTH,
-                        diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
-                )
-                .write(diff)
-                .end()
+        LOGGER.debug("Open databases: ${DatabasesInternals.getOpenDatabases()}")
+
+        val res = ctx.response().setStatusCode(200)
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            .putHeader(
+                HttpHeaders.CONTENT_LENGTH,
+                diff!!.toByteArray(StandardCharsets.UTF_8).size.toString()
+            )
+        res.write(diff)
+        res.end()
 
         return ctx.currentRoute()
     }
