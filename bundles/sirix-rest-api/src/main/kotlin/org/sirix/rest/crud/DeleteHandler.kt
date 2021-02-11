@@ -1,9 +1,11 @@
 package org.sirix.rest.crud
 
 import io.vertx.core.Promise
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.access.DatabasesInternals
@@ -12,7 +14,7 @@ import org.sirix.rest.crud.xml.XmlDelete
 import java.nio.file.Files
 import java.nio.file.Path
 
-class DeleteHandler(private val location: Path) {
+class DeleteHandler(private val location: Path, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         if (ctx.pathParam("database") == null && ctx.pathParam("resource") == null) {
             val openDatabases = DatabasesInternals.getOpenDatabases()
@@ -22,7 +24,7 @@ class DeleteHandler(private val location: Path) {
                 return ctx.currentRoute()
             }
 
-            ctx.vertx().executeBlockingAwait { _: Promise<Unit> ->
+            ctx.vertx().executeBlocking { _: Promise<Unit> ->
                 val databases = Files.list(location)
 
                 databases.use {
@@ -34,7 +36,7 @@ class DeleteHandler(private val location: Path) {
                 }
 
                 ctx.response().setStatusCode(204).end()
-            }
+            }.await()
         } else {
             val databaseName = ctx.pathParam("database")
 
@@ -45,8 +47,8 @@ class DeleteHandler(private val location: Path) {
 
                 @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA")
                 when (databaseType) {
-                    DatabaseType.JSON -> JsonDelete(location).handle(ctx)
-                    DatabaseType.XML -> XmlDelete(location).handle(ctx)
+                    DatabaseType.JSON -> JsonDelete(location, authz).handle(ctx)
+                    DatabaseType.XML -> XmlDelete(location, authz).handle(ctx)
                 }
             }
         }

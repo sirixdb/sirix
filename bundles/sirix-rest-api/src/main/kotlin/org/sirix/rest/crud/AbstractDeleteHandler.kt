@@ -7,6 +7,7 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -26,7 +27,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         // Initialize queryResource context and store.
         val dbStore = createStore(ctx)
 
-        ctx.vertx().executeBlockingAwait { promise: Promise<Unit> ->
+        ctx.vertx().executeBlocking { promise: Promise<Unit> ->
             val databases = Files.list(location)
 
             databases.use {
@@ -38,7 +39,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
             ctx.response().setStatusCode(204).end()
             promise.complete(null)
-        }
+        }.await()
     }
 
     abstract fun createStore(ctx: RoutingContext): StructuredItemStore
@@ -117,7 +118,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         context: Context,
         routingContext: RoutingContext
     ) {
-        context.executeBlockingAwait { promise: Promise<Unit> ->
+        context.executeBlocking { promise: Promise<Unit> ->
             val manager = database.openResourceManager(resPathName)
             manager.use {
                 val wtx = manager.beginNodeTrx()
@@ -143,7 +144,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
                 promise.complete()
             }
-        }
+        }.await()
     }
 
     protected abstract fun hashType(manager: ResourceManager<*, *>): HashType

@@ -5,11 +5,13 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
@@ -23,7 +25,7 @@ import java.nio.file.Path
 import java.util.stream.Collectors
 
 @Suppress("RedundantLambdaArrow")
-class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
+class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
@@ -62,7 +64,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
                 with(acceptHeader) {
                     when {
                         contains("application/json") -> {
-                            body = JsonGet(location, keycloak).xquery(
+                            body = JsonGet(location, keycloak, authz).xquery(
                                 null,
                                 null,
                                 null,
@@ -76,7 +78,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
                             )
                         }
                         contains("application/xml") -> {
-                            body = XmlGet(location, keycloak).xquery(
+                            body = XmlGet(location, keycloak, authz).xquery(
                                 null,
                                 null,
                                 null,
@@ -90,7 +92,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
                             )
                         }
                         else -> {
-                            body = JsonGet(location, keycloak).xquery(
+                            body = JsonGet(location, keycloak, authz).xquery(
                                 null,
                                 null,
                                 null,
@@ -122,19 +124,19 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 val content = buffer.toString()
 
-                ctx.response().setStatusCode(200)
+                val res = ctx.response().setStatusCode(200)
                     .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                     .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                    .write(content)
-                    .end()
+                res.write(content)
+                res.end()
             }
         } else {
             with(acceptHeader) {
                 @Suppress("IMPLICIT_CAST_TO_ANY")
                 when {
-                    contains("application/json") -> JsonGet(location, keycloak).handle(ctx)
-                    contains("application/xml") -> XmlGet(location, keycloak).handle(ctx)
-                    else -> JsonGet(location, keycloak).handle(ctx)
+                    contains("application/json") -> JsonGet(location, keycloak, authz).handle(ctx)
+                    contains("application/xml") -> XmlGet(location, keycloak, authz).handle(ctx)
+                    else -> JsonGet(location, keycloak, authz).handle(ctx)
                 }
             }
         }
@@ -143,7 +145,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Promise<Unit> ->
+        context.executeBlocking { _: Promise<Unit> ->
             val databases = Files.list(location)
 
             val buffer = StringBuilder()
@@ -183,7 +185,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth) {
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .end(content)
-        }
+        }.await()
     }
 
     private fun emitResourcesOfDatabase(
