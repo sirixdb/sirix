@@ -70,7 +70,7 @@ public class NodeDelegate implements Node {
   private SirixDeweyID sirixDeweyID;
 
   /** The hash function. */
-  private final HashFunction mHashFunction;
+  private final HashFunction hashFunction;
 
   /**
    * Constructor.
@@ -88,7 +88,7 @@ public class NodeDelegate implements Node {
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
-    mHashFunction = hashFunction;
+    this.hashFunction = hashFunction;
     this.hashCode = hashCode;
     this.revision = revision;
     typeKey = TYPE_KEY;
@@ -96,7 +96,7 @@ public class NodeDelegate implements Node {
   }
 
   public HashFunction getHashFunction() {
-    return mHashFunction;
+    return hashFunction;
   }
 
   @Override
@@ -124,7 +124,7 @@ public class NodeDelegate implements Node {
   public BigInteger computeHash() {
     final Funnel<Node> nodeFunnel = (Node node, PrimitiveSink into) -> into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, mHashFunction.hashObject(this, nodeFunnel).asBytes()));
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, hashFunction.hashObject(this, nodeFunnel).asBytes()));
   }
 
   @Override

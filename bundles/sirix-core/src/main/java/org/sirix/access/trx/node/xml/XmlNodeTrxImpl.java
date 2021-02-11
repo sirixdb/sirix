@@ -78,9 +78,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -1539,7 +1537,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
       // Reset internal transaction state to new uber page.
       resourceManager.closeNodePageWriteTransaction(getId());
-      pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
+      pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true, getPageWtx().getLog());
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
       resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
@@ -1620,7 +1618,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       nodeReadOnlyTrx.setPageReadTransaction(null);
       removeCommitFile();
 
-      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
+      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true, pageTrx.getLog());
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
       resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
 
@@ -2236,6 +2234,13 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
+  public Future<NodeTrx> commitAsync(final String commitMessage) {
+    commit(commitMessage);
+
+    return CompletableFuture.completedFuture(this);
+  }
+
+  @Override
   public XmlNodeTrx commit(final String commitMessage) {
     nodeReadOnlyTrx.assertNotClosed();
 
@@ -2278,7 +2283,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceManager.closeNodePageWriteTransaction(getId());
-    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
+    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true, null);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceManager.setNodePageWriteTransaction(getId(), pageTrx);

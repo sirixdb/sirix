@@ -18,9 +18,10 @@ public final class NodePageReadOnlyTrxTest {
 
   @Test
   public void testPageKey() {
-    final var trx = new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0,
-        mock(Reader.class), mock(TransactionIntentLog.class), mock(BufferManager.class),
-        mock(RevisionRootPageReader.class));
+    final var trx =
+        new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0, mock(Reader.class),
+            mock(TransactionIntentLog.class), mock(TransactionIntentLog.class), mock(BufferManager.class),
+            mock(RevisionRootPageReader.class));
 
     assertEquals(0, trx.pageKey(1, IndexType.DOCUMENT));
     assertEquals(1023 / Constants.NDP_NODE_COUNT, trx.pageKey(1023, IndexType.DOCUMENT));
@@ -29,9 +30,10 @@ public final class NodePageReadOnlyTrxTest {
 
   @Test
   public void testRecordPageOffset() {
-    final var trx = new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0,
-        mock(Reader.class), mock(TransactionIntentLog.class), mock(BufferManager.class),
-        mock(RevisionRootPageReader.class));
+    final var trx =
+        new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0, mock(Reader.class),
+            mock(TransactionIntentLog.class), mock(TransactionIntentLog.class), mock(BufferManager.class),
+            mock(RevisionRootPageReader.class));
 
     assertEquals(1, trx.recordPageOffset(1));
     assertEquals(Constants.NDP_NODE_COUNT - 1, trx.recordPageOffset(1023));

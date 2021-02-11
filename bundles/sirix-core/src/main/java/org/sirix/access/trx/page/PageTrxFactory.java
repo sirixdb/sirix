@@ -31,7 +31,6 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
@@ -47,6 +46,7 @@ import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,7 +63,7 @@ public final class PageTrxFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager    {@link XmlResourceManagerImpl} this page write trx is bound to
+   * @param resourceManager    resource manager, this page write trx is bound to
    * @param uberPage           root of revision
    * @param writer             writer where this transaction should write to
    * @param trxId              the transaction ID
@@ -71,12 +71,14 @@ public final class PageTrxFactory {
    * @param lastStoredRevision last stored revision
    * @param isBoundToNodeTrx   {@code true} if this page write trx will be bound to a node trx,
    *                           {@code false} otherwise
+   * @param formerLog          the former transaction log
    */
   public PageTrx createPageTrx(
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @Nonnegative long trxId,
       final @Nonnegative int representRevision, final @Nonnegative int lastStoredRevision,
-      final @Nonnegative int lastCommitedRevision, final boolean isBoundToNodeTrx) {
+      final @Nonnegative int lastCommitedRevision, final boolean isBoundToNodeTrx,
+      final @Nullable TransactionIntentLog formerLog) {
     final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
     final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
 
@@ -102,19 +104,15 @@ public final class PageTrxFactory {
     }
 
     // Page read trx.
-    final NodePageReadOnlyTrx pageRtx = new NodePageReadOnlyTrx(trxId,
-                                                                resourceManager,
-                                                                uberPage,
-                                                                representRevision,
-                                                                writer,
-                                                                log,
-                                                                null,
-                                                                new RevisionRootPageReader());
+    final NodePageReadOnlyTrx pageRtx =
+        new NodePageReadOnlyTrx(trxId, resourceManager, uberPage, representRevision, writer, log, formerLog, null,
+            new RevisionRootPageReader());
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
     final RevisionRootPage newRevisionRootPage =
-        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
+        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, formerLog, lastCommitedRoot,
+            lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
@@ -174,27 +172,18 @@ public final class PageTrxFactory {
 
       final Page indirectPage =
           pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
-      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
+      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(),
+          PageContainer.getInstance(indirectPage, indirectPage));
 
-      final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(pageRtx,
-                                                                                     log,
-                                                                                     uberPage.getPageCountExp(IndexType.REVISIONS),
-                                                                                     uberPage.getIndirectPageReference(),
-                                                                                     uberPage.getRevisionNumber(),
-                                                                                     -1,
-                                                                                     IndexType.REVISIONS,
-                                                                                     newRevisionRootPage);
+      final PageReference revisionRootPageReference =
+          treeModifier.prepareLeafOfTree(pageRtx, log, formerLog, uberPage.getPageCountExp(IndexType.REVISIONS),
+              uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(), -1, IndexType.REVISIONS,
+              newRevisionRootPage);
 
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
-    return new NodePageTrx(treeModifier,
-                           writer,
-                           log,
-                           newRevisionRootPage,
-                           pageRtx,
-                           indexController,
-                           representRevision,
-                           isBoundToNodeTrx);
+    return new NodePageTrx(treeModifier, writer, log, formerLog, newRevisionRootPage, pageRtx, indexController,
+        representRevision, isBoundToNodeTrx);
   }
 }

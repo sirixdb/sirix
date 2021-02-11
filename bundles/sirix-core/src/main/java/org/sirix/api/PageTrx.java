@@ -23,6 +23,8 @@ import javax.annotation.Nonnull;
  */
 public interface PageTrx extends PageReadOnlyTrx {
 
+  PageTrx clone();
+
   /**
    * Truncate resource to given revision.
    *
@@ -109,6 +111,24 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws SirixException if Sirix fails to commit
    */
   UberPage commit(String commitMessage);
+
+//  /**
+//   * Commit the transaction, that is persist changes if any and create a new revision.
+//   *
+//   * @return UberPage the new revision after commit
+//   * @throws SirixException if Sirix fails to commit
+//   */
+//  UberPage asyncCommit();
+//
+//  /**
+//   * Commit the transaction, that is persist changes if any and create a new revision. The commit
+//   * message is going to be persisted as well.
+//   *
+//   * @param commitMessage the commit message
+//   * @return UberPage the revision after commit
+//   * @throws SirixException if Sirix fails to commit
+//   */
+//  UberPage asyncCommit(String commitMessage);
 
   /**
    * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.

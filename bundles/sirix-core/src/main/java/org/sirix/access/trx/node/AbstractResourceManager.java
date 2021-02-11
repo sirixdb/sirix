@@ -15,6 +15,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.Cache;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
@@ -26,6 +27,7 @@ import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Node;
 import org.sirix.page.PageKind;
+import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.settings.Fixed;
 
@@ -196,33 +198,49 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Create a new {@link PageTrx}.
    *
-   * @param id                the transaction ID
-   * @param representRevision the revision which is represented
-   * @param storedRevision    the revision which is stored
-   * @param abort             determines if a transaction must be aborted (rollback) or not
+   * @param id                 the transaction ID
+   * @param representRevision  the revision which is represented
+   * @param storedRevision     the revision which is stored
+   * @param abort              determines if a transaction must be aborted (rollback) or not
+   * @param isBoundToNodeTrx   determines if the page transaction is bound to a node transaction
+   * @param formerTrxIntentLog former transaction intent log (it might be committing)
    * @return a new {@link PageTrx} instance
    */
   @Override
   public PageTrx createPageTransaction(final @Nonnegative long id, final @Nonnegative int representRevision,
-      final @Nonnegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+      final @Nonnegative int storedRevision, final Abort abort, final boolean isBoundToNodeTrx,
+      final @Nullable TransactionIntentLog formerTrxIntentLog) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
     final Writer writer = storage.createWriter();
     final int lastCommitedRev = lastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = lastCommittedUberPage.get();
-    return new PageTrxFactory().createPageTrx(this,
-                                              abort == Abort.YES && lastCommitedUberPage.isBootstrap()
-                                                  ? new UberPage()
-                                                  : new UberPage(lastCommitedUberPage,
-                                                                 representRevision > 0 ? writer.readUberPageReference()
-                                                                                               .getKey() : -1),
-                                              writer,
-                                              id,
-                                              representRevision,
-                                              storedRevision,
-                                              lastCommitedRev,
-                                              isBoundToNodeTrx);
+
+    return new PageTrxFactory().createPageTrx(this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+            ? new UberPage()
+            : new UberPage(lastCommitedUberPage, representRevision > 0 ? writer.readUberPageReference().getKey() : -1),
+        writer, id, representRevision, storedRevision, lastCommitedRev, isBoundToNodeTrx, formerTrxIntentLog);
+  }
+
+  /**
+   * Create a new {@link PageTrx}.
+   *
+   * @param id                  the transaction ID
+   * @param representRevision   the revision which is represented
+   * @param uberPage            the former uber page
+   * @param isBoundToNodeTrx    determines if the page transaction is bound to a node transaction
+   * @param formerTrxIntentLog  former transaction intent log (it might be committing)
+   * @return a new {@link PageTrx} instance
+   */
+  @Override
+  public PageTrx createPageTransaction(final @Nonnegative long id, final @Nonnegative int representRevision,
+      final @Nonnull UberPage uberPage, final boolean isBoundToNodeTrx,
+      final @Nullable TransactionIntentLog formerTrxIntentLog) {
+    checkArgument(id >= 0, "id must be >= 0!");
+    final Writer writer = storage.createWriter();
+    return new PageTrxFactory().createPageTrx(this, uberPage, writer, id, representRevision, -1,
+        uberPage.getRevisionNumber(), isBoundToNodeTrx, formerTrxIntentLog);
   }
 
   @Override
@@ -257,8 +275,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final int lastCommittedRevision = lastCommittedUberPage.get().getRevisionNumber();
     final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
 
-    for (int revision = lastCommittedRevision; revision > 0 && revision > lastCommittedRevision - revisions;
-        revision--) {
+    for (int revision = lastCommittedRevision;
+         revision > 0 && revision > lastCommittedRevision - revisions; revision--) {
       revisionInfos.add(threadPool.submit(new RevisionInfoRunnable(this, revision)));
     }
 
@@ -323,8 +341,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node documentNode;
 
-    @SuppressWarnings("unchecked")
-    final Optional<? extends Node> node =
+    @SuppressWarnings("unchecked") final Optional<? extends Node> node =
         pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node.isPresent()) {
       documentNode = node.get();
@@ -406,7 +423,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true, null);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -657,14 +674,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
-                                                                    this,
-                                                                    lastCommittedUberPage.get(),
-                                                                    revision,
-                                                                    storage.createReader(),
-                                                                    null,
-                                                                    bufferManager,
-                                                                    new RevisionRootPageReader());
+    final NodePageReadOnlyTrx pageReadTrx =
+        new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(), revision, storage.createReader(),
+            null, null, bufferManager, new RevisionRootPageReader());
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -694,7 +706,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
-    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false, null);
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {
@@ -755,8 +767,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final R rtxRevision = beginNodeReadOnlyTrx(revision);
 
     if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                rtxRevision.getRevisionTimestamp()
-                                                                                                           .toEpochMilli())) {
+        rtxRevision.getRevisionTimestamp().toEpochMilli())) {
       rtxRevision.close();
       return rtxRevisionMinus1;
     } else {
@@ -811,8 +822,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       final int revisionNumber;
 
       if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                  rtxRevision.getRevisionTimestamp()
-                                                                                                             .toEpochMilli())) {
+          rtxRevision.getRevisionTimestamp().toEpochMilli())) {
         revisionNumber = rtxRevisionMinus1.getRevisionNumber();
       } else {
         revisionNumber = rtxRevision.getRevisionNumber();

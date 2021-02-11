@@ -24,6 +24,7 @@ package org.sirix.api;
 import java.nio.file.Path;
 import java.util.List;
 import javax.annotation.Nonnegative;
+
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
@@ -41,12 +42,16 @@ import org.sirix.exception.SirixIOException;
  * of a database cannot be changed.
  * </p>
  *
- *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
 public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     extends AutoCloseable {
+  /**
+   * Determines if the database handle is still valid, that is if the state is still open.
+   *
+   * @return {@code true}, if the database is open, {@code false} otherwise
+   */
   boolean isOpen();
 
   /**
@@ -134,6 +139,7 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
 
   /**
    * Get the database name.
+   *
    * @return the database name
    */
   String getName();
