@@ -210,10 +210,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final DataRecord record = recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)),
-                                                            key,
-                                                            null,
-                                                            this.pageReadOnlyTrx);
+      final DataRecord record =
+          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, null,
+              this.pageReadOnlyTrx);
       records.put(key, record);
     }
 
@@ -238,10 +237,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final DataRecord record = recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)),
-                                                            key,
-                                                            deweyId,
-                                                            pageReadOnlyTrx);
+      final DataRecord record =
+          recordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, deweyId,
+              pageReadOnlyTrx);
       records.put(key, record);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -388,7 +386,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof UnorderedKeyValuePage other) {
       return recordPageKey == other.recordPageKey && Objects.equal(records, other.records) && Objects.equal(references,
-                                                                                                            other.references);
+          other.references);
     }
     return false;
   }
@@ -442,6 +440,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       }
       if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyID() != null
           && record.getNodeKey() != 0) {
+        if (deweyIDs.get(record.getDeweyID()) != null) {
+          throw new IllegalStateException(
+              "Old record has deweyID " + record.getDeweyID() + " (old record: " + deweyIDs.get(record.getDeweyID())
+                  + "), but new record has the same deweyID: " + record.getNodeKey());
+        }
         deweyIDs.put(record.getDeweyID(), record.getNodeKey());
       }
     }

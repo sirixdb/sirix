@@ -70,12 +70,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
+public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
 
   /**
    * Page writer to serialize.
    */
   private final Writer storagePageReaderWriter;
+
+  private final TransactionIntentLog formerLog;
 
   /**
    * Transaction intent log.
@@ -127,6 +129,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   /**
    * Constructor.
    *
+   * @param treeModifier      the tree modifier
    * @param writer            the page writer
    * @param log               the transaction intent log
    * @param revisionRootPage  the revision root page
@@ -136,18 +139,35 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * @param isBoundToNodeTrx  {@code true} if this page write trx will be bound to a node trx,
    *                          {@code false} otherwise
    */
-  NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
+  NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log, final TransactionIntentLog formerLog,
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.treeModifier = checkNotNull(treeModifier);
     storagePageReaderWriter = checkNotNull(writer);
     this.log = checkNotNull(log);
+    this.formerLog = formerLog;
     newRevisionRootPage = checkNotNull(revisionRootPage);
     this.pageRtx = checkNotNull(pageRtx);
     this.indexController = checkNotNull(indexController);
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
+  }
+
+  @Override
+  public PageTrx clone() {
+    return null;
+  }
+
+  public NodePageTrx setTransactionIntentLog(final TransactionIntentLog log) {
+    this.log = log;
+    return this;
+  }
+
+  public NodePageTrx setOldTransactionIntentLog(final TransactionIntentLog log) {
+    pageRtx.setFormerTransactionIntentLog(log);
+    this.log = log;
+    return this;
   }
 
   @Override
@@ -211,7 +231,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       // $CASES-OMITTED$
       final long createdRecordKey = switch (indexType) {
         case DOCUMENT -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
-        case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex() ;
+        case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
         case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
         case PATH_SUMMARY -> {
           final PathSummaryPage pathSummaryPage =
@@ -235,8 +255,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
       final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-      @SuppressWarnings("unchecked")
-      final KeyValuePage<Long, DataRecord> modified = (KeyValuePage<Long, DataRecord>) cont.getModified();
+      @SuppressWarnings("unchecked") final KeyValuePage<Long, DataRecord> modified =
+          (KeyValuePage<Long, DataRecord>) cont.getModified();
       modified.setRecord(createdRecordKey, (DataRecord) record);
       return record;
     }
@@ -257,12 +277,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final Optional<DataRecord> node = getRecord(nodeKey, indexType, index);
       if (node.isPresent()) {
         final DataRecord nodeToDel = node.get();
-        final Node delNode = new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(),
-                                                              -1,
-                                                              null,
-                                                              null,
-                                                              pageRtx.getRevisionNumber(),
-                                                              null));
+        final Node delNode = new DeletedNode(
+            new NodeDelegate(nodeToDel.getNodeKey(), -1, null, null, pageRtx.getRevisionNumber(), null));
         ((UnorderedKeyValuePage) cont.getModified()).setRecord(delNode.getNodeKey(), delNode);
         ((UnorderedKeyValuePage) cont.getComplete()).setRecord(delNode.getNodeKey(), delNode);
       } else {
@@ -306,8 +322,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     pageRtx.assertNotClosed();
     final NamePage currentNamePage = getNamePage(newRevisionRootPage);
     return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, pageRtx) == null) ? pageRtx.getName(
-        nameKey,
-        nodeKind) : currentNamePage.getName(nameKey, nodeKind, pageRtx);
+        nameKey, nodeKind) : currentNamePage.getName(nameKey, nodeKind, pageRtx);
   }
 
   @Override
@@ -326,7 +341,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     final PageContainer container = log.get(reference, this);
 
-    log.remove(reference);
+    //    log.remove(reference);
 
     Page page = null;
 
@@ -384,8 +399,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       storagePageReaderWriter.writeUberPageReference(uberPageReference);
       uberPageReference.setPage(null);
 
-      final Path indexes = pageRtx.getResourceManager().getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                                        .resolve(revision + ".xml");
+      final Path indexes = pageRtx.getResourceManager().getResourceConfig().resourcePath.resolve(
+          ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
 
       if (!Files.exists(indexes)) {
         try {
@@ -409,7 +424,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       } catch (final IOException e) {
         throw new SirixIOException("Commit file couldn't be deleted!");
       }
-
     } finally {
       pageRtx.resourceManager.getCommitLock().unlock();
     }
@@ -439,7 +453,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
-      final UberPage lastUberPage = (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
+      final UberPage lastUberPage =
+          (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
 
       pageRtx.resourceManager.setLastCommittedUberPage(lastUberPage);
 
@@ -448,6 +463,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       log.close();
+
+      if (formerLog != null) {
+        formerLog.close();
+      }
+
       pageRtx.close();
       storagePageReaderWriter.close();
       isClosed = true;
@@ -481,14 +501,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
     // Get the reference to the unordered key/value page storing the records.
-    final PageReference reference = treeModifier.prepareLeafOfTree(pageRtx,
-                                                                   log,
-                                                                   getUberPage().getPageCountExp(indexType),
-                                                                   pageReference,
-                                                                   recordPageKey,
-                                                                   indexNumber,
-                                                                   indexType,
-                                                                   newRevisionRootPage);
+    final PageReference reference =
+        treeModifier.prepareLeafOfTree(pageRtx, log, formerLog, getUberPage().getPageCountExp(indexType), pageReference,
+            recordPageKey, indexNumber, indexType, newRevisionRootPage);
 
     PageContainer pageContainer = log.get(reference, this);
 
@@ -506,8 +521,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       // $CASES-OMITTED$
       switch (indexType) {
         case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME -> appendLogRecord(
-            reference,
-            pageContainer);
+            reference, pageContainer);
         default -> throw new IllegalStateException("Page kind not known!");
       }
     }

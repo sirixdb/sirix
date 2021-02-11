@@ -25,19 +25,24 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.Cache;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UberPage;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -71,6 +76,9 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return the resource path
    */
   Path getResourcePath();
+
+  PageTrx createPageTransaction(@Nonnegative long id, @Nonnegative int representRevision, @Nonnull UberPage uberPage,
+      boolean isBoundToNodeTrx, @Nullable TransactionIntentLog formerTrxIntentLog);
 
   /**
    * Get the history, that is the metadata informations about the revisions.
