@@ -37,6 +37,8 @@ class DiffHandler(private val location: Path) {
             return ctx.currentRoute()
         }
 
+        LOGGER.debug("Open databases before: ${DatabasesInternals.getOpenDatabases()}")
+        
         val database = openDatabase(databaseName)
 
         val diff = context.executeBlocking<String> { resultPromise ->
@@ -99,7 +101,7 @@ class DiffHandler(private val location: Path) {
             }
         }.await()
 
-        LOGGER.debug("Open databases: ${DatabasesInternals.getOpenDatabases()}")
+        LOGGER.debug("Open databases after: ${DatabasesInternals.getOpenDatabases()}")
 
         val res = ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
