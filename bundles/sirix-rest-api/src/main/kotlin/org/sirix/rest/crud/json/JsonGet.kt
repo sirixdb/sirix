@@ -146,10 +146,10 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                 jsonDBStore,
                 SirixQueryContext.CommitStrategy.AUTO
             )
+                                             
+            var body: String? = null
 
             queryCtx.use {
-                var body: String? = null
-
                 if (manager != null && dbCollection != null && revisionNumber != null) {
                     val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
@@ -207,9 +207,9 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                         routingContext
                     )
                 }
-
-                promise.complete(body)
             }
+                                             
+            promise.complete(body)
         }.await()
     }
 
