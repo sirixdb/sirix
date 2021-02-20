@@ -35,13 +35,6 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(JsonResourceStore.class));
 
   /**
-   * Default constructor.
-   */
-  public JsonResourceStore() {
-    super(new ConcurrentHashMap<>(), new User("admin", UUID.randomUUID()));
-  }
-
-  /**
    * Constructor.
    */
   public JsonResourceStore(final User user) {

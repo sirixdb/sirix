@@ -1,10 +1,6 @@
 package org.sirix.access;
 
-import org.sirix.access.json.JsonResourceStore;
-import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -23,9 +19,9 @@ public enum DatabaseType {
   XML("xml") {
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
-        DatabaseConfiguration dbConfig, S store) {
-      return (Database<R>) new LocalXmlDatabase(dbConfig, (XmlResourceStore) store);
+    public <R extends ResourceManager<?, ?>> Database<R> createDatabase(
+            final DatabaseManager manager, DatabaseConfiguration dbConfig, User user) {
+      return (Database<R>) manager.xmlDatabaseFactory().createDatabase(dbConfig, user);
     }
 
     @Override
@@ -42,9 +38,9 @@ public enum DatabaseType {
   JSON("json") {
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
-        DatabaseConfiguration dbConfig, S store) {
-      return (Database<R>) new LocalJsonDatabase(dbConfig, (JsonResourceStore) store);
+    public <R extends ResourceManager<?, ?>> Database<R> createDatabase(
+            final DatabaseManager manager, DatabaseConfiguration dbConfig, User user) {
+      return (Database<R>) manager.jsonDatabaseFactory().createDatabase(dbConfig, user);
     }
 
     @Override
@@ -75,8 +71,8 @@ public enum DatabaseType {
     return Optional.ofNullable(stringToEnum.get(symbol));
   }
 
-  public abstract <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
-      DatabaseConfiguration dbConfig, S store);
+  public abstract <R extends ResourceManager<?, ?>> Database<R> createDatabase(
+          final DatabaseManager manager, DatabaseConfiguration dbConfig, User user);
 
   public abstract Node getDocumentNode(SirixDeweyID id);
 }

@@ -26,13 +26,6 @@ import org.sirix.page.UberPage;
 public final class XmlResourceStore extends AbstractResourceStore<XmlResourceManager> {
 
   /**
-   * Default constructor.
-   */
-  public XmlResourceStore() {
-    super(new ConcurrentHashMap<>(), new User("admin", UUID.randomUUID()));
-  }
-
-  /**
    * Constructor.
    */
   public XmlResourceStore(final User user) {
