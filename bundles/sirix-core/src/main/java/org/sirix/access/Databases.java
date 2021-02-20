@@ -1,8 +1,5 @@
 package org.sirix.access;
 
-import org.jetbrains.annotations.NotNull;
-import org.sirix.access.json.JsonResourceStore;
-import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -41,6 +38,11 @@ public final class Databases {
 
   /** Central repository of all running resource managers. */
   static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
+
+  /**
+   * DI component that manages the database.
+   */
+  static final DatabaseManager MANAGER = DaggerDatabaseManager.create();
 
   /** Central repository of all resource {@code <=>} write locks mappings. */
   static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_LOCKS = new ConcurrentHashMap<>();
@@ -233,8 +235,7 @@ public final class Databases {
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
-    final DatabaseManager databaseManager = DaggerDatabaseManager.create();
-    final Database<M> database = databaseType.createDatabase(databaseManager, dbConfig, user);
+    final Database<M> database = databaseType.createDatabase(dbConfig, user);
     putDatabase(file.toAbsolutePath(), database);
     return database;
   }
