@@ -2,6 +2,7 @@ package org.sirix.access;
 
 import dagger.Binds;
 import dagger.Module;
+import dagger.Provides;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 
@@ -18,4 +19,5 @@ public interface DatabaseModule {
 
     @Binds
     LocalDatabaseFactory<XmlResourceManager> bindXmlDatabaseFactory(LocalXmlDatabaseFactory xmlFactory);
+
 }

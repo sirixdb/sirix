@@ -33,9 +33,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class Databases {
 
-  /** Central repository of all running databases. */
-  static final ConcurrentMap<Path, Set<Database<?>>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
-
   /** Central repository of all running resource managers. */
   static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
 
@@ -140,7 +137,7 @@ public final class Databases {
    */
   public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
     // check that database must be closed beforehand
-    if (!DATABASE_SESSIONS.containsKey(dbFile)) {
+    if (!MANAGER.sessions().containsSessions(dbFile)) {
       // if file is existing and folder is a sirix-database, delete it
       if (Files.exists(dbFile)) {
         // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
@@ -233,9 +230,7 @@ public final class Databases {
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
-    final Database<M> database = databaseType.createDatabase(dbConfig, user);
-    putDatabase(file.toAbsolutePath(), database);
-    return database;
+    return databaseType.createDatabase(dbConfig, user);
   }
 
   /**
@@ -246,31 +241,5 @@ public final class Databases {
    */
   public static synchronized boolean existsDatabase(final Path dbPath) {
     return Files.exists(dbPath) && DatabaseConfiguration.DatabasePaths.compareStructure(dbPath) == 0;
-  }
-
-  /**
-   * Package private method to put a file/database into the internal map.
-   *
-   * @param file database file to put into the map
-   * @param database database handle to put into the map
-   */
-  static synchronized void putDatabase(final Path file, final Database<?> database) {
-    final Set<Database<?>> databases = DATABASE_SESSIONS.getOrDefault(file, new HashSet<>());
-    databases.add(database);
-    DATABASE_SESSIONS.put(file, databases);
-  }
-
-  /**
-   * Package private method to remove a database.
-   *
-   * @param file database file to remove
-   */
-  static synchronized void removeDatabase(final Path file, final Database<?> database) {
-    final Set<Database<?>> databases = DATABASE_SESSIONS.get(file);
-    databases.remove(database);
-
-    if (databases.isEmpty()) {
-      DATABASE_SESSIONS.remove(file);
-    }
   }
 }

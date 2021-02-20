@@ -22,14 +22,18 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
      */
     private static final Logger logger = LoggerFactory.getLogger(LocalJsonDatabaseFactory.class);
 
+    private final DatabaseSessionPool sessions;
+
     @Inject
-    LocalJsonDatabaseFactory() {}
+    LocalJsonDatabaseFactory(final DatabaseSessionPool sessions) {
+        this.sessions = sessions;
+    }
 
     @Override
     public Database<JsonResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
 
         logger.trace("Creating new local json database");
-        return new LocalJsonDatabase(configuration, new JsonResourceStore(user));
+        return new LocalJsonDatabase(configuration, new JsonResourceStore(user), this.sessions);
     }
 
 }
