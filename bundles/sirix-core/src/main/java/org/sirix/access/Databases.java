@@ -1,8 +1,10 @@
 package org.sirix.access;
 
+import org.jetbrains.annotations.NotNull;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
@@ -16,9 +18,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -160,7 +162,7 @@ public final class Databases {
    */
   @SuppressWarnings("unchecked")
   public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file, final User user) {
-    return (Database<XmlResourceManager>) openDatabase(file, new XmlResourceStore(user), DatabaseType.XML);
+    return openDatabase(file, user, DatabaseType.XML);
   }
 
   /**
@@ -174,9 +176,8 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  @SuppressWarnings("unchecked")
   public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file, final User user) {
-    return (Database<JsonResourceManager>) openDatabase(file, new JsonResourceStore(user), DatabaseType.JSON);
+    return openDatabase(file, user, DatabaseType.JSON);
   }
 
   /**
@@ -189,9 +190,18 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  @SuppressWarnings("unchecked")
   public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file) {
-    return (Database<JsonResourceManager>) openDatabase(file, new JsonResourceStore(), DatabaseType.JSON);
+    return openDatabase(file, createAdminUser(), DatabaseType.JSON);
+  }
+
+  /**
+   * Creates a reference to an admin user. Each call to this method will return a new user.
+   *
+   * @return A new admin user.
+   */
+  private static User createAdminUser() {
+
+    return new User("admin", UUID.randomUUID());
   }
 
   /**
@@ -206,12 +216,15 @@ public final class Databases {
    */
   @SuppressWarnings("unchecked")
   public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
-    return (Database<XmlResourceManager>) openDatabase(file, new XmlResourceStore(), DatabaseType.XML);
+    return openDatabase(file, createAdminUser(), DatabaseType.XML);
   }
 
-  private static Database<?> openDatabase(final Path file,
-      final ResourceStore<? extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> store,
-      final DatabaseType databaseType) {
+  private static <M extends ResourceManager<R, W>,
+          R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
+          final Path file,
+          final User user,
+          final DatabaseType databaseType) {
+
     checkNotNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
@@ -220,7 +233,8 @@ public final class Databases {
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
-    final Database<?> database = databaseType.createDatabase(dbConfig, store);
+    final DatabaseManager databaseManager = DaggerDatabaseManager.create();
+    final Database<M> database = databaseType.createDatabase(databaseManager, dbConfig, user);
     putDatabase(file.toAbsolutePath(), database);
     return database;
   }
