@@ -162,7 +162,6 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  @SuppressWarnings("unchecked")
   public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file, final User user) {
     return openDatabase(file, user, DatabaseType.XML);
   }
@@ -216,7 +215,6 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  @SuppressWarnings("unchecked")
   public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
     return openDatabase(file, createAdminUser(), DatabaseType.XML);
   }
