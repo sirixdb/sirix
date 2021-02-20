@@ -20,8 +20,8 @@ public enum DatabaseType {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<?, ?>> Database<R> createDatabase(
-            final DatabaseManager manager, DatabaseConfiguration dbConfig, User user) {
-      return (Database<R>) manager.xmlDatabaseFactory().createDatabase(dbConfig, user);
+            DatabaseConfiguration dbConfig, User user) {
+      return (Database<R>) Databases.MANAGER.xmlDatabaseFactory().createDatabase(dbConfig, user);
     }
 
     @Override
@@ -39,8 +39,8 @@ public enum DatabaseType {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<?, ?>> Database<R> createDatabase(
-            final DatabaseManager manager, DatabaseConfiguration dbConfig, User user) {
-      return (Database<R>) manager.jsonDatabaseFactory().createDatabase(dbConfig, user);
+            DatabaseConfiguration dbConfig, User user) {
+      return (Database<R>) Databases.MANAGER.jsonDatabaseFactory().createDatabase(dbConfig, user);
     }
 
     @Override
@@ -72,7 +72,7 @@ public enum DatabaseType {
   }
 
   public abstract <R extends ResourceManager<?, ?>> Database<R> createDatabase(
-          final DatabaseManager manager, DatabaseConfiguration dbConfig, User user);
+          DatabaseConfiguration dbConfig, User user);
 
   public abstract Node getDocumentNode(SirixDeweyID id);
 }
