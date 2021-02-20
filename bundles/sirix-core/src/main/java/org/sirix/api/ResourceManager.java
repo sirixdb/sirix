@@ -28,13 +28,13 @@ import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.Cache;
+import org.sirix.cache.RBIndexKey;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.index.redblacktree.RBNode;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
