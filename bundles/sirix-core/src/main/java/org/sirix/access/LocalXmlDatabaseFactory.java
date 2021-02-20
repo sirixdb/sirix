@@ -22,13 +22,17 @@ public class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlResource
      */
     private static final Logger logger = LoggerFactory.getLogger(LocalXmlDatabaseFactory.class);
 
+    private final DatabaseSessionPool sessions;
+
     @Inject
-    LocalXmlDatabaseFactory() {}
+    LocalXmlDatabaseFactory(final DatabaseSessionPool sessions) {
+        this.sessions = sessions;
+    }
 
     @Override
     public Database<XmlResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
 
         logger.trace("Creating new local xml database");
-        return new LocalXmlDatabase(configuration, new XmlResourceStore(user));
+        return new LocalXmlDatabase(configuration, new XmlResourceStore(user), this.sessions);
     }
 }
