@@ -7,7 +7,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.WriteLocksRegistry;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
-import org.sirix.api.Database;
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManager;
@@ -39,17 +39,17 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
    */
   public XmlResourceStore(final User user,
                           final WriteLocksRegistry writeLocksRegistry,
-                          final PathBasedPool<ResourceManager<?, ?>> allResourceManagers) {
-    super(new ConcurrentHashMap<>(), allResourceManagers, user);
+                          final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+                          final String databaseName,
+                          final PageTrxFactory pageTrxFactory) {
+    super(new ConcurrentHashMap<>(), allResourceManagers, user, databaseName, pageTrxFactory);
 
     this.writeLocksRegistry = writeLocksRegistry;
   }
 
   @Override
-  public XmlResourceManager openResource(final @Nonnull Database<XmlResourceManager> database,
-      final @Nonnull ResourceConfiguration resourceConfig, final @Nonnull BufferManager bufferManager,
-      final @Nonnull Path resourceFile) {
-    checkNotNull(database);
+  public XmlResourceManager openResource(final @Nonnull ResourceConfiguration resourceConfig, final @Nonnull BufferManager bufferManager,
+                                         final @Nonnull Path resourceFile) {
     checkNotNull(resourceConfig);
     checkNotNull(bufferManager);
     checkNotNull(resourceFile);
@@ -61,8 +61,17 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
       final Lock writeLock = this.writeLocksRegistry.getWriteLock(resourceConfig.getResource());
 
       // Create the resource manager instance.
-      final XmlResourceManager resourceManager = new XmlResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, user);
+      final XmlResourceManager resourceManager = new XmlResourceManagerImpl(
+              this.databaseName,
+              this,
+              resourceConfig,
+              bufferManager,
+              StorageType.getStorage(resourceConfig),
+              uberPage,
+              writeLock,
+              user,
+              pageTrxFactory
+      );
 
       // Put it in the databases cache.
       this.allResourceManagers.putObject(resourceFile, resourceManager);

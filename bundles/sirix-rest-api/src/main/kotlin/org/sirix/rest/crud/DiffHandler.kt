@@ -2,7 +2,6 @@ package org.sirix.rest.crud
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -86,7 +85,7 @@ class DiffHandler(private val location: Path) {
                                 }
                             }
                         } else {
-                            diffString = BasicJsonDiff().generateDiff(
+                            diffString = BasicJsonDiff(databaseName).generateDiff(
                                 resourceManager,
                                 firstRevision.toInt(),
                                 secondRevision.toInt(),

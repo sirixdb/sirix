@@ -1,14 +1,20 @@
-package org.sirix.access;
+package org.sirix.access.xml;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
-
-import org.sirix.access.xml.XmlResourceStore;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.LocalDatabase;
+import org.sirix.access.LocalDatabaseFactory;
+import org.sirix.access.PathBasedPool;
+import org.sirix.access.User;
+import org.sirix.access.WriteLocksRegistry;
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 /**
  * A database session factory for Json databases.
@@ -40,10 +46,12 @@ public class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlResource
     public Database<XmlResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
         logger.trace("Creating new local xml database");
 
+        final String databaseName = configuration.getDatabaseName();
+        final PageTrxFactory pageTrxFactory = new PageTrxFactory( configuration.getDatabaseType());
         return new LocalDatabase<>(
                 configuration,
                 this.sessions,
-                new XmlResourceStore(user, writeLocks, resourceManagers),
+                new XmlResourceStore(user, writeLocks, resourceManagers, databaseName, pageTrxFactory),
                 writeLocks,
                 resourceManagers
         );

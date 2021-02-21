@@ -1,5 +1,6 @@
 package org.sirix.index.cas.xml;
 
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
@@ -14,8 +15,8 @@ public final class XmlCASIndexImpl implements XmlCASIndex {
   private final CASIndexListenerFactory casIndexListenerFactory;
 
   public XmlCASIndexImpl() {
-    casIndexBuilderFactory = new CASIndexBuilderFactory();
-    casIndexListenerFactory = new CASIndexListenerFactory();
+    casIndexBuilderFactory = new CASIndexBuilderFactory(DatabaseType.XML);
+    casIndexListenerFactory = new CASIndexListenerFactory(DatabaseType.XML);
   }
 
   @Override

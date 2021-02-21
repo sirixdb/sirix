@@ -1,5 +1,6 @@
 package org.sirix.index.path.json;
 
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.path.PathIndexBuilderFactory;
@@ -13,8 +14,8 @@ public final class JsonPathIndexImpl implements JsonPathIndex {
   private final PathIndexListenerFactory pathIndexListenerFactory;
 
   public JsonPathIndexImpl() {
-    pathIndexBuilderFactory = new PathIndexBuilderFactory();
-    pathIndexListenerFactory = new PathIndexListenerFactory();
+    pathIndexBuilderFactory = new PathIndexBuilderFactory(DatabaseType.JSON);
+    pathIndexListenerFactory = new PathIndexListenerFactory(DatabaseType.JSON);
   }
 
   @Override

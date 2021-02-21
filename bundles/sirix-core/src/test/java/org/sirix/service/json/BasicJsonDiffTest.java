@@ -33,6 +33,7 @@ public final class BasicJsonDiffTest {
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(15);
@@ -42,10 +43,10 @@ public final class BasicJsonDiffTest {
       wtx.insertObjectRecordAsRightSibling("111hereIAm", new StringValue("111yeah"));
       wtx.commit();
 
-      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
+      final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 2);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("diffRev1Rev2.json")), diffRev1Rev2);
 
-      final String diffRev1Rev3 = new BasicJsonDiff().generateDiff(manager, 1, 3);
+      final String diffRev1Rev3 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 3);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("diffRev1Rev3.json")), diffRev1Rev3);
     }
   }
@@ -56,6 +57,7 @@ public final class BasicJsonDiffTest {
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
@@ -65,7 +67,7 @@ public final class BasicJsonDiffTest {
       wtx.moveTo(4);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"new\":\"stuff\"}"));
 
-      final String diffRev1Rev4 = new BasicJsonDiff().generateDiff(manager, 1, 4);
+      final String diffRev1Rev4 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 4);
       System.out.println(diffRev1Rev4);
     }
   }
@@ -74,6 +76,7 @@ public final class BasicJsonDiffTest {
   public void test_whenMultipleRevisionsExist_thenDiff3() throws IOException {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
@@ -81,7 +84,7 @@ public final class BasicJsonDiffTest {
       wtx.insertObjectAsFirstChild();
       wtx.commit();
 
-      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
+      final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 2);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("emptyObjectDiffRev1Rev2.json")),
                    diffRev1Rev2);
     }
@@ -91,6 +94,7 @@ public final class BasicJsonDiffTest {
   public void test_whenMultipleRevisionsExist_thenDiff4() throws IOException {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"test\", \"test\"]"));
@@ -100,7 +104,7 @@ public final class BasicJsonDiffTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.commit();
 
-      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
+      final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 2);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace.json")), diffRev1Rev2);
     }
   }
@@ -109,6 +113,7 @@ public final class BasicJsonDiffTest {
   public void test_whenMultipleRevisionsExist_thenDiff5() throws IOException {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"baz\":\"hello\"}"));
@@ -116,7 +121,7 @@ public final class BasicJsonDiffTest {
       wtx.replaceObjectRecordValue(new StringValue("test"));
       wtx.commit();
 
-      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 1, 2);
+      final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 2);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace1.json")), diffRev1Rev2);
     }
   }
@@ -125,6 +130,7 @@ public final class BasicJsonDiffTest {
   public void test_whenMultipleRevisionsExist_thenDiff6() throws IOException {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
@@ -144,7 +150,7 @@ public final class BasicJsonDiffTest {
       wtx.remove();
       wtx.commit();
 
-      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 2, 5);
+      final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 2, 5);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("deletion-at-eof.json")), diffRev1Rev2);
     }
   }
@@ -153,6 +159,7 @@ public final class BasicJsonDiffTest {
   public void test_whenMultipleRevisionsExist_thenDiff7() throws IOException {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
+    final var databaseName = database.getName();
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
@@ -168,7 +175,7 @@ public final class BasicJsonDiffTest {
       wtx.remove();
       wtx.commit();
 
-      final String diffRev1Rev2 = new BasicJsonDiff().generateDiff(manager, 2, 4);
+      final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 2, 4);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("replace2.json")), diffRev1Rev2);
     }
   }
