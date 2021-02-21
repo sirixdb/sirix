@@ -23,6 +23,7 @@ package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.map.ChronicleMap;
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -119,12 +120,14 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param log         the transaction intent log
    */
-  public void createIndexTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+  public void createIndexTree(final DatabaseType databaseType,
+                              final PageReadOnlyTrx pageReadTrx,
+                              final TransactionIntentLog log) {
     PageReference reference = getIndirectPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.DEWEYID_TO_RECORDID, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.DEWEYID_TO_RECORDID, pageReadTrx, log);
       incrementAndGetMaxNodeKey();
     }
   }

@@ -22,6 +22,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import org.sirix.access.DatabaseType;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
@@ -454,15 +455,18 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /**
    * Initialize document index tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param log         the transaction intent log
+   * @param databaseType The type of database.
+   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param log          the transaction intent log
    */
-  public void createDocumentIndexTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+  public void createDocumentIndexTree(final DatabaseType databaseType,
+                                      final PageReadOnlyTrx pageReadTrx,
+                                      final TransactionIntentLog log) {
     PageReference reference = getIndirectDocumentIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT
-        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.DOCUMENT, pageReadTrx, log);
+            && reference.getLogKey() == Constants.NULL_ID_INT
+            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+      PageUtils.createTree(databaseType, reference, IndexType.DOCUMENT, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInDocumentIndex();
     }
   }
@@ -470,15 +474,18 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /**
    * Initialize record to revisions index tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param log         the transaction intent log
+   * @param databaseType The type of database.
+   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param log          the transaction intent log
    */
-  public void createChangedNodesIndexTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+  public void createChangedNodesIndexTree(final DatabaseType databaseType,
+                                          final PageReadOnlyTrx pageReadTrx,
+                                          final TransactionIntentLog log) {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT
-        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.CHANGED_NODES, pageReadTrx, log);
+            && reference.getLogKey() == Constants.NULL_ID_INT
+            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+      PageUtils.createTree(databaseType, reference, IndexType.CHANGED_NODES, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInChangedNodesIndex();
     }
   }
@@ -486,15 +493,18 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /**
    * Initialize changed records index tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param log         the transaction intent log
+   * @param databaseType The type of database.
+   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param log          the transaction intent log
    */
-  public void createRecordToRevisionsIndexTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType,
+                                               final PageReadOnlyTrx pageReadTrx,
+                                               final TransactionIntentLog log) {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT
-        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.RECORD_TO_REVISIONS, pageReadTrx, log);
+            && reference.getLogKey() == Constants.NULL_ID_INT
+            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+      PageUtils.createTree(databaseType, reference, IndexType.RECORD_TO_REVISIONS, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
     }
   }

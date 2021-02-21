@@ -1,5 +1,6 @@
 package org.sirix.index.redblacktree;
 
+import org.sirix.access.DatabaseType;
 import org.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageTrx;
@@ -50,10 +51,14 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   /**
    * Private constructor.
    *
-   * @param pageTrx {@link PageTrx} for persistent storage
-   * @param type    type of index
+   * @param databaseType The type of database.
+   * @param pageTrx      {@link PageTrx} for persistent storage
+   * @param type         type of index
    */
-  private RBTreeWriter(final PageTrx pageTrx, final IndexType type, final @Nonnegative int index) {
+  private RBTreeWriter(final DatabaseType databaseType,
+                       final PageTrx pageTrx,
+                       final IndexType type,
+                       final @Nonnegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
       final PageReference reference;
@@ -63,21 +68,21 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
           final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
           reference = revisionRootPage.getPathPageReference();
           pageTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
-          pathPage.createPathIndexTree(pageTrx, index, pageTrx.getLog());
+          pathPage.createPathIndexTree(databaseType, pageTrx, index, pageTrx.getLog());
           break;
         case CAS:
           // Create CAS index tree if needed.
           final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
           reference = revisionRootPage.getCASPageReference();
           pageTrx.appendLogRecord(reference, PageContainer.getInstance(casPage, casPage));
-          casPage.createCASIndexTree(pageTrx, index, pageTrx.getLog());
+          casPage.createCASIndexTree(databaseType, pageTrx, index, pageTrx.getLog());
           break;
         case NAME:
           // Create name index tree if needed.
           final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
           reference = revisionRootPage.getNamePageReference();
           pageTrx.appendLogRecord(reference, PageContainer.getInstance(namePage, namePage));
-          namePage.createNameIndexTree(pageTrx, index, pageTrx.getLog());
+          namePage.createNameIndexTree(databaseType, pageTrx, index, pageTrx.getLog());
           break;
         default:
           // Must not happen.
@@ -92,14 +97,17 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   /**
    * Get a new instance.
    *
+   * @param databaseType The type of database.
    * @param pageWriteTrx {@link PageTrx} for persistent storage
    * @param type         type of index
    * @param index        the index number
+   *
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeWriter<K, V> getInstance(
-      final PageTrx pageWriteTrx, final IndexType type, final int index) {
-    return new RBTreeWriter<>(pageWriteTrx, type, index);
+          final DatabaseType databaseType, final PageTrx pageWriteTrx, final IndexType type, final int index) {
+
+    return new RBTreeWriter<>(databaseType, pageWriteTrx, type, index);
   }
 
   /**

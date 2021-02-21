@@ -40,7 +40,6 @@ import org.sirix.api.PreCommitHook;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffDepth;
@@ -109,6 +108,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implements InternalJsonNodeTrx {
+
+  /**
+   * A factory that creates new {@link PageTrx} instances.
+   */
+  private final String databaseName;
 
   /**
    * Maximum number of node modifications before auto commit.
@@ -262,6 +266,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Constructor.
    *
+   *
+   * @param databaseName
    * @param resourceManager      the resource manager instance this transaction is bound to
    * @param nodeReadTrx          the read-only trx delegate
    * @param pathSummaryWriter    writes the path summary
@@ -275,20 +281,21 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  JsonNodeTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final InternalJsonNodeReadOnlyTrx nodeReadTrx, final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
-      @Nonnegative final int maxNodeCount, final TimeUnit timeUnit, @Nonnegative final int maxTime,
-      @Nonnull final JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory,
-      @Nonnull final AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
+  JsonNodeTrxImpl(final String databaseName, final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+                  final InternalJsonNodeReadOnlyTrx nodeReadTrx, final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
+                  @Nonnegative final int maxNodeCount, final TimeUnit timeUnit, @Nonnegative final int maxTime,
+                  @Nonnull final JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory,
+                  @Nonnull final AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
     // Do not accept negative values.
     Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
                                 "Negative arguments for maxNodeCount and maxTime are not accepted.");
 
-    this.nodeToRevisionsIndex = Preconditions.checkNotNull(nodeToRevisionsIndex);
-    this.nodeHashing = Preconditions.checkNotNull(nodeHashing);
+    this.databaseName = checkNotNull(databaseName);
+    this.nodeToRevisionsIndex = checkNotNull(nodeToRevisionsIndex);
+    this.nodeHashing = checkNotNull(nodeHashing);
     this.hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
-    this.resourceManager = Preconditions.checkNotNull(resourceManager);
-    this.nodeReadOnlyTrx = Preconditions.checkNotNull(nodeReadTrx);
+    this.resourceManager = checkNotNull(resourceManager);
+    this.nodeReadOnlyTrx = checkNotNull(nodeReadTrx);
     this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
     this.pathSummaryWriter = pathSummaryWriter;
 
@@ -296,7 +303,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     pageTrx = (PageTrx) nodeReadOnlyTrx.getPageTrx();
     storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
 
-    this.nodeFactory = Preconditions.checkNotNull(nodeFactory);
+    this.nodeFactory = checkNotNull(nodeFactory);
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
@@ -319,7 +326,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     updateOperationsOrdered = new TreeMap<>();
     updateOperationsUnordered = new HashMap<>();
 
-    this.afterCommitState = Preconditions.checkNotNull(afterCommitState);
+    this.afterCommitState = checkNotNull(afterCommitState);
     state = State.Running;
 
     // // Redo last transaction if the system crashed.
@@ -2526,7 +2533,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public void serializeUpdateDiffs() {
     final int revisionNumber = getRevisionNumber();
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
-      final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager,
+      final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceManager) resourceManager,
                                                         beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
                                                             ? beforeBulkInsertionRevisionNumber
                                                             : revisionNumber - 1,

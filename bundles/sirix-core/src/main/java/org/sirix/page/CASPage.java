@@ -1,6 +1,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.IndexType;
@@ -94,8 +95,10 @@ public final class CASPage extends AbstractForwardingPage {
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createCASIndexTree(final PageReadOnlyTrx pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createCASIndexTree(final DatabaseType databaseType,
+                                 final PageReadOnlyTrx pageReadTrx,
+                                 final int index,
+                                 final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -104,7 +107,7 @@ public final class CASPage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.CAS, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.CAS, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);
       } else {

@@ -14,13 +14,19 @@ import java.io.UncheckedIOException;
 import java.util.Collection;
 
 public final class JsonDiffSerializer {
+
+  private final String databaseName;
   private final JsonResourceManager resourceManager;
   private final int oldRevisionNumber;
   private final int newRevisionNumber;
   private final Collection<DiffTuple> diffs;
 
-  public JsonDiffSerializer(JsonResourceManager resourceManager, int oldRevisionNumber, int newRevisionNumber,
-      Collection<DiffTuple> diffs) {
+  public JsonDiffSerializer(final String databaseName,
+                            JsonResourceManager resourceManager,
+                            int oldRevisionNumber,
+                            int newRevisionNumber,
+                            Collection<DiffTuple> diffs) {
+    this.databaseName = databaseName;
     this.resourceManager = resourceManager;
     this.oldRevisionNumber = oldRevisionNumber;
     this.newRevisionNumber = newRevisionNumber;
@@ -28,7 +34,6 @@ public final class JsonDiffSerializer {
   }
 
   public String serialize(boolean emitFromDiffAlgorithm) {
-    final var databaseName = resourceManager.getDatabase().getName();
     final var resourceName = resourceManager.getResourceConfig().getName();
 
     final var json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);

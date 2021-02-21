@@ -7,7 +7,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.WriteLocksRegistry;
 import org.sirix.access.trx.node.json.JsonResourceManagerImpl;
-import org.sirix.api.Database;
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
@@ -39,17 +39,18 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
    */
   public JsonResourceStore(final User user,
                            final WriteLocksRegistry writeLocksRegistry,
-                           final PathBasedPool<ResourceManager<?, ?>> allResourceManagers) {
-    super(new ConcurrentHashMap<>(), allResourceManagers, user);
+                           final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+                           final String databaseName,
+                           final PageTrxFactory pageTrxFactory) {
+    super(new ConcurrentHashMap<>(), allResourceManagers, user, databaseName, pageTrxFactory);
 
     this.writeLocksRegistry = writeLocksRegistry;
   }
 
   @Override
-  public JsonResourceManager openResource(final @Nonnull Database<JsonResourceManager> database,
-      final @Nonnull ResourceConfiguration resourceConfig, final @Nonnull BufferManager bufferManager,
-      final @Nonnull Path resourceFile) {
-    checkNotNull(database);
+  public JsonResourceManager openResource(final @Nonnull ResourceConfiguration resourceConfig,
+                                          final @Nonnull BufferManager bufferManager,
+                                          final @Nonnull Path resourceFile) {
     checkNotNull(resourceConfig);
     checkNotNull(bufferManager);
     checkNotNull(resourceFile);
@@ -61,8 +62,17 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
       final Lock writeLock = this.writeLocksRegistry.getWriteLock(resourceConfig.getResource());
 
       // Create the resource manager instance.
-      final JsonResourceManager resourceManager = new JsonResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, user);
+      final JsonResourceManager resourceManager = new JsonResourceManagerImpl(
+              this,
+              resourceConfig,
+              bufferManager,
+              StorageType.getStorage(resourceConfig),
+              uberPage,
+              writeLock,
+              user,
+              this.databaseName,
+              pageTrxFactory
+      );
 
       // Put it in the databases cache.
       this.allResourceManagers.putObject(resourceFile, resourceManager);

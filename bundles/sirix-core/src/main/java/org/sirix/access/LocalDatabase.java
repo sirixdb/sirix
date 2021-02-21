@@ -110,11 +110,11 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
    * @param writeLocks       Manages the locks for resource managers.
    * @param resourceManagers The pool for resource managers.
    */
-  LocalDatabase(final DatabaseConfiguration dbConfig,
-                final PathBasedPool<Database<?>> sessions,
-                final ResourceStore<T> resourceStore,
-                final WriteLocksRegistry writeLocks,
-                final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+  public LocalDatabase(final DatabaseConfiguration dbConfig,
+                       final PathBasedPool<Database<?>> sessions,
+                       final ResourceStore<T> resourceStore,
+                       final WriteLocksRegistry writeLocks,
+                       final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
 
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
@@ -165,7 +165,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
       addResourceToBufferManagerMapping(resourceFile, resourceConfig);
     }
 
-    return resourceStore.openResource(this, resourceConfig, bufferManagers.get(resourceFile), resourceFile);
+    return resourceStore.openResource(resourceConfig, bufferManagers.get(resourceFile), resourceFile);
   }
 
   @Override
