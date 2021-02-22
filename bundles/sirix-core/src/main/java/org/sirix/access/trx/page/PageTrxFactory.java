@@ -48,6 +48,7 @@ import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
 import javax.annotation.Nonnegative;
+import javax.inject.Inject;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,6 +64,7 @@ public final class PageTrxFactory {
 
   private final DatabaseType databaseType;
 
+  @Inject
   public PageTrxFactory(final DatabaseType databaseType) {
     this.databaseType = databaseType;
   }

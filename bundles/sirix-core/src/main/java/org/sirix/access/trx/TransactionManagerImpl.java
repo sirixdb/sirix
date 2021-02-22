@@ -3,6 +3,7 @@ package org.sirix.access.trx;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
 
+import javax.inject.Inject;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -12,6 +13,7 @@ public final class TransactionManagerImpl implements TransactionManager {
 
   private final Set<Transaction> transactions;
 
+  @Inject
   public TransactionManagerImpl() {
     transactions = new HashSet<>();
   }
