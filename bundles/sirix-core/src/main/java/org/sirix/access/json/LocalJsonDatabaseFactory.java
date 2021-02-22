@@ -1,22 +1,17 @@
 package org.sirix.access.json;
 
 import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalDatabase;
 import org.sirix.access.LocalDatabaseFactory;
-import org.sirix.access.PathBasedPool;
 import org.sirix.access.User;
-import org.sirix.access.WriteLocksRegistry;
-import org.sirix.access.trx.page.PageTrxFactory;
+import org.sirix.access.json.JsonLocalDatabaseComponent.Builder;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * A database session factory for Json databases.
@@ -31,36 +26,22 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
      */
     private static final Logger logger = LoggerFactory.getLogger(LocalJsonDatabaseFactory.class);
 
-    private final PathBasedPool<Database<?>> sessions;
-    private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
-
-    private final WriteLocksRegistry writeLocks;
+    private final Provider<JsonLocalDatabaseComponent.Builder> subComponentBuilder;
 
     @Inject
-    LocalJsonDatabaseFactory(final PathBasedPool<Database<?>> sessions,
-                             final PathBasedPool<ResourceManager<?, ?>> resourceManagers,
-                             final WriteLocksRegistry writeLocks) {
-        this.sessions = sessions;
-        this.writeLocks = writeLocks;
-        this.resourceManagers = resourceManagers;
+    LocalJsonDatabaseFactory(final Provider<Builder> subComponentBuilder) {
+        this.subComponentBuilder = subComponentBuilder;
     }
 
     @Override
     public Database<JsonResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
-        checkNotNull(configuration);
-        checkNotNull(user);
-
         logger.trace("Creating new local json database");
 
-        final String databaseName = configuration.getDatabaseName();
-        final PageTrxFactory pageTrxFactory = new PageTrxFactory(configuration.getDatabaseType());
-
-        return new LocalDatabase<>(
-                configuration,
-                sessions,
-                new JsonResourceStore(user, writeLocks, resourceManagers, databaseName, pageTrxFactory),
-                writeLocks,
-                resourceManagers);
+        return this.subComponentBuilder.get()
+                .databaseConfiguration(configuration)
+                .user(user)
+                .build()
+                .database();
     }
 
 }
