@@ -14,11 +14,14 @@ dependencies {
     api implLibraries.jsr305
     api implLibraries.caffeine
     api implLibraries.tink
+    api implLibraries.dagger
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.chronicleMap
     implementation implLibraries.integercompression
+
+    annotationProcessor implLibraries.daggerCompiler
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
