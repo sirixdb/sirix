@@ -1,6 +1,8 @@
 package org.sirix.access;
 
 import org.sirix.api.Database;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -19,7 +21,7 @@ public enum DatabaseType {
   XML("xml") {
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends ResourceManager<?, ?>> Database<R> createDatabase(
+    public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
             DatabaseConfiguration dbConfig, User user) {
       return (Database<R>) Databases.MANAGER.xmlDatabaseFactory().createDatabase(dbConfig, user);
     }
@@ -38,7 +40,7 @@ public enum DatabaseType {
   JSON("json") {
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends ResourceManager<?, ?>> Database<R> createDatabase(
+    public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
             DatabaseConfiguration dbConfig, User user) {
       return (Database<R>) Databases.MANAGER.jsonDatabaseFactory().createDatabase(dbConfig, user);
     }
@@ -71,7 +73,7 @@ public enum DatabaseType {
     return Optional.ofNullable(stringToEnum.get(symbol));
   }
 
-  public abstract <R extends ResourceManager<?, ?>> Database<R> createDatabase(
+  public abstract <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
           DatabaseConfiguration dbConfig, User user);
 
   public abstract Node getDocumentNode(SirixDeweyID id);
