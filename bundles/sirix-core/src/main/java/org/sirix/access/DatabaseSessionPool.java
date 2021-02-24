@@ -9,11 +9,12 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static java.util.Collections.unmodifiableMap;
 
 /**
  * Manages all active database sessions in the current component.
@@ -39,7 +40,6 @@ class DatabaseSessionPool {
      */
     @Inject
     DatabaseSessionPool() {
-
         this.sessions = new ConcurrentHashMap<>();
     }
 
@@ -50,7 +50,6 @@ class DatabaseSessionPool {
      * @param database database handle to put into the map
      */
     void putDatabase(final Path file, final Database<?> database) {
-
         this.sessions.compute(file, (key, value) -> append(key, value, database));
     }
 
@@ -61,7 +60,6 @@ class DatabaseSessionPool {
      * @return {@code true} if the provided {@code file} has 1 or more active sessions associated.
      */
     boolean containsSessions(final Path file) {
-
         return this.sessions.containsKey(file);
     }
 
@@ -77,7 +75,6 @@ class DatabaseSessionPool {
     @Nullable
     private Set<Database<?>> remove(final Path path, @Nullable final Set<Database<?>> sessions,
                                     final Database<?> database) {
-
         if (sessions == null) {
             logger.debug("No sessions registered for path {}", path);
             return null;
@@ -92,7 +89,6 @@ class DatabaseSessionPool {
 
     private Set<Database<?>> append(final Path path, @Nullable final Set<Database<?>> sessions,
                                     final Database<?> database) {
-
         final Set<Database<?>> coalescedSessions = sessions == null ? new HashSet<>() : sessions;
 
         logger.trace("Registering new session in path {}", path);
@@ -101,7 +97,6 @@ class DatabaseSessionPool {
     }
 
     public Map<Path, Set<Database<?>>> asMap() {
-
-        return Collections.unmodifiableMap(this.sessions);
+        return unmodifiableMap(this.sessions);
     }
 }

@@ -15,13 +15,17 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+/**
+ * Tests the behavior of {@link DatabaseSessionPool}.
+ *
+ * @author João Sousa
+ */
 class DatabaseSessionPoolTest {
 
     private DatabaseSessionPool sessions;
 
     @BeforeEach
     public void setup() {
-
         this.sessions = new DatabaseSessionPool();
     }
 
@@ -35,7 +39,6 @@ class DatabaseSessionPoolTest {
      */
     @Test
     public final void putWillPersistTheDatabaseInMap() {
-
         final Path key1 = mock(Path.class);
         final Database<?> db1 = mock(Database.class);
         final Database<?> db2 = mock(Database.class);
@@ -61,7 +64,6 @@ class DatabaseSessionPoolTest {
      */
     @Test
     public final void containsShouldReportExistingKeys() {
-
         final Path keySingle = mock(Path.class);
         final Path keyMulti = mock(Path.class);
         final Path keyNone = mock(Path.class);
@@ -85,7 +87,6 @@ class DatabaseSessionPoolTest {
      */
     @Test
     public final void removeShouldEliminateEntries() {
-
         final Path key = mock(Path.class);
         final Database<?> db1 = mock(Database.class);
 

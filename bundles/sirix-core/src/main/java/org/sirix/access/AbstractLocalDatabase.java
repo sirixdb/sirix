@@ -92,7 +92,6 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
    * @param resourceStore The resource store used by this database.
    */
   public AbstractLocalDatabase(final DatabaseConfiguration dbConfig, final DatabaseSessionPool sessions, final ResourceStore<T> resourceStore) {
-
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
