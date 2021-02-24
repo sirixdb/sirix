@@ -8,15 +8,18 @@ import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 import org.sirix.access.trx.TransactionManagerImpl;
-import org.sirix.api.*;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.Transaction;
+import org.sirix.api.TransactionManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.utils.SirixFiles;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnegative;
 import java.io.IOException;
@@ -67,6 +70,13 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
    */
   protected final DatabaseConfiguration dbConfig;
 
+  /**
+   * The session management instance.
+   *
+   * <p>Instances of this class are responsible for registering themselves in the pool (in
+   * {@link #AbstractLocalDatabase(DatabaseConfiguration, DatabaseSessionPool, ResourceStore)}), as well as
+   * de-registering themselves (in {@link #close()}).
+   */
   private final DatabaseSessionPool sessions;
 
   /**
@@ -76,9 +86,10 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
   /**
    * Constructor.
-   *  @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions
-   * @param resourceStore
+   *
+   * @param dbConfig      {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param sessions      The database sessions management instance.
+   * @param resourceStore The resource store used by this database.
    */
   public AbstractLocalDatabase(final DatabaseConfiguration dbConfig, final DatabaseSessionPool sessions, final ResourceStore<T> resourceStore) {
 

@@ -48,14 +48,12 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalXmlDatabase.class));
 
-  /** The resource store to open/close resource-managers. */
-  private final XmlResourceStore resourceStore;
-
   /**
    * Package private constructor.
    *
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions
+   * @param sessions The database sessions management instance.
+   *
    * @throws SirixException if something weird happens
    */
   LocalXmlDatabase(final DatabaseConfiguration dbConfig,
@@ -63,7 +61,6 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
                    final DatabaseSessionPool sessions) {
 
     super(dbConfig, sessions, store);
-    resourceStore = store;
   }
 
   @Override
