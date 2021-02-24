@@ -55,7 +55,8 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
    * Package private constructor.
    *
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions
+   * @param sessions The database sessions management instance.
+   *
    * @throws SirixException if something weird happens
    */
   LocalJsonDatabase(final DatabaseConfiguration dbConfig,
