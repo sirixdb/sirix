@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -31,8 +32,8 @@ public final class DatabasesInternals {
     Databases.RESOURCE_WRITE_LOCKS.remove(resourcePath);
   }
 
-  public static ConcurrentMap<Path, Set<Database<?>>> getOpenDatabases() {
-    return Databases.DATABASE_SESSIONS;
+  public static Map<Path, Set<Database<?>>> getOpenDatabases() {
+    return Databases.MANAGER.sessions().asMap();
   }
 
   /**

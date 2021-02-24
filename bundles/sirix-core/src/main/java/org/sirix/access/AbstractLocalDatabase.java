@@ -8,7 +8,12 @@ import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 import org.sirix.access.trx.TransactionManagerImpl;
-import org.sirix.api.*;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.Transaction;
+import org.sirix.api.TransactionManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixIOException;
@@ -66,15 +71,35 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   protected final DatabaseConfiguration dbConfig;
 
   /**
+   * The session management instance.
+   *
+   * <p>Instances of this class are responsible for registering themselves in the pool (in
+   * {@link #AbstractLocalDatabase(DatabaseConfiguration, DatabaseSessionPool, ResourceStore)}), as well as
+   * de-registering themselves (in {@link #close()}).
+   */
+  private final DatabaseSessionPool sessions;
+
+  /**
+   * The resource store to open/close resource-managers.
+   */
+  protected final ResourceStore<T> resourceStore;
+
+  /**
    * Constructor.
    *
-   * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param dbConfig      {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param sessions      The database sessions management instance.
+   * @param resourceStore The resource store used by this database.
    */
-  public AbstractLocalDatabase(final DatabaseConfiguration dbConfig) {
+  public AbstractLocalDatabase(final DatabaseConfiguration dbConfig, final DatabaseSessionPool sessions, final ResourceStore<T> resourceStore) {
     this.dbConfig = checkNotNull(dbConfig);
+    this.sessions = sessions;
+    this.resourceStore = resourceStore;
     resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     bufferManagers = new ConcurrentHashMap<>();
     transactionManager = new TransactionManagerImpl();
+
+    this.sessions.putDatabase(dbConfig.getDatabaseFile(), this);
   }
 
   protected void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
@@ -250,4 +275,20 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     return null;
   }
 
+  @Override
+  public void close() {
+    if (isClosed) {
+      return;
+    }
+
+    isClosed = true;
+    resourceStore.close();
+    transactionManager.close();
+
+    // Remove from database mapping.
+    this.sessions.removeDatabase(dbConfig.getDatabaseFile(), this);
+
+    // Remove lock file.
+    SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+  }
 }

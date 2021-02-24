@@ -1,6 +1,7 @@
 package org.sirix.access;
 
 import dagger.Component;
+import org.sirix.api.Database;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 
@@ -18,5 +19,7 @@ public interface DatabaseManager {
     LocalDatabaseFactory<JsonResourceManager> jsonDatabaseFactory();
 
     LocalDatabaseFactory<XmlResourceManager> xmlDatabaseFactory();
+
+    DatabaseSessionPool sessions();
 
 }

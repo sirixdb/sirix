@@ -30,7 +30,6 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
-import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
@@ -49,35 +48,19 @@ public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceMan
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalXmlDatabase.class));
 
-  /** The resource store to open/close resource-managers. */
-  private final XmlResourceStore resourceStore;
-
   /**
    * Package private constructor.
    *
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param sessions The database sessions management instance.
+   *
    * @throws SirixException if something weird happens
    */
-  LocalXmlDatabase(final DatabaseConfiguration dbConfig, final XmlResourceStore store) {
-    super(dbConfig);
-    resourceStore = store;
-  }
+  LocalXmlDatabase(final DatabaseConfiguration dbConfig,
+                   final XmlResourceStore store,
+                   final DatabaseSessionPool sessions) {
 
-  @Override
-  public synchronized void close() throws SirixException {
-    if (isClosed) {
-      return;
-    }
-
-    isClosed = true;
-    resourceStore.close();
-    transactionManager.close();
-
-    // Remove from database mapping.
-    Databases.removeDatabase(dbConfig.getDatabaseFile(), this);
-
-    // Remove lock file.
-    SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+    super(dbConfig, sessions, store);
   }
 
   @Override
