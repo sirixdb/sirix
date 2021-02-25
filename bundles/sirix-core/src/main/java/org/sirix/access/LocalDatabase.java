@@ -1,5 +1,6 @@
 package org.sirix.access;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Maps;
@@ -9,6 +10,7 @@ import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 import org.sirix.access.trx.TransactionManagerImpl;
 import org.sirix.api.Database;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
@@ -16,10 +18,14 @@ import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
+import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.utils.SirixFiles;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnegative;
 import java.io.IOException;
@@ -37,8 +43,13 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
-    implements Database<T> {
+public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
+        implements Database<T> {
+
+  /**
+   * Logger for {@link LocalDatabase}.
+   */
+  private static final Logger logger = LoggerFactory.getLogger(LocalDatabase.class);
 
   /**
    * Unique ID of a resource.
@@ -74,7 +85,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
    * The session management instance.
    *
    * <p>Instances of this class are responsible for registering themselves in the pool (in
-   * {@link #AbstractLocalDatabase(DatabaseConfiguration, DatabaseSessionPool, ResourceStore)}), as well as
+   * {@link #LocalDatabase(DatabaseConfiguration, DatabaseSessionPool, ResourceStore)}), as well as
    * de-registering themselves (in {@link #close()}).
    */
   private final DatabaseSessionPool sessions;
@@ -91,7 +102,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
    * @param sessions      The database sessions management instance.
    * @param resourceStore The resource store used by this database.
    */
-  public AbstractLocalDatabase(final DatabaseConfiguration dbConfig, final DatabaseSessionPool sessions, final ResourceStore<T> resourceStore) {
+  LocalDatabase(final DatabaseConfiguration dbConfig, final DatabaseSessionPool sessions, final ResourceStore<T> resourceStore) {
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
@@ -102,12 +113,44 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     this.sessions.putDatabase(dbConfig.getDatabaseFile(), this);
   }
 
-  protected void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
+  private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
     if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
       bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000_000));
     } else {
       bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000_000));
     }
+  }
+
+  @Override
+  public T openResourceManager(final String resourceName) {
+    assertNotClosed();
+
+    final Path resourceFile = dbConfig.getDatabaseFile()
+            .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+            .resolve(resourceName);
+
+    if (!Files.exists(resourceFile)) {
+      throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
+              resourceFile.toString());
+    }
+
+    if (resourceStore.hasOpenResourceManager(resourceFile)) {
+      return resourceStore.getOpenResourceManager(resourceFile);
+    }
+
+    final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
+
+    // Resource of must be associated to this database.
+    assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getDatabaseFile());
+
+    // Keep track of the resource-ID.
+    resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+
+    if (!bufferManagers.containsKey(resourceFile)) {
+      addResourceToBufferManagerMapping(resourceFile, resourceConfig);
+    }
+
+    return resourceStore.openResource(this, resourceConfig, bufferManagers.get(resourceFile), resourceFile);
   }
 
   @Override
@@ -191,7 +234,18 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     }
   }
 
-  protected abstract boolean bootstrapResource(final ResourceConfiguration resConfig);
+  private boolean bootstrapResource(ResourceConfiguration resConfig) {
+    try (
+            final T resourceTrxManager =
+                    openResourceManager(resConfig.getResource().getFileName().toString());
+            final W wtx = resourceTrxManager.beginNodeTrx()) {
+      wtx.commit();
+      return true;
+    } catch (final SirixException e) {
+      logger.error(e.getMessage(), e);
+      return false;
+    }
+  }
 
   @Override
   public boolean isOpen() {
@@ -290,5 +344,10 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
 
     // Remove lock file.
     SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+  }
+
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("dbConfig", dbConfig).toString();
   }
 }

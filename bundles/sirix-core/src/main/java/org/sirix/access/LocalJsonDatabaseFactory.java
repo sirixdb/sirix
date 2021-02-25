@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * A database session factory for Json databases.
  *
@@ -31,9 +33,12 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
 
     @Override
     public Database<JsonResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
+        checkNotNull(configuration);
+        checkNotNull(user);
 
         logger.trace("Creating new local json database");
-        return new LocalJsonDatabase(configuration, new JsonResourceStore(user), this.sessions);
+
+        return new LocalDatabase<>(configuration, this.sessions, new JsonResourceStore(user));
     }
 
 }
