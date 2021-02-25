@@ -33,7 +33,6 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
 
     @Override
     public Database<JsonResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
-
         checkNotNull(configuration);
         checkNotNull(user);
 
