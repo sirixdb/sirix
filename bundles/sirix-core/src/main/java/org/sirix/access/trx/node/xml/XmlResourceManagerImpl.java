@@ -23,12 +23,12 @@ package org.sirix.access.trx.node.xml;
 
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.ResourceStore;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.page.PageTrxFactory;
-import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -41,8 +41,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import javax.inject.Inject;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -77,12 +76,17 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
    * @param user           a user, which interacts with SirixDB, might be {@code null}
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    */
-  public XmlResourceManagerImpl(final String databaseName, final @Nonnull XmlResourceStore resourceStore,
-                                final @Nonnull ResourceConfiguration resourceConf,
-                                final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage,
-                                final @Nonnull Lock writeLock, final @Nullable User user, final PageTrxFactory pageTrxFactory) {
+  @Inject
+  XmlResourceManagerImpl(final ResourceStore<XmlResourceManager> resourceStore,
+                         final ResourceConfiguration resourceConf,
+                         final BufferManager bufferManager,
+                         final IOStorage storage,
+                         final UberPage uberPage,
+                         final Lock writeLock,
+                         final User user,
+                         final PageTrxFactory pageTrxFactory) {
 
-    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, databaseName, user, pageTrxFactory);
+    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
     rtxIndexControllers = new ConcurrentHashMap<>();
     wtxIndexControllers = new ConcurrentHashMap<>();
@@ -90,6 +94,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
 
   @Override
   public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
+
     return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
   }
 

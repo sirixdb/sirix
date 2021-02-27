@@ -23,8 +23,8 @@ package org.sirix.access.trx.node.json;
 
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.ResourceStore;
 import org.sirix.access.User;
-import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -36,14 +36,14 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
+import org.sirix.dagger.DatabaseName;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.IOStorage;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import javax.inject.Inject;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -66,6 +66,11 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
 
   /**
+   * The name of the database on which this instance operates.
+   */
+  private final String databaseName;
+
+  /**
    * Constructor.
    *
    * @param resourceStore  the resource store with which this manager has been created
@@ -78,11 +83,20 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
    * @param user           a user, which interacts with SirixDB, might be {@code null}
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    */
-  public JsonResourceManagerImpl(final @Nonnull JsonResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-                                 final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage,
-                                 final @Nonnull Lock writeLock, final @Nullable User user, final String databaseName, final PageTrxFactory pageTrxFactory) {
-    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, databaseName, user, pageTrxFactory);
+  @Inject
+  JsonResourceManagerImpl(final ResourceStore<JsonResourceManager> resourceStore,
+                          final ResourceConfiguration resourceConf,
+                          final BufferManager bufferManager,
+                          final IOStorage storage,
+                          final UberPage uberPage,
+                          final Lock writeLock,
+                          final User user,
+                          @DatabaseName final String databaseName,
+                          final PageTrxFactory pageTrxFactory) {
 
+    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
+
+    this.databaseName = databaseName;
     rtxIndexControllers = new ConcurrentHashMap<>();
     wtxIndexControllers = new ConcurrentHashMap<>();
   }
