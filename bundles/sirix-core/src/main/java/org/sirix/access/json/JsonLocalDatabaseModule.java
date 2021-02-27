@@ -1,10 +1,15 @@
 package org.sirix.access.json;
 
+import dagger.Module;
+import dagger.Provides;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalDatabase;
 import org.sirix.access.LocalDatabaseModule;
 import org.sirix.access.PathBasedPool;
+import org.sirix.access.ResourceManagerFactory;
 import org.sirix.access.ResourceStore;
+import org.sirix.access.ResourceStoreImpl;
+import org.sirix.access.SubComponentResourceManagerFactory;
 import org.sirix.access.WriteLocksRegistry;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
@@ -12,9 +17,7 @@ import org.sirix.api.TransactionManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.dagger.DatabaseScope;
 
-import dagger.Binds;
-import dagger.Module;
-import dagger.Provides;
+import javax.inject.Provider;
 
 /**
  * The module for {@link JsonLocalDatabaseComponent}.
@@ -25,8 +28,21 @@ import dagger.Provides;
 public interface JsonLocalDatabaseModule {
 
     @DatabaseScope
-    @Binds
-    ResourceStore<JsonResourceManager> jsonResourceManager(JsonResourceStore jsonResourceStore);
+    @Provides
+    static ResourceManagerFactory<JsonResourceManager> resourceManagerFactory(
+            final Provider<JsonResourceManagerComponent.Builder> subComponentBuilder,
+            final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+
+        return new SubComponentResourceManagerFactory<>(subComponentBuilder, resourceManagers);
+    }
+
+    @DatabaseScope
+    @Provides
+    static ResourceStore<JsonResourceManager> jsonResourceManager(
+            final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+            final ResourceManagerFactory<JsonResourceManager> resourceManagerFactory) {
+        return new ResourceStoreImpl<>(allResourceManagers, resourceManagerFactory);
+    }
 
     @DatabaseScope
     @Provides

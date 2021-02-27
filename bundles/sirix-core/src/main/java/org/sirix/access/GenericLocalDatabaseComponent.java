@@ -9,9 +9,12 @@ import org.sirix.api.ResourceManager;
  *
  * @author Joao Sousa
  */
-public interface GenericLocalDatabaseComponent<R extends ResourceManager<?, ?>> {
+public interface GenericLocalDatabaseComponent<R extends ResourceManager<?, ?>,
+        C extends GenericResourceManagerComponent.Builder<C, R, ?>> {
 
     Database<R> database();
+
+    C resourceManagerBuilder();
 
     interface Builder<B extends Builder<B>> {
 

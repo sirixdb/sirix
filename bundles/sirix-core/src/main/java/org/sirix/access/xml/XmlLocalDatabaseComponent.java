@@ -13,7 +13,8 @@ import org.sirix.dagger.DatabaseScope;
  */
 @DatabaseScope
 @Subcomponent(modules = {XmlLocalDatabaseModule.class})
-public interface XmlLocalDatabaseComponent extends GenericLocalDatabaseComponent<XmlResourceManager> {
+public interface XmlLocalDatabaseComponent extends GenericLocalDatabaseComponent<XmlResourceManager,
+        XmlResourceManagerComponent.Builder> {
 
     @Subcomponent.Builder
     interface Builder extends GenericLocalDatabaseComponent.Builder<Builder> {

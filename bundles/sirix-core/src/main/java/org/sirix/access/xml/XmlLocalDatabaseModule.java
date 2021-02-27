@@ -1,19 +1,23 @@
 package org.sirix.access.xml;
 
-import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalDatabase;
 import org.sirix.access.LocalDatabaseModule;
 import org.sirix.access.PathBasedPool;
+import org.sirix.access.ResourceManagerFactory;
 import org.sirix.access.ResourceStore;
+import org.sirix.access.ResourceStoreImpl;
+import org.sirix.access.SubComponentResourceManagerFactory;
 import org.sirix.access.WriteLocksRegistry;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.TransactionManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.dagger.DatabaseScope;
+
+import javax.inject.Provider;
 
 /**
  * The module for {@link XmlLocalDatabaseComponent}.
@@ -22,6 +26,15 @@ import org.sirix.dagger.DatabaseScope;
  */
 @Module(includes = LocalDatabaseModule.class)
 public interface XmlLocalDatabaseModule {
+
+    @DatabaseScope
+    @Provides
+    static ResourceManagerFactory<XmlResourceManager> resourceManagerFactory(
+            final Provider<XmlResourceManagerComponent.Builder> subComponentBuilder,
+            final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+
+        return new SubComponentResourceManagerFactory<>(subComponentBuilder, resourceManagers);
+    }
 
     @DatabaseScope
     @Provides
@@ -43,6 +56,11 @@ public interface XmlLocalDatabaseModule {
     }
 
     @DatabaseScope
-    @Binds
-    ResourceStore<XmlResourceManager> xmlResourceManager(XmlResourceStore xmlResourceStore);
+    @Provides
+    static ResourceStore<XmlResourceManager> xmlResourceManager(
+            final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+            final ResourceManagerFactory<XmlResourceManager> resourceManagerFactory) {
+
+        return new ResourceStoreImpl<>(allResourceManagers, resourceManagerFactory);
+    }
 }
