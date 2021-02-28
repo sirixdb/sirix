@@ -1,22 +1,25 @@
 package org.sirix.access.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.nio.file.Path;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.Lock;
-import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.DatabasesInternals;
+import org.sirix.access.PathBasedPool;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.IOStorage;
 import org.sirix.io.StorageType;
 import org.sirix.page.UberPage;
+
+import javax.annotation.Nonnull;
+import java.nio.file.Path;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Manages all resource stuff.
@@ -28,8 +31,9 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
   /**
    * Constructor.
    */
-  public XmlResourceStore(final User user) {
-    super(new ConcurrentHashMap<>(), user);
+  public XmlResourceStore(final User user,
+                          final PathBasedPool<ResourceManager<?, ?>> allResourceManagers) {
+    super(new ConcurrentHashMap<>(), allResourceManagers, user);
   }
 
   @Override
@@ -52,7 +56,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
           bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, user);
 
       // Put it in the databases cache.
-      DatabasesInternals.putResourceManager(resourceFile, resourceManager);
+      this.allResourceManagers.putObject(resourceFile, resourceManager);
 
       // And return it.
       return resourceManager;
