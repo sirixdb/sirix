@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -85,32 +84,38 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
    * The session management instance.
    *
    * <p>Instances of this class are responsible for registering themselves in the pool (in
-   * {@link #LocalDatabase(DatabaseConfiguration, DatabaseSessionPool, ResourceStore)}), as well as
-   * de-registering themselves (in {@link #close()}).
+   * {@link #LocalDatabase(DatabaseConfiguration, PathBasedPool, ResourceStore, PathBasedPool)}),
+   * as well as de-registering themselves (in {@link #close()}).
    */
-  private final DatabaseSessionPool sessions;
+  private final PathBasedPool<Database<?>> sessions;
 
   /**
    * The resource store to open/close resource-managers.
    */
   protected final ResourceStore<T> resourceStore;
 
+  private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
+
   /**
    * Constructor.
-   *
    * @param dbConfig      {@link ResourceConfiguration} reference to configure the {@link Database}
    * @param sessions      The database sessions management instance.
    * @param resourceStore The resource store used by this database.
+   * @param resourceManagers The pool for resource managers.
    */
-  LocalDatabase(final DatabaseConfiguration dbConfig, final DatabaseSessionPool sessions, final ResourceStore<T> resourceStore) {
+  LocalDatabase(final DatabaseConfiguration dbConfig,
+                final PathBasedPool<Database<?>> sessions,
+                final ResourceStore<T> resourceStore,
+                final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
+    this.resourceManagers = resourceManagers;
     resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     bufferManagers = new ConcurrentHashMap<>();
     transactionManager = new TransactionManagerImpl();
 
-    this.sessions.putDatabase(dbConfig.getDatabaseFile(), this);
+    this.sessions.putObject(dbConfig.getDatabaseFile(), this);
   }
 
   private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
@@ -261,8 +266,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
     // Check that no running resource managers / sessions are opened.
-    final var resourceManagers = new HashSet<>(DatabasesInternals.getOpenResourceManagers(resourceFile));
-    if (!resourceManagers.isEmpty()) {
+    if (this.resourceManagers.containsAnyEntry(resourceFile)) {
       throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceManagers);
     }
 
@@ -340,7 +344,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
     transactionManager.close();
 
     // Remove from database mapping.
-    this.sessions.removeDatabase(dbConfig.getDatabaseFile(), this);
+    this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
 
     // Remove lock file.
     SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));

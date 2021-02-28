@@ -20,6 +20,6 @@ public interface DatabaseManager {
 
     LocalDatabaseFactory<XmlResourceManager> xmlDatabaseFactory();
 
-    DatabaseSessionPool sessions();
+    PathBasedPool<Database<?>> sessions();
 
 }

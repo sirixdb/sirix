@@ -33,9 +33,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class Databases {
 
-  /** Central repository of all running resource managers. */
-  static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
-
   /**
    * DI component that manages the database.
    */
@@ -137,7 +134,7 @@ public final class Databases {
    */
   public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
     // check that database must be closed beforehand
-    if (!MANAGER.sessions().containsSessions(dbFile)) {
+    if (!MANAGER.sessions().containsAnyEntry(dbFile)) {
       // if file is existing and folder is a sirix-database, delete it
       if (Files.exists(dbFile)) {
         // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==

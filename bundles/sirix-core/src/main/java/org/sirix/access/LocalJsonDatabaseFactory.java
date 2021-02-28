@@ -2,6 +2,7 @@ package org.sirix.access;
 
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.api.Database;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,11 +25,14 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
      */
     private static final Logger logger = LoggerFactory.getLogger(LocalJsonDatabaseFactory.class);
 
-    private final DatabaseSessionPool sessions;
+    private final PathBasedPool<Database<?>> sessions;
+    private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
 
     @Inject
-    LocalJsonDatabaseFactory(final DatabaseSessionPool sessions) {
+    LocalJsonDatabaseFactory(final PathBasedPool<Database<?>> sessions,
+                             final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
         this.sessions = sessions;
+        this.resourceManagers = resourceManagers;
     }
 
     @Override
@@ -38,7 +42,11 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
 
         logger.trace("Creating new local json database");
 
-        return new LocalDatabase<>(configuration, this.sessions, new JsonResourceStore(user));
+        return new LocalDatabase<>(
+                configuration,
+                sessions,
+                new JsonResourceStore(user, resourceManagers),
+                resourceManagers);
     }
 
 }
