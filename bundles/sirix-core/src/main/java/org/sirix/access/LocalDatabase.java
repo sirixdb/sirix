@@ -96,22 +96,26 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
 
   private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
 
+  /**
+   * This field should be use to fetch the locks for resource managers.
+   */
   private final WriteLocksRegistry writeLocks;
 
   /**
    * Constructor.
    *
-   * @param dbConfig      {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions      The database sessions management instance.
-   * @param resourceStore The resource store used by this database.
+   * @param dbConfig         {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param sessions         The database sessions management instance.
+   * @param resourceStore    The resource store used by this database.
+   * @param writeLocks       Manages the locks for resource managers.
    * @param resourceManagers The pool for resource managers.
-   * @param writeLocks
    */
   LocalDatabase(final DatabaseConfiguration dbConfig,
                 final PathBasedPool<Database<?>> sessions,
                 final ResourceStore<T> resourceStore,
                 final WriteLocksRegistry writeLocks,
                 final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
