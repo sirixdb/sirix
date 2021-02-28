@@ -25,12 +25,15 @@ public class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlResource
 
     private final PathBasedPool<Database<?>> sessions;
     private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
+    private final WriteLocksRegistry writeLocks;
 
     @Inject
     LocalXmlDatabaseFactory(final PathBasedPool<Database<?>> sessions,
-                            final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+                            final PathBasedPool<ResourceManager<?, ?>> resourceManagers,
+                            final WriteLocksRegistry writeLocks) {
         this.sessions = sessions;
         this.resourceManagers = resourceManagers;
+        this.writeLocks = writeLocks;
     }
 
     @Override
@@ -40,7 +43,8 @@ public class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlResource
         return new LocalDatabase<>(
                 configuration,
                 this.sessions,
-                new XmlResourceStore(user, resourceManagers),
+                new XmlResourceStore(user, writeLocks, resourceManagers),
+                writeLocks,
                 resourceManagers
         );
     }

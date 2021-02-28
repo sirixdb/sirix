@@ -15,12 +15,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -37,9 +35,6 @@ public final class Databases {
    * DI component that manages the database.
    */
   static final DatabaseManager MANAGER = DaggerDatabaseManager.create();
-
-  /** Central repository of all resource {@code <=>} write locks mappings. */
-  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_LOCKS = new ConcurrentHashMap<>();
 
   /**
    * Get the database type

@@ -84,7 +84,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
    * The session management instance.
    *
    * <p>Instances of this class are responsible for registering themselves in the pool (in
-   * {@link #LocalDatabase(DatabaseConfiguration, PathBasedPool, ResourceStore, PathBasedPool)}),
+   * {@link #LocalDatabase(DatabaseConfiguration, PathBasedPool, ResourceStore, WriteLocksRegistry, PathBasedPool)}),
    * as well as de-registering themselves (in {@link #close()}).
    */
   private final PathBasedPool<Database<?>> sessions;
@@ -96,21 +96,27 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
 
   private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
 
+  private final WriteLocksRegistry writeLocks;
+
   /**
    * Constructor.
+   *
    * @param dbConfig      {@link ResourceConfiguration} reference to configure the {@link Database}
    * @param sessions      The database sessions management instance.
    * @param resourceStore The resource store used by this database.
    * @param resourceManagers The pool for resource managers.
+   * @param writeLocks
    */
   LocalDatabase(final DatabaseConfiguration dbConfig,
                 final PathBasedPool<Database<?>> sessions,
                 final ResourceStore<T> resourceStore,
+                final WriteLocksRegistry writeLocks,
                 final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
     this.resourceManagers = resourceManagers;
+    this.writeLocks = writeLocks;
     resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     bufferManagers = new ConcurrentHashMap<>();
     transactionManager = new TransactionManagerImpl();
@@ -275,7 +281,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
 
-      DatabasesInternals.removeWriteLock(resourceFile);
+      this.writeLocks.removeWriteLock(resourceFile);
 
       bufferManagers.remove(resourceFile);
     }
