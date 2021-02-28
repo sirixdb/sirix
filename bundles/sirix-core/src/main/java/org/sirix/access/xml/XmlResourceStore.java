@@ -29,6 +29,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class XmlResourceStore extends AbstractResourceStore<XmlResourceManager> {
 
+  /**
+   * This field should be use to fetch the locks for resource managers.
+   */
   private final WriteLocksRegistry writeLocksRegistry;
 
   /**
