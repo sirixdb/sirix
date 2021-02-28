@@ -5,6 +5,7 @@ import org.sirix.access.DatabasesInternals;
 import org.sirix.access.PathBasedPool;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
+import org.sirix.access.WriteLocksRegistry;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
@@ -28,12 +29,17 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class XmlResourceStore extends AbstractResourceStore<XmlResourceManager> {
 
+  private final WriteLocksRegistry writeLocksRegistry;
+
   /**
    * Constructor.
    */
   public XmlResourceStore(final User user,
+                          final WriteLocksRegistry writeLocksRegistry,
                           final PathBasedPool<ResourceManager<?, ?>> allResourceManagers) {
     super(new ConcurrentHashMap<>(), allResourceManagers, user);
+
+    this.writeLocksRegistry = writeLocksRegistry;
   }
 
   @Override
@@ -49,7 +55,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
       final IOStorage storage = StorageType.getStorage(resourceConfig);
       final UberPage uberPage = getUberPage(storage);
 
-      final Lock writeLock = DatabasesInternals.computeWriteLockIfAbsent(resourceConfig.getResource());
+      final Lock writeLock = this.writeLocksRegistry.getWriteLock(resourceConfig.getResource());
 
       // Create the resource manager instance.
       final XmlResourceManager resourceManager = new XmlResourceManagerImpl(database, this, resourceConfig,

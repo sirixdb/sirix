@@ -28,10 +28,14 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
     private final PathBasedPool<Database<?>> sessions;
     private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
 
+    private final WriteLocksRegistry writeLocks;
+
     @Inject
     LocalJsonDatabaseFactory(final PathBasedPool<Database<?>> sessions,
-                             final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+                             final PathBasedPool<ResourceManager<?, ?>> resourceManagers,
+                             final WriteLocksRegistry writeLocks) {
         this.sessions = sessions;
+        this.writeLocks = writeLocks;
         this.resourceManagers = resourceManagers;
     }
 
@@ -45,7 +49,8 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
         return new LocalDatabase<>(
                 configuration,
                 sessions,
-                new JsonResourceStore(user, resourceManagers),
+                new JsonResourceStore(user, writeLocks, resourceManagers),
+                writeLocks,
                 resourceManagers);
     }
 
