@@ -2,10 +2,12 @@ package org.sirix.access.json;
 
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.DatabasesInternals;
+import org.sirix.access.PathBasedPool;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.json.JsonResourceManagerImpl;
 import org.sirix.api.Database;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.IOStorage;
@@ -16,7 +18,6 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 import java.nio.file.Path;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 
@@ -37,8 +38,9 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
   /**
    * Constructor.
    */
-  public JsonResourceStore(final User user) {
-    super(new ConcurrentHashMap<>(), user);
+  public JsonResourceStore(final User user,
+                           final PathBasedPool<ResourceManager<?, ?>> allResourceManagers) {
+    super(new ConcurrentHashMap<>(), allResourceManagers, user);
   }
 
   @Override
@@ -61,7 +63,7 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
           bufferManager, StorageType.getStorage(resourceConfig), uberPage, writeLock, user);
 
       // Put it in the databases cache.
-      DatabasesInternals.putResourceManager(resourceFile, resourceManager);
+      this.allResourceManagers.putObject(resourceFile, resourceManager);
 
       // And return it.
       return resourceManager;
