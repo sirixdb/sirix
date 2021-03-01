@@ -21,13 +21,18 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
    */
   protected final ConcurrentMap<Path, R> resourceManagers;
 
+  protected final PathBasedPool<ResourceManager<?, ?>> allResourceManagers;
+
   /**
    * The user, which interacts with SirixDB.
    */
   protected final User user;
 
-  public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers, final User user) {
+  public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers,
+                               final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+                               final User user) {
     this.resourceManagers = resourceManagers;
+    this.allResourceManagers = allResourceManagers;
     this.user = user;
   }
 
@@ -69,7 +74,7 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   @Override
   public boolean closeResourceManager(final Path resourceFile) {
     final R manager = resourceManagers.remove(resourceFile);
-    DatabasesInternals.removeResourceManager(resourceFile, manager);
+    this.allResourceManagers.removeObject(resourceFile, manager);
     return manager != null;
   }
 }
