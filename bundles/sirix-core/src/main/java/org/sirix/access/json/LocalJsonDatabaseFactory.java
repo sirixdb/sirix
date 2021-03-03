@@ -1,6 +1,12 @@
-package org.sirix.access;
+package org.sirix.access.json;
 
-import org.sirix.access.json.JsonResourceStore;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.LocalDatabase;
+import org.sirix.access.LocalDatabaseFactory;
+import org.sirix.access.PathBasedPool;
+import org.sirix.access.User;
+import org.sirix.access.WriteLocksRegistry;
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
@@ -46,10 +52,13 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
 
         logger.trace("Creating new local json database");
 
+        final String databaseName = configuration.getDatabaseName();
+        final PageTrxFactory pageTrxFactory = new PageTrxFactory(configuration.getDatabaseType());
+
         return new LocalDatabase<>(
                 configuration,
                 sessions,
-                new JsonResourceStore(user, writeLocks, resourceManagers),
+                new JsonResourceStore(user, writeLocks, resourceManagers, databaseName, pageTrxFactory),
                 writeLocks,
                 resourceManagers);
     }

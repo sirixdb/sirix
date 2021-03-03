@@ -1,5 +1,6 @@
 package org.sirix.access;
 
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
@@ -27,13 +28,19 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
    * The user, which interacts with SirixDB.
    */
   protected final User user;
+  protected final String databaseName;
+  protected final PageTrxFactory pageTrxFactory;
 
   public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers,
-                               final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
-                               final User user) {
+                              final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+                               final User user,
+                               final String databaseName,
+                               final PageTrxFactory pageTrxFactory) {
     this.resourceManagers = resourceManagers;
     this.allResourceManagers = allResourceManagers;
     this.user = user;
+    this.databaseName = databaseName;
+    this.pageTrxFactory = pageTrxFactory;
   }
 
   protected UberPage getUberPage(final IOStorage storage) {

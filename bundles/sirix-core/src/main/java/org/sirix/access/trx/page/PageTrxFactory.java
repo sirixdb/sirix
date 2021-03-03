@@ -28,6 +28,7 @@
 package org.sirix.access.trx.page;
 
 import org.brackit.xquery.xdm.DocumentException;
+import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -59,6 +60,12 @@ import java.nio.file.Path;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class PageTrxFactory {
+
+  private final DatabaseType databaseType;
+
+  public PageTrxFactory(final DatabaseType databaseType) {
+    this.databaseType = databaseType;
+  }
 
   /**
    * Create a page write trx.
@@ -120,15 +127,15 @@ public final class PageTrxFactory {
     newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
 
     // First create revision tree if needed.
-    newRevisionRootPage.createDocumentIndexTree(pageRtx, log);
-    newRevisionRootPage.createChangedNodesIndexTree(pageRtx, log);
-    newRevisionRootPage.createRecordToRevisionsIndexTree(pageRtx, log);
+    newRevisionRootPage.createDocumentIndexTree(this.databaseType, pageRtx, log);
+    newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, pageRtx, log);
+    newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, pageRtx, log);
 
     if (usePathSummary) {
       // Create path summary tree if needed.
       final PathSummaryPage page = pageRtx.getPathSummaryPage(newRevisionRootPage);
 
-      page.createPathSummaryTree(pageRtx, 0, log);
+      page.createPathSummaryTree(this.databaseType, pageRtx, 0, log);
 
       if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx))) {
         log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
@@ -140,14 +147,14 @@ public final class PageTrxFactory {
       final DeweyIDPage deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
 
       if (resourceManager instanceof JsonResourceManager) {
-        namePage.createNameIndexTree(pageRtx, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
-        deweyIDPage.createIndexTree(pageRtx, log);
+        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
+        deweyIDPage.createIndexTree(this.databaseType, pageRtx, log);
       } else if (resourceManager instanceof XmlResourceManager) {
-        namePage.createNameIndexTree(pageRtx, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(pageRtx, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(pageRtx, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(pageRtx, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
-        deweyIDPage.createIndexTree(pageRtx, log);
+        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
+        deweyIDPage.createIndexTree(this.databaseType, pageRtx, log);
       } else {
         throw new IllegalStateException("Resource manager type not known.");
       }

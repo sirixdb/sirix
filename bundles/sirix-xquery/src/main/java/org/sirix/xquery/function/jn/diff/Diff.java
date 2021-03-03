@@ -40,7 +40,6 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.service.json.BasicJsonDiff;
 import org.sirix.api.JsonDiff;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 
 /**
@@ -93,7 +92,7 @@ public final class Diff extends AbstractFunction {
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
     final var doc = col.getDocument(expResName);
 
-    final JsonDiff jsonDiff = new BasicJsonDiff();
+    final JsonDiff jsonDiff = new BasicJsonDiff(col.getDatabase().getName());
 
     return new Str(jsonDiff.generateDiff(doc.getResourceManager(), oldRevision, newRevision, startNodeKey, maxLevel));
   }

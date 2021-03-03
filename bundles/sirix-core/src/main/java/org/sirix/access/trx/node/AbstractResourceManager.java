@@ -9,7 +9,6 @@ import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.access.trx.page.RevisionRootPageReader;
-import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -72,11 +71,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   final ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
   /**
-   * The database.
-   */
-  final Database<? extends ResourceManager<R, W>> database;
-
-  /**
    * Write lock to assure only one exclusive write transaction exists.
    */
   final Lock writeLock;
@@ -127,6 +121,11 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   final AtomicLong pageTrxIDCounter;
 
   /**
+   * The name of the database on which this instance operates.
+   */
+  protected final String databaseName;
+
+  /**
    * Determines if session was closed.
    */
   volatile boolean isClosed;
@@ -147,24 +146,31 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   final User user;
 
   /**
-   * Package private constructor.
+   * A factory that creates new {@link PageTrx} instances.
+   */
+  private final PageTrxFactory pageTrxFactory;
+
+  /**
+   * Creates a new instance of this class.
    *
-   * @param database      {@link Database} for centralized operations on related sessions
-   * @param resourceStore the resource store with which this manager has been created
-   * @param resourceConf  {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager the cache of in-memory pages shared amongst all resource managers and transactions
+   * @param resourceStore  the resource store with which this manager has been created
+   * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
+   * @param bufferManager  the cache of in-memory pages shared amongst all resource managers and transactions
+   * @param databaseName   The name of the database on which this instance operates.
+   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
+   *
    * @throws SirixException if Sirix encounters an exception
    */
-  public AbstractResourceManager(final Database<? extends ResourceManager<R, W>> database,
-      final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
-      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-      final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock,
-      final @Nullable User user) {
-    this.database = checkNotNull(database);
+  public AbstractResourceManager(final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
+                                 final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
+                                 final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock,
+                                 final String databaseName, final @Nullable User user, final PageTrxFactory pageTrxFactory) {
     this.resourceStore = checkNotNull(resourceStore);
     resourceConfig = checkNotNull(resourceConf);
     this.bufferManager = checkNotNull(bufferManager);
     this.storage = checkNotNull(storage);
+    this.databaseName = checkNotNull(databaseName);
+    this.pageTrxFactory = pageTrxFactory;
 
     nodeTrxMap = new ConcurrentHashMap<>();
     pageTrxMap = new ConcurrentHashMap<>();
@@ -223,7 +229,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final Writer writer = storage.createWriter();
     final int lastCommitedRev = lastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = lastCommittedUberPage.get();
-    return new PageTrxFactory().createPageTrx(this,
+    return this.pageTrxFactory.createPageTrx(this,
                                               abort == Abort.YES && lastCommitedUberPage.isBootstrap()
                                                   ? new UberPage()
                                                   : new UberPage(lastCommitedUberPage,
@@ -714,13 +720,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
 
     return pageTrx;
-  }
-
-  @Override
-  public synchronized Database<?> getDatabase() {
-    assertNotClosed();
-
-    return database;
   }
 
   @Override

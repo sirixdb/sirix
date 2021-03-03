@@ -22,13 +22,13 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.IndexType;
 import org.sirix.index.name.Names;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
@@ -432,20 +432,24 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Initialize name index tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param index the index number
-   * @param log the transaction intent log
+   * @param databaseType The type of database.
+   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param index        the index number
+   * @param log          the transaction intent log
    */
-  public void createNameIndexTree(final PageReadOnlyTrx pageReadTrx, final int index, final TransactionIntentLog log) {
+  public void createNameIndexTree(final DatabaseType databaseType,
+                                  final PageReadOnlyTrx pageReadTrx,
+                                  final int index,
+                                  final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
       reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT
-        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.NAME, pageReadTrx, log);
+            && reference.getLogKey() == Constants.NULL_ID_INT
+            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+      PageUtils.createTree(databaseType, reference, IndexType.NAME, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);
       } else {
