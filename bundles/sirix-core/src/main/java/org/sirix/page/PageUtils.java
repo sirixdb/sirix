@@ -66,28 +66,27 @@ public final class PageUtils {
   /**
    * Create the initial tree structure.
    *
-   * @param reference reference from revision root
-   * @param indexType  the index type
+   * @param databaseType The type of database.
+   * @param reference    reference from revision root
+   * @param indexType    the index type
    */
-  public static void createTree(@Nonnull PageReference reference, final IndexType indexType,
-      final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+  public static void createTree(final DatabaseType databaseType,
+                                @Nonnull PageReference reference, final IndexType indexType,
+                                final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
     reference = page.getOrCreateReference(0);
 
     // Create new record page.
     final UnorderedKeyValuePage recordPage =
-        new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
+            new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
 
     // Create a {@link DocumentRootNode}.
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;
 
-    // TODO: Should be passed from the method... chaining up.
-    final DatabaseType dbType = pageReadTrx.getResourceManager().getDatabase().getDatabaseConfig().getDatabaseType();
-
-    recordPage.setRecord(0L, dbType.getDocumentNode(id));
+    recordPage.setRecord(0L, databaseType.getDocumentNode(id));
 
     log.put(reference, PageContainer.getInstance(recordPage, recordPage));
   }

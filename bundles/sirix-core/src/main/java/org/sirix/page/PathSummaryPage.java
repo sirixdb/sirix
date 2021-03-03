@@ -1,6 +1,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.IndexType;
@@ -83,21 +84,24 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   /**
    * Initialize path summary tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param index the index number
-   * @param log the transaction intent log
+   * @param databaseType The type of database.
+   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param index        the index number
+   * @param log          the transaction intent log
    */
-  public void createPathSummaryTree(final PageReadOnlyTrx pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createPathSummaryTree(final DatabaseType databaseType,
+                                    final PageReadOnlyTrx pageReadTrx,
+                                    final int index,
+                                    final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
       reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT
-        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-      PageUtils.createTree(reference, IndexType.PATH_SUMMARY, pageReadTrx, log);
+            && reference.getLogKey() == Constants.NULL_ID_INT
+            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+      PageUtils.createTree(databaseType, reference, IndexType.PATH_SUMMARY, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);
       } else {

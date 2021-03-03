@@ -18,11 +18,15 @@ import java.util.List;
 public final class BasicJsonDiff implements DiffObserver, JsonDiff {
 
   private final List<DiffTuple> diffs;
+  private final String databaseName;
 
   /**
    * Constructor.
+   *
+   * @param databaseName The database name.
    */
-  public BasicJsonDiff() {
+  public BasicJsonDiff(final String databaseName) {
+    this.databaseName = databaseName;
     this.diffs = new ArrayList<>();
   }
 
@@ -62,7 +66,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
                                                                       .oldStartKey(startNodeKey)
                                                                       .oldMaxDepth(maxDepth));
 
-    return new JsonDiffSerializer(resourceManager, oldRevisionNumber, newRevisionNumber, diffs).serialize(true);
+    return new JsonDiffSerializer(this.databaseName, resourceManager, oldRevisionNumber, newRevisionNumber, diffs).serialize(true);
   }
 
   @Override

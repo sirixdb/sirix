@@ -3,6 +3,8 @@ package org.sirix.access;
 import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
+import org.sirix.access.json.LocalJsonDatabaseFactory;
+import org.sirix.access.xml.LocalXmlDatabaseFactory;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;

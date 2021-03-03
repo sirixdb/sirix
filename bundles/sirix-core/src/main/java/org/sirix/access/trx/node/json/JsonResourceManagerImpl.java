@@ -29,7 +29,7 @@ import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.RecordToRevisionsIndex;
-import org.sirix.api.Database;
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -68,21 +68,20 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   /**
    * Constructor.
    *
-   * @param database      {@link Database} for centralized operations on related sessions
-   * @param resourceStore the resource store with which this manager has been created
-   * @param resourceConf  {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager the cache of in-memory pages shared amongst all node transactions
-   * @param storage       the storage itself, used for I/O
-   * @param uberPage      the UberPage, which is the main entry point into a resource
-   * @param writeLock     the write lock, which ensures, that only a single read-write transaction is
-   *                      opened on a resource
-   * @param user          a user, which interacts with SirixDB, might be {@code null}
+   * @param resourceStore  the resource store with which this manager has been created
+   * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
+   * @param bufferManager  the cache of in-memory pages shared amongst all node transactions
+   * @param storage        the storage itself, used for I/O
+   * @param uberPage       the UberPage, which is the main entry point into a resource
+   * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
+   *                       opened on a resource
+   * @param user           a user, which interacts with SirixDB, might be {@code null}
+   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    */
-  public JsonResourceManagerImpl(final Database<JsonResourceManager> database,
-      final @Nonnull JsonResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage,
-      final @Nonnull Lock writeLock, final @Nullable User user) {
-    super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user);
+  public JsonResourceManagerImpl(final @Nonnull JsonResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
+                                 final @Nonnull BufferManager bufferManager, final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage,
+                                 final @Nonnull Lock writeLock, final @Nullable User user, final String databaseName, final PageTrxFactory pageTrxFactory) {
+    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, databaseName, user, pageTrxFactory);
 
     rtxIndexControllers = new ConcurrentHashMap<>();
     wtxIndexControllers = new ConcurrentHashMap<>();
@@ -112,16 +111,17 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       pathSummaryWriter = null;
     }
 
-    return new JsonNodeTrxImpl(this,
-                               nodeReadOnlyTrx,
-                               pathSummaryWriter,
-                               maxNodeCount,
-                               timeUnit,
-                               maxTime,
-                               new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
-                               nodeFactory,
-                               afterCommitState,
-                               new RecordToRevisionsIndex(pageTrx));
+    return new JsonNodeTrxImpl(this.databaseName,
+            this,
+            nodeReadOnlyTrx,
+            pathSummaryWriter,
+            maxNodeCount,
+            timeUnit,
+            maxTime,
+            new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
+            nodeFactory,
+            afterCommitState,
+            new RecordToRevisionsIndex(pageTrx));
   }
 
   @SuppressWarnings("unchecked")

@@ -1,5 +1,6 @@
 package org.sirix.index.cas.json;
 
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
@@ -14,8 +15,8 @@ public final class JsonCASIndexImpl implements JsonCASIndex {
   private final CASIndexListenerFactory casIndexListenerFactory;
 
   public JsonCASIndexImpl() {
-    casIndexBuilderFactory = new CASIndexBuilderFactory();
-    casIndexListenerFactory = new CASIndexListenerFactory();
+    casIndexBuilderFactory = new CASIndexBuilderFactory(DatabaseType.JSON);
+    casIndexListenerFactory = new CASIndexListenerFactory(DatabaseType.JSON);
   }
 
   @Override

@@ -59,13 +59,6 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
     extends AutoCloseable {
 
   /**
-   * Get the {@link Database} this session is bound to.
-   *
-   * @return {@link Database} this session is bound to
-   */
-  Database<?> getDatabase();
-
-  /**
    * Get the resource path.
    *
    * @return the resource path
