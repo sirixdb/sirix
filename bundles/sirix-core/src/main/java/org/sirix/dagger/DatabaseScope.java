@@ -7,7 +7,8 @@ import java.lang.annotation.Retention;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 /**
- * TODO: Class DatabaseScope's description.
+ * The dagger scope declaration for all the instances that should be exist only once in the context of a database
+ * session.
  *
  * @author Joao Sousa
  */

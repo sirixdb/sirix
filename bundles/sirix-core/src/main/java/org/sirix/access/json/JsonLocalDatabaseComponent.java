@@ -2,11 +2,12 @@ package org.sirix.access.json;
 
 import dagger.Subcomponent;
 import org.sirix.access.GenericLocalDatabaseComponent;
+import org.sirix.api.Database;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.dagger.DatabaseScope;
 
 /**
- * TODO: Class JsonLocalDatabaseComponent's description.
+ * A Dagger subcomponent that manages {@link Database json database sessions}.
  *
  * @author Joao Sousa
  */

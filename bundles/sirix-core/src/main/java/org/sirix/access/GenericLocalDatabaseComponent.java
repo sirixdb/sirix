@@ -5,7 +5,7 @@ import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 
 /**
- * TODO: Class LocalDatabaseComponent's description.
+ * An interface that aggregates all the common logic between {@link Database} subcomponents.
  *
  * @author Joao Sousa
  */

@@ -16,7 +16,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.dagger.DatabaseScope;
 
 /**
- * TODO: Class XmlLocalDatabaseModule's description.
+ * The module for {@link XmlLocalDatabaseComponent}.
  *
  * @author Joao Sousa
  */

@@ -4,12 +4,13 @@ import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import org.sirix.access.trx.TransactionManagerImpl;
+import org.sirix.api.Database;
 import org.sirix.api.TransactionManager;
 import org.sirix.dagger.DatabaseName;
 import org.sirix.dagger.DatabaseScope;
 
 /**
- * TODO: Class LocalDatabaseModule's description.
+ * A module with common dependencies to all {@link Database} subcomponents.
  *
  * @author Joao Sousa
  */
