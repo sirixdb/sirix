@@ -8,7 +8,6 @@ import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
-import org.sirix.access.trx.TransactionManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -84,7 +83,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
    * The session management instance.
    *
    * <p>Instances of this class are responsible for registering themselves in the pool (in
-   * {@link #LocalDatabase(DatabaseConfiguration, PathBasedPool, ResourceStore, WriteLocksRegistry, PathBasedPool)}),
+   * {@link #LocalDatabase(TransactionManager, DatabaseConfiguration, PathBasedPool, ResourceStore, WriteLocksRegistry, PathBasedPool)}),
    * as well as de-registering themselves (in {@link #close()}).
    */
   private final PathBasedPool<Database<?>> sessions;
@@ -104,18 +103,21 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   /**
    * Constructor.
    *
+   * @param transactionManager A manager for database transactions.
    * @param dbConfig         {@link ResourceConfiguration} reference to configure the {@link Database}
    * @param sessions         The database sessions management instance.
    * @param resourceStore    The resource store used by this database.
    * @param writeLocks       Manages the locks for resource managers.
    * @param resourceManagers The pool for resource managers.
    */
-  public LocalDatabase(final DatabaseConfiguration dbConfig,
+  public LocalDatabase(final TransactionManager transactionManager,
+                       final DatabaseConfiguration dbConfig,
                        final PathBasedPool<Database<?>> sessions,
                        final ResourceStore<T> resourceStore,
                        final WriteLocksRegistry writeLocks,
                        final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
 
+    this.transactionManager = transactionManager;
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
@@ -123,7 +125,6 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
     this.writeLocks = writeLocks;
     resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     bufferManagers = new ConcurrentHashMap<>();
-    transactionManager = new TransactionManagerImpl();
 
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
   }

@@ -4,8 +4,8 @@ import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -31,11 +31,11 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   protected final String databaseName;
   protected final PageTrxFactory pageTrxFactory;
 
-  public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers,
-                              final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
-                               final User user,
-                               final String databaseName,
-                               final PageTrxFactory pageTrxFactory) {
+  protected AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers,
+                                  final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+                                  final User user,
+                                  final String databaseName,
+                                  final PageTrxFactory pageTrxFactory) {
     this.resourceManagers = resourceManagers;
     this.allResourceManagers = allResourceManagers;
     this.user = user;
@@ -76,6 +76,7 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   @Override
   public void close() {
     resourceManagers.forEach((resourceName, resourceMgr) -> resourceMgr.close());
+    resourceManagers.clear();
   }
 
   @Override
