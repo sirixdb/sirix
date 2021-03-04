@@ -7,7 +7,7 @@ import java.lang.annotation.Retention;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 /**
- * TODO: Class DatabaseName's description.
+ * A Qualifier for the database name.
  *
  * @author Joao Sousa
  */

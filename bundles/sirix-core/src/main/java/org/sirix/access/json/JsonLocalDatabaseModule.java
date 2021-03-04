@@ -17,7 +17,7 @@ import dagger.Module;
 import dagger.Provides;
 
 /**
- * TODO: Class JsonLocalDatabaseModule's description.
+ * The module for {@link JsonLocalDatabaseComponent}.
  *
  * @author Joao Sousa
  */
