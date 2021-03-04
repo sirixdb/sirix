@@ -1,7 +1,6 @@
 package org.sirix.access.json;
 
 import org.sirix.access.AbstractResourceStore;
-import org.sirix.access.DatabasesInternals;
 import org.sirix.access.PathBasedPool;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
@@ -11,11 +10,14 @@ import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
+import org.sirix.dagger.DatabaseName;
+import org.sirix.dagger.DatabaseScope;
 import org.sirix.io.IOStorage;
 import org.sirix.io.StorageType;
 import org.sirix.page.UberPage;
 
 import javax.annotation.Nonnull;
+import javax.inject.Inject;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
@@ -27,6 +29,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @author Johannes Lichtenberger
  */
+@DatabaseScope
 public final class JsonResourceStore extends AbstractResourceStore<JsonResourceManager> {
 
   /**
@@ -37,11 +40,12 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
   /**
    * Constructor.
    */
-  public JsonResourceStore(final User user,
-                           final WriteLocksRegistry writeLocksRegistry,
-                           final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
-                           final String databaseName,
-                           final PageTrxFactory pageTrxFactory) {
+  @Inject
+  JsonResourceStore(final User user,
+                    final WriteLocksRegistry writeLocksRegistry,
+                    final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+                    @DatabaseName final String databaseName,
+                    final PageTrxFactory pageTrxFactory) {
     super(new ConcurrentHashMap<>(), allResourceManagers, user, databaseName, pageTrxFactory);
 
     this.writeLocksRegistry = writeLocksRegistry;
