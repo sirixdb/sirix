@@ -26,6 +26,7 @@ public interface ResourceManagerModule {
     }
 
     @Provides
+    @ResourceManagerScope
     static Lock writeLock(final WriteLocksRegistry registry, final ResourceConfiguration resourceConfiguration) {
         return registry.getWriteLock(resourceConfiguration.getResource());
     }

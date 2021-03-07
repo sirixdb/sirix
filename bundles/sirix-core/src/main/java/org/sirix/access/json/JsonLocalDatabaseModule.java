@@ -30,10 +30,9 @@ public interface JsonLocalDatabaseModule {
     @DatabaseScope
     @Provides
     static ResourceManagerFactory<JsonResourceManager> resourceManagerFactory(
-            final Provider<JsonResourceManagerComponent.Builder> subComponentBuilder,
-            final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+            final Provider<JsonResourceManagerComponent.Builder> subComponentBuilder) {
 
-        return new SubComponentResourceManagerFactory<>(subComponentBuilder, resourceManagers);
+        return new SubComponentResourceManagerFactory<>(subComponentBuilder);
     }
 
     @DatabaseScope
