@@ -30,10 +30,9 @@ public interface XmlLocalDatabaseModule {
     @DatabaseScope
     @Provides
     static ResourceManagerFactory<XmlResourceManager> resourceManagerFactory(
-            final Provider<XmlResourceManagerComponent.Builder> subComponentBuilder,
-            final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+            final Provider<XmlResourceManagerComponent.Builder> subComponentBuilder) {
 
-        return new SubComponentResourceManagerFactory<>(subComponentBuilder, resourceManagers);
+        return new SubComponentResourceManagerFactory<>(subComponentBuilder);
     }
 
     @DatabaseScope

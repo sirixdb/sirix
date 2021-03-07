@@ -7,8 +7,8 @@ import org.sirix.cache.BufferManager;
 
 import javax.annotation.Nonnull;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -18,7 +18,7 @@ public class ResourceStoreImpl<R extends ResourceManager<? extends NodeReadOnlyT
   /**
    * Central repository of all open resource managers.
    */
-  private final ConcurrentMap<Path, R> resourceManagers;
+  private final Map<Path, R> resourceManagers;
 
   private final PathBasedPool<ResourceManager<?, ?>> allResourceManagers;
 
@@ -26,6 +26,7 @@ public class ResourceStoreImpl<R extends ResourceManager<? extends NodeReadOnlyT
 
   public ResourceStoreImpl(final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
                            final ResourceManagerFactory<R> resourceManagerFactory) {
+
     this.resourceManagers = new ConcurrentHashMap<>();
     this.allResourceManagers = allResourceManagers;
     this.resourceManagerFactory = resourceManagerFactory;
@@ -35,8 +36,13 @@ public class ResourceStoreImpl<R extends ResourceManager<? extends NodeReadOnlyT
   public R openResource(final @Nonnull ResourceConfiguration resourceConfig,
                         final @Nonnull BufferManager bufferManager,
                         final @Nonnull Path resourceFile) {
+    return this.resourceManagers.computeIfAbsent(resourceFile, k -> {
 
-    return this.resourceManagerFactory.create(resourceConfig, bufferManager, resourceFile);
+      final var resourceManager = this.resourceManagerFactory.create(resourceConfig, bufferManager, resourceFile);
+      this.allResourceManagers.putObject(resourceFile, resourceManager);
+      return resourceManager;
+    });
+
   }
 
   @Override

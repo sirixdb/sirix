@@ -19,12 +19,9 @@ public class SubComponentResourceManagerFactory<B extends GenericResourceManager
         implements ResourceManagerFactory<R> {
 
     private final Provider<B> subComponentBuilder;
-    private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
 
-    public SubComponentResourceManagerFactory(final Provider<B> subComponentBuilder,
-                                              final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+    public SubComponentResourceManagerFactory(final Provider<B> subComponentBuilder) {
         this.subComponentBuilder = subComponentBuilder;
-        this.resourceManagers = resourceManagers;
     }
 
     @Override
@@ -32,16 +29,11 @@ public class SubComponentResourceManagerFactory<B extends GenericResourceManager
                     final BufferManager bufferManager,
                     final Path resourceFile) {
 
-        final R resourceManager = this.subComponentBuilder.get()
+        return this.subComponentBuilder.get()
                 .resourceConfig(resourceConfig)
                 .bufferManager(bufferManager)
                 .resourceFile(resourceFile)
                 .build()
                 .resourceManager();
-
-        // Put it in the databases cache.
-        this.resourceManagers.putObject(resourceFile, resourceManager);
-
-        return resourceManager;
     }
 }
