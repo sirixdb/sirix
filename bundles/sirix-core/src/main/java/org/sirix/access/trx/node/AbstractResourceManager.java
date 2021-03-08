@@ -121,11 +121,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   final AtomicLong pageTrxIDCounter;
 
   /**
-   * The name of the database on which this instance operates.
-   */
-  protected final String databaseName;
-
-  /**
    * Determines if session was closed.
    */
   volatile boolean isClosed;
@@ -156,20 +151,22 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param resourceStore  the resource store with which this manager has been created
    * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
    * @param bufferManager  the cache of in-memory pages shared amongst all resource managers and transactions
-   * @param databaseName   The name of the database on which this instance operates.
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    *
    * @throws SirixException if Sirix encounters an exception
    */
-  public AbstractResourceManager(final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
-                                 final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-                                 final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Lock writeLock,
-                                 final String databaseName, final @Nullable User user, final PageTrxFactory pageTrxFactory) {
+  protected AbstractResourceManager(final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
+                                    final @Nonnull ResourceConfiguration resourceConf,
+                                    final @Nonnull BufferManager bufferManager,
+                                    final @Nonnull IOStorage storage,
+                                    final @Nonnull UberPage uberPage,
+                                    final @Nonnull Lock writeLock,
+                                    final @Nullable User user,
+                                    final PageTrxFactory pageTrxFactory) {
     this.resourceStore = checkNotNull(resourceStore);
     resourceConfig = checkNotNull(resourceConf);
     this.bufferManager = checkNotNull(bufferManager);
     this.storage = checkNotNull(storage);
-    this.databaseName = checkNotNull(databaseName);
     this.pageTrxFactory = pageTrxFactory;
 
     nodeTrxMap = new ConcurrentHashMap<>();
@@ -226,20 +223,21 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
+
     final Writer writer = storage.createWriter();
-    final int lastCommitedRev = lastCommittedUberPage.get().getRevisionNumber();
-    final UberPage lastCommitedUberPage = lastCommittedUberPage.get();
+    final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
+    final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
     return this.pageTrxFactory.createPageTrx(this,
-                                              abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+                                              abort == Abort.YES && lastCommittedUberPage.isBootstrap()
                                                   ? new UberPage()
-                                                  : new UberPage(lastCommitedUberPage,
+                                                  : new UberPage(lastCommittedUberPage,
                                                                  representRevision > 0 ? writer.readUberPageReference()
                                                                                                .getKey() : -1),
                                               writer,
                                               id,
                                               representRevision,
                                               storedRevision,
-                                              lastCommitedRev,
+                                              lastCommittedRev,
                                               isBoundToNodeTrx);
   }
 
