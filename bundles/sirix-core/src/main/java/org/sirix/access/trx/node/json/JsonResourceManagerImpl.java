@@ -102,7 +102,9 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
+  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId,
+                                                           PageReadOnlyTrx pageReadTrx,
+                                                           Node documentNode) {
     return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
   }
 
@@ -110,8 +112,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
       int maxTime, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
-    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx =
-        new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableJsonNode) documentNode);
+    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
 
     // Node factory.
     final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageTrx);

@@ -32,7 +32,11 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
-import org.sirix.api.*;
+import org.sirix.api.Axis;
+import org.sirix.api.Movement;
+import org.sirix.api.PageTrx;
+import org.sirix.api.PostCommitHook;
+import org.sirix.api.PreCommitHook;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -42,7 +46,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.summary.PathSummaryWriter;
@@ -51,13 +54,21 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
-import org.sirix.node.interfaces.*;
+import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.*;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.node.xml.CommentNode;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.node.xml.NamespaceNode;
+import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
 import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -73,11 +84,9 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -85,6 +94,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.nio.file.Files.deleteIfExists;
 
 /**
  * <p>
@@ -1652,9 +1662,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
   private void removeCommitFile() {
     try {
-      final Path commitFile = resourceManager.getCommitFile();
-      if (java.nio.file.Files.exists(commitFile))
-        java.nio.file.Files.delete(resourceManager.getCommitFile());
+      deleteIfExists(resourceManager.getCommitFile());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -2250,7 +2258,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       // Reset modification counter.
       modificationCount = 0L;
 
-      final UberPage uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
+      final UberPage uberPage = pageTrx.commit(commitMessage);
 
       // Remember succesfully committed uber page in resource manager.
       resourceManager.setLastCommittedUberPage(uberPage);

@@ -39,7 +39,15 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
-import org.sirix.page.*;
+import org.sirix.page.CASPage;
+import org.sirix.page.DeweyIDPage;
+import org.sirix.page.NamePage;
+import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
+import org.sirix.page.PathSummaryPage;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -49,7 +57,6 @@ import org.sirix.settings.VersioningType;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -59,6 +66,9 @@ import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.nio.file.Files.deleteIfExists;
+import static java.nio.file.Files.newOutputStream;
+import static java.nio.file.StandardOpenOption.CREATE;
 
 /**
  * <p>
@@ -358,13 +368,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final Path commitFile = pageRtx.resourceManager.getCommitFile();
       commitFile.toFile().deleteOnExit();
       // Issues with windows that it's not created in the first time?
-      while (!Files.exists(commitFile)) {
-        try {
-          Files.createFile(commitFile);
-        } catch (final IOException e) {
-          throw new SirixIOException(e);
-        }
-      }
+      createIfAbsent(commitFile);
 
       final PageReference uberPageReference = new PageReference();
       final UberPage uberPage = getUberPage();
@@ -384,18 +388,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       storagePageReaderWriter.writeUberPageReference(uberPageReference);
       uberPageReference.setPage(null);
 
-      final Path indexes = pageRtx.getResourceManager().getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                                        .resolve(revision + ".xml");
+      final Path indexes = pageRtx.getResourceManager()
+              .getResourceConfig()
+              .resourcePath
+              .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+              .resolve(revision + ".xml");
 
-      if (!Files.exists(indexes)) {
-        try {
-          Files.createFile(indexes);
-        } catch (final IOException e) {
-          throw new SirixIOException(e);
-        }
-      }
-
-      try (final OutputStream out = new FileOutputStream(indexes.toFile())) {
+      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
         indexController.serialize(out);
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
@@ -405,7 +404,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
-        Files.delete(commitFile);
+        deleteIfExists(commitFile);
       } catch (final IOException e) {
         throw new SirixIOException("Commit file couldn't be deleted!");
       }
@@ -415,6 +414,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
+  }
+
+  private void createIfAbsent(final Path file) {
+    while (!Files.exists(file)) {
+      try {
+        Files.createFile(file);
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
+    }
   }
 
   private void setUserIfPresent() {

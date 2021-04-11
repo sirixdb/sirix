@@ -8,12 +8,12 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Interface for writing pages to disk and to create in-memory records.
@@ -108,7 +108,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return UberPage the revision after commit
    * @throws SirixException if Sirix fails to commit
    */
-  UberPage commit(String commitMessage);
+  UberPage commit(@Nullable String commitMessage);
 
   /**
    * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.
