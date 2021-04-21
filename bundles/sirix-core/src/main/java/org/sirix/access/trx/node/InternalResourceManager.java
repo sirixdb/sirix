@@ -1,16 +1,14 @@
 package org.sirix.access.trx.node;
 
-import java.nio.file.Path;
-import java.util.concurrent.locks.Lock;
-
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+
+import java.nio.file.Path;
+import java.util.concurrent.locks.Lock;
 
 public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends ResourceManager<R, W> {

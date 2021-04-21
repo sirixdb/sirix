@@ -29,6 +29,7 @@ import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.RecordToRevisionsIndex;
+import org.sirix.access.trx.node.TransactionCommitter;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -43,9 +44,12 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 
+import javax.annotation.Nonnull;
 import javax.inject.Inject;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
@@ -110,7 +114,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
 
   @Override
   public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
-      int maxTime, Node documentNode, AfterCommitState afterCommitState) {
+                                            int maxTime, final Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
 
@@ -126,17 +130,33 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       pathSummaryWriter = null;
     }
 
-    return new JsonNodeTrxImpl(this.databaseName,
+    final boolean isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
+
+    final var committer = new TransactionCommitter(
+            new JsonNodeTrxThreadFactory(),
+            this,
+            this.databaseName,
+            isAutoCommitting
+    );
+
+
+    final var transaction = new JsonNodeTrxImpl(
             this,
             nodeReadOnlyTrx,
             pathSummaryWriter,
             maxNodeCount,
-            timeUnit,
-            maxTime,
+            autoCommitDelay,
             new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
             nodeFactory,
             afterCommitState,
-            new RecordToRevisionsIndex(pageTrx));
+            new RecordToRevisionsIndex(pageTrx),
+            committer,
+            isAutoCommitting
+    );
+
+    committer.bind(transaction, autoCommitDelay);
+
+    return transaction;
   }
 
   @SuppressWarnings("unchecked")
@@ -155,5 +175,17 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
     final var controller = new JsonIndexController();
     initializeIndexController(revision, controller);
     return controller;
+  }
+
+  private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
+    @Override
+    public Thread newThread(@Nonnull final Runnable runnable) {
+      final var thread = new Thread(runnable, "JsonNodeTrxCommitThread");
+
+      thread.setPriority(Thread.NORM_PRIORITY);
+      thread.setDaemon(false);
+
+      return thread;
+    }
   }
 }

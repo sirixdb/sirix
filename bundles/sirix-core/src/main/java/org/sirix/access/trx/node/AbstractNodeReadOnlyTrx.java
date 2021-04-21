@@ -60,7 +60,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Tracks whether the transaction is closed.
    */
-  protected boolean isClosed;
+  private boolean isClosed;
 
   /**
    * Read-transaction-exclusive item list.

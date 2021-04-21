@@ -42,6 +42,7 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
 
 import javax.inject.Inject;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -100,7 +101,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
 
   @Override
   public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
-      int maxTime, Node documentNode, AfterCommitState afterCommitState) {
+                                           int maxTime, final Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);

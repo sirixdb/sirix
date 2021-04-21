@@ -126,12 +126,10 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    */
   private final XmlDeweyIDManager deweyIDManager;
 
-  private final AfterCommitState afterCommitState;
-
   /**
    * Modification counter.
    */
-  long modificationCount;
+  private long modificationCount;
 
   /**
    * Hash kind of Structure.
@@ -146,7 +144,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   /**
    * {@link InternalXmlNodeReadOnlyTrx} reference.
    */
-  final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
+  private final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
 
   /**
    * {@link PathSummaryWriter} instance.
@@ -264,7 +262,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
 
     deweyIDManager = new XmlDeweyIDManager(this);
-    this.afterCommitState = afterCommitState;
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {

@@ -19,7 +19,9 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * @return NodeTrx return current instance
    * @throws SirixException if this revision couldn't be commited
    */
-  NodeTrx commit();
+  default NodeTrx commit() {
+    return commit(null);
+  }
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no

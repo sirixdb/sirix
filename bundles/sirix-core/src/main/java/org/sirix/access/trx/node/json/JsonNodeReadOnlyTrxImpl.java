@@ -340,7 +340,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  protected JsonNodeReadOnlyTrx thisInstance() {
+  protected InternalJsonNodeReadOnlyTrx thisInstance() {
     return this;
   }
 
