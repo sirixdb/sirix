@@ -67,12 +67,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
  */
 public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx, XmlNodeTrx>
     implements InternalXmlNodeReadOnlyTrx {
+
+  /**
+   * Current node as an xml node.
+   */
+  private final ImmutableXmlNode currentNode;
 
   /**
    * Constructor.
@@ -83,9 +90,12 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
    * @param documentNode the document node
    */
   XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
+                         final @Nonnegative long trxId,
+                         final PageReadOnlyTrx pageReadTransaction,
+                         final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
 
+    this.currentNode = checkNotNull(documentNode);
   }
 
   @Override
@@ -516,4 +526,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
     return (XmlResourceManager) resourceManager;
   }
 
+  @Override
+  public ImmutableXmlNode getCurrentNode() {
+    return this.currentNode;
+  }
 }
