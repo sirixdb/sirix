@@ -63,8 +63,8 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx, JsonNodeTrx>
-    implements InternalJsonNodeReadOnlyTrx {
+public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx, JsonNodeTrx,
+        ImmutableNode> implements InternalJsonNodeReadOnlyTrx {
 
   /**
    * Constructor.
@@ -221,6 +221,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public String getValue() {
     assertNotClosed();
+
+    final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT_STRING_VALUE, STRING_VALUE -> new String(((ValueNode) currentNode).getRawValue(),
@@ -242,6 +244,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean getBooleanValue() {
     assertNotClosed();
+
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE)
       return ((BooleanNode) currentNode).getValue();
     else if (currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
@@ -252,6 +256,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public Number getNumberValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.NUMBER_VALUE)
       return ((NumberNode) currentNode).getValue();
     else if (currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
@@ -269,6 +274,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public ImmutableNode getNode() {
     assertNotClosed();
 
+    final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);
@@ -290,42 +296,46 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.ARRAY;
+    return getCurrentNode().getKind() == NodeKind.ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.OBJECT;
+    return getCurrentNode().getKind() == NodeKind.OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.OBJECT_KEY;
+    return getCurrentNode().getKind() == NodeKind.OBJECT_KEY;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
@@ -337,6 +347,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.JSON_DOCUMENT;
   }
 
@@ -344,6 +355,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public QNm getName() {
     assertNotClosed();
 
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) currentNode).getNameKey();
       final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getKind());
@@ -354,14 +366,15 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableJsonNode) currentNode).acceptVisitor(visitor);
+    return ((ImmutableJsonNode) getCurrentNode()).acceptVisitor(visitor);
   }
 
   @Override
   public int getNameKey() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       return ((ObjectKeyNode) currentNode).getNameKey();
     }
@@ -373,6 +386,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }

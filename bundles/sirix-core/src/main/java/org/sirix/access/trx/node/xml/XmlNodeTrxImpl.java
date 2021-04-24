@@ -367,7 +367,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    * @return {@link Node} implementation
    */
   private ImmutableXmlNode getCurrentNode() {
-    return (ImmutableXmlNode) nodeReadOnlyTrx.getCurrentNode();
+    return nodeReadOnlyTrx.getCurrentNode();
   }
 
   /**

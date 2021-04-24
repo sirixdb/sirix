@@ -9,12 +9,11 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.xml.ElementNode;
-import org.sirix.page.PageKind;
 
 import javax.annotation.Nonnegative;
 import java.math.BigInteger;
 
-public abstract class AbstractNodeHashing {
+public abstract class AbstractNodeHashing<N extends ImmutableNode> {
 
   /**
    * Prime for computing the hash.
@@ -56,12 +55,12 @@ public abstract class AbstractNodeHashing {
     this.pageTrx = pageTrx;
   }
 
-  public AbstractNodeHashing setBulkInsert(boolean value) {
+  public AbstractNodeHashing<N> setBulkInsert(final boolean value) {
     this.bulkInsert = value;
     return this;
   }
 
-  public AbstractNodeHashing setAutoCommit(boolean value) {
+  public AbstractNodeHashing<N> setAutoCommit(final boolean value) {
     this.autoCommit = value;
     return this;
   }
@@ -144,7 +143,7 @@ public abstract class AbstractNodeHashing {
    */
   private void postorderAdd() {
     // start with hash to add
-    final ImmutableNode startNode = getCurrentNode();
+    final N startNode = getCurrentNode();
     // long for adapting the hash of the parent
     BigInteger hashCodeForParent = BigInteger.ZERO;
     // adapting the parent if the current node is no structural one.
@@ -193,9 +192,9 @@ public abstract class AbstractNodeHashing {
 
   protected abstract StructNode getStructuralNode();
 
-  protected abstract ImmutableNode getCurrentNode();
+  protected abstract N getCurrentNode();
 
-  protected abstract void setCurrentNode(ImmutableNode node);
+  protected abstract void setCurrentNode(N node);
 
   /**
    * Adapting the structure with a rolling hash for all ancestors only with update.
@@ -204,7 +203,7 @@ public abstract class AbstractNodeHashing {
    * @throws SirixIOException if anything weird happened
    */
   private void rollingUpdate(final BigInteger oldHash) {
-    final ImmutableNode newNode = getCurrentNode();
+    final var newNode = getCurrentNode();
     final BigInteger hash = newNode.computeHash();
     BigInteger resultNew;
 
@@ -228,7 +227,7 @@ public abstract class AbstractNodeHashing {
    * Adapting the structure with a rolling hash for all ancestors only with remove.
    */
   private void rollingRemove() {
-    final ImmutableNode startNode = getCurrentNode();
+    final N startNode = getCurrentNode();
     BigInteger hashToRemove = startNode.getHash();
     BigInteger hashToAdd = BigInteger.ZERO;
     BigInteger newHash;
@@ -277,7 +276,7 @@ public abstract class AbstractNodeHashing {
    */
   private void rollingAdd() {
     // start with hash to add
-    final ImmutableNode startNode = getCurrentNode();
+    final var startNode = getCurrentNode();
     final long oldDescendantCount = getStructuralNode().getDescendantCount();
     final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
     BigInteger hashToAdd = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
@@ -349,7 +348,7 @@ public abstract class AbstractNodeHashing {
     switch (hashType) {
       case ROLLING:
         // Setup.
-        final ImmutableNode startNode = getCurrentNode();
+        final var startNode = getCurrentNode();
         final long oldDescendantCount = getStructuralNode().getDescendantCount();
         final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
 

@@ -39,8 +39,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * A skeletal implementation of a read-only node transaction.
  * @param <T> the type of node cursor
  */
-public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnlyTrx, W extends NodeTrx & NodeCursor>
-        implements InternalNodeReadOnlyTrx, NodeCursor, NodeReadOnlyTrx {
+public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnlyTrx, W extends NodeTrx & NodeCursor,
+        N extends ImmutableNode>
+        implements InternalNodeReadOnlyTrx<N>, NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
   protected final long id;
@@ -49,7 +50,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   protected PageReadOnlyTrx pageReadOnlyTrx;
 
   /** The current node. */
-  protected ImmutableNode currentNode;
+  private N currentNode;
 
   /**
    * Resource manager this write transaction is bound to.
@@ -77,7 +78,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   protected AbstractNodeReadOnlyTrx(final @Nonnegative long trxId,
                                     final @Nonnull PageReadOnlyTrx pageReadTransaction,
-                                    final @Nonnull ImmutableNode documentNode,
+                                    final @Nonnull N documentNode,
                                     final InternalResourceManager<T, W> resourceManager,
                                     final ItemList<AtomicValue> itemList) {
     checkArgument(trxId >= 0);
@@ -91,12 +92,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public ImmutableNode getCurrentNode() {
+  public N getCurrentNode() {
     return currentNode;
   }
 
   @Override
-  public void setCurrentNode(final @Nullable ImmutableNode currentNode) {
+  public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
     this.currentNode = currentNode;
   }
@@ -237,7 +238,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     assertNotClosed();
 
     // Remember old node and fetch new one.
-    final ImmutableNode oldNode = currentNode;
+    final N oldNode = currentNode;
     Optional<? extends DataRecord> newNode;
     try {
       // Immediately return node from item list if node key negative.
@@ -255,10 +256,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     if (newNode.isPresent()) {
-      currentNode = (ImmutableNode) newNode.get();
+      setCurrentNode((N) newNode.get());
       return Move.moved(thisInstance());
     } else {
-      currentNode = oldNode;
+      setCurrentNode(oldNode);
       return Move.notMoved();
     }
   }
@@ -332,7 +333,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    final ImmutableNode node = currentNode;
+    final N node = getCurrentNode();
     if (node instanceof StructNode) {
       return (StructNode) node;
     } else {
@@ -563,7 +564,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return false;
     }
 
-    final AbstractNodeReadOnlyTrx<?, ?> that = (AbstractNodeReadOnlyTrx<?, ?>) o;
+    final AbstractNodeReadOnlyTrx<?, ?, ?> that = (AbstractNodeReadOnlyTrx<?, ?, ?>) o;
     return pageReadOnlyTrx.equals(that.pageReadOnlyTrx) && currentNode.equals(that.currentNode);
   }
 

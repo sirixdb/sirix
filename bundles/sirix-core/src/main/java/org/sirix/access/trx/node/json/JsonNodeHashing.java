@@ -3,12 +3,10 @@ package org.sirix.access.trx.node.json;
 import org.sirix.access.trx.node.AbstractNodeHashing;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.page.UnorderedKeyValuePage;
 
-final class JsonNodeHashing extends AbstractNodeHashing {
+final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode> {
 
   private final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx;
 
@@ -36,7 +34,7 @@ final class JsonNodeHashing extends AbstractNodeHashing {
   }
 
   @Override
-  protected void setCurrentNode(ImmutableNode node) {
+  protected void setCurrentNode(final ImmutableNode node) {
     nodeReadOnlyTrx.setCurrentNode(node);
   }
 
