@@ -4,10 +4,10 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
-public interface InternalNodeReadOnlyTrx {
-  ImmutableNode getCurrentNode();
+public interface InternalNodeReadOnlyTrx<N extends ImmutableNode> {
+  N getCurrentNode();
 
-  void setCurrentNode(ImmutableNode node);
+  void setCurrentNode(N node);
 
   StructNode getStructuralNode();
 
