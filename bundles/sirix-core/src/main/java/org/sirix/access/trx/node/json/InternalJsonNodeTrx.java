@@ -7,5 +7,4 @@ public interface InternalJsonNodeTrx extends JsonNodeTrx {
 
   void adaptHashesInPostorderTraversal();
 
-  JsonNodeTrx doCommit(String commitMessage);
 }

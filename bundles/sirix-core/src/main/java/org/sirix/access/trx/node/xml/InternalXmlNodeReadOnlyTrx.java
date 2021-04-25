@@ -1,18 +1,9 @@
 package org.sirix.access.trx.node.xml;
 
-import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.access.trx.node.InternalNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-public interface InternalXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
-  ImmutableXmlNode getCurrentNode();
+public interface InternalXmlNodeReadOnlyTrx extends InternalNodeReadOnlyTrx<ImmutableXmlNode>, XmlNodeReadOnlyTrx {
 
-  void setCurrentNode(ImmutableXmlNode node);
-
-  StructNode getStructuralNode();
-
-  void assertNotClosed();
-
-  void setPageReadTransaction(PageReadOnlyTrx trx);
 }

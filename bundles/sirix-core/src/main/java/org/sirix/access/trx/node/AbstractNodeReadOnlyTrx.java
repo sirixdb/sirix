@@ -2,25 +2,34 @@ package org.sirix.access.trx.node;
 
 import org.sirix.access.User;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
+import org.sirix.api.ItemList;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.ResourceManager;
+import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -30,29 +39,72 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * A skeletal implementation of a read-only node transaction.
  * @param <T> the type of node cursor
  */
-public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
+public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnlyTrx, W extends NodeTrx & NodeCursor,
+        N extends ImmutableNode>
+        implements InternalNodeReadOnlyTrx<N>, NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
-  private final long id;
+  protected final long id;
 
   /** State of transaction including all cached stuff. */
   protected PageReadOnlyTrx pageReadOnlyTrx;
 
   /** The current node. */
-  protected ImmutableNode currentNode;
+  private N currentNode;
+
+  /**
+   * Resource manager this write transaction is bound to.
+   */
+  protected final InternalResourceManager<T, W> resourceManager;
+
+  /**
+   * Tracks whether the transaction is closed.
+   */
+  protected boolean isClosed;
+
+  /**
+   * Read-transaction-exclusive item list.
+   */
+  protected final ItemList<AtomicValue> itemList;
 
   /**
    * Constructor.
-   * @param trxId the transaction ID
+   *
+   * @param trxId               the transaction ID
    * @param pageReadTransaction the underlying read-only page transaction
-   * @param documentNode the document root node
+   * @param documentNode        the document root node
+   * @param resourceManager     The resource manager for the current transaction
+   * @param itemList            Read-transaction-exclusive item list.
    */
-  public AbstractNodeReadOnlyTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
-      final @Nonnull ImmutableNode documentNode) {
+  protected AbstractNodeReadOnlyTrx(final @Nonnegative long trxId,
+                                    final @Nonnull PageReadOnlyTrx pageReadTransaction,
+                                    final @Nonnull N documentNode,
+                                    final InternalResourceManager<T, W> resourceManager,
+                                    final ItemList<AtomicValue> itemList) {
     checkArgument(trxId >= 0);
-    id = trxId;
-    pageReadOnlyTrx = checkNotNull(pageReadTransaction);
-    currentNode = checkNotNull(documentNode);
+
+    this.itemList = itemList;
+    this.resourceManager = checkNotNull(resourceManager);
+    this.id = trxId;
+    this.pageReadOnlyTrx = checkNotNull(pageReadTransaction);
+    this.currentNode = checkNotNull(documentNode);
+    this.isClosed = false;
+  }
+
+  @Override
+  public N getCurrentNode() {
+    return currentNode;
+  }
+
+  @Override
+  public void setCurrentNode(final @Nullable N currentNode) {
+    assertNotClosed();
+    this.currentNode = currentNode;
+  }
+
+  @Override
+  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
+    return resourceManager;
   }
 
   @Override
@@ -182,7 +234,35 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
   }
 
   @Override
-  public abstract Move<T> moveTo(long key);
+  public Move<T> moveTo(final long nodeKey) {
+    assertNotClosed();
+
+    // Remember old node and fetch new one.
+    final N oldNode = currentNode;
+    Optional<? extends DataRecord> newNode;
+    try {
+      // Immediately return node from item list if node key negative.
+      if (nodeKey < 0) {
+        if (itemList.size() > 0) {
+          newNode = itemList.getItem(nodeKey);
+        } else {
+          newNode = Optional.empty();
+        }
+      } else {
+        newNode = getPageTransaction().getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      }
+    } catch (final SirixIOException | UncheckedIOException e) {
+      newNode = Optional.empty();
+    }
+
+    if (newNode.isPresent()) {
+      setCurrentNode((N) newNode.get());
+      return Move.moved(thisInstance());
+    } else {
+      setCurrentNode(oldNode);
+      return Move.notMoved();
+    }
+  }
 
   @Override
   public Move<T> moveToRightSibling() {
@@ -215,7 +295,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
   /**
    * Make sure that the transaction is not yet closed when calling this method.
    */
-  protected abstract void assertNotClosed();
+  public void assertNotClosed() {
+    if (isClosed) {
+      throw new IllegalStateException("Transaction is already closed.");
+    }
+  }
 
   /**
    * Get the {@link PageReadOnlyTrx}.
@@ -249,7 +333,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    final ImmutableNode node = currentNode;
+    final var node = getCurrentNode();
     if (node instanceof StructNode) {
       return (StructNode) node;
     } else {
@@ -440,6 +524,53 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor> implements N
 
   @Override
   public SirixDeweyID getDeweyID() {
+    assertNotClosed();
+
     return currentNode.getDeweyID();
+  }
+
+  @Override
+  public boolean isClosed() {
+    return isClosed;
+  }
+
+  @Override
+  public void close() {
+    if (!isClosed) {
+      // Close own state.
+      pageReadOnlyTrx.close();
+
+      // Callback on session to make sure everything is cleaned up.
+      resourceManager.closeReadTransaction(id);
+
+      setPageReadTransaction(null);
+
+      // Immediately release all references.
+      pageReadOnlyTrx = null;
+      currentNode = null;
+
+      // Close state.
+      isClosed = true;
+    }
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+
+    final AbstractNodeReadOnlyTrx<?, ?, ?> that = (AbstractNodeReadOnlyTrx<?, ?, ?>) o;
+    return currentNode.getNodeKey() == that.currentNode.getNodeKey()
+            && pageReadOnlyTrx.getRevisionNumber() == that.pageReadOnlyTrx.getRevisionNumber();
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(currentNode.getNodeKey(), pageReadOnlyTrx.getRevisionNumber());
   }
 }

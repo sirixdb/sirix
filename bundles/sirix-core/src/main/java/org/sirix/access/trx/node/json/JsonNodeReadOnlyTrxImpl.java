@@ -18,19 +18,36 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.diff.JsonDiffSerializer;
-import org.sirix.exception.SirixIOException;
-import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.immutable.json.*;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.immutable.json.ImmutableArrayNode;
+import org.sirix.node.immutable.json.ImmutableBooleanNode;
+import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
+import org.sirix.node.immutable.json.ImmutableNullNode;
+import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import org.sirix.node.immutable.json.ImmutableObjectNode;
+import org.sirix.node.immutable.json.ImmutableObjectNullNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectStringNode;
+import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.*;
-import org.sirix.page.PageKind;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.JsonDocumentRootNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectBooleanNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectNullNode;
+import org.sirix.node.json.ObjectNumberNode;
+import org.sirix.node.json.ObjectStringNode;
+import org.sirix.node.json.StringNode;
+import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 
 import javax.annotation.Nonnegative;
@@ -40,31 +57,14 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx>
-    implements InternalJsonNodeReadOnlyTrx {
-
-  /**
-   * ID of transaction.
-   */
-  private final long trxId;
-
-  /**
-   * Resource manager this write transaction is bound to.
-   */
-  protected final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager;
-
-  /**
-   * Tracks whether the transaction is closed.
-   */
-  private boolean isClosed;
+public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx, JsonNodeTrx,
+        ImmutableNode> implements InternalJsonNodeReadOnlyTrx {
 
   /**
    * Constructor.
@@ -75,12 +75,10 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
-    super(trxId, pageReadTransaction, documentNode);
-    this.resourceManager = checkNotNull(resourceManager);
-    checkArgument(trxId >= 0);
-    this.trxId = trxId;
-    isClosed = false;
+                          final @Nonnegative long trxId,
+                          final PageReadOnlyTrx pageReadTransaction,
+                          final ImmutableJsonNode documentNode) {
+    super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
   @Override
@@ -221,35 +219,10 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  public Move<JsonNodeReadOnlyTrx> moveTo(long nodeKey) {
-    assertNotClosed();
-
-    // Remember old node and fetch new one.
-    final ImmutableNode oldNode = currentNode;
-    Optional<? extends DataRecord> newNode;
-    try {
-      // Immediately return node from item list if node key negative.
-      if (nodeKey < 0) {
-        newNode = Optional.empty();
-      } else {
-        newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-      }
-    } catch (final SirixIOException | UncheckedIOException e) {
-      newNode = Optional.empty();
-    }
-
-    if (newNode.isPresent()) {
-      currentNode = (Node) newNode.get();
-      return Move.moved(this);
-    } else {
-      currentNode = oldNode;
-      return Move.notMoved();
-    }
-  }
-
-  @Override
   public String getValue() {
     assertNotClosed();
+
+    final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT_STRING_VALUE, STRING_VALUE -> new String(((ValueNode) currentNode).getRawValue(),
@@ -271,6 +244,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean getBooleanValue() {
     assertNotClosed();
+
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE)
       return ((BooleanNode) currentNode).getValue();
     else if (currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
@@ -281,18 +256,12 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public Number getNumberValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.NUMBER_VALUE)
       return ((NumberNode) currentNode).getValue();
     else if (currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
       return ((ObjectNumberNode) currentNode).getValue();
     throw new IllegalStateException("Current node is no number node.");
-  }
-
-  @Override
-  public void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
   }
 
   @Override
@@ -305,6 +274,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public ImmutableNode getNode() {
     assertNotClosed();
 
+    final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);
@@ -326,63 +296,47 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.ARRAY;
+    return getCurrentNode().getKind() == NodeKind.ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.OBJECT;
+    return getCurrentNode().getKind() == NodeKind.OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.OBJECT_KEY;
+    return getCurrentNode().getKind() == NodeKind.OBJECT_KEY;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
-  }
-
-  @Override
-  public void close() {
-    if (!isClosed) {
-      // Close own state.
-      pageReadOnlyTrx.close();
-
-      // Callback on session to make sure everything is cleaned up.
-      resourceManager.closeReadTransaction(trxId);
-
-      setPageReadTransaction(null);
-
-      // Immediately release all references.
-      pageReadOnlyTrx = null;
-      currentNode = null;
-
-      // Close state.
-      isClosed = true;
-    }
   }
 
   @Override
@@ -393,18 +347,15 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     return currentNode.getKind() == NodeKind.JSON_DOCUMENT;
-  }
-
-  @Override
-  public boolean isClosed() {
-    return isClosed;
   }
 
   @Override
   public QNm getName() {
     assertNotClosed();
 
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) currentNode).getNameKey();
       final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getKind());
@@ -415,25 +366,15 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableJsonNode) currentNode).acceptVisitor(visitor);
-  }
-
-  @Override
-  public ImmutableJsonNode getCurrentNode() {
-    return (ImmutableJsonNode) currentNode;
-  }
-
-  @Override
-  public void setCurrentNode(ImmutableNode node) {
-    assertNotClosed();
-    currentNode = node;
+    return ((ImmutableJsonNode) getCurrentNode()).acceptVisitor(visitor);
   }
 
   @Override
   public int getNameKey() {
     assertNotClosed();
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       return ((ObjectKeyNode) currentNode).getNameKey();
     }
@@ -445,6 +386,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
+    final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
