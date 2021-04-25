@@ -143,7 +143,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    */
   private void postorderAdd() {
     // start with hash to add
-    final N startNode = getCurrentNode();
+    final var startNode = getCurrentNode();
     // long for adapting the hash of the parent
     BigInteger hashCodeForParent = BigInteger.ZERO;
     // adapting the parent if the current node is no structural one.
@@ -227,7 +227,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    * Adapting the structure with a rolling hash for all ancestors only with remove.
    */
   private void rollingRemove() {
-    final N startNode = getCurrentNode();
+    final var startNode = getCurrentNode();
     BigInteger hashToRemove = startNode.getHash();
     BigInteger hashToAdd = BigInteger.ZERO;
     BigInteger newHash;

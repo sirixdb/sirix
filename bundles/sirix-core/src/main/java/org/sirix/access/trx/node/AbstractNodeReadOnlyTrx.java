@@ -333,7 +333,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    final N node = getCurrentNode();
+    final var node = getCurrentNode();
     if (node instanceof StructNode) {
       return (StructNode) node;
     } else {
@@ -565,7 +565,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     final AbstractNodeReadOnlyTrx<?, ?, ?> that = (AbstractNodeReadOnlyTrx<?, ?, ?>) o;
-    return pageReadOnlyTrx.equals(that.pageReadOnlyTrx) && currentNode.equals(that.currentNode);
+    return currentNode.getNodeKey() == that.currentNode.getNodeKey()
+            && pageReadOnlyTrx.getRevisionNumber() == that.pageReadOnlyTrx.getRevisionNumber();
   }
 
   @Override
