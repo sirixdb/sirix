@@ -5,10 +5,9 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
 import java.util.Optional;
 
 public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
@@ -30,7 +29,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * @return NodeTrx return current instance
    * @throws SirixException if this revision couldn't be committed
    */
-  NodeTrx commit(String commitMessage);
+  NodeTrx commit(@Nullable String commitMessage);
 
   /**
    * Rollback all modifications of the exclusive write transaction.

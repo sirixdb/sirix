@@ -89,6 +89,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.nio.file.Files.deleteIfExists;
 
 /**
  * <p>
@@ -281,8 +282,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  JsonNodeTrxImpl(final String databaseName, final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-                  final InternalJsonNodeReadOnlyTrx nodeReadTrx, final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
+  JsonNodeTrxImpl(final String databaseName,
+                  final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+                  final InternalJsonNodeReadOnlyTrx nodeReadTrx,
+                  @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
                   @Nonnegative final int maxNodeCount, final TimeUnit timeUnit, @Nonnegative final int maxTime,
                   @Nonnull final JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory,
                   @Nonnull final AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
@@ -2262,9 +2265,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private void removeCommitFile() {
     try {
-      final Path commitFile = resourceManager.getCommitFile();
-      if (java.nio.file.Files.exists(commitFile))
-        java.nio.file.Files.delete(resourceManager.getCommitFile());
+      deleteIfExists(resourceManager.getCommitFile());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -2526,8 +2527,48 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx commit(final String commitMessage) {
-    return doCommit(commitMessage);
+  public JsonNodeTrx commit(@Nullable final String commitMessage) {
+    nodeReadOnlyTrx.assertNotClosed();
+
+    // Optionally lock while commiting and assigning new instances.
+    acquireLockIfNecessary();
+    try {
+      state = State.Committing;
+
+      // Execute pre-commit hooks.
+      for (final PreCommitHook hook : preCommitHooks) {
+        hook.preCommit(this);
+      }
+
+      // Reset modification counter.
+      modificationCount = 0L;
+
+      final UberPage uberPage = pageTrx.commit(commitMessage);
+
+      // Remember successfully committed uber page in resource manager.
+      resourceManager.setLastCommittedUberPage(uberPage);
+
+      if (resourceManager.getResourceConfig().storeDiffs()) {
+        serializeUpdateDiffs();
+      }
+
+      // Reinstantiate everything.
+      if (afterCommitState == AfterCommitState.KeepOpen) {
+        reInstantiate(getId(), getRevisionNumber());
+        state = State.Running;
+      } else {
+        state = State.Committed;
+      }
+    } finally {
+      unLockIfNecessary();
+    }
+
+    // Execute post-commit hooks.
+    for (final PostCommitHook hook : postCommitHooks) {
+      hook.postCommit(this);
+    }
+
+    return this;
   }
 
   public void serializeUpdateDiffs() {
@@ -2589,51 +2630,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
       moveTo(nodeKey);
     }
-  }
-
-  @Override
-  public JsonNodeTrx doCommit(final String commitMessage) {
-    nodeReadOnlyTrx.assertNotClosed();
-
-    // Optionally lock while commiting and assigning new instances.
-    acquireLockIfNecessary();
-    try {
-      state = State.Committing;
-
-      // Execute pre-commit hooks.
-      for (final PreCommitHook hook : preCommitHooks) {
-        hook.preCommit(this);
-      }
-
-      // Reset modification counter.
-      modificationCount = 0L;
-
-      final UberPage uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
-
-      // Remember succesfully committed uber page in resource manager.
-      resourceManager.setLastCommittedUberPage(uberPage);
-
-      if (resourceManager.getResourceConfig().storeDiffs()) {
-        serializeUpdateDiffs();
-      }
-
-      // Reinstantiate everything.
-      if (afterCommitState == AfterCommitState.KeepOpen) {
-        reInstantiate(getId(), getRevisionNumber());
-        state = State.Running;
-      } else {
-        state = State.Committed;
-      }
-    } finally {
-      unLockIfNecessary();
-    }
-
-    // Execute post-commit hooks.
-    for (final PostCommitHook hook : postCommitHooks) {
-      hook.postCommit(this);
-    }
-
-    return this;
   }
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
