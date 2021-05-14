@@ -38,7 +38,7 @@ public final class IndexBuilder {
   /**
    * Build the index.
    *
-   * @param rtx the current {@link XmlNodeReadOnlyTrx}
+   * @param rtx the current {@link JsonNodeReadOnlyTrx}
    * @param builders the index builders
    */
   public static void build(final JsonNodeReadOnlyTrx rtx, final Set<JsonNodeVisitor> builders) {
