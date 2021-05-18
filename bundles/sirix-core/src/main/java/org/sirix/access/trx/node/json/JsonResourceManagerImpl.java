@@ -52,6 +52,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Provides node transactions on different revisions of JSON resources.
@@ -140,12 +141,14 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
     );
 
 
+    final Lock transactionLock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
+
     final var transaction = new JsonNodeTrxImpl(
             this,
             nodeReadOnlyTrx,
             pathSummaryWriter,
             maxNodeCount,
-            autoCommitDelay,
+            transactionLock,
             new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
             nodeFactory,
             afterCommitState,

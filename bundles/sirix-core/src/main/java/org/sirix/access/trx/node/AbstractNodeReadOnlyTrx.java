@@ -103,6 +103,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
+  public boolean storeDeweyIDs() {
+    return resourceManager.getResourceConfig().areDeweyIDsStored;
+  }
+
+  @Override
   public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
     return resourceManager;
   }

@@ -78,7 +78,7 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
-import java.time.Duration;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -101,7 +101,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode>
+final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory,
+        ImmutableNode, InternalJsonNodeReadOnlyTrx>
         implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
 
   /**
@@ -139,8 +140,6 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
    */
   private final boolean isAutoCommitting;
 
-  private final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx;
-
   /**
    * Constructor.
    *
@@ -162,12 +161,13 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
                   final InternalJsonNodeReadOnlyTrx nodeReadTrx,
                   @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
                   @Nonnegative final int maxNodeCount,
-                  final Duration autoCommitDelay,
+                  @Nullable final Lock transactionLock,
                   @Nonnull final JsonNodeHashing nodeHashing,
                   final JsonNodeFactory nodeFactory,
                   @Nonnull final AfterCommitState afterCommitState,
                   final RecordToRevisionsIndex nodeToRevisionsIndex,
-                  final TransactionCommitter committer, final boolean isAutoCommitting) {
+                  final TransactionCommitter committer,
+                  final boolean isAutoCommitting) {
     super(committer,
             resourceManager.getResourceConfig().hashType,
             nodeReadTrx,
@@ -178,12 +178,11 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
             pathSummaryWriter,
             nodeFactory,
             nodeToRevisionsIndex,
-            autoCommitDelay
+            transactionLock
     );
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative arguments for maxNodeCount are not accepted.");
 
-    this.nodeReadOnlyTrx = nodeReadTrx;
     final var resourceConfig = resourceManager.getResourceConfig();
     this.hashFunction = resourceConfig.nodeHashFunction;
 

@@ -21,22 +21,18 @@
 
 package org.sirix.access.trx.node.xml;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.User;
+import org.sirix.access.trx.node.AbstractNodeHashing;
+import org.sirix.access.trx.node.AbstractNodeTrxImpl;
 import org.sirix.access.trx.node.AfterCommitState;
-import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.InternalResourceManager.Abort;
+import org.sirix.access.trx.node.RecordToRevisionsIndex;
+import org.sirix.access.trx.node.TransactionCommitter;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.Movement;
 import org.sirix.api.PageTrx;
-import org.sirix.api.PostCommitHook;
-import org.sirix.api.PreCommitHook;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -44,10 +40,8 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.IndexType;
-import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.NodeKind;
@@ -69,7 +63,6 @@ import org.sirix.node.xml.NamespaceNode;
 import org.sirix.node.xml.PINode;
 import org.sirix.node.xml.TextNode;
 import org.sirix.page.NamePage;
-import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -82,19 +75,12 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
-import java.io.IOException;
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static java.nio.file.Files.deleteIfExists;
 
 /**
  * <p>
@@ -114,7 +100,9 @@ import static java.nio.file.Files.deleteIfExists;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implements XmlNodeTrx, InternalXmlNodeTrx {
+final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory,
+        ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
+        implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
   /**
    * Maximum number of node modifications before auto commit.
@@ -127,46 +115,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private final XmlDeweyIDManager deweyIDManager;
 
   /**
-   * Modification counter.
-   */
-  private long modificationCount;
-
-  /**
-   * Hash kind of Structure.
-   */
-  private final HashType hashType;
-
-  /**
-   * Scheduled executor service.
-   */
-  private final ScheduledExecutorService threadPool = Executors.newScheduledThreadPool(1);
-
-  /**
-   * {@link InternalXmlNodeReadOnlyTrx} reference.
-   */
-  private final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
-
-  /**
-   * {@link PathSummaryWriter} instance.
-   */
-  private PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
-
-  /**
-   * Determines if a path summary should be built and kept up-to-date or not.
-   */
-  private final boolean buildPathSummary;
-
-  /**
-   * {@link XmlNodeFactory} to be able to create nodes.
-   */
-  private XmlNodeFactory nodeFactory;
-
-  /**
-   * An optional lock for all methods, if an automatic commit is issued.
-   */
-  private final Lock lock;
-
-  /**
    * Determines if dewey IDs should be stored or not.
    */
   private final boolean storeDeweyIDs;
@@ -177,36 +125,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private final boolean useTextCompression;
 
   /**
-   * The {@link XmlIndexController} used within the resource manager this {@link XmlNodeTrx} is bound to.
-   */
-  private XmlIndexController indexController;
-
-  /**
-   * The resource manager.
-   */
-  private final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager;
-
-  /**
-   * The page write trx.
-   */
-  private PageTrx pageTrx;
-
-  /**
-   * Collection holding pre-commit hooks.
-   */
-  private final List<PreCommitHook> mPreCommitHooks = new ArrayList<>();
-
-  /**
-   * Collection holding post-commit hooks.
-   */
-  private final List<PostCommitHook> mPostCommitHooks = new ArrayList<>();
-
-  /**
-   * Hashes node contents.
-   */
-  private XmlNodeHashing nodeHashing;
-
-  /**
    * Flag to decide whether to store child count.
    */
   private final boolean storeChildCount;
@@ -215,49 +133,46 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    * Constructor.
    *
    * @param resourceManager   the resource manager this transaction is bound to
-   * @param nodeReadOnlyTrx   {@link PageTrx} to interact with the page layer
+   * @param nodeReadTrx   {@link PageTrx} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
    * @param maxNodeCount      maximum number of node modifications before auto commit
-   * @param timeUnit          unit of the number of the next param {@code pMaxTime}
-   * @param maxTime           maximum number of seconds before auto commit
    * @param nodeHashing       hashes node contents
    * @param nodeFactory       the node factory used to create nodes
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   XmlNodeTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
-      final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
-      final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
-      final @Nonnull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory,
-      final @Nonnull AfterCommitState afterCommitState) {
+                 final InternalXmlNodeReadOnlyTrx nodeReadTrx,
+                 final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
+                 final @Nonnegative int maxNodeCount,
+                 @Nullable final Lock transactionLock,
+                 final @Nonnull XmlNodeHashing nodeHashing,
+                 final XmlNodeFactory nodeFactory,
+                 final AfterCommitState afterCommitState,
+                 final RecordToRevisionsIndex nodeToRevisionsIndex,
+                 final TransactionCommitter committer) {
+
+    super(committer,
+            resourceManager.getResourceConfig().hashType,
+            nodeReadTrx,
+            nodeReadTrx,
+            resourceManager,
+            afterCommitState,
+            nodeHashing,
+            pathSummaryWriter,
+            nodeFactory,
+            nodeToRevisionsIndex,
+            transactionLock
+    );
+
     // Do not accept negative values.
-    Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
+    checkArgument(maxNodeCount >= 0,
                                 "Negative arguments for maxNodeCount and maxTime are not accepted.");
 
-    this.nodeHashing = Preconditions.checkNotNull(nodeHashing);
-    this.resourceManager = Preconditions.checkNotNull(resourceManager);
-    this.nodeReadOnlyTrx = Preconditions.checkNotNull(nodeReadOnlyTrx);
-    this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
-    this.pathSummaryWriter = Preconditions.checkNotNull(pathSummaryWriter);
-
-    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    pageTrx = (PageTrx) this.nodeReadOnlyTrx.getPageTrx();
     storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
 
-    this.nodeFactory = Preconditions.checkNotNull(nodeFactory);
-
-    // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
-    this.modificationCount = 0L;
 
-    if (maxTime > 0) {
-      threadPool.scheduleAtFixedRate(this::commit, maxTime, maxTime, timeUnit);
-    }
-
-    // Synchronize commit and other public methods if needed.
-    lock = maxTime > 0 ? new ReentrantLock() : null;
-
-    hashType = resourceManager.getResourceConfig().hashType;
     storeDeweyIDs = resourceManager.getResourceConfig().areDeweyIDsStored;
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
 
@@ -274,33 +189,12 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
-  public SirixDeweyID getDeweyID() {
-    return getNode().getDeweyID();
-  }
-
-  @Override
-  public boolean storeDeweyIDs() {
-    return storeDeweyIDs;
-  }
-
-  @Override
-  public Optional<User> getUser() {
-    return resourceManager.getUser();
-  }
-
-  @Override
-  public Optional<User> getUserOfRevisionToRepresent() {
-    return nodeReadOnlyTrx.getUser();
-  }
-
-  @Override
   public XmlNodeTrx moveSubtreeToFirstChild(final @Nonnegative long fromKey) {
-    acquireLock();
-    try {
-      Preconditions.checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(), "Argument must be a valid node key!");
+    return supplyLocked(() -> {
+      checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(), "Argument must be a valid node key!");
 
-      Preconditions.checkArgument(fromKey != getCurrentNode().getNodeKey(),
-                                  "Can't move itself to right sibling of itself!");
+      checkArgument(fromKey != getCurrentNode().getNodeKey(),
+              "Can't move itself to right sibling of itself!");
 
       final Optional<DataRecord> node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
       if (node.isEmpty()) {
@@ -333,11 +227,11 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           // Adapt path summary.
           if (buildPathSummary && toMove instanceof NameNode moved) {
             pathSummaryWriter.adaptPathForChangedNode(moved,
-                                                      getName(),
-                                                      moved.getURIKey(),
-                                                      moved.getPrefixKey(),
-                                                      moved.getLocalNameKey(),
-                                                      OPType.MOVED);
+                    getName(),
+                    moved.getURIKey(),
+                    moved.getPrefixKey(),
+                    moved.getLocalNameKey(),
+                    OPType.MOVED);
           }
 
           // Adapt index-structures (after move).
@@ -351,20 +245,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         return this;
       } else {
         throw new SirixUsageException(
-            "Move is not allowed if moved node is not an ElementNode and the node isn't inserted at an element node!");
+                "Move is not allowed if moved node is not an ElementNode and the node isn't inserted at an element node!");
       }
-    } finally {
-      unLock();
-    }
-  }
-
-  /**
-   * Get the current node.
-   *
-   * @return {@link Node} implementation
-   */
-  private ImmutableXmlNode getCurrentNode() {
-    return nodeReadOnlyTrx.getCurrentNode();
+    });
   }
 
   /**
@@ -409,8 +292,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
   @Override
   public XmlNodeTrx moveSubtreeToLeftSibling(final @Nonnegative long fromKey) {
-    acquireLock();
-    try {
+    return supplyLocked(() -> {
       if (nodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
         moveToLeftSibling();
         return moveSubtreeToRightSibling(fromKey);
@@ -418,15 +300,12 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         moveToParent();
         return moveSubtreeToFirstChild(fromKey);
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
   public XmlNodeTrx moveSubtreeToRightSibling(final @Nonnegative long fromKey) {
-    acquireLock();
-    try {
+    return supplyLocked(() -> {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
         throw new IllegalArgumentException("Argument must be a valid node key!");
       }
@@ -462,11 +341,11 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
             if (type != OPType.MOVED_ON_SAME_LEVEL) {
               pathSummaryWriter.adaptPathForChangedNode(moved,
-                                                        getName(),
-                                                        moved.getURIKey(),
-                                                        moved.getPrefixKey(),
-                                                        moved.getLocalNameKey(),
-                                                        type);
+                      getName(),
+                      moved.getURIKey(),
+                      moved.getPrefixKey(),
+                      moved.getLocalNameKey(),
+                      type);
             }
           }
 
@@ -478,11 +357,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         return this;
       } else {
         throw new SirixUsageException(
-            "Move is not allowed if moved node is not an ElementNode or TextNode and the node isn't inserted at an ElementNode or TextNode!");
+                "Move is not allowed if moved node is not an ElementNode or TextNode and the node isn't inserted at an ElementNode or TextNode!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   /**
@@ -615,8 +492,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       final NodeKind kind = nodeReadOnlyTrx.getCurrentNode().getKind();
       if (kind == NodeKind.ELEMENT || kind == NodeKind.XML_DOCUMENT) {
         checkAccessAndCommit();
@@ -628,7 +505,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final long pathNodeKey = buildPathSummary ? pathSummaryWriter.getPathNodeKey(name, NodeKind.ELEMENT) : 0;
         final SirixDeweyID id = deweyIDManager.newFirstChildID();
         final ElementNode node =
-            nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+                nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
 
         nodeReadOnlyTrx.setCurrentNode(node);
         adaptForInsert(node, InsertPos.ASFIRSTCHILD);
@@ -639,9 +516,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
@@ -649,8 +524,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XML_DOCUMENT) {
         checkAccessAndCommit();
 
@@ -665,7 +540,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
         final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
         final ElementNode node =
-            nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+                nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
 
         nodeReadOnlyTrx.setCurrentNode(node);
         adaptForInsert(node, InsertPos.ASLEFTSIBLING);
@@ -675,11 +550,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         return this;
       } else {
         throw new SirixUsageException(
-            "Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
+                "Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
@@ -687,8 +560,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode && !isDocumentRoot()) {
         checkAccessAndCommit();
 
@@ -703,7 +576,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
         final SirixDeweyID id = deweyIDManager.newRightSiblingID();
         final ElementNode node =
-            nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+                nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
 
         nodeReadOnlyTrx.setCurrentNode(node);
         adaptForInsert(node, InsertPos.ASRIGHTSIBLING);
@@ -713,11 +586,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         return this;
       } else {
         throw new SirixUsageException(
-            "Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
+                "Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
@@ -746,8 +617,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     } catch (XMLStreamException e) {
       throw new IllegalArgumentException(e);
     }
-    acquireLock();
-    try {
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode) {
         checkAccessAndCommit();
         nodeHashing.setBulkInsert(true);
@@ -776,10 +646,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         commit();
         nodeHashing.setBulkInsert(false);
       }
-    } finally {
-      unLock();
-    }
-    return this;
+      return this;
+    });
   }
 
   private void nonElementHashes() {
@@ -824,8 +692,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (content.contains("?>-")) {
       throw new SirixUsageException("The content must not contain '?>-'");
     }
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode) {
         checkAccessAndCommit();
 
@@ -862,15 +730,15 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
         final QNm targetName = new QNm(target);
         final long pathNodeKey =
-            buildPathSummary ? pathSummaryWriter.getPathNodeKey(targetName, NodeKind.PROCESSING_INSTRUCTION) : 0;
+                buildPathSummary ? pathSummaryWriter.getPathNodeKey(targetName, NodeKind.PROCESSING_INSTRUCTION) : 0;
         final PINode node = nodeFactory.createPINode(parentKey,
-                                                     leftSibKey,
-                                                     rightSibKey,
-                                                     targetName,
-                                                     processingContent,
-                                                     useTextCompression,
-                                                     pathNodeKey,
-                                                     id);
+                leftSibKey,
+                rightSibKey,
+                targetName,
+                processingContent,
+                useTextCompression,
+                pathNodeKey,
+                id);
 
         // Adapt local nodes and hashes.
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -882,9 +750,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Current node must be a structural node!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
@@ -917,10 +783,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (value.endsWith("-")) {
       throw new SirixUsageException("Comment content must not end with \"-\"!");
     }
-    acquireLock();
-    try {
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != NodeKind.XML_DOCUMENT || (
-          getCurrentNode().getKind() == NodeKind.XML_DOCUMENT && insert == InsertPosition.AS_FIRST_CHILD))) {
+              getCurrentNode().getKind() == NodeKind.XML_DOCUMENT && insert == InsertPosition.AS_FIRST_CHILD))) {
         checkAccessAndCommit();
 
         // Insert new comment node.
@@ -957,7 +822,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         }
 
         final CommentNode node =
-            nodeFactory.createCommentNode(parentKey, leftSibKey, rightSibKey, commentValue, useTextCompression, id);
+                nodeFactory.createCommentNode(parentKey, leftSibKey, rightSibKey, commentValue, useTextCompression, id);
 
         // Adapt local nodes and hashes.
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -969,16 +834,14 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Current node must be a structural node!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
   public XmlNodeTrx insertTextAsFirstChild(final String value) {
     checkNotNull(value);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode && !value.isEmpty()) {
         checkAccessAndCommit();
 
@@ -1002,7 +865,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final byte[] textValue = getBytes(value);
         final SirixDeweyID id = deweyIDManager.newFirstChildID();
         final TextNode node =
-            nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+                nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
         // Adapt local nodes and hashes.
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -1017,18 +880,16 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode or TextNode!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
   public XmlNodeTrx insertTextAsLeftSibling(final String value) {
     checkNotNull(value);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XML_DOCUMENT
-          && !value.isEmpty()) {
+              && !value.isEmpty()) {
         checkAccessAndCommit();
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -1063,7 +924,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final byte[] textValue = getBytes(builder.toString());
         final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
         final TextNode node =
-            nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+                nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
         // Adapt local nodes and hashes.
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -1082,18 +943,16 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Insert is not allowed if current node is not an Element- or Text-node!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
   public XmlNodeTrx insertTextAsRightSibling(final String value) {
     checkNotNull(value);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XML_DOCUMENT
-          && !value.isEmpty()) {
+              && !value.isEmpty()) {
         checkAccessAndCommit();
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -1127,7 +986,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
         final TextNode node =
-            nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+                nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
         // Adapt local nodes and hashes.
         nodeReadOnlyTrx.setCurrentNode(node);
@@ -1145,11 +1004,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         return this;
       } else {
         throw new SirixUsageException(
-            "Insert is not allowed if current node is not an Element- or Text-node or value is empty!");
+                "Insert is not allowed if current node is not an Element- or Text-node or value is empty!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   /**
@@ -1173,8 +1030,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode().getKind() == NodeKind.ELEMENT) {
         checkAccessAndCommit();
 
@@ -1201,8 +1058,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
         // Get the path node key.
         final long pathNodeKey = resourceManager.getResourceConfig().withPathSummary ? pathSummaryWriter.getPathNodeKey(
-            name,
-            NodeKind.ATTRIBUTE) : 0;
+                name,
+                NodeKind.ATTRIBUTE) : 0;
         final byte[] attValue = getBytes(value);
 
         final SirixDeweyID id = deweyIDManager.newAttributeID();
@@ -1225,9 +1082,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
@@ -1240,8 +1095,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode().getKind() == NodeKind.ELEMENT) {
         checkAccessAndCommit();
 
@@ -1272,9 +1127,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   /**
@@ -1298,8 +1151,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   @Override
   public XmlNodeTrx remove() {
     checkAccessAndCommit();
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode().getKind() == NodeKind.XML_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       } else if (getCurrentNode() instanceof StructNode) {
@@ -1368,9 +1221,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       }
 
       return this;
-    } finally {
-      unLock();
-    }
+    });
   }
 
   private void removeValue() throws SirixIOException {
@@ -1430,8 +1281,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   @Override
   public XmlNodeTrx setName(final QNm name) {
     checkNotNull(name);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof NameNode) {
         if (!getName().equals(name)) {
           checkAccessAndCommit();
@@ -1451,16 +1302,16 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
           // Create new keys for mapping.
           final int prefixKey =
-              name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
-                                                                                              node.getKind()) : -1;
+                  name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
+                          node.getKind()) : -1;
           final int localNameKey =
-              name.getLocalName() != null && !name.getLocalName().isEmpty()
-                  ? pageTrx.createNameKey(name.getLocalName(),
-                                          node.getKind())
-                  : -1;
+                  name.getLocalName() != null && !name.getLocalName().isEmpty()
+                          ? pageTrx.createNameKey(name.getLocalName(),
+                          node.getKind())
+                          : -1;
           final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
-              ? pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
-              : -1;
+                  ? pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
+                  : -1;
 
           // Set new keys for current node.
           node = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
@@ -1484,16 +1335,14 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       } else {
         throw new SirixUsageException("setName is not allowed if current node is not an INameNode implementation!");
       }
-    } finally {
-      unLock();
-    }
+    });
   }
 
   @Override
   public XmlNodeTrx setValue(final String value) {
     checkNotNull(value);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       if (getCurrentNode() instanceof ValueNode) {
         checkAccessAndCommit();
 
@@ -1514,7 +1363,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         final byte[] byteVal = getBytes(value);
 
         final ValueNode node =
-            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+                pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         node.setValue(byteVal);
 
         nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
@@ -1526,186 +1375,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         return this;
       } else {
         throw new SirixUsageException(
-            "setValue(String) is not allowed if current node is not an IValNode implementation!");
+                "setValue(String) is not allowed if current node is not an IValNode implementation!");
       }
-    } finally {
-      unLock();
-    }
-  }
-
-  @Override
-  public XmlNodeTrx revertTo(final @Nonnegative int revision) {
-    acquireLock();
-    try {
-      nodeReadOnlyTrx.assertNotClosed();
-      resourceManager.assertAccess(revision);
-
-      // Close current page transaction.
-      final long trxID = getId();
-      final int revNumber = getRevisionNumber();
-
-      // Reset internal transaction state to new uber page.
-      resourceManager.closeNodePageWriteTransaction(getId());
-      pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
-      nodeReadOnlyTrx.setPageReadTransaction(null);
-      nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-      resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
-
-      nodeHashing = new XmlNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
-
-      // Reset node factory.
-      nodeFactory = null;
-      nodeFactory = new XmlNodeFactoryImpl(resourceManager.getResourceConfig().nodeHashFunction, pageTrx);
-
-      // New index instances.
-      reInstantiateIndexes();
-
-      // Reset modification counter.
-      modificationCount = 0L;
-
-      // Move to document root.
-      moveToDocumentRoot();
-
-      return this;
-    } finally {
-      unLock();
-    }
-  }
-
-  @Override
-  public void close() {
-    acquireLock();
-    try {
-      if (!isClosed()) {
-        // Make sure to commit all dirty data.
-        if (modificationCount > 0) {
-          throw new SirixUsageException("Must commit/rollback transaction first!");
-        }
-
-        // Release all state immediately.
-        final long trxId = getId();
-        nodeReadOnlyTrx.close();
-        resourceManager.closeWriteTransaction(trxId);
-        removeCommitFile();
-
-        pathSummaryWriter = null;
-        nodeFactory = null;
-
-        // Shutdown pool.
-        threadPool.shutdown();
-        try {
-          threadPool.awaitTermination(2, TimeUnit.SECONDS);
-        } catch (final InterruptedException e) {
-          throw new SirixThreadedException(e);
-        }
-      }
-    } finally {
-      unLock();
-    }
-  }
-
-  @Override
-  public XmlNodeTrx rollback() {
-    acquireLock();
-    try {
-      nodeReadOnlyTrx.assertNotClosed();
-
-      // Reset modification counter.
-      modificationCount = 0L;
-
-      // Close current page transaction.
-      final long trxID = getId();
-      final int revision = getRevisionNumber();
-      final int revNumber = pageTrx.getUberPage().isBootstrap() ? 0 : revision - 1;
-
-      final UberPage uberPage = pageTrx.rollback();
-
-      // Remember succesfully committed uber page in resource manager.
-      resourceManager.setLastCommittedUberPage(uberPage);
-
-      resourceManager.closeNodePageWriteTransaction(getId());
-      nodeReadOnlyTrx.setPageReadTransaction(null);
-      removeCommitFile();
-
-      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
-      nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-      resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
-
-      nodeFactory = null;
-      nodeFactory = new XmlNodeFactoryImpl(resourceManager.getResourceConfig().nodeHashFunction, pageTrx);
-
-      reInstantiateIndexes();
-
-      return this;
-    } finally {
-      unLock();
-    }
-  }
-
-  @Override
-  public void adaptHashesInPostorderTraversal() {
-    if (hashType != HashType.NONE) {
-      final long nodeKey = getCurrentNode().getNodeKey();
-      postOrderTraversalHashes();
-      final ImmutableNode startNode = getCurrentNode();
-      moveToParent();
-      while (getCurrentNode().hasParent()) {
-        moveToParent();
-        nodeHashing.addParentHash(startNode);
-      }
-      moveTo(nodeKey);
-    }
-  }
-
-  private void removeCommitFile() {
-    try {
-      deleteIfExists(resourceManager.getCommitFile());
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
-
-  @Override
-  public XmlNodeTrx commit() {
-    return commit(null);
-  }
-
-  private void reInstantiateIndexes() {
-    // Get a new path summary instance.
-    if (buildPathSummary) {
-      pathSummaryWriter = null;
-      pathSummaryWriter =
-          new PathSummaryWriter<>(pageTrx, nodeReadOnlyTrx.getResourceManager(), nodeFactory, nodeReadOnlyTrx);
-    }
-
-    // Recreate index listeners.
-    final var indexDefs = indexController.getIndexes().getIndexDefs();
-    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    indexController.createIndexListeners(indexDefs, this);
-  }
-
-  /**
-   * Modifying hashes in a postorder-traversal.
-   *
-   * @throws SirixIOException if an I/O error occurs
-   */
-  private void postOrderTraversalHashes() {
-    new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> {
-      final StructNode node = nodeReadOnlyTrx.getStructuralNode();
-      if (node.getKind() == NodeKind.ELEMENT) {
-        final ElementNode element = (ElementNode) node;
-        for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
-          moveToNamespace(i);
-          nodeHashing.addHashAndDescendantCount();
-          moveToParent();
-        }
-        for (int i = 0, attCount = element.getAttributeCount(); i < attCount; i++) {
-          moveToAttribute(i);
-          nodeHashing.addHashAndDescendantCount();
-          moveToParent();
-        }
-      }
-      nodeHashing.addHashAndDescendantCount();
     });
   }
 
@@ -1879,71 +1550,46 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     }
   }
 
-  /**
-   * Set new descendant count of ancestor after an add-operation.
-   *
-   * @param startNode       the node which has been removed
-   * @param nodeToModify    node to modify
-   * @param descendantCount the descendantCount to add
-   */
-  private static void setAddDescendants(final ImmutableNode startNode, final Node nodeToModify,
-      final @Nonnegative long descendantCount) {
-    assert startNode != null;
-    assert descendantCount >= 0;
-    assert nodeToModify != null;
-    if (startNode instanceof StructNode) {
-      final StructNode node = (StructNode) nodeToModify;
-      final long oldDescendantCount = node.getDescendantCount();
-      node.setDescendantCount(oldDescendantCount + descendantCount);
-    }
-  }
-
   @Override
   public XmlNodeTrx copySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
       copy(rtx, InsertPosition.AS_FIRST_CHILD);
       moveTo(nodeKey);
       moveToFirstChild();
-    } finally {
-      unLock();
-    }
-    return this;
+      return this;
+    });
   }
 
   @Override
   public XmlNodeTrx copySubtreeAsLeftSibling(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
       copy(rtx, InsertPosition.AS_LEFT_SIBLING);
       moveTo(nodeKey);
       moveToFirstChild();
-    } finally {
-      unLock();
-    }
-    return this;
+      return this;
+    });
   }
 
   @Override
   public XmlNodeTrx copySubtreeAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
       copy(rtx, InsertPosition.AS_RIGHT_SIBLING);
       moveTo(nodeKey);
       moveToRightSibling();
-    } finally {
-      unLock();
-    }
-    return this;
+      return this;
+    });
   }
 
   /**
@@ -2006,8 +1652,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   @Override
   public XmlNodeTrx replaceNode(final XMLEventReader reader) {
     checkNotNull(reader);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       checkAccessAndCommit();
 
       if (getCurrentNode() instanceof StructNode) {
@@ -2024,14 +1670,11 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         }
 
         insertAndThenRemove(reader, pos, anchorNodeKey);
+        return this;
       } else {
         throw new IllegalArgumentException("Not supported for attributes / namespaces.");
       }
-    } finally {
-      unLock();
-    }
-
-    return this;
+    });
   }
 
   private void insertAndThenRemove(final XMLEventReader reader, InsertPosition pos, long anchorNodeKey) {
@@ -2048,16 +1691,15 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XmlNodeTrx setBulkInsertion(boolean bulkInsertion) {
-    nodeHashing.setBulkInsert(bulkInsertion);
+  protected XmlNodeTrx self() {
     return this;
   }
 
   @Override
   public XmlNodeTrx replaceNode(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
-    acquireLock();
-    try {
+
+    return supplyLocked(() -> {
       /*
        * #text1 <emptyElement/> #text2 | <emptyElement/> #text <emptyElement/>
        *
@@ -2089,10 +1731,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         }
         default -> throw new UnsupportedOperationException("Node type not supported!");
       }
-    } finally {
-      unLock();
-    }
-    return this;
+      return this;
+    });
   }
 
   /**
@@ -2149,155 +1789,18 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("readTrx", nodeReadOnlyTrx.toString())
-                      .add("hashKind", hashType)
-                      .toString();
-  }
-
-  @Override
-  protected XmlNodeReadOnlyTrx delegate() {
+  public XmlNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
     return nodeReadOnlyTrx;
   }
 
   @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XmlNodeTrxImpl wtx) {
-      return Objects.equal(nodeReadOnlyTrx, wtx.nodeReadOnlyTrx);
-    }
-    return false;
+  protected AbstractNodeHashing<ImmutableXmlNode> reInstantiateNodeHashing(final HashType hashType, final PageTrx pageTrx) {
+    return new XmlNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
   }
 
   @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeReadOnlyTrx);
-  }
+  protected XmlNodeFactory reInstantiateNodeFactory(final PageTrx pageTrx) {
 
-  @Override
-  public PathSummaryReader getPathSummary() {
-    acquireLock();
-    try {
-      return pathSummaryWriter.getPathSummary();
-    } finally {
-      unLock();
-    }
-  }
-
-  /**
-   * Acquire a lock if necessary.
-   */
-  void acquireLock() {
-    if (lock != null) {
-      lock.lock();
-    }
-  }
-
-  /**
-   * Release a lock if necessary.
-   */
-  void unLock() {
-    if (lock != null) {
-      lock.unlock();
-    }
-  }
-
-  @Override
-  public XmlNodeTrx addPreCommitHook(final PreCommitHook hook) {
-    acquireLock();
-    try {
-      mPreCommitHooks.add(checkNotNull(hook));
-      return this;
-    } finally {
-      unLock();
-    }
-  }
-
-  @Override
-  public XmlNodeTrx addPostCommitHook(final PostCommitHook hook) {
-    acquireLock();
-    try {
-      mPostCommitHooks.add(checkNotNull(hook));
-      return this;
-    } finally {
-      unLock();
-    }
-  }
-
-  @Override
-  public XmlNodeTrx truncateTo(final int revision) {
-    nodeReadOnlyTrx.assertNotClosed();
-
-    // TODO
-
-    return this;
-  }
-
-  @Override
-  public CommitCredentials getCommitCredentials() {
-    nodeReadOnlyTrx.assertNotClosed();
-
-    return nodeReadOnlyTrx.getCommitCredentials();
-  }
-
-  @Override
-  public XmlNodeTrx commit(final String commitMessage) {
-    nodeReadOnlyTrx.assertNotClosed();
-
-    // Optionally lock while commiting and assigning new instances.
-    acquireLock();
-    try {
-      // Execute pre-commit hooks.
-      for (final PreCommitHook hook : mPreCommitHooks) {
-        hook.preCommit(this);
-      }
-
-      // Reset modification counter.
-      modificationCount = 0L;
-
-      final UberPage uberPage = pageTrx.commit(commitMessage);
-
-      // Remember succesfully committed uber page in resource manager.
-      resourceManager.setLastCommittedUberPage(uberPage);
-
-      // Reinstantiate everything.
-      reInstantiate(getId(), getRevisionNumber());
-    } finally {
-      unLock();
-    }
-
-    // Execute post-commit hooks.
-    for (final PostCommitHook hook : mPostCommitHooks) {
-      hook.postCommit(this);
-    }
-
-    return this;
-  }
-
-  /**
-   * Create new instances.
-   *
-   * @param trxID     transaction ID
-   * @param revNumber revision number
-   */
-  void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
-    // Reset page transaction to new uber page.
-    resourceManager.closeNodePageWriteTransaction(getId());
-    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
-    nodeReadOnlyTrx.setPageReadTransaction(null);
-    nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-    resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
-
-    nodeFactory = null;
-    nodeFactory = new XmlNodeFactoryImpl(resourceManager.getResourceConfig().nodeHashFunction, pageTrx);
-    nodeHashing = new XmlNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
-
-    reInstantiateIndexes();
-  }
-
-  @Override
-  public PageTrx getPageWtx() {
-    nodeReadOnlyTrx.assertNotClosed();
-    return pageTrx;
+    return new XmlNodeFactoryImpl(resourceManager.getResourceConfig().nodeHashFunction, pageTrx);
   }
 }

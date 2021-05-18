@@ -25,7 +25,6 @@ import org.sirix.page.UberPage;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,7 +34,6 @@ import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -47,7 +45,9 @@ import static java.nio.file.Files.deleteIfExists;
  * @author Joao Sousa
  */
 public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor,
-        NF extends NodeFactory, N extends ImmutableNode> implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
+        NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>> implements NodeReadOnlyTrx,
+        InternalNodeTrx<W>,
+        NodeCursor {
 
     private final TransactionCommitter committer;
 
@@ -59,7 +59,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     /**
      * {@link InternalJsonNodeReadOnlyTrx} reference.
      */
-    private final InternalNodeReadOnlyTrx nodeReadOnlyTrx;
+    protected final IN nodeReadOnlyTrx;
     private final R typeSpecificTrx;
 
     /**
@@ -141,6 +141,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     protected int beforeBulkInsertionRevisionNumber;
 
     /**
+     * Hashes nodes.
+     */
+    protected AbstractNodeHashing<N> nodeHashing;
+
+    /**
      * The transaction states.
      */
     private enum State {
@@ -151,16 +156,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         Committed,
 
         Closed
-    }
 
-    /**
-     * Hashes nodes.
-     */
-    protected AbstractNodeHashing<N> nodeHashing;
+    }
 
     public AbstractNodeTrxImpl(final TransactionCommitter committer,
                                final HashType hashType,
-                               final InternalNodeReadOnlyTrx nodeReadOnlyTrx,
+                               final IN nodeReadOnlyTrx,
                                final R typeSpecificTrx,
                                final InternalResourceManager<R, W> resourceManager,
                                final AfterCommitState afterCommitState,
@@ -168,28 +169,28 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                                final PathSummaryWriter<R> pathSummaryWriter,
                                final NF nodeFactory,
                                final RecordToRevisionsIndex nodeToRevisionsIndex,
-                               final Duration autoCommitDelay) {
+                               @Nullable final Lock transactionLock) {
         this.committer = committer;
 
         this.hashType = hashType;
         this.nodeReadOnlyTrx = checkNotNull(nodeReadOnlyTrx);
         this.typeSpecificTrx = typeSpecificTrx;
         this.resourceManager = checkNotNull(resourceManager);
-        this.lock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
+        this.lock = transactionLock;
         this.afterCommitState = checkNotNull(afterCommitState);
         this.nodeHashing = checkNotNull(nodeHashing);
         this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
         this.nodeFactory = checkNotNull(nodeFactory);
         this.pathSummaryWriter = pathSummaryWriter;
-        indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+        this.indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
         this.nodeToRevisionsIndex = checkNotNull(nodeToRevisionsIndex);
 
-        updateOperationsOrdered = new TreeMap<>();
-        updateOperationsUnordered = new HashMap<>();
+        this.updateOperationsOrdered = new TreeMap<>();
+        this.updateOperationsUnordered = new HashMap<>();
 
-        pageTrx = (PageTrx) nodeReadOnlyTrx.getPageTrx();
-        modificationCount = 0L;
-        state = State.Running;
+        this.pageTrx = (PageTrx) nodeReadOnlyTrx.getPageTrx();
+        this.modificationCount = 0L;
+        this.state = State.Running;
     }
 
     protected abstract W self();
@@ -216,7 +217,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
      *
      * @return {@link Node} implementation
      */
-    protected ImmutableNode getCurrentNode() {
+    protected N getCurrentNode() {
         return nodeReadOnlyTrx.getCurrentNode();
     }
 
@@ -272,7 +273,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     @Override
-    public NodeTrx commit(@Nullable final String commitMessage) {
+    public W commit(@Nullable final String commitMessage) {
         nodeReadOnlyTrx.assertNotClosed();
 
         runLocked(() -> {
@@ -315,7 +316,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
             hook.postCommit(this);
         }
 
-        return this;
+        return self();
     }
 
     /**
@@ -345,7 +346,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         reInstantiateIndexes();
     }
 
-    protected abstract AbstractNodeHashing reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx);
+    protected abstract AbstractNodeHashing<N> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx);
 
     protected abstract NF reInstantiateNodeFactory(PageTrx pageTrx);
 
@@ -369,7 +370,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     @Override
-    public NodeTrx rollback() {
+    public W rollback() {
 
         return supplyLocked(() -> {
             nodeReadOnlyTrx.assertNotClosed();
@@ -399,7 +400,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
             reInstantiateIndexes();
 
-            return this;
+            return self();
         });
     }
 
@@ -412,7 +413,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     @Override
-    public NodeTrx revertTo(final int revision) {
+    public W revertTo(final int revision) {
 
         return supplyLocked(() -> {
             nodeReadOnlyTrx.assertNotClosed();
@@ -449,33 +450,33 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
             // Move to document root.
             moveToDocumentRoot();
 
-            return this;
+            return self();
         });
     }
 
     @Override
-    public NodeTrx addPreCommitHook(final PreCommitHook hook) {
+    public W addPreCommitHook(final PreCommitHook hook) {
         return supplyLocked(() -> {
             preCommitHooks.add(checkNotNull(hook));
-            return this;
+            return self();
         });
     }
 
     @Override
-    public NodeTrx addPostCommitHook(final PostCommitHook hook) {
+    public W addPostCommitHook(final PostCommitHook hook) {
         return supplyLocked(() -> {
             postCommitHooks.add(checkNotNull(hook));
-            return this;
+            return self();
         });
     }
 
     @Override
-    public NodeTrx truncateTo(final int revision) {
+    public W truncateTo(final int revision) {
         nodeReadOnlyTrx.assertNotClosed();
 
         // TODO
 
-        return this;
+        return self();
     }
 
     @Override
@@ -536,7 +537,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     public boolean equals(final Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        final AbstractNodeTrxImpl<?, ?, ?, ?> that = (AbstractNodeTrxImpl<?, ?, ?, ?>) o;
+        final AbstractNodeTrxImpl<?, ?, ?, ?, ?> that = (AbstractNodeTrxImpl<?, ?, ?, ?, ?>) o;
         return nodeReadOnlyTrx.equals(that.nodeReadOnlyTrx);
     }
 
