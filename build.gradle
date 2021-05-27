@@ -10,7 +10,7 @@ buildscript {
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.0"
         classpath 'net.researchgate:gradle-release:2.8.1'
-        classpath "com.github.ben-manes:gradle-versions-plugin:0.38.0"
+        classpath "com.github.ben-manes:gradle-versions-plugin:0.39.0"
         classpath "com.github.jengelman.gradle.plugins:shadow:6.1.0"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:5.12.5"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
