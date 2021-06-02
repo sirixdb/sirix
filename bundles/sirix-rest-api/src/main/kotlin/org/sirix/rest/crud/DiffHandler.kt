@@ -40,6 +40,7 @@ class DiffHandler(private val location: Path) {
         val database = openDatabase(databaseName)
 
         val diff = context.executeBlocking<String> { resultPromise ->
+            var diffString: String? = null
             database.use {
                 val resourceManager = database.openResourceManager(resourceName)
 
@@ -62,41 +63,40 @@ class DiffHandler(private val location: Path) {
                         if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
                             if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
                                 val diffPath = resourceManager.getResourceConfig()
-                                        .resource
-                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
-                                        .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
+                                    .resource
+                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
+                                    .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
 
-                                resultPromise.complete(Files.readString(diffPath))
+                                diffString = Files.readString(diffPath)
                             } else {
                                 val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
 
                                 rtx.use {
-                                    useUpdateOperations(
-                                            rtx,
-                                            startNodeKeyAsLong,
-                                            databaseName,
-                                            resourceName,
-                                            firstRevision,
-                                            secondRevision,
-                                            maxDepthAsLong,
-                                            resultPromise
+                                    diffString = useUpdateOperations(
+                                        rtx,
+                                        startNodeKeyAsLong,
+                                        databaseName,
+                                        resourceName,
+                                        firstRevision,
+                                        secondRevision,
+                                        maxDepthAsLong
                                     )
                                 }
                             }
                         } else {
-                            resultPromise.complete(
-                                    BasicJsonDiff().generateDiff(
-                                            resourceManager,
-                                            firstRevision.toInt(),
-                                            secondRevision.toInt(),
-                                            startNodeKeyAsLong,
-                                            maxDepthAsLong
-                                    )
+                            diffString = BasicJsonDiff().generateDiff(
+                                resourceManager,
+                                firstRevision.toInt(),
+                                secondRevision.toInt(),
+                                startNodeKeyAsLong,
+                                maxDepthAsLong
                             )
                         }
                     }
                 }
             }
+
+            resultPromise.complete(diffString)
         }.await()
 
         LOGGER.debug("Open databases: ${DatabasesInternals.getOpenDatabases()}")
@@ -114,29 +114,27 @@ class DiffHandler(private val location: Path) {
     }
 
     private fun useUpdateOperations(
-            rtx: JsonNodeReadOnlyTrx,
-            startNodeKeyAsLong: Long,
-            databaseName: String,
-            resourceName: String,
-            firstRevision: String,
-            secondRevision: String,
-            maxDepthAsLong: Long,
-            resultPromise: Promise<String>
-    ) {
+        rtx: JsonNodeReadOnlyTrx,
+        startNodeKeyAsLong: Long,
+        databaseName: String,
+        resourceName: String,
+        firstRevision: String,
+        secondRevision: String,
+        maxDepthAsLong: Long
+    ): String {
         rtx.moveTo(startNodeKeyAsLong)
         val metaInfo = createMetaInfo(
-                databaseName,
-                resourceName,
-                firstRevision.toInt(),
-                secondRevision.toInt()
+            databaseName,
+            resourceName,
+            firstRevision.toInt(),
+            secondRevision.toInt()
         )
 
         val diffs = metaInfo.getAsJsonArray("diffs")
         val updateOperations =
-                rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
+            rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
         updateOperations.forEach { diffs.add(it) }
-        val json = metaInfo.toString()
-        resultPromise.complete(json)
+        return metaInfo.toString()
     }
 
     private fun openDatabase(databaseName: String): Database<*> {
@@ -148,8 +146,8 @@ class DiffHandler(private val location: Path) {
     }
 
     private fun createMetaInfo(
-            databaseName: String, resourceName: String, oldRevision: Int,
-            newRevision: Int
+        databaseName: String, resourceName: String, oldRevision: Int,
+        newRevision: Int
     ): JsonObject {
         val json = JsonObject()
         json.addProperty("database", databaseName)

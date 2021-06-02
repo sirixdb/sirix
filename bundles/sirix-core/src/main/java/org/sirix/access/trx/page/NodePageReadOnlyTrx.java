@@ -303,7 +303,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
       RevisionRootPage page;
 
-      if (formerTrxIntentLog != null && (cont == null || PageContainer.emptyInstance().equals(cont))) {
+      if (formerTrxIntentLog != null && cont == null) {
         cont = formerTrxIntentLog.get(reference, this);
 
         if (cont == null) {
@@ -311,8 +311,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         } else {
           page = (RevisionRootPage) cont.getComplete();
         }
-      } else {
+      } else if (cont != null) {
         page = (RevisionRootPage) cont.getComplete();
+      } else {
+        page = null;
       }
 
       if (page == null && reference != null) {
