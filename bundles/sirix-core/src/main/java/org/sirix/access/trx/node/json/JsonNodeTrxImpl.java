@@ -67,7 +67,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.*;
 import org.sirix.page.NamePage;
-import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -2140,6 +2139,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx revertTo(final @Nonnegative int revision) {
     acquireLockIfNecessary();
+    commitLock.lock();
     try {
       nodeReadOnlyTrx.assertNotClosed();
       resourceManager.assertAccess(revision);
@@ -2177,12 +2177,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       return this;
     } finally {
       unLockIfNecessary();
+      commitLock.unlock();
     }
   }
 
   @Override
   public void close() {
     acquireLockIfNecessary();
+    //    commitLock.lock();
     try {
       if (!isClosed()) {
         // Make sure to commit all dirty data.
@@ -2192,6 +2194,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
         // Release all state immediately.
         final long trxId = getId();
+        final var pageTrx = getPageWtx();
+        pageTrx.getLog().close();
+        if (pageTrx.getFormerLog() != null) {
+          pageTrx.getFormerLog().close();
+        }
         nodeReadOnlyTrx.close();
         resourceManager.closeWriteTransaction(trxId);
         removeCommitFile();
@@ -2215,6 +2222,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       }
     } finally {
       unLockIfNecessary();
+      //      commitLock.unlock();
     }
   }
 
@@ -2276,6 +2284,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber, final UberPage uberPage,
       final boolean closeOldPageTrx, final @Nonnull TransactionIntentLog log) {
     if (closeOldPageTrx) {
+      log.close();
       resourceManager.closeNodePageWriteTransaction(getId());
       pageTrx = null;
     }
@@ -2539,32 +2548,30 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       hook.preCommit(this);
     }
 
-    // Reset modification counter.
-    modificationCount = 0L;
-
-    final var uberPage = pageTrx.getUberPage();
-    final var log = pageTrx.getLog().copy();
-
-    CompletableFuture.supplyAsync(
-        () -> new CommitTask(commitMessage, pageTrx, lock, commitLock, resourceManager).call(), commitThreadPool)
-                     .thenAcceptAsync(commitTask -> {
-                       acquireLockIfNecessary();
-                       try {
-                         // Remember succesfully committed uber page in resource manager.
-                         resourceManager.setLastCommittedUberPage(commitTask.uberPage);
-                       } finally {
-                         unLockIfNecessary();
-                       }
-
-                       if (resourceManager.getResourceConfig().storeDiffs()) {
-                         serializeUpdateDiffs();
-                       }
-                     }, commitThreadPool);
+    commitLock.lock();
 
     // Reinstantiate everything.
     acquireLockIfNecessary();
     try {
+      final var uberPage = pageTrx.getUberPage();
+      final var log = pageTrx.getLog();
+      final var currPageTrx = pageTrx;
+
+      // Reset modification counter.
+      modificationCount = 0L;
+
+      if (pageTrx.getFormerLog() != null) {
+        pageTrx.getFormerLog().close();
+      }
+
       reInstantiate(getId(), getRevisionNumber(), uberPage, false, log);
+
+      CompletableFuture.supplyAsync(
+          () -> new CommitTask(commitMessage, currPageTrx, commitLock, lock, resourceManager, nodeHashing,
+              beforeBulkInsertionRevisionNumber, isAutoCommitting, updateOperationsOrdered, updateOperationsUnordered,
+              storeDeweyIDs()).call(), commitThreadPool);
+    } catch (Exception e) {
+      e.printStackTrace();
     } finally {
       unLockIfNecessary();
     }
@@ -2654,7 +2661,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       unLockIfNecessary();
     }
 
-    final UberPage uberPage = new CommitTask(commitMessage, pageTrx, lock, commitLock, resourceManager).call().uberPage;
+    final UberPage uberPage = new CommitTask(commitMessage, pageTrx, null, null, resourceManager, nodeHashing,
+        beforeBulkInsertionRevisionNumber, isAutoCommitting, updateOperationsOrdered, updateOperationsUnordered,
+        storeDeweyIDs()).call();
 
     acquireLockIfNecessary();
     try {
@@ -2696,49 +2705,105 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private final static class CommitTask implements Callable<CommitTask> {
+  private final static class CommitTask implements Callable<UberPage> {
     private final String commitMessage;
 
     private final PageTrx pageTrx;
+
+    private final Lock commitLock;
 
     private final Lock lock;
 
     private final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager;
 
-    private final Lock commitLock;
+    private final int revisionNumber;
 
-    private UberPage uberPage;
+    private final JsonNodeHashing nodeHashing;
 
-    public CommitTask(final String commitMessage, final PageTrx pageTrx, final Lock lock, final Lock commitLock,
-        final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager) {
+    private final int beforeBulkInsertionRevisionNumber;
+
+    private final boolean isAutoCommitting;
+
+    /**
+     * Collects update operations in pre-order, thus it must be an order-preserving sorted map.
+     */
+    private final SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered;
+
+    /**
+     * Collects update operations in no particular order (if DeweyIDs used for sorting are not stored).
+     */
+    private final Map<Long, DiffTuple> updateOperationsUnordered;
+    private final boolean storeDeweyIds;
+
+    public CommitTask(final String commitMessage, final PageTrx pageTrx, final Lock commitLock, final Lock lock,
+        final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+        final JsonNodeHashing nodeHashing, final int beforeBulkInsertionRevisionNumber, final boolean isAutoCommitting,
+        SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered,
+        final Map<Long, DiffTuple> updateOperationsUnordered, final boolean storeDeweyIds) {
       this.commitMessage = commitMessage;
       this.pageTrx = pageTrx;
+      this.commitLock = commitLock;
       this.lock = lock;
       this.resourceManager = resourceManager;
-      this.commitLock = commitLock;
+      this.revisionNumber = pageTrx.getRevisionNumber();
+      this.nodeHashing = nodeHashing;
+      this.beforeBulkInsertionRevisionNumber = beforeBulkInsertionRevisionNumber;
+      this.isAutoCommitting = isAutoCommitting;
+      this.updateOperationsOrdered = new TreeMap<>(updateOperationsOrdered);
+      this.updateOperationsUnordered = new HashMap<>(updateOperationsUnordered);
+      this.storeDeweyIds = storeDeweyIds;
     }
 
-    public CommitTask call() {
-      commitLock.lock();
-
+    public UberPage call() {
+      UberPage uberPage = null;
       try {
         uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
 
-        if (lock != null) {
+        if (lock != null)
           lock.lock();
-        }
         try {
-          pageTrx.close();
+          // Remember succesfully committed uber page in resource manager.
+          resourceManager.setLastCommittedUberPage(uberPage);
         } finally {
-          if (lock != null) {
+          if (lock != null)
             lock.unlock();
-          }
         }
-      } finally {
-        commitLock.unlock();
-      }
 
-      return this;
+        if (resourceManager.getResourceConfig().storeDiffs()) {
+          serializeUpdateDiffs();
+        }
+      } catch (Exception e) {
+        System.out.println(e.getStackTrace());
+      } finally {
+        if (commitLock != null) {
+          commitLock.unlock();
+        }
+      }
+      return uberPage;
+    }
+
+    public void serializeUpdateDiffs() {
+      if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
+        final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager,
+            beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+                ? beforeBulkInsertionRevisionNumber
+                : revisionNumber - 1, revisionNumber,
+            storeDeweyIds ? updateOperationsOrdered.values() : updateOperationsUnordered.values());
+        final var jsonDiff = diffSerializer.serialize(false);
+
+        // Deserialize index definitions.
+        final Path diff = resourceManager.getResourceConfig()
+                                         .getResource()
+                                         .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                         .resolve(
+                                             "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+        try {
+          Files.createFile(diff);
+          Files.writeString(diff, jsonDiff);
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      }
     }
   }
 }

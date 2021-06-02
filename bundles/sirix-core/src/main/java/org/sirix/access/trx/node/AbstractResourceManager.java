@@ -226,11 +226,11 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Create a new {@link PageTrx}.
    *
-   * @param id                  the transaction ID
-   * @param representRevision   the revision which is represented
-   * @param uberPage            the former uber page
-   * @param isBoundToNodeTrx    determines if the page transaction is bound to a node transaction
-   * @param formerTrxIntentLog  former transaction intent log (it might be committing)
+   * @param id                 the transaction ID
+   * @param representRevision  the revision which is represented
+   * @param uberPage           the former uber page
+   * @param isBoundToNodeTrx   determines if the page transaction is bound to a node transaction
+   * @param formerTrxIntentLog former transaction intent log (it might be committing)
    * @return a new {@link PageTrx} instance
    */
   @Override
@@ -239,7 +239,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       final @Nullable TransactionIntentLog formerTrxIntentLog) {
     checkArgument(id >= 0, "id must be >= 0!");
     final Writer writer = storage.createWriter();
-    return new PageTrxFactory().createPageTrx(this, uberPage, writer, id, representRevision, -1,
+    return new PageTrxFactory().createPageTrx(this, uberPage, writer, id, representRevision, representRevision,
         uberPage.getRevisionNumber(), isBoundToNodeTrx, formerTrxIntentLog);
   }
 
@@ -354,12 +354,11 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * A commit file which is used by a {@link XmlNodeTrx} to denote if it's currently commiting or not.
+   * A commit file which is used by a {@link NodeTrx} to denote if it's currently commiting or not.
    */
   @Override
   public Path getCommitFile() {
-    return resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
-                                      .resolve(".commit");
+    return resourceConfig.resourcePath.resolve(".commit");
   }
 
   @Override

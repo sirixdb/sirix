@@ -177,6 +177,13 @@ public interface PageTrx extends PageReadOnlyTrx {
   TransactionIntentLog getLog();
 
   /**
+   * Get the former transaction intent log.
+   *
+   * @return the former transaction intent log
+   */
+  TransactionIntentLog getFormerLog();
+
+  /**
    * Get the revision, which this page trx is going to represent in case of a revert.
    *
    * @return the revision to represent

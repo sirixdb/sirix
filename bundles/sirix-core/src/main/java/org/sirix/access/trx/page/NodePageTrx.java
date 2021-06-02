@@ -139,8 +139,8 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
    * @param isBoundToNodeTrx  {@code true} if this page write trx will be bound to a node trx,
    *                          {@code false} otherwise
    */
-  NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log, final TransactionIntentLog formerLog,
-      final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
+  NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
+      final TransactionIntentLog formerLog, final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.treeModifier = checkNotNull(treeModifier);
     storagePageReaderWriter = checkNotNull(writer);
@@ -178,6 +178,11 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
   @Override
   public TransactionIntentLog getLog() {
     return log;
+  }
+
+  @Override
+  public TransactionIntentLog getFormerLog() {
+    return formerLog;
   }
 
   @Override
@@ -371,12 +376,12 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
 
     try {
       final Path commitFile = pageRtx.resourceManager.getCommitFile();
-      commitFile.toFile().deleteOnExit();
+
       // Issues with windows that it's not created in the first time?
       while (!Files.exists(commitFile)) {
         try {
           Files.createFile(commitFile);
-        } catch (final IOException e) {
+        } catch (final Exception e) {
           throw new SirixIOException(e);
         }
       }
@@ -416,7 +421,7 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
       }
 
-      log.truncate();
+      //      log.truncate();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -424,6 +429,8 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
       } catch (final IOException e) {
         throw new SirixIOException("Commit file couldn't be deleted!");
       }
+    } catch (final Exception e) {
+      e.printStackTrace();
     } finally {
       pageRtx.resourceManager.getCommitLock().unlock();
     }
@@ -460,12 +467,12 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
 
       if (!isBoundToNodeTrx) {
         pageRtx.resourceManager.closePageWriteTransaction(pageRtx.getTrxId());
-      }
 
-      log.close();
+        log.close();
 
-      if (formerLog != null) {
-        formerLog.close();
+        if (formerLog != null) {
+          formerLog.close();
+        }
       }
 
       pageRtx.close();
@@ -507,13 +514,17 @@ public final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx impleme
 
     PageContainer pageContainer = log.get(reference, this);
 
-    if (pageContainer.equals(PageContainer.emptyInstance())) {
-      if (reference.getKey() == Constants.NULL_ID_LONG) {
-        final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, indexType, pageRtx);
-        final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(pageRtx, completePage);
-        pageContainer = PageContainer.getInstance(completePage, modifyPage);
-      } else {
-        pageContainer = dereferenceRecordPageForModification(reference);
+    if (pageContainer == null) {
+      pageContainer = formerLog == null ? null : formerLog.get(reference, this);
+
+      if (pageContainer == null) {
+        if (reference.getKey() == Constants.NULL_ID_LONG) {
+          final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, indexType, pageRtx);
+          final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(pageRtx, completePage);
+          pageContainer = PageContainer.getInstance(completePage, modifyPage);
+        } else {
+          pageContainer = dereferenceRecordPageForModification(reference);
+        }
       }
 
       assert pageContainer != null;
