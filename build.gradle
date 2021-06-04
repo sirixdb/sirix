@@ -55,9 +55,6 @@ allprojects {
     repositories {
         mavenCentral()
         maven {
-            url = "file://C:/Users/moshe/Desktop/sirix/brackit/target/brackit-0.1.7-SNAPSHOT-dist"
-        }
-        maven {
             url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
         maven {
