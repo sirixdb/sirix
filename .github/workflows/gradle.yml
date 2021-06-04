@@ -20,10 +20,10 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         profile: [""]
-        jdk: [15]
+        jdk: [16]
         include:
           - os: ubuntu-latest
-            jdk: 15
+            jdk: 16
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -50,7 +50,7 @@ jobs:
       - name: Install JDK
         uses: joschi/setup-jdk@v2
         with:
-          java-version: 15
+          java-version: 16
       - name: Gradle deploy
         run: ./gradlew travisReleaseSnapshot --info
       - name: Login to Docker Hub
