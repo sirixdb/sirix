@@ -106,11 +106,11 @@ public final class MMFileReader implements Reader {
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
-    dataFileSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
+    dataFileSegment = MemorySegment.mapFile(checkNotNull(dataFile),
                                     0,
                                     dataFile.toFile().length(),
                                     FileChannel.MapMode.READ_ONLY);
-    revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
+    revisionFileSegment = MemorySegment.mapFile(revisionsOffsetFile,
                                     0,
                                     revisionsOffsetFile.toFile().length(),
                                     FileChannel.MapMode.READ_ONLY);
@@ -139,7 +139,7 @@ public final class MMFileReader implements Reader {
   @Override
   public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
-      final MemoryAddress baseAddress = dataFileSegment.baseAddress();
+      final MemoryAddress baseAddress = dataFileSegment.address();
 
       final MemoryAddress baseAddressPlusOffsetPlusInt;
 
@@ -179,7 +179,7 @@ public final class MMFileReader implements Reader {
     final PageReference uberPageReference = new PageReference();
 
     // new data file segment, cause it might have been written
-    final MemoryAddress baseAddress = dataFileSegment.baseAddress();
+    final MemoryAddress baseAddress = dataFileSegment.address();
 
     uberPageReference.setKey((long) LONG_VAR_HANDLE.get(baseAddress));
 
@@ -191,8 +191,8 @@ public final class MMFileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      final MemoryAddress revisionFileSegmentBaseAddress = revisionFileSegment.baseAddress();
-      MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
+      final MemoryAddress revisionFileSegmentBaseAddress = revisionFileSegment.address();
+      MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.address();
 
       final long dataFileOffset = (long) LONG_VAR_HANDLE.get(revisionFileSegmentBaseAddress.addOffset(revision * 8));
       final int dataLength = (int) INT_VAR_HANDLE.get(dataFileSegmentBaseAddress.addOffset(dataFileOffset));

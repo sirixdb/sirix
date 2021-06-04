@@ -11,7 +11,7 @@ buildscript {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.0"
         classpath 'net.researchgate:gradle-release:2.8.1'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.39.0"
-        classpath "com.github.jengelman.gradle.plugins:shadow:6.1.0"
+        classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:5.12.5"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
@@ -55,6 +55,9 @@ allprojects {
     repositories {
         mavenCentral()
         maven {
+            url = "file://C:/Users/moshe/Desktop/sirix/brackit/target/brackit-0.1.7-SNAPSHOT-dist"
+        }
+        maven {
             url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
         maven {
@@ -74,8 +77,8 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_15
-        targetCompatibility = JavaVersion.VERSION_15
+        sourceCompatibility = JavaVersion.VERSION_16
+        targetCompatibility = JavaVersion.VERSION_16
         withSourcesJar()
         withJavadocJar()
 
@@ -88,7 +91,7 @@ subprojects {
         failOnError = false
         options {
             addBooleanOption('-enable-preview', true)
-            addStringOption('-release', '15')
+            addStringOption('-release', '16')
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
