@@ -830,7 +830,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return currentNode.getKind() == NodeKind.XML_DOCUMENT || currentNode == NodeKind.JSON_DOCUMENT;
+    return currentNode.getKind() == NodeKind.XML_DOCUMENT || currentNode.getKind() == NodeKind.JSON_DOCUMENT;
   }
 
   @Override

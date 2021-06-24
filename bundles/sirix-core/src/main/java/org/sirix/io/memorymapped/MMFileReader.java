@@ -65,10 +65,6 @@ public final class MMFileReader implements Reader {
    */
   final HashFunction hashFunction;
 
-  private final Path dataFile;
-
-  private final Path revisionsOffsetFile;
-
   /**
    * The type of data to serialize.
    */
@@ -83,14 +79,6 @@ public final class MMFileReader implements Reader {
 
   private MemorySegment revisionFileSegment;
 
-  private static final VarHandle BYTE_VAR_HANDLE = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
-                                                               .varHandle(byte.class,
-                                                                          MemoryLayout.PathElement.sequenceElement());
-
-  private static final VarHandle INT_VAR_HANDLE = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
-
-  private static final VarHandle LONG_VAR_HANDLE = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
-
   /**
    * Constructor.
    *
@@ -101,34 +89,23 @@ public final class MMFileReader implements Reader {
   public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
       final SerializationType type, final PagePersister pagePersistenter) throws IOException {
     hashFunction = Hashing.sha256();
-    this.dataFile = checkNotNull(dataFile);
-    this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
-    dataFileSegment = MemorySegment.mapFromPath(checkNotNull(dataFile),
-                                    0,
-                                    dataFile.toFile().length(),
-                                    FileChannel.MapMode.READ_ONLY);
-    revisionFileSegment = MemorySegment.mapFromPath(revisionsOffsetFile,
-                                    0,
-                                    revisionsOffsetFile.toFile().length(),
-                                    FileChannel.MapMode.READ_ONLY);
+    dataFileSegment =
+        MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
+    revisionFileSegment = MemorySegment.mapFile(revisionsOffsetFile, 0, revisionsOffsetFile.toFile().length(),
+        FileChannel.MapMode.READ_ONLY);
   }
 
   /**
    * Constructor.
    *
-   * @param dataFile            the data file
-   * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler             {@link ByteHandler} instance
+   * @param handler {@link ByteHandler} instance
    */
-  public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final MemorySegment dataFileSegment,
-      final MemorySegment revisionFileSegment, final ByteHandler handler, final SerializationType type,
-      final PagePersister pagePersistenter) {
+  public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
+      final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter) {
     hashFunction = Hashing.sha256();
-    this.dataFile = checkNotNull(dataFile);
-    this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
@@ -139,24 +116,22 @@ public final class MMFileReader implements Reader {
   @Override
   public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
-      final MemoryAddress baseAddress = dataFileSegment.baseAddress();
-
-      final MemoryAddress baseAddressPlusOffsetPlusInt;
+      long offset;
 
       final int dataLength = switch (type) {
         case DATA -> {
           if (reference.getKey() < 0) {
             throw new SirixIOException("Reference key is not valid: " + reference.getKey());
           }
-          baseAddressPlusOffsetPlusInt = baseAddress.addOffset(reference.getKey() + 4);
-          yield (int) INT_VAR_HANDLE.get(baseAddress.addOffset(reference.getKey()));
+          offset = reference.getKey() + 4;
+          yield MemoryAccess.getIntAtOffset(dataFileSegment, reference.getKey());
         }
         case TRANSACTION_INTENT_LOG -> {
           if (reference.getLogKey() < 0) {
-            throw new SirixIOException("Reference log key is not valid: " + reference.getKey());
+            throw new SirixIOException("Reference log key is not valid: " + reference.getPersistentLogKey());
           }
-          baseAddressPlusOffsetPlusInt = baseAddress.addOffset(reference.getPersistentLogKey() + 4);
-          yield (int) INT_VAR_HANDLE.get(baseAddress.addOffset(reference.getPersistentLogKey()));
+          offset = reference.getPersistentLogKey() + 4;
+          yield MemoryAccess.getIntAtOffset(dataFileSegment, reference.getPersistentLogKey());
         }
         default -> throw new AssertionError();
       };
@@ -165,7 +140,7 @@ public final class MMFileReader implements Reader {
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {
-        page[i] = (byte) BYTE_VAR_HANDLE.get(baseAddressPlusOffsetPlusInt, (long) i);
+        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, offset + (long)i);
       }
 
       return deserialize(pageReadTrx, page);
@@ -178,10 +153,7 @@ public final class MMFileReader implements Reader {
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
 
-    // new data file segment, cause it might have been written
-    final MemoryAddress baseAddress = dataFileSegment.baseAddress();
-
-    uberPageReference.setKey((long) LONG_VAR_HANDLE.get(baseAddress));
+    uberPageReference.setKey(MemoryAccess.getLong(dataFileSegment));
 
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
@@ -191,18 +163,13 @@ public final class MMFileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      final MemoryAddress revisionFileSegmentBaseAddress = revisionFileSegment.baseAddress();
-      MemoryAddress dataFileSegmentBaseAddress = dataFileSegment.baseAddress();
-
-      final long dataFileOffset = (long) LONG_VAR_HANDLE.get(revisionFileSegmentBaseAddress.addOffset(revision * 8));
-      final int dataLength = (int) INT_VAR_HANDLE.get(dataFileSegmentBaseAddress.addOffset(dataFileOffset));
-
-      dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(dataFileOffset + 4);
+      final long dataFileOffset = MemoryAccess.getLongAtOffset(revisionFileSegment, revision * 8);
+      final int dataLength = MemoryAccess.getIntAtOffset(dataFileSegment, dataFileOffset);
 
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {
-        page[i] = (byte) BYTE_VAR_HANDLE.get(dataFileSegmentBaseAddress, (long) i);
+        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, dataFileOffset + 4L + (long)i);
       }
 
       return (RevisionRootPage) deserialize(pageReadTrx, page);

@@ -109,14 +109,12 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     }
 
     this.dataSegment =
-        MemorySegment.mapFromPath(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
 
     this.revisionsOffsetSegment =
-        MemorySegment.mapFromPath(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
 
-    reader = new MMFileReader(dataFile,
-                              revisionsOffsetFile,
-                              dataSegment,
+    reader = new MMFileReader(dataSegment,
                               revisionsOffsetSegment,
                               handler,
                               serializationType,
@@ -183,14 +181,12 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
       reInstantiateSegment();
 
-      MemoryAddress dataFileSegmentBaseAddress = dataSegment.baseAddress().addOffset(offset);
+      MemoryAccess.setIntAtOffset(dataSegment, offset, serializedPage.length);
 
-      INT_VAR_HANDLE.set(dataFileSegmentBaseAddress, serializedPage.length);
-
-      dataFileSegmentBaseAddress = dataFileSegmentBaseAddress.addOffset(4);
+      long currOffsetWithInt = offset + 4;
 
       for (int i = 0; i < serializedPage.length; i++) {
-        BYTE_VAR_HANDLE.set(dataFileSegmentBaseAddress, (long) i, serializedPage[i]);
+        MemoryAccess.setByteAtOffset(dataSegment, currOffsetWithInt + (long)i, serializedPage[i]);
       }
 
       // Remember page coordinates.
@@ -209,9 +205,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
-        final MemoryAddress revisionFileSegmentBaseAddress = revisionsOffsetSegment.baseAddress();
-
-        LONG_VAR_HANDLE.set(revisionFileSegmentBaseAddress.addOffset(revisionsOffsetSize), offset);
+        MemoryAccess.setLongAtOffset(revisionsOffsetSegment, revisionsOffsetSize, offset);
 
         revisionsOffsetSize += 8;
       }
@@ -230,7 +224,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
       ifSegmentIsAliveCloseSegment();
 
-      dataSegment = MemorySegment.mapFromPath(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+      dataSegment = MemorySegment.mapFile(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
       reader.setDataSegment(dataSegment);
     }
   }
@@ -265,9 +259,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     try {
       reInstantiateSegment();
 
-      final MemoryAddress dataFileSegmentBaseAddress = dataSegment.baseAddress();
-
-      LONG_VAR_HANDLE.set(dataFileSegmentBaseAddress, pageReference.getKey());
+      MemoryAccess.setLong(dataSegment, pageReference.getKey());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
