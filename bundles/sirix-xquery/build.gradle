@@ -21,5 +21,4 @@ jar {
     manifest {
         attributes('Main-Class': 'org.sirix.xquery.Main')
     }
-    finalizedBy shadowJar
 }
