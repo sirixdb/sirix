@@ -8,7 +8,7 @@ dependencies {
 description = 'Sirix/Brackit binding.'
 
 shadowJar {
-    classifier = 'jar-with-dependencies'
+    archiveClassifier.set('jar-with-dependencies')
     manifest {
         inheritFrom project.tasks.jar.manifest
     }

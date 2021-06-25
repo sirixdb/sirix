@@ -35,7 +35,7 @@ dependencies {
     testImplementation testLibraries.jsonassert
 }
 
-description = 'Kotlin api for SirixDB.'
+description = 'Kotlin API for SirixDB.'
 
 compileKotlin {
     kotlinOptions.jvmTarget = "1.8"
