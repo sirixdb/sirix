@@ -38,7 +38,7 @@ dependencies {
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +
         'lightweight buffer manager, stores everything in a huge persistent and durabel tree and allows efficient ' +
-        'reconstruction of every revision. Furthermore SirixDB implements change tracking, diffing and time travel queries.'
+        'reconstruction of every revision. Furthermore, SirixDB implements change tracking, diffing and supports time travel queries.'
 
 jar {
     manifest {
