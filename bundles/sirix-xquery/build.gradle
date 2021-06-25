@@ -7,15 +7,15 @@ dependencies {
 
 description = 'Sirix/Brackit binding.'
 
-shadowJar {
-    archiveClassifier.set('jar-with-dependencies')
-    manifest {
-        inheritFrom project.tasks.jar.manifest
-    }
-    mergeServiceFiles()
-}
-
-publishing.publications.maven.artifact(shadowJar)
+//shadowJar {
+//    archiveClassifier.set('jar-with-dependencies')
+//    manifest {
+//        inheritFrom project.tasks.jar.manifest
+//    }
+//    mergeServiceFiles()
+//}
+//
+//publishing.publications.maven.artifact(shadowJar)
 
 jar {
     manifest {
