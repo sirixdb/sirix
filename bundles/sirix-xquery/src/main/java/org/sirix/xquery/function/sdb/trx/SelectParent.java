@@ -21,7 +21,7 @@ import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
- * Function for getting the parent element of a node. The result is the parent element.
+ * Function for getting the parent of an item. The result is the parent item.
  * Supported signature is:
  * </p>
  * <ul>
