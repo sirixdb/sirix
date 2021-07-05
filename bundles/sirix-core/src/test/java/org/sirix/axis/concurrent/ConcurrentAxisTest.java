@@ -132,7 +132,6 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @Ignore
   @Test
   public void testConcurrent() {
     /* query: //regions/africa//location */
@@ -166,7 +165,6 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @Ignore
   @Test
   public void testPartConcurrentDescAxis1() {
     /* query: //regions/africa//location */
@@ -193,7 +191,6 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @Ignore
   @Test
   public void testPartConcurrentDescAxis2() {
     /* query: //regions/africa//location */

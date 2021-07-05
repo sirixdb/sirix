@@ -44,7 +44,7 @@ public final class ScanNameIndex extends AbstractScanIndex {
   public ScanNameIndex() {
     super(DEFAULT_NAME,
         new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany), SequenceType.NODE,
-            new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.QNM, Cardinality.ZeroOrOne)),
+            new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
         true);
   }
 
@@ -68,7 +68,7 @@ public final class ScanNameIndex extends AbstractScanIndex {
     }
     if (indexDef.getType() != IndexType.NAME) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-          "Index no %s for collection %s and document %s is not a path index.", idx, doc.getCollection().getName(),
+          "Index no %s for collection %s and document %s is not a name index.", idx, doc.getCollection().getName(),
           doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
     }
 

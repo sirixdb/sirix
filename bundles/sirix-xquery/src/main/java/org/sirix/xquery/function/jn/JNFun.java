@@ -131,7 +131,7 @@ public final class JNFun {
 
     // find-name-index
     Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(SequenceType.INTEGER, SequenceType.JSON_ITEM,
-        new SequenceType(AtomicType.QNM, Cardinality.One))));
+        new SequenceType(AtomicType.STR, Cardinality.One))));
 
     // find-path-index
     Functions.predefine(new FindPathIndex(FIND_PATH_INDEX,
@@ -143,7 +143,7 @@ public final class JNFun {
 
     // create-name-index
     Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(SequenceType.JSON_ITEM,
-        SequenceType.JSON_ITEM, new SequenceType(AtomicType.QNM, Cardinality.ZeroOrMany))));
+        SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(
         new CreateNameIndex(CREATE_NAME_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
 
