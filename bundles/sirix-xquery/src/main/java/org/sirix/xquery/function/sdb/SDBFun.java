@@ -96,6 +96,10 @@ public final class SDBFun {
     Functions.predefine(new SelectItem(SelectItem.SELECT_NODE,
         new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
 
+    // select parent
+    Functions.predefine(new SelectParent(SelectParent.SELECT_PARENT,
+        new Signature(SequenceType.NODE, SequenceType.NODE)));
+
     // serialize
     Functions.predefine(new Serialize());
 
