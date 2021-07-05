@@ -23,7 +23,8 @@ package org.sirix.io.memorymapped;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import jdk.incubator.foreign.*;
+import jdk.incubator.foreign.MemoryAccess;
+import jdk.incubator.foreign.MemorySegment;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -36,8 +37,6 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.lang.invoke.VarHandle;
-import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
@@ -93,9 +92,9 @@ public final class MMFileReader implements Reader {
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
     dataFileSegment =
-        MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY);
+        MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY).share();
     revisionFileSegment = MemorySegment.mapFile(revisionsOffsetFile, 0, revisionsOffsetFile.toFile().length(),
-        FileChannel.MapMode.READ_ONLY);
+        FileChannel.MapMode.READ_ONLY).share();
   }
 
   /**

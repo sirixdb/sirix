@@ -109,10 +109,10 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     }
 
     this.dataSegment =
-        MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE).share();
 
     this.revisionsOffsetSegment =
-        MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE);
+        MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE).share();
 
     reader = new MMFileReader(dataSegment,
                               revisionsOffsetSegment,
@@ -224,7 +224,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
       ifSegmentIsAliveCloseSegment();
 
-      dataSegment = MemorySegment.mapFile(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE);
+      dataSegment = MemorySegment.mapFile(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE).share();
       reader.setDataSegment(dataSegment);
     }
   }
@@ -239,16 +239,16 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   public void close() {
     if (reader != null) {
       reader.close();
-      try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
-        outChan.truncate(dataSegmentFileSize);
-      } catch (IOException e) {
-        throw new SirixIOException(e);
-      }
-      try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFile.toFile(), true).getChannel()) {
-        outChan.truncate(revisionsOffsetSize);
-      } catch (IOException e) {
-        throw new SirixIOException(e);
-      }
+    }
+    try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
+      outChan.truncate(dataSegmentFileSize);
+    } catch (IOException e) {
+      throw new SirixIOException(e);
+    }
+    try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFile.toFile(), true).getChannel()) {
+      outChan.truncate(revisionsOffsetSize);
+    } catch (IOException e) {
+      throw new SirixIOException(e);
     }
   }
 
