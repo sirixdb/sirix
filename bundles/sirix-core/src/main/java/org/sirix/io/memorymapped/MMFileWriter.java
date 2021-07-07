@@ -54,14 +54,6 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private long currByteSizeToMap = Integer.MAX_VALUE;//OS.is64Bit() ? 64L << 20 : TEST_BLOCK_SIZE;
 
-  private static final VarHandle BYTE_VAR_HANDLE = MemoryLayout.ofSequence(MemoryLayouts.JAVA_BYTE)
-                                                               .varHandle(byte.class,
-                                                                          MemoryLayout.PathElement.sequenceElement());
-
-  private static final VarHandle INT_VAR_HANDLE = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
-
-  private static final VarHandle LONG_VAR_HANDLE = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
-
   /**
    * Random access to work on.
    */
@@ -275,6 +267,11 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   @Override
   public Writer truncate() {
     try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
+      outChan.truncate(0);
+    } catch (IOException e) {
+      throw new SirixIOException(e);
+    }
+    try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFile.toFile(), true).getChannel()) {
       outChan.truncate(0);
     } catch (IOException e) {
       throw new SirixIOException(e);
