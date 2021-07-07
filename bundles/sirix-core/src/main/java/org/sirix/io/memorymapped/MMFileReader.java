@@ -25,6 +25,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
+import jdk.nio.mapmode.ExtendedMapMode;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;

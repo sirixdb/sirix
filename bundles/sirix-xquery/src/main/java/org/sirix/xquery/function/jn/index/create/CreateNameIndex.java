@@ -1,8 +1,6 @@
 package org.sirix.xquery.function.jn.index.create;
 
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -24,7 +22,10 @@ import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexDefs.NameIndexType;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.json.JsonDBItem;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Function for creating name indexes on stored documents, optionally restricted to a set of
@@ -64,7 +65,7 @@ public final class CreateNameIndex extends AbstractFunction {
     final JsonResourceManager manager = rtx.getResourceManager();
 
     final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeTrx();
-    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
+    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(manager::beginNodeTrx);
 
     if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {
       wtx.revertTo(rtx.getRevisionNumber());
@@ -77,11 +78,11 @@ public final class CreateNameIndex extends AbstractFunction {
     }
 
     final Set<QNm> include = new HashSet<>();
-    if (args.length > 1 && args[1] != null) {
+    if (args[1] != null) {
       final Iter it = args[1].iterate();
       Item next = it.next();
       while (next != null) {
-        include.add((QNm) next);
+        include.add(new QNm(((Str) next).stringValue()));
         next = it.next();
       }
     }
