@@ -33,6 +33,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
 
 /**
@@ -478,7 +479,9 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws SirixException if this revision couldn't be commited
    */
   @Override
-  XmlNodeTrx commit();
+  default XmlNodeTrx commit() {
+    return commit(null);
+  }
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
@@ -488,7 +491,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws SirixException if this revision couldn't be commited
    */
   @Override
-  XmlNodeTrx commit(String commitMessage);
+  XmlNodeTrx commit(@Nullable String commitMessage);
 
   /**
    * Rollback all modifications of the exclusive write transaction.

@@ -60,7 +60,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Tracks whether the transaction is closed.
    */
-  protected boolean isClosed;
+  private boolean isClosed;
 
   /**
    * Read-transaction-exclusive item list.
@@ -100,6 +100,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
     this.currentNode = currentNode;
+  }
+
+  @Override
+  public boolean storeDeweyIDs() {
+    return resourceManager.getResourceConfig().areDeweyIDsStored;
   }
 
   @Override

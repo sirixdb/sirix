@@ -237,11 +237,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  public boolean storeDeweyIDs() {
-    return resourceManager.getResourceConfig().areDeweyIDsStored;
-  }
-
-  @Override
   public boolean getBooleanValue() {
     assertNotClosed();
 
@@ -340,7 +335,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  protected JsonNodeReadOnlyTrx thisInstance() {
+  protected InternalJsonNodeReadOnlyTrx thisInstance() {
     return this;
   }
 
