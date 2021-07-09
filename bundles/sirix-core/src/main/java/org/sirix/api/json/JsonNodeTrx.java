@@ -1,5 +1,6 @@
 package org.sirix.api.json;
 
+import org.brackit.xquery.xdm.Item;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.api.NodeTrx;
 import com.google.gson.stream.JsonReader;
@@ -108,4 +109,28 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsFirstChild(Item item);
+
+  JsonNodeTrx insertSubtreeAsFirstChild(Item item, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsFirstChild(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsLastChild(Item item);
+
+  JsonNodeTrx insertSubtreeAsLastChild(Item item, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsLastChild(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(Item item);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(Item item, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsLeftSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(Item item);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
 }

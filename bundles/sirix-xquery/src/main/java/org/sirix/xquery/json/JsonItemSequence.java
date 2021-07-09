@@ -6,7 +6,6 @@ import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.service.json.shredder.JsonShredder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -79,12 +78,10 @@ final class JsonItemSequence {
         }
       }
     } else {
-      final String json = serializeItem(item);
-
       if (trx.getNodeKey() == nodeKey) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.No);
+        trx.insertSubtreeAsFirstChild(item, JsonNodeTrx.Commit.No);
       } else {
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.No);
+        trx.insertSubtreeAsRightSibling(item, JsonNodeTrx.Commit.No);
       }
     }
   }
