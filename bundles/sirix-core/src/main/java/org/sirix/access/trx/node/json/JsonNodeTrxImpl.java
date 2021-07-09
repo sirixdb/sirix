@@ -28,6 +28,9 @@ import com.google.common.hash.HashFunction;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.json.Array;
+import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.*;
@@ -66,6 +69,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.*;
 import org.sirix.page.NamePage;
 import org.sirix.page.UberPage;
+import org.sirix.service.json.shredder.JsonItemShredder;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Constants;
@@ -534,6 +538,169 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 //      }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
+    } finally {
+      unLockIfNecessary();
+    }
+    return this;
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final Item item) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, Commit.Implicit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final Item item, Commit commit) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final Item item, Commit commit,
+      CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final Item item) {
+    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, Commit.Implicit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final Item item, Commit commit) {
+    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, commit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final Item item, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, commit, checkParentNode);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item) {
+    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item, Commit commit) {
+    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, commit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item, Commit commit,
+      CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final Item item) {
+    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final Item item, Commit commit) {
+    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.Yes);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final Item item, Commit commit,
+      CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode);
+  }
+
+  private JsonNodeTrx insertSubtree(final Item item, final InsertPosition insertionPosition, Commit commit,
+      CheckParentNode checkParentNode) {
+    nodeReadOnlyTrx.assertNotClosed();
+    checkNotNull(item);
+    assert insertionPosition != null;
+
+    acquireLockIfNecessary();
+
+    try {
+      checkState();
+
+      if (!item.itemType().isListOrUnion() && !item.itemType().isRecord())
+        throw new SirixUsageException("JSON to insert must begin with an array or object.");
+
+      final var nodeKind = getKind();
+      var skipRootJsonToken = false;
+
+      // $CASES-OMITTED$
+      switch (insertionPosition) {
+        case AS_FIRST_CHILD, AS_LAST_CHILD -> {
+          if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
+            throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+          }
+          if (item instanceof Record) {
+            if (nodeKind == NodeKind.OBJECT)
+              skipRootJsonToken = true;
+          }
+          else if (item instanceof Array) {
+            if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+              throw new IllegalStateException("Current node in storage must be an array node.");
+            }
+          }
+        }
+        case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
+          if (checkParentNode == CheckParentNode.Yes) {
+            final NodeKind parentKind = getParentKind();
+            if (parentKind != NodeKind.ARRAY) {
+              throw new IllegalStateException("Current parent node must be an array node.");
+            }
+          }
+        }
+        default -> throw new UnsupportedOperationException();
+      }
+
+      checkAccessAndCommit();
+      beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
+      nodeHashing.setBulkInsert(true);
+      if (isAutoCommitting) {
+        nodeHashing.setAutoCommit(true);
+      }
+      var nodeKey = getCurrentNode().getNodeKey();
+      final var shredderBuilder = new JsonItemShredder.Builder(this, item, insertionPosition);
+
+      if (skipRootJsonToken) {
+        shredderBuilder.skipRootJsonToken();
+      }
+
+      final var shredder = shredderBuilder.build();
+      shredder.call();
+      moveTo(nodeKey);
+
+      switch (insertionPosition) {
+        case AS_FIRST_CHILD:
+          moveToFirstChild();
+          break;
+        case AS_LAST_CHILD:
+          moveToLastChild();
+          break;
+        case AS_LEFT_SIBLING:
+          moveToLeftSibling();
+          break;
+        case AS_RIGHT_SIBLING:
+          moveToRightSibling();
+          break;
+        default:
+          // May not happen.
+      }
+
+      adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+
+      // bulk inserts will be disabled for auto-commits after the first commit
+      if (!isAutoCommitting) {
+        adaptHashesInPostorderTraversal();
+      }
+
+      nodeHashing.setBulkInsert(false);
+
+      if (commit == Commit.Implicit) {
+        commit();
+      }
+
+      //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+      //        System.out.println(nodeReadOnlyTrx.getDeweyID());
+      //      }
     } finally {
       unLockIfNecessary();
     }

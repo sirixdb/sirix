@@ -1,26 +1,23 @@
 package org.sirix.service.json.shredder;
 
 import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
+import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.atomic.Numeric;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Sequence;
+import org.brackit.xquery.xdm.Type;
+import org.brackit.xquery.xdm.json.Array;
+import org.brackit.xquery.xdm.json.Record;
 import org.sirix.access.trx.node.json.objectvalue.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.json.JsonNumber;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 import javax.xml.stream.XMLStreamReader;
-import java.io.*;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Callable;
@@ -33,26 +30,32 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * subtree is either added as first child or as right sibling.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
-public final class JsonShredder implements Callable<Long> {
+public final class JsonItemShredder implements Callable<Long> {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonShredder.class));
-
-  /** {@link JsonNodeTrx}. */
+  /**
+   * {@link JsonNodeTrx}.
+   */
   private final JsonNodeTrx wtx;
 
-  /** {@link JsonReader} implementation. */
-  private final JsonReader reader;
+  /**
+   * {@link Item} implementation.
+   */
+  private final Item item;
 
-  /** Determines if changes are going to be commit right after shredding. */
+  /**
+   * Determines if changes are going to be commit right after shredding.
+   */
   private final ShredderCommit commit;
 
-  /** Keeps track of visited keys. */
+  /**
+   * Keeps track of visited keys.
+   */
   private final Deque<Long> parents;
 
-  /** Insertion position. */
+  /**
+   * Insertion position.
+   */
   private InsertPosition insert;
 
   private int level;
@@ -60,17 +63,23 @@ public final class JsonShredder implements Callable<Long> {
   private final boolean skipRootJson;
 
   /**
-   * Builder to build an {@link JsonShredder} instance.
+   * Builder to build an {@link JsonItemShredder} instance.
    */
   public static class Builder {
 
-    /** {@link JsonNodeTrx} implementation. */
+    /**
+     * {@link JsonNodeTrx} implementation.
+     */
     private final JsonNodeTrx wtx;
 
-    /** {@link JsonReader} implementation. */
-    private final JsonReader reader;
+    /**
+     * {@link Item} implementation.
+     */
+    private final Item item;
 
-    /** Insertion position. */
+    /**
+     * Insertion position.
+     */
     private final InsertPosition insert;
 
     /**
@@ -83,14 +92,14 @@ public final class JsonShredder implements Callable<Long> {
     /**
      * Constructor.
      *
-     * @param wtx {@link JsonNodeTrx} implementation
-     * @param reader {@link JsonReader} implementation
+     * @param wtx    {@link JsonNodeTrx} implementation
+     * @param item   {@link Item} implementation
      * @param insert insertion position
      * @throws NullPointerException if one of the arguments is {@code null}
      */
-    public Builder(final JsonNodeTrx wtx, final JsonReader reader, final InsertPosition insert) {
+    public Builder(final JsonNodeTrx wtx, final Item item, final InsertPosition insert) {
       this.wtx = checkNotNull(wtx);
-      this.reader = checkNotNull(reader);
+      this.item = checkNotNull(item);
       this.insert = checkNotNull(insert);
     }
 
@@ -112,10 +121,10 @@ public final class JsonShredder implements Callable<Long> {
     /**
      * Build an instance.
      *
-     * @return {@link JsonShredder} instance
+     * @return {@link JsonItemShredder} instance
      */
-    public JsonShredder build() {
-      return new JsonShredder(this);
+    public JsonItemShredder build() {
+      return new JsonItemShredder(this);
     }
   }
 
@@ -124,9 +133,9 @@ public final class JsonShredder implements Callable<Long> {
    *
    * @param builder builder reference
    */
-  private JsonShredder(final Builder builder) {
+  private JsonItemShredder(final Builder builder) {
     wtx = builder.wtx;
-    reader = builder.reader;
+    item = builder.item;
     insert = builder.insert;
     commit = builder.commit;
     skipRootJson = builder.skipRootJsonToken;
@@ -138,8 +147,8 @@ public final class JsonShredder implements Callable<Long> {
   /**
    * Invoking the shredder.
    *
-   * @throws SirixException if any kind of sirix exception which has occured
    * @return revision of file
+   * @throws SirixException if any kind of sirix exception which has occured
    */
   @Override
   public Long call() {
@@ -149,129 +158,115 @@ public final class JsonShredder implements Callable<Long> {
     return revision;
   }
 
+  private void json(Sequence parent, Sequence s, String objectField,
+      boolean nextTokenIsParent) {
+    if (s instanceof Atomic) {
+      if (s instanceof Numeric) {
+        final var number = JsonNumber.stringToNumber(s.toString());
+
+        if (objectField != null) {
+          final var value = new NumberValue(number);
+          addObjectRecord(objectField, value, nextTokenIsParent);
+        } else {
+          insertNumberValue(number, nextTokenIsParent);
+        }
+      } else if (((Atomic) s).type() == Type.BOOL) {
+        final var bool = s.booleanValue();
+
+        if (objectField != null) {
+          final var value = new BooleanValue(bool);
+          addObjectRecord(objectField, value, nextTokenIsParent);
+        } else {
+          insertBooleanValue(bool, nextTokenIsParent);
+        }
+      } else if (((Atomic) s).type() == Type.NULL) {
+        if (objectField != null) {
+          final var value = new NullValue();
+          addObjectRecord(objectField, value, nextTokenIsParent);
+        } else {
+          insertNullValue(nextTokenIsParent);
+        }
+      } else {
+        final var str = ((Atomic) s).asStr().stringValue();
+
+        if (objectField != null) {
+          final var value = new StringValue(str);
+          addObjectRecord(objectField, value, nextTokenIsParent);
+        } else {
+          insertStringValue(str, nextTokenIsParent);
+        }
+      }
+    } else if (s instanceof Array) {
+      Array a = (Array) s;
+
+      level++;
+      if (!(level == 1 && skipRootJson)) {
+        if (objectField != null) {
+          final var value = new ArrayValue();
+          addObjectRecord(objectField, value, nextTokenIsParent);
+        } else {
+          insertArray();
+        }
+      }
+
+      for (int i = 0; i < a.len(); i++) {
+        final Sequence seq = a.at(i);
+        json(a, seq, null, false);
+      }
+
+      level--;
+
+      if (!(level == 0 && skipRootJson)) {
+        parents.pop();
+        wtx.moveTo(parents.peek());
+
+        if (parent instanceof Record) {
+          parents.pop();
+          wtx.moveTo(parents.peek());
+        }
+      }
+    } else if (s instanceof Record) {
+      Record r = (Record) s;
+
+      level++;
+      if (!(level == 1 && skipRootJson)) {
+        if (objectField != null) {
+          final var value = new ObjectValue();
+          addObjectRecord(objectField, value, nextTokenIsParent);
+        } else {
+          addObject();
+        }
+      }
+
+      for (int i = 0; i < r.len(); i++) {
+        final var value = r.value(i);
+        json(r, value, r.name(i).stringValue(),
+            i + 1 == r.len() || !(value instanceof Array) && !(value instanceof Record));
+      }
+
+      level--;
+
+      if (!(level == 0 && skipRootJson)) {
+        parents.pop();
+        wtx.moveTo(parents.peek());
+
+        if (parent instanceof Record) {
+          parents.pop();
+          wtx.moveTo(parents.peek());
+        }
+      }
+    }
+  }
+
   /**
    * Insert new content based on a StAX parser {@link XMLStreamReader}.
    *
    * @throws SirixException if something went wrong while inserting
    */
   protected final void insertNewContent() {
-    try {
-      level = 0;
-      boolean endReached = false;
-      long insertedRootNodeKey = -1;
+    level = 0;
 
-      // Iterate over all nodes.
-      while (reader.peek() != JsonToken.END_DOCUMENT && !endReached) {
-        final var nextToken = reader.peek();
-
-        switch (nextToken) {
-          case BEGIN_OBJECT:
-            level++;
-            reader.beginObject();
-            if (!(level == 1 && skipRootJson)) {
-              final long insertedObjectNodeKey = addObject();
-
-              if (insertedRootNodeKey == -1)
-                insertedRootNodeKey = insertedObjectNodeKey;
-            }
-            break;
-          case NAME:
-            final String name = reader.nextName();
-            addObjectRecord(name);
-            break;
-          case END_OBJECT:
-            level--;
-            if (level == 0) {
-              endReached = true;
-            }
-
-            reader.endObject();
-            if (!(level == 0 && skipRootJson)) {
-              parents.pop();
-              wtx.moveTo(parents.peek());
-
-              if (reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT) {
-                parents.pop();
-                wtx.moveTo(parents.peek());
-              }
-            }
-            break;
-          case BEGIN_ARRAY:
-            level++;
-            reader.beginArray();
-            if (!(level == 1 && skipRootJson)) {
-              final var insertedArrayNodeKey = insertArray();
-
-              if (insertedRootNodeKey == -1)
-                insertedRootNodeKey = insertedArrayNodeKey;
-            }
-            break;
-          case END_ARRAY:
-            level--;
-            if (level == 0) {
-              endReached = true;
-            }
-
-            reader.endArray();
-            if (!(level == 0 && skipRootJson)) {
-              parents.pop();
-              wtx.moveTo(parents.peek());
-
-              if (reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT) {
-                parents.pop();
-                wtx.moveTo(parents.peek());
-              }
-            }
-            break;
-          case STRING:
-            final var string = reader.nextString();
-            final var insertedStringValueNodeKey =
-                insertStringValue(string, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedStringValueNodeKey;
-            break;
-          case BOOLEAN:
-            final var bool = reader.nextBoolean();
-            final var insertedBooleanValueNodeKey =
-                insertBooleanValue(bool, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedBooleanValueNodeKey;
-            break;
-          case NULL:
-            reader.nextNull();
-            final var insertedNullValueNodeKey =
-                insertNullValue(reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedNullValueNodeKey;
-            break;
-          case NUMBER:
-            final var number = readNumber();
-
-            final var insertedNumberValueNodeKey =
-                insertNumberValue(number, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedNumberValueNodeKey;
-            break;
-          case END_DOCUMENT:
-          default:
-            // Node kind not known.
-        }
-      }
-
-      wtx.moveTo(insertedRootNodeKey);
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
-
-  private Number readNumber() throws IOException {
-    final var stringValue = reader.nextString();
-
-    return JsonNumber.stringToNumber(stringValue);
+    json(null, item, null, false);
   }
 
   private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {
@@ -439,8 +434,8 @@ public final class JsonShredder implements Callable<Long> {
       case AS_LEFT_SIBLING:
         if (wtx.getKind() == NodeKind.JSON_DOCUMENT
             || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-              throw new IllegalStateException(
-                  "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
+          throw new IllegalStateException(
+              "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
         }
         key = wtx.insertArrayAsLeftSibling().getNodeKey();
         insert = InsertPosition.AS_FIRST_CHILD;
@@ -513,10 +508,9 @@ public final class JsonShredder implements Callable<Long> {
     return key;
   }
 
-  private void addObjectRecord(final String name) throws IOException {
+  private void addObjectRecord(final String name, final ObjectRecordValue<?> value,
+      final boolean isNextTokenParentToken) {
     assert name != null;
-
-    final ObjectRecordValue<?> value = getObjectRecordValue();
 
     final long key;
 
@@ -554,125 +548,7 @@ public final class JsonShredder implements Callable<Long> {
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
     } else {
-      final boolean isNextTokenParentToken = reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT;
-
       adaptTrxPosAndStack(isNextTokenParentToken, key);
     }
-  }
-
-  public ObjectRecordValue<?> getObjectRecordValue() throws IOException {
-    final var nextToken = reader.peek();
-    final ObjectRecordValue<?> value;
-
-    switch (nextToken) {
-      case BEGIN_OBJECT:
-        level++;
-        reader.beginObject();
-
-        value = new ObjectValue();
-
-        break;
-      case BEGIN_ARRAY:
-        level++;
-        reader.beginArray();
-
-        value = new ArrayValue();
-
-        break;
-      case BOOLEAN:
-        final boolean booleanVal = reader.nextBoolean();
-
-        value = new BooleanValue(booleanVal);
-
-        break;
-      case STRING:
-        final String stringVal = reader.nextString();
-
-        value = new StringValue(stringVal);
-
-        break;
-      case NULL:
-        reader.nextNull();
-        value = new NullValue();
-        break;
-      case NUMBER:
-        final var numberVal = readNumber();
-
-        value = new NumberValue(numberVal);
-
-        break;
-      case END_ARRAY:
-      case END_DOCUMENT:
-      case END_OBJECT:
-      case NAME:
-      default:
-        throw new AssertionError();
-    }
-    return value;
-  }
-
-  /**
-   * Main method.
-   *
-   * @param args input and output files
-   * @throws SirixException if a Sirix error occurs
-   */
-  public static void main(final String... args) {
-    if (args.length != 2 && args.length != 3) {
-      throw new IllegalArgumentException("Usage: JsonShredder JSONFile Database");
-    }
-    LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
-    final long time = System.nanoTime();
-    final var targetDatabasePath = Paths.get(args[1]);
-    final var databaseConfig = new DatabaseConfiguration(targetDatabasePath);
-    Databases.removeDatabase(targetDatabasePath);
-    Databases.createJsonDatabase(databaseConfig);
-
-    try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
-      db.createResource(ResourceConfiguration.newBuilder("shredded").build());
-      try (final var resMgr = db.openResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
-        final var path = Paths.get(args[0]);
-        final var jsonReader = createFileReader(path);
-        final var shredder =
-            new JsonShredder.Builder(wtx, jsonReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-      }
-    }
-
-    LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
-  }
-
-  /**
-   * Create a new {@link JsonReader} instance on a file.
-   *
-   * @param path the path to the file
-   * @return an {@link JsonReader} instance
-   */
-  public static JsonReader createFileReader(final Path path) {
-    checkNotNull(path);
-
-    try {
-      final var fileReader = new FileReader(path.toFile());
-      final var jsonReader = new JsonReader(fileReader);
-      jsonReader.setLenient(true);
-      return jsonReader;
-    } catch (final FileNotFoundException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
-
-  /**
-   * Create a new {@link JsonReader} instance on a String.
-   *
-   * @param json the JSON as a string
-   * @return an {@link JsonReader} instance
-   */
-  public static JsonReader createStringReader(final String json) {
-    checkNotNull(json);
-
-    final var stringReader = new StringReader(json);
-    final var jsonReader = new JsonReader(stringReader);
-    jsonReader.setLenient(true);
-    return jsonReader;
   }
 }
