@@ -17,13 +17,13 @@ import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.CorsHandler
-import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
+import io.vertx.ext.web.handler.HttpException
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.*
@@ -163,7 +163,7 @@ class SirixVerticle : CoroutineVerticle() {
                 }
             } catch (e: DecodeException) {
                 rc.fail(
-                    HttpStatusException(
+                    HttpException(
                         HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
                         "\"application/json\" and \"application/x-www-form-urlencoded\" are supported Content-Types." +
                                 "If none is specified it's tried to parse as JSON"
@@ -326,7 +326,7 @@ class SirixVerticle : CoroutineVerticle() {
 
         // Exception with status code
         route().handler { ctx ->
-            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code()))
+            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code()))
         }
 
         route().failureHandler { failureRoutingContext ->
@@ -341,7 +341,7 @@ class SirixVerticle : CoroutineVerticle() {
                 printWriter.flush()
 
                 if (statusCode == -1) {
-                    if (failure is HttpStatusException) {
+                    if (failure is HttpException) {
                         response(
                             failureRoutingContext.response(),
                             failure.statusCode,

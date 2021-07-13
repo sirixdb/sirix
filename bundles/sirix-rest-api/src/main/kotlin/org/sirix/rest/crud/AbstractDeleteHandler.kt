@@ -5,8 +5,7 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.impl.HttpStatusException
-import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
@@ -52,7 +51,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         if (resPathName == null) {
             if (!Files.exists(dbFile)) {
                 ctx.fail(
-                    HttpStatusException(
+                    HttpException(
                         HttpResponseStatus.NOT_FOUND.code(),
                         IllegalStateException("Database not found.")
                     )
@@ -71,7 +70,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         database.use {
             if (!database.existsResource(resPathName)) {
                 ctx.fail(
-                    HttpStatusException(
+                    HttpException(
                         HttpResponseStatus.NOT_FOUND.code(),
                         IllegalStateException("Resource not found.")
                     )
