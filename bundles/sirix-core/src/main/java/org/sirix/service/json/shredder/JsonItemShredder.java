@@ -14,7 +14,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.json.JsonNumber;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.settings.Fixed;
 
 import javax.xml.stream.XMLStreamReader;

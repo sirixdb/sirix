@@ -71,7 +71,7 @@ import org.sirix.node.xml.TextNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;

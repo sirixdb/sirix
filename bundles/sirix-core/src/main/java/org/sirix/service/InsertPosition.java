@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.shredder;
+package org.sirix.service;
 
 /**
  * Determines where to insert a subtree.

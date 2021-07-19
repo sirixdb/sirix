@@ -38,7 +38,7 @@ public final class AtomicJsonDBItem extends AbstractAtomic
     this.atomic = Preconditions.checkNotNull(atomic);
   }
 
-  private final void moveRtx() {
+  private void moveRtx() {
     rtx.moveTo(nodeKey);
   }
 

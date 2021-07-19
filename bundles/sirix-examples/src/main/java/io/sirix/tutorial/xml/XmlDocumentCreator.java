@@ -21,16 +21,12 @@
 
 package io.sirix.tutorial.xml;
 
-import java.io.IOException;
-
-import javax.xml.stream.XMLStreamException;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**

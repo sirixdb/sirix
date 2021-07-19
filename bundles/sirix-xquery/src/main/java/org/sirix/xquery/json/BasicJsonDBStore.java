@@ -224,6 +224,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, String optResName, String json) {
+    if (json == null) {
+      return createCollection(collName, optResName, null);
+    }
     return createCollection(collName, optResName, JsonShredder.createStringReader(json));
   }
 
@@ -270,6 +273,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                    .build());
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
+
+      if (reader == null) {
+        return collection;
+      }
 
       try (final JsonResourceManager manager = database.openResourceManager(resourceName);
            final JsonNodeTrx wtx = manager.beginNodeTrx()) {

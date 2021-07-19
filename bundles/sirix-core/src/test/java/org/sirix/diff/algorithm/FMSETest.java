@@ -5,7 +5,6 @@ import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
 import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.*;
-import org.junit.jupiter.api.Disabled;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -13,7 +12,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 import java.io.ByteArrayOutputStream;

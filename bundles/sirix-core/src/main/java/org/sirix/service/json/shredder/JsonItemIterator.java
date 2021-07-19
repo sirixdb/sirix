@@ -1,4 +1,4 @@
-package org.sirix.xquery.json;
+package org.sirix.service.json.shredder;
 
 import com.google.common.collect.AbstractIterator;
 import org.brackit.xquery.xdm.Item;
@@ -12,9 +12,10 @@ import java.util.Objects;
 public final class JsonItemIterator extends AbstractIterator<Item> {
 
   private final IncludeSelf includeSelf;
-  private final Deque<Iter> iter;
+  private Deque<Iter> iter;
   private boolean first;
-  private final Item item;
+  private Item item;
+  private Iter currIter;
 
   public JsonItemIterator(Item item, IncludeSelf includeSelf) {
     this.item = Objects.requireNonNull(item);
@@ -27,7 +28,7 @@ public final class JsonItemIterator extends AbstractIterator<Item> {
   protected Item computeNext() {
     if (first && includeSelf == IncludeSelf.YES) {
       first = false;
-      Iter currIter = item.iterate();
+      currIter = item.iterate();
       iter.push(currIter);
       return item;
     }

@@ -1,13 +1,7 @@
 package org.sirix.xquery.json;
 
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
-
+import com.google.common.base.Preconditions;
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.jsonitem.AbstractJsonItemCollection;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.DocumentException;
@@ -16,7 +10,6 @@ import org.brackit.xquery.xdm.json.TemporalJsonCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Transaction;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -26,8 +19,13 @@ import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Preconditions;
-import com.google.gson.stream.JsonReader;
+
+import javax.annotation.Nullable;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
     implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {
@@ -83,10 +81,6 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBCollection setJsonDBStore(final JsonDBStore jsonDBStore) {
     this.jsonDbStore = jsonDBStore;
     return this;
-  }
-
-  public Transaction beginTransaction() {
-    return database.beginTransaction();
   }
 
   @Override
@@ -187,7 +181,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   @Override
-  public JsonDBItem getDocument(final @Nonnegative int revision) {
+  public JsonDBItem getDocument(final int revision) {
     final List<Path> resources = database.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
@@ -287,7 +281,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       }
     });
 
-    return new ArrayStream<>(documents.toArray(new JsonDBItem[documents.size()]));
+    return new ArrayStream<>(documents.toArray(new JsonDBItem[0]));
   }
 
   @Override
@@ -299,8 +293,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   private JsonDBItem add(final JsonReader reader) {
     try {
-      final String resourceName =
-          new StringBuilder(2).append("resource").append(database.listResources().size() + 1).toString();
+      final String resourceName = "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)

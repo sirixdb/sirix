@@ -128,10 +128,15 @@ public final class Store extends AbstractFunction {
   private static void create(final JsonDBStore store, final String collName, final String resName,
       final Sequence nodes) {
     if (nodes instanceof Str) {
-      try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        store.create(collName, resName, reader);
-      } catch (final Exception e) {
-        throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+      final var string = (Str) nodes;
+      if (string.stringValue().isEmpty()) {
+        store.create(collName, resName, (String) null);
+      } else {
+        try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
+          store.create(collName, resName, reader);
+        } catch (final Exception e) {
+          throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+        }
       }
     } else if (nodes instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;

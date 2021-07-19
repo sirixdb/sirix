@@ -39,7 +39,7 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.service.ShredderCommit;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XmlDocumentCreator;
@@ -106,7 +106,7 @@ public final class DiffTestHelper {
   }
 
   static void setUpSeventh(final Holder holder)
-      throws SirixException, IOException, XMLStreamException {
+      throws SirixException {
     final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
@@ -119,7 +119,7 @@ public final class DiffTestHelper {
   }
 
   static void setUpEighth(final Holder holder)
-      throws SirixException, IOException, XMLStreamException {
+      throws SirixException {
     final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
@@ -132,7 +132,7 @@ public final class DiffTestHelper {
   }
 
   private static void initializeData(final Holder holder, final Path... files)
-      throws SirixException, IOException, XMLStreamException {
+      throws SirixException, IOException {
 
     int i = 0;
     for (final Path file : files) {

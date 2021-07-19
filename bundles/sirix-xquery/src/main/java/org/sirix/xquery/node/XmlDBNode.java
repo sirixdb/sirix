@@ -25,7 +25,7 @@ import org.sirix.axis.*;
 import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.StructuredDBItem;
