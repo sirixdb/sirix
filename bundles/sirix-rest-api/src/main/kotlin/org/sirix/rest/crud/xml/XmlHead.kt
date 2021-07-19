@@ -5,7 +5,7 @@ import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.impl.HttpStatusException
+import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
@@ -45,7 +45,7 @@ class XmlHead(private val location: Path) {
         try {
             database = Databases.openXmlDatabase(location.resolve(databaseName))
         } catch (e: SirixUsageException) {
-            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
         }
 
@@ -78,7 +78,7 @@ class XmlHead(private val location: Path) {
                     }
                 }
             } catch (e: SirixUsageException) {
-                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
 
