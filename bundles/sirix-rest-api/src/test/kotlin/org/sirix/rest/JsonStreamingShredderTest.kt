@@ -6,7 +6,6 @@ import junit.framework.Assert.assertEquals
 import org.junit.Test
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
-import org.sirix.JsonTestHelper
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
