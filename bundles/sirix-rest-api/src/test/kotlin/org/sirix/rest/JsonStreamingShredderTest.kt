@@ -26,8 +26,8 @@ class JsonStreamingShredderTest {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
-            database.createResource(ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build())
-            var manager = database.openResourceManager(JsonTestHelper.RESOURCE)
+            database.createResource(ResourceConfiguration.Builder("shredded").build())
+            var manager = database.openResourceManager("shredded")
             var wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
@@ -57,8 +57,8 @@ class JsonStreamingShredderTest {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
-            database.createResource(ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build())
-            var manager = database.openResourceManager(JsonTestHelper.RESOURCE)
+            database.createResource(ResourceConfiguration.Builder("shredded").build())
+            var manager = database.openResourceManager("shredded")
             var wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
@@ -90,8 +90,8 @@ class JsonStreamingShredderTest {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
-            database.createResource(ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build())
-            var manager = database.openResourceManager(JsonTestHelper.RESOURCE)
+            database.createResource(ResourceConfiguration.Builder("shredded").build())
+            var manager = database.openResourceManager("shredded")
             var wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
