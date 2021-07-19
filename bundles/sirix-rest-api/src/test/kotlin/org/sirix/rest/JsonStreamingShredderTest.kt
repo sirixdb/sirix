@@ -6,7 +6,6 @@ import junit.framework.Assert.assertEquals
 import org.junit.Test
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
-import org.sirix.JsonTestHelper
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
@@ -26,8 +25,8 @@ class JsonStreamingShredderTest {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
-            database.createResource(ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build())
-            var manager = database.openResourceManager(JsonTestHelper.RESOURCE)
+            database.createResource(ResourceConfiguration.Builder("shredded").build())
+            var manager = database.openResourceManager("shredded")
             var wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
@@ -57,8 +56,8 @@ class JsonStreamingShredderTest {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
-            database.createResource(ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build())
-            var manager = database.openResourceManager(JsonTestHelper.RESOURCE)
+            database.createResource(ResourceConfiguration.Builder("shredded").build())
+            var manager = database.openResourceManager("shredded")
             var wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
@@ -90,8 +89,8 @@ class JsonStreamingShredderTest {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
-            database.createResource(ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build())
-            var manager = database.openResourceManager(JsonTestHelper.RESOURCE)
+            database.createResource(ResourceConfiguration.Builder("shredded").build())
+            var manager = database.openResourceManager("shredded")
             var wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
