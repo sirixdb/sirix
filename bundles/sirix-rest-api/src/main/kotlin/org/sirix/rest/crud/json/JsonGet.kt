@@ -9,7 +9,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.impl.HttpStatusException
+import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
@@ -63,7 +63,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         try {
             database = Databases.openJsonDatabase(location.resolve(databaseName))
         } catch (e: SirixUsageException) {
-            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
         }
 
@@ -90,7 +90,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                     }
                 }
             } catch (e: SirixUsageException) {
-                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
 
