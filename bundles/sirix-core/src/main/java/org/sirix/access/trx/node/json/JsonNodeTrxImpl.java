@@ -30,6 +30,7 @@ import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.json.Array;
+import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.*;
@@ -629,11 +630,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
             throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
           }
-          if (item instanceof Record) {
+          if (item.itemType().isRecord()) {
             if (nodeKind == NodeKind.OBJECT)
               skipRootJsonToken = true;
           }
-          else if (item instanceof Array) {
+          else if (item.itemType().isListOrUnion()) {
             if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
               throw new IllegalStateException("Current node in storage must be an array node.");
             }
