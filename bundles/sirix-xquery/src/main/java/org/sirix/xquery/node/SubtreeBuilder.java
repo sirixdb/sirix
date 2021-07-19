@@ -14,7 +14,7 @@ import org.sirix.access.trx.node.xml.InternalXmlNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 
 /**
  * Subtree builder to build a new tree.

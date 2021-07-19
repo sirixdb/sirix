@@ -27,7 +27,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 
 /**
  * Database storage.

@@ -12,7 +12,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.json.JsonNumber;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;

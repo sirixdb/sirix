@@ -245,7 +245,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (this == other)
       return false;
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     return other.getTrx().getRevisionNumber() - 1 == this.getTrx().getRevisionNumber();
@@ -258,7 +258,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (this == other)
       return false;
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     return other.getTrx().getRevisionNumber() + 1 == this.getTrx().getRevisionNumber();
@@ -271,7 +271,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (this == other)
       return false;
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     return other.getTrx().getRevisionNumber() > this.getTrx().getRevisionNumber();
@@ -284,7 +284,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (this == other)
       return true;
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     return other.getTrx().getRevisionNumber() - 1 >= this.getTrx().getRevisionNumber();
@@ -297,7 +297,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (this == other)
       return false;
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     return other.getTrx().getRevisionNumber() < this.getTrx().getRevisionNumber();
@@ -310,7 +310,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (this == other)
       return true;
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     return other.getTrx().getRevisionNumber() <= this.getTrx().getRevisionNumber();
@@ -320,7 +320,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   public boolean isLastOf(final T other) {
     moveRtx();
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     final NodeReadOnlyTrx otherTrx = other.getTrx();
@@ -332,7 +332,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   public boolean isFirstOf(final T other) {
     moveRtx();
 
-    if (!(other instanceof T))
+    if (other == null)
       return false;
 
     final NodeReadOnlyTrx otherTrx = other.getTrx();

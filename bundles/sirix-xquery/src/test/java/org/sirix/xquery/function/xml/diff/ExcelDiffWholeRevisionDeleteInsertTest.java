@@ -29,7 +29,7 @@ import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;

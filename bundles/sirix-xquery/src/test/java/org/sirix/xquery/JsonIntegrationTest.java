@@ -157,16 +157,31 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
-  public void testInsertionQuery() throws IOException {
+  public void testInsertionQuery1() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[]')
         """;
     final String updateQuery1 = """
-          append json {"generic": 1, "location": {"state": "NY", "city": "New York", "foobar": [[],{"bar": true()},[],{}]},"foo":jn:null()} into jn:doc('mycol.jn','mydoc.jn')
+          append json {"generic": 1, "foo": jn:null()} into jn:doc('mycol.jn','mydoc.jn')
         """.strip();
     final String query = "jn:doc('mycol.jn','mydoc.jn')";
     final String assertion = """
-          [{"generic":1,"location":{"state":"NY","city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}]
+          {"generic":1,"foo":null}
+        """.strip();
+    test(storeQuery, updateQuery1, query, assertion);
+  }
+
+  @Test
+  public void testInsertionQuery2() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[]')
+        """;
+    final String updateQuery1 = """
+          append json {"generic": 1, "location": {"state": "NY", "ddd": {"sssss": []}, "city": "New York", "foobar": [[],{"bar": true()},[],{}]},"foo":jn:null()} into jn:doc('mycol.jn','mydoc.jn')
+        """.strip();
+    final String query = "jn:doc('mycol.jn','mydoc.jn')";
+    final String assertion = """
+          [{"generic":1,"location":{"state":"NY","ddd":{"sssss":[]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}]
         """.strip();
     test(storeQuery, updateQuery1, query, assertion);
   }

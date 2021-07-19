@@ -21,7 +21,7 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.shredder.JsonShredder;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
 import org.skyscreamer.jsonassert.JSONAssert;
 

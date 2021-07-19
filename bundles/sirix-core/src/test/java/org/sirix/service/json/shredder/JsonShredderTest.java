@@ -12,7 +12,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.service.json.serialize.JsonSerializer;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 import org.sirix.settings.VersioningType;
 import org.skyscreamer.jsonassert.JSONAssert;
 

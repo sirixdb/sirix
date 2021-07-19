@@ -2,16 +2,9 @@ package org.sirix.xquery.json;
 
 import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.util.ExprUtil;
-import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeTrx;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 
 final class JsonItemSequence {
 
@@ -84,17 +77,5 @@ final class JsonItemSequence {
         trx.insertSubtreeAsRightSibling(item, JsonNodeTrx.Commit.No);
       }
     }
-  }
-
-  private String serializeItem(Item item) {
-    final String json;
-    try (final var out = new ByteArrayOutputStream()) {
-      final var serializer = new StringSerializer(new PrintStream(out));
-      serializer.serialize(item);
-      json = new String(out.toByteArray(), StandardCharsets.UTF_8);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
-    return json;
   }
 }

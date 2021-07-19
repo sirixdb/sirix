@@ -5,7 +5,6 @@ import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.util.ExprUtil;
-import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.AbstractItem;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
@@ -25,16 +24,10 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.json.JsonNameFilter;
 import org.sirix.axis.temporal.*;
-import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.SirixJsonStream;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectStream;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -332,23 +325,8 @@ public final class JsonDBObject extends AbstractItem
   }
 
   private void insertSubtree(Sequence value, JsonNodeTrx trx) {
-    var json = serializeItem(value);
-    final var jsonReader = JsonShredder.createStringReader(json);
-    trx.insertSubtreeAsLastChild(jsonReader);
-  }
-
-  private String serializeItem(Sequence value) {
     final Item item = ExprUtil.asItem(value);
-
-    final String json;
-    try (final var out = new ByteArrayOutputStream()) {
-      final var serializer = new StringSerializer(new PrintStream(out));
-      serializer.serialize(item);
-      json = new String(out.toByteArray(), StandardCharsets.UTF_8);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
-    return json;
+    trx.insertSubtreeAsLastChild(item);
   }
 
   private boolean findField(QNm field, JsonNodeTrx trx) {
@@ -423,9 +401,8 @@ public final class JsonDBObject extends AbstractItem
         trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
       }
     } else {
-      final String json = serializeItem(value);
-
-      trx.insertSubtreeAsLastChild(JsonShredder.createStringReader(json));
+      final Item item = ExprUtil.asItem(value);
+      trx.insertSubtreeAsLastChild(item);
     }
   }
 
@@ -541,7 +518,9 @@ public final class JsonDBObject extends AbstractItem
     final var axis = new ChildAxis(rtx);
 
     try (final var stream = new SirixJsonStream(axis, collection)) {
-      for (int i = 0; i < index && stream.next() != null; i++) {
+      int i = 0;
+      while (i < index && stream.next() != null) {
+        i++;
       }
       final var jsonItem = stream.next();
 

@@ -14,7 +14,7 @@ import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.node.NodeKind;
 import org.sirix.service.json.shredder.JsonShredder;
-import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.InsertPosition;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

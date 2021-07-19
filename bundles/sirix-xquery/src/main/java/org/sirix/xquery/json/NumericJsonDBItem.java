@@ -45,7 +45,7 @@ public final class NumericJsonDBItem extends AbstractNumeric
     return mRtx.getResourceManager();
   }
 
-  private final void moveRtx() {
+  private void moveRtx() {
     mRtx.moveTo(mNodeKey);
   }
 

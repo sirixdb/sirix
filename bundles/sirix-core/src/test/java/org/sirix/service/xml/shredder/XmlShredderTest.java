@@ -42,6 +42,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+import org.sirix.service.InsertPosition;
 import org.sirix.utils.XmlDocumentCreator;
 
 public class XmlShredderTest extends XMLTestCase {
