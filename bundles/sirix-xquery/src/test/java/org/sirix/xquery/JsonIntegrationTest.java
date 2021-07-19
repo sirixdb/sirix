@@ -166,7 +166,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """.strip();
     final String query = "jn:doc('mycol.jn','mydoc.jn')";
     final String assertion = """
-          {"generic":1,"foo":null}
+          [{"generic":1,"foo":null}]
         """.strip();
     test(storeQuery, updateQuery1, query, assertion);
   }
