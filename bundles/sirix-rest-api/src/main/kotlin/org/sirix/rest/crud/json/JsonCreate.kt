@@ -110,7 +110,7 @@ class JsonCreate(
         val context = ctx.vertx().orCreateContext
         ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
-
+        ctx.request().resume()
         insertResource(dbFile, resPathName, ctx)
     }
 
@@ -118,7 +118,6 @@ class JsonCreate(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
-        ctx.request().pause()
 //        val fileResolver = FileResolver()
 //
 //        val filePath = withContext(Dispatchers.IO) {
@@ -153,8 +152,7 @@ class JsonCreate(
                 manager.use {
                     val jsonParser = JsonParser.newParser(ctx.request())
                     val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, jsonParser)
-                    ctx.request().resume()
-                    if (!ctx.request().isEnded()) {
+                    if (!ctx.request().isEnded) {
                         ctx.request().end().await()
                     }
 //                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
