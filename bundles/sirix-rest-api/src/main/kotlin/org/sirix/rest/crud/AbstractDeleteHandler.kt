@@ -36,9 +36,10 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                     }
             }
 
-            ctx.response().setStatusCode(204).end()
-            promise.complete(null)
+            promise.complete()
         }.await()
+
+        ctx.response().setStatusCode(204).end()
     }
 
     abstract fun createStore(ctx: RoutingContext): StructuredItemStore
@@ -129,10 +130,12 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
                             if (hashCode == null) {
                                 routingContext.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                                return@use
                             }
 
                             if (wtx.hash != BigInteger(hashCode)) {
                                 routingContext.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                                return@use
                             }
                         }
 
@@ -140,9 +143,9 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                         wtx.commit()
                     }
                 }
-
-                promise.complete()
             }
+
+            promise.complete()
         }.await()
     }
 
