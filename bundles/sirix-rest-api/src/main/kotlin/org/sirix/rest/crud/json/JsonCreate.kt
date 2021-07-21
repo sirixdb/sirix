@@ -153,7 +153,9 @@ class JsonCreate(
                     val jsonParser = JsonParser.newParser(ctx.request())
                     val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, jsonParser)
                     ctx.request().resume()
-                    ctx.request().end().await()
+                    if (!ctx.request().isEnded()) {
+                        ctx.request().end().await()
+                    }
 //                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
 
                     if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
