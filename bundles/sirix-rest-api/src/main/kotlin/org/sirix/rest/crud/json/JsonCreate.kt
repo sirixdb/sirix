@@ -52,7 +52,6 @@ class JsonCreate(
         } else {
             if (createMultipleResources) {
                 createMultipleResources(databaseName, ctx)
-                ctx.response().setStatusCode(201).end()
                 return ctx.currentRoute()
             }
 
@@ -99,7 +98,7 @@ class JsonCreate(
                 }
             }
 
-            ctx.response().setStatusCode(200).end()
+            ctx.response().setStatusCode(201).end()
         }
     }
 
@@ -111,7 +110,6 @@ class JsonCreate(
         val context = ctx.vertx().orCreateContext
         ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
-        ctx.request().resume()
 
         insertResource(dbFile, resPathName, ctx)
     }
@@ -120,7 +118,6 @@ class JsonCreate(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
-//        ctx.request().pause()
 //        val fileResolver = FileResolver()
 //
 //        val filePath = withContext(Dispatchers.IO) {
@@ -153,7 +150,6 @@ class JsonCreate(
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
-                    ctx.request().pause()
                     val jsonParser = JsonParser.newParser(ctx.request())
                     val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, jsonParser)
                     ctx.request().resume()
