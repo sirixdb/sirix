@@ -2,117 +2,86 @@ package org.sirix.rest
 
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
-import junit.framework.Assert.assertEquals
-import org.junit.Test
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
-import org.sirix.access.WriteLocksRegistry
-import org.sirix.service.ShredderCommit
 import org.sirix.service.json.serialize.JsonSerializer
 import java.io.StringWriter
+import java.nio.file.Path
 import java.nio.file.Paths
 
+/**
+ * Test the JSON streamin shredder (indirectly also the JSON serializer).
+ */
 class JsonStreamingShredderTest {
 
-    val databaseDirectory = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
+    private val databaseDirectory: Path = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
+
+    @BeforeEach
+    fun setup() {
+        Databases.removeDatabase(databaseDirectory)
+    }
+
+    @AfterEach
+    fun tearDown() {
+        Databases.removeDatabase(databaseDirectory)
+    }
 
     @Test
     fun testSimpleObject() {
-        Databases.removeDatabase(databaseDirectory)
-        Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
-        val database = Databases.openJsonDatabase(databaseDirectory)
-        database.use {
-            database.createResource(ResourceConfiguration.Builder("shredded").build())
-            var manager = database.openResourceManager("shredded")
-            var wtx = manager.beginNodeTrx()
-
-            val parser = JsonParser.newParser()
-            val shredder =
-                KotlinJsonStreamingShredder(wtx, parser)
-            shredder.call()
-            parser.handle(
-                Buffer.buffer("""
-                {"foo":"bar"}
-                """.trimIndent()))
-            parser.end()
-            wtx.commit()
-
-            var writer = StringWriter()
-            writer.use {
-                val serializer = JsonSerializer.Builder(manager, writer).build()
-                serializer.call()
-            }
-            assertEquals("{\"foo\":\"bar\"}", writer.toString())
-        }
-        Databases.removeDatabase(databaseDirectory)
+        test(
+            """
+             {"foo":"bar"}
+             """.trimIndent()
+        )
     }
 
     @Test
     fun testComplex1() {
-        Databases.removeDatabase(databaseDirectory)
-        Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
-        val database = Databases.openJsonDatabase(databaseDirectory)
-        database.use {
-            database.createResource(ResourceConfiguration.Builder("shredded").build())
-            var manager = database.openResourceManager("shredded")
-            var wtx = manager.beginNodeTrx()
-
-            val parser = JsonParser.newParser()
-            val shredder =
-                KotlinJsonStreamingShredder(wtx, parser)
-            shredder.call()
-            parser.handle(
-                Buffer.buffer("""
-                {"generic": 1, "location": {"state": "NY", "ddd": {"sssss": []}, "city": "New York", "foobar": [[],{"bar": true},[],{}]},"foo":null}
-                """.trimIndent()))
-            parser.end()
-            wtx.commit()
-
-            var writer = StringWriter()
-            writer.use {
-                val serializer = JsonSerializer.Builder(manager, writer).build()
-                serializer.call()
-            }
-            assertEquals("""
-                {"generic":1,"location":{"state":"NY","ddd":{"sssss":[]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
-                """.trimIndent(), writer.toString())
-        }
-        Databases.removeDatabase(databaseDirectory)
+        test(
+            """
+            {"generic":1,"location":{"state":"NY","ddd":{"sssss":[]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
+            """.trimIndent()
+        )
     }
 
     @Test
     fun testComplex2() {
-        Databases.removeDatabase(databaseDirectory)
+        test(
+            """
+            {"generic":1,"location":{"state":"NY","ddd":{"sssss":[[],[],{"tada":true}]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
+            """.trimIndent()
+        )
+    }
+
+    private fun test(json: String) {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
             database.createResource(ResourceConfiguration.Builder("shredded").build())
-            var manager = database.openResourceManager("shredded")
-            var wtx = manager.beginNodeTrx()
+            val manager = database.openResourceManager("shredded")
+            val wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
             val shredder =
                 KotlinJsonStreamingShredder(wtx, parser)
             shredder.call()
             parser.handle(
-                Buffer.buffer("""
-                {"generic":1,"location":{"state":"NY","ddd":{"sssss":[[],[],{"tada":true}]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
-                """.trimIndent()))
+                Buffer.buffer(
+                    json
+                )
+            )
             parser.end()
             wtx.commit()
 
-            var writer = StringWriter()
+            val writer = StringWriter()
             writer.use {
                 val serializer = JsonSerializer.Builder(manager, writer).build()
                 serializer.call()
             }
-            assertEquals("""
-                {"generic":1,"location":{"state":"NY","ddd":{"sssss":[[],[],{"tada":true}]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
-                """.trimIndent(), writer.toString())
+            assertEquals(json, writer.toString())
         }
-        Databases.removeDatabase(databaseDirectory)
     }
 }

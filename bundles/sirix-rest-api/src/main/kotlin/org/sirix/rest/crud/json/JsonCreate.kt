@@ -2,15 +2,12 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Promise
-import io.vertx.core.file.OpenOptions
 import io.vertx.core.file.impl.FileResolver
+import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
-import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.file.deleteAwait
-import io.vertx.kotlin.core.file.openAwait
-import io.vertx.kotlin.core.http.pipeToAwait
+import io.vertx.kotlin.core.http.endAwait
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +17,7 @@ import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
+import org.sirix.rest.KotlinJsonStreamingShredder
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
@@ -28,7 +26,6 @@ import org.slf4j.LoggerFactory
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
 
 private const val MAX_NODES_TO_SERIALIZE = 5000
 
@@ -123,20 +120,20 @@ class JsonCreate(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
-        ctx.request().pause()
-        val fileResolver = FileResolver()
-
-        val filePath = withContext(Dispatchers.IO) {
-            fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
-        }
-
-        val file = ctx.vertx().fileSystem().open(
-            filePath.toString(),
-            OpenOptions()
-        ).await()
-
-        ctx.request().resume()
-        ctx.request().pipeTo(file).await()
+//        ctx.request().pause()
+//        val fileResolver = FileResolver()
+//
+//        val filePath = withContext(Dispatchers.IO) {
+//            fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
+//        }
+//
+//        val file = ctx.vertx().fileSystem().open(
+//            filePath.toString(),
+//            OpenOptions()
+//        ).await()
+//
+//        ctx.request().resume()
+//        ctx.request().pipeTo(file).await()
 
         withContext(Dispatchers.IO) {
             var body: String? = null
@@ -156,10 +153,12 @@ class JsonCreate(
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
-                    val pathToFile = filePath.toPath()
-                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
-
-                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
+                    ctx.request().pause()
+                    val jsonParser = JsonParser.newParser(ctx.request())
+                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, jsonParser)
+                    ctx.request().resume()
+                    ctx.request().end().await()
+//                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
 
                     if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                         body = serializeJson(manager, ctx)
@@ -175,7 +174,6 @@ class JsonCreate(
                 ctx.response().end()
             }
         }
-
     }
 
     private fun serializeJson(
@@ -228,6 +226,17 @@ class JsonCreate(
             database.removeResource(resPathName)
             LOGGER.debug("Create resource: ${resConfig}")
             database.createResource(resConfig)
+        }
+    }
+
+    private fun insertJsonSubtreeAsFirstChild(
+        manager: JsonResourceManager,
+        jsonParser: JsonParser
+    ): Long {
+        val wtx = manager.beginNodeTrx()
+        return wtx.use {
+            KotlinJsonStreamingShredder(wtx, jsonParser).call()
+            wtx.maxNodeKey
         }
     }
 
