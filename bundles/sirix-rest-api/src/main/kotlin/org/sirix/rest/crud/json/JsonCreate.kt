@@ -118,6 +118,7 @@ class JsonCreate(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
+        ctx.request().pause()
 //        val fileResolver = FileResolver()
 //
 //        val filePath = withContext(Dispatchers.IO) {
