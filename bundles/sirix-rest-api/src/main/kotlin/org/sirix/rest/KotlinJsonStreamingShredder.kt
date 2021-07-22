@@ -11,11 +11,13 @@ import org.sirix.node.NodeKind
 import org.sirix.service.InsertPosition
 import org.sirix.settings.Fixed
 import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
 
 class KotlinJsonStreamingShredder(
     val wtx: JsonNodeTrx,
     val parser: JsonParser,
     var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD,
+    val latch: CountDownLatch
 ) : Callable<Long> {
     private val parents = ArrayDeque<Long>()
 
@@ -148,6 +150,7 @@ class KotlinJsonStreamingShredder(
         parser.endHandler {
             processEndArrayOrEndObject(false)
             wtx.moveTo(insertedRootNodeKey[0])
+            latch.countDown()
         }
     }
 
