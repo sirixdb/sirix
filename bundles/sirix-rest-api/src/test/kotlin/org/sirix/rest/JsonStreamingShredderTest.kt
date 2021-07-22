@@ -11,6 +11,8 @@ import org.sirix.service.json.serialize.JsonSerializer
 import java.io.StringWriter
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Test the JSON streamin shredder (indirectly also the JSON serializer).
@@ -65,8 +67,9 @@ class JsonStreamingShredderTest {
             val wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
+            val latch = CountDownLatch(1)
             val shredder =
-                KotlinJsonStreamingShredder(wtx, parser)
+                KotlinJsonStreamingShredder(wtx, parser, latch = latch)
             shredder.call()
             parser.handle(
                 Buffer.buffer(
@@ -74,6 +77,7 @@ class JsonStreamingShredderTest {
                 )
             )
             parser.end()
+            latch.await(5, TimeUnit.SECONDS)
             wtx.commit()
 
             val writer = StringWriter()

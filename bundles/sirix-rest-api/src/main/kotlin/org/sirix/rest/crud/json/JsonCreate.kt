@@ -7,7 +7,6 @@ import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
-import io.vertx.kotlin.core.http.endAwait
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,6 +25,8 @@ import org.slf4j.LoggerFactory
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 private const val MAX_NODES_TO_SERIALIZE = 5000
 
@@ -118,6 +119,7 @@ class JsonCreate(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
+        ctx.request().pause()
 //        val fileResolver = FileResolver()
 //
 //        val filePath = withContext(Dispatchers.IO) {
@@ -150,11 +152,8 @@ class JsonCreate(
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
-                    val jsonParser = JsonParser.newParser(ctx.request())
-                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, jsonParser)
-                    if (!ctx.request().isEnded) {
-                        ctx.request().end().await()
-                    }
+                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
+
 //                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
 
                     if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
@@ -226,13 +225,21 @@ class JsonCreate(
         }
     }
 
-    private fun insertJsonSubtreeAsFirstChild(
+    private suspend fun insertJsonSubtreeAsFirstChild(
         manager: JsonResourceManager,
-        jsonParser: JsonParser
+        ctx: RoutingContext
     ): Long {
         val wtx = manager.beginNodeTrx()
         return wtx.use {
-            KotlinJsonStreamingShredder(wtx, jsonParser).call()
+            val latch = CountDownLatch(1)
+            val jsonParser = JsonParser.newParser(ctx.request())
+            KotlinJsonStreamingShredder(wtx, jsonParser, latch = latch).call()
+            ctx.request().resume()
+            if (!ctx.request().isEnded) {
+                ctx.request().end().await()
+            }
+            latch.await(2, TimeUnit.MINUTES)
+            wtx.commit()
             wtx.maxNodeKey
         }
     }
