@@ -1,10 +1,15 @@
 package org.sirix.rest
 
 import com.google.common.base.Preconditions
+import io.vertx.core.Future
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.core.parsetools.JsonEventType
 import io.vertx.core.parsetools.JsonParser
+import io.vertx.kotlin.coroutines.await
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.sirix.access.trx.node.json.objectvalue.*
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.node.NodeKind
@@ -20,133 +25,166 @@ class KotlinJsonStreamingShredder(
 
     private var level = 0
 
-    fun call(): Int {
-        parents.add(Fixed.NULL_NODE_KEY.standardProperty)
-        val revision = wtx.revisionNumber
-        insertNewContent()
-        return revision
+    fun call(): Future<Int> {
+        return Future.future { promise ->
+            try {
+                parents.add(Fixed.NULL_NODE_KEY.standardProperty)
+                val revision = wtx.revisionNumber
+                GlobalScope.launch (Dispatchers.IO) {
+                    val future = insertNewContent()
+                    val nodeKeyToMoveTo = future.await()
 
-    }
-
-    private fun insertNewContent() {
-        level = 0
-        val insertedRootNodeKey = longArrayOf(-1)
-        var keyValue: KeyValue? = null
-        var lastEndObjectOrEndArrayEventType: JsonEventType? = null
-        val parentKind = ArrayDeque<JsonEventType>()
-
-        // Iterate over all nodes.
-        parser.handler { event ->
-            when (event.type()) {
-                JsonEventType.START_OBJECT -> {
-                    level++
-
-                    if (keyValue != null) {
-                        val value = keyValue!!.value
-                        addObjectRecord(keyValue!!.field, value, value !is JsonObject && value !is JsonArray)
-                        keyValue = null
-                    }
-                    val name = event.fieldName()
-                    if (lastEndObjectOrEndArrayEventType != null) {
-                        processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
-                        lastEndObjectOrEndArrayEventType = null
-                    }
-
-                    if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
-                        val insertedObjectNodeKey = addObject()
-
-                        if (insertedRootNodeKey[0] == -1L) {
-                            insertedRootNodeKey[0] = insertedObjectNodeKey
-                        }
-                    } else {
-                        keyValue = KeyValue(name, JsonObject())
-                    }
-                    parentKind.addFirst(event.type())
-                }
-                JsonEventType.VALUE -> {
-                    val name = event.fieldName()
-                    if (keyValue != null) {
-                        val isNextTokenParentToken = name != null && parentKind.first() == JsonEventType.START_OBJECT
-                        addObjectRecord(keyValue!!.field, keyValue!!.value, isNextTokenParentToken)
-                        keyValue = null
-                    }
-                    if (lastEndObjectOrEndArrayEventType != null) {
-                        processEndArrayOrEndObject(name != null)
-                        lastEndObjectOrEndArrayEventType = null
-                    }
-                    val value = event.value()
-                    if (name != null) {
-                        if (value == null) {
-                            keyValue = KeyValue(name, NullValue())
-                        } else {
-                            keyValue = KeyValue(name, value)
-                        }
-                    } else if (value is Number) {
-                        val insertedNumberValueNodeKey = insertNumberValue(value)
-
-                        if (insertedRootNodeKey[0] == -1L)
-                            insertedRootNodeKey[0] = insertedNumberValueNodeKey
-                    } else if (value is String) {
-                        val insertedStringValueNodeKey = insertStringValue(value)
-
-                        if (insertedRootNodeKey[0] == -1L)
-                            insertedRootNodeKey[0] = insertedStringValueNodeKey
-                    } else if (value is Boolean) {
-                        val insertedBooleanValueNodeKey = insertBooleanValue(value)
-
-                        if (insertedRootNodeKey[0] == -1L)
-                            insertedRootNodeKey[0] = insertedBooleanValueNodeKey
-                    } else if (value == null) {
-                        val insertedNullValueNodeKey = insertNullValue()
-
-                        if (insertedRootNodeKey[0] == -1L)
-                            insertedRootNodeKey[0] = insertedNullValueNodeKey
+                    parser.endHandler {
+                        processEndArrayOrEndObject(false)
+                        wtx.moveTo(nodeKeyToMoveTo)
+                        promise.tryComplete(revision)
                     }
                 }
-                JsonEventType.END_OBJECT, JsonEventType.END_ARRAY -> {
-                    if (keyValue != null) {
-                        addObjectRecord(keyValue!!.field, keyValue!!.value, event.type() == JsonEventType.END_OBJECT)
-                        keyValue = null
-                    }
-                    level--
-                    if (lastEndObjectOrEndArrayEventType != null) {
-                        processEndArrayOrEndObject(event.type() == JsonEventType.END_OBJECT)
-                    }
-                    lastEndObjectOrEndArrayEventType = event.type()
-                    parentKind.removeFirst()
-                }
-                JsonEventType.START_ARRAY -> {
-                    if (keyValue != null) {
-                        val value = keyValue!!.value
-                        addObjectRecord(keyValue!!.field, keyValue!!.value, value !is JsonObject && value !is JsonArray)
-                        keyValue = null
-                    }
-
-                    val name = event.fieldName()
-                    if (lastEndObjectOrEndArrayEventType != null) {
-                        processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
-                        lastEndObjectOrEndArrayEventType = null
-                    }
-
-                    level++
-
-                    if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
-                        val insertedArrayNodeKey = insertArray()
-
-                        if (insertedRootNodeKey[0] == -1L) {
-                            insertedRootNodeKey[0] = insertedArrayNodeKey
-                        }
-                    } else {
-                        keyValue = KeyValue(name, JsonArray())
-                    }
-                    parentKind.addFirst(event.type())
-                }
+            } catch (t: Throwable) {
+                promise.tryFail(t)
             }
         }
+    }
 
-        parser.endHandler {
-            processEndArrayOrEndObject(false)
-            wtx.moveTo(insertedRootNodeKey[0])
+    private fun insertNewContent(): Future<Long> {
+        return Future.future { promise ->
+            try {
+                level = 0
+                var insertedRootNodeKey = -1L
+                var keyValue: KeyValue? = null
+                var lastEndObjectOrEndArrayEventType: JsonEventType? = null
+                val parentKind = ArrayDeque<JsonEventType>()
+
+                // Iterate over all nodes.
+                parser.handler { event ->
+                    when (event.type()) {
+                        JsonEventType.START_OBJECT -> {
+                            level++
+
+                            if (keyValue != null) {
+                                val value = keyValue!!.value
+                                addObjectRecord(keyValue!!.field, value, value !is JsonObject && value !is JsonArray)
+                                keyValue = null
+                            }
+                            val name = event.fieldName()
+                            if (lastEndObjectOrEndArrayEventType != null) {
+                                processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
+                                lastEndObjectOrEndArrayEventType = null
+                            }
+
+                            if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
+                                val insertedObjectNodeKey = addObject()
+
+                                if (insertedRootNodeKey == -1L) {
+                                    insertedRootNodeKey = insertedObjectNodeKey
+                                    promise.tryComplete(insertedRootNodeKey)
+                                }
+                            } else {
+                                keyValue = KeyValue(name, JsonObject())
+                            }
+                            parentKind.addFirst(event.type())
+                        }
+                        JsonEventType.VALUE -> {
+                            val name = event.fieldName()
+                            if (keyValue != null) {
+                                val isNextTokenParentToken =
+                                    name != null && parentKind.first() == JsonEventType.START_OBJECT
+                                addObjectRecord(keyValue!!.field, keyValue!!.value, isNextTokenParentToken)
+                                keyValue = null
+                            }
+                            if (lastEndObjectOrEndArrayEventType != null) {
+                                processEndArrayOrEndObject(name != null)
+                                lastEndObjectOrEndArrayEventType = null
+                            }
+                            val value = event.value()
+                            if (name != null) {
+                                if (value == null) {
+                                    keyValue = KeyValue(name, NullValue())
+                                } else {
+                                    keyValue = KeyValue(name, value)
+                                }
+                            } else if (value is Number) {
+                                val insertedNumberValueNodeKey = insertNumberValue(value)
+
+                                if (insertedRootNodeKey == -1L) {
+                                    insertedRootNodeKey = insertedNumberValueNodeKey
+                                    promise.tryComplete(insertedRootNodeKey)
+                                }
+                            } else if (value is String) {
+                                val insertedStringValueNodeKey = insertStringValue(value)
+
+                                if (insertedRootNodeKey == -1L) {
+                                    insertedRootNodeKey = insertedStringValueNodeKey
+                                    promise.tryComplete(insertedRootNodeKey)
+                                }
+                            } else if (value is Boolean) {
+                                val insertedBooleanValueNodeKey = insertBooleanValue(value)
+
+                                if (insertedRootNodeKey == -1L) {
+                                    insertedRootNodeKey = insertedBooleanValueNodeKey
+                                    promise.tryComplete(insertedRootNodeKey)
+                                }
+                            } else if (value == null) {
+                                val insertedNullValueNodeKey = insertNullValue()
+
+                                if (insertedRootNodeKey == -1L) {
+                                    insertedRootNodeKey = insertedNullValueNodeKey
+                                    promise.tryComplete(insertedRootNodeKey)
+                                }
+                            }
+                        }
+                        JsonEventType.END_OBJECT, JsonEventType.END_ARRAY -> {
+                            if (keyValue != null) {
+                                addObjectRecord(
+                                    keyValue!!.field,
+                                    keyValue!!.value,
+                                    event.type() == JsonEventType.END_OBJECT
+                                )
+                                keyValue = null
+                            }
+                            level--
+                            if (lastEndObjectOrEndArrayEventType != null) {
+                                processEndArrayOrEndObject(event.type() == JsonEventType.END_OBJECT)
+                            }
+                            lastEndObjectOrEndArrayEventType = event.type()
+                            parentKind.removeFirst()
+                        }
+                        JsonEventType.START_ARRAY -> {
+                            if (keyValue != null) {
+                                val value = keyValue!!.value
+                                addObjectRecord(
+                                    keyValue!!.field,
+                                    keyValue!!.value,
+                                    value !is JsonObject && value !is JsonArray
+                                )
+                                keyValue = null
+                            }
+
+                            val name = event.fieldName()
+                            if (lastEndObjectOrEndArrayEventType != null) {
+                                processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
+                                lastEndObjectOrEndArrayEventType = null
+                            }
+
+                            level++
+
+                            if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
+                                val insertedArrayNodeKey = insertArray()
+
+                                if (insertedRootNodeKey == -1L) {
+                                    insertedRootNodeKey = insertedArrayNodeKey
+                                    promise.tryComplete(insertedRootNodeKey)
+                                }
+                            } else {
+                                keyValue = KeyValue(name, JsonArray())
+                            }
+                            parentKind.addFirst(event.type())
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                promise.tryFail(t)
+            }
         }
     }
 
