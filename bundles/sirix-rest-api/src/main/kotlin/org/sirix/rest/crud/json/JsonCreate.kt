@@ -224,11 +224,9 @@ class JsonCreate(
         val wtx = manager.beginNodeTrx()
         return wtx.use {
             val jsonParser = JsonParser.newParser(ctx.request())
-            KotlinJsonStreamingShredder(wtx, jsonParser).call()
+            val future = KotlinJsonStreamingShredder(wtx, jsonParser).call()
             ctx.request().resume()
-            if (!ctx.request().isEnded) {
-                ctx.request().end().await()
-            }
+            future.await()
             wtx.commit()
             wtx.maxNodeKey
         }
