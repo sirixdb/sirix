@@ -84,8 +84,7 @@ class JsonCreate(
 
                     createOrRemoveAndCreateResource(
                         database,
-                        resConfig,
-                        fileName
+                        resConfig
                     )
 
                     val manager = database.openResourceManager(fileName)
@@ -98,9 +97,9 @@ class JsonCreate(
                     }
                 }
             }
-
-            ctx.response().setStatusCode(201).end()
         }
+
+        ctx.response().setStatusCode(201).end()
     }
 
     private suspend fun shredder(
@@ -145,8 +144,7 @@ class JsonCreate(
 
                 createOrRemoveAndCreateResource(
                     database,
-                    resConfig,
-                    resPathName
+                    resConfig
                 )
 
                 val manager = database.openResourceManager(resPathName)
@@ -214,15 +212,9 @@ class JsonCreate(
     private fun createOrRemoveAndCreateResource(
         database: Database<JsonResourceManager>,
         resConfig: ResourceConfiguration?,
-        resPathName: String
     ) {
         LOGGER.debug("Create resource: ${resConfig}")
-        if (!database.createResource(resConfig)) {
-            LOGGER.debug("Remove resource: ${resConfig}")
-            database.removeResource(resPathName)
-            LOGGER.debug("Create resource: ${resConfig}")
-            database.createResource(resConfig)
-        }
+        database.createResource(resConfig)
     }
 
     private suspend fun insertJsonSubtreeAsFirstChild(
@@ -231,14 +223,12 @@ class JsonCreate(
     ): Long {
         val wtx = manager.beginNodeTrx()
         return wtx.use {
-            val latch = CountDownLatch(1)
             val jsonParser = JsonParser.newParser(ctx.request())
-            KotlinJsonStreamingShredder(wtx, jsonParser, latch = latch).call()
+            KotlinJsonStreamingShredder(wtx, jsonParser).call()
             ctx.request().resume()
             if (!ctx.request().isEnded) {
                 ctx.request().end().await()
             }
-            latch.await(2, TimeUnit.MINUTES)
             wtx.commit()
             wtx.maxNodeKey
         }

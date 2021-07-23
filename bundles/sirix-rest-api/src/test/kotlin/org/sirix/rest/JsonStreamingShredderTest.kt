@@ -58,6 +58,15 @@ class JsonStreamingShredderTest {
         )
     }
 
+    @Test
+    fun testComplex3() {
+        test(
+            """
+                {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+            """.trimIndent()
+        )
+    }
+
     private fun test(json: String) {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
@@ -67,9 +76,8 @@ class JsonStreamingShredderTest {
             val wtx = manager.beginNodeTrx()
 
             val parser = JsonParser.newParser()
-            val latch = CountDownLatch(1)
             val shredder =
-                KotlinJsonStreamingShredder(wtx, parser, latch = latch)
+                KotlinJsonStreamingShredder(wtx, parser)
             shredder.call()
             parser.handle(
                 Buffer.buffer(
@@ -77,7 +85,6 @@ class JsonStreamingShredderTest {
                 )
             )
             parser.end()
-            latch.await(5, TimeUnit.SECONDS)
             wtx.commit()
 
             val writer = StringWriter()
