@@ -10,22 +10,19 @@ import org.sirix.api.json.JsonNodeTrx
 import org.sirix.node.NodeKind
 import org.sirix.service.InsertPosition
 import org.sirix.settings.Fixed
-import java.util.concurrent.Callable
-import java.util.concurrent.CountDownLatch
 
 class KotlinJsonStreamingShredder(
     val wtx: JsonNodeTrx,
     val parser: JsonParser,
-    var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD,
-    val latch: CountDownLatch
-) : Callable<Long> {
+    var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD
+) {
     private val parents = ArrayDeque<Long>()
 
     private var level = 0
 
-    override fun call(): Long {
+    fun call(): Int {
         parents.add(Fixed.NULL_NODE_KEY.standardProperty)
-        val revision: Long = wtx.revisionNumber.toLong()
+        val revision = wtx.revisionNumber
         insertNewContent()
         return revision
 
@@ -49,12 +46,12 @@ class KotlinJsonStreamingShredder(
                         addObjectRecord(keyValue!!.field, value, value !is JsonObject && value !is JsonArray)
                         keyValue = null
                     }
+                    val name = event.fieldName()
                     if (lastEndObjectOrEndArrayEventType != null) {
-                        processEndArrayOrEndObject(false)
+                        processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
                         lastEndObjectOrEndArrayEventType = null
                     }
 
-                    val name = event.fieldName()
                     if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
                         val insertedObjectNodeKey = addObject()
 
@@ -69,7 +66,7 @@ class KotlinJsonStreamingShredder(
                 JsonEventType.VALUE -> {
                     val name = event.fieldName()
                     if (keyValue != null) {
-                        val isNextTokenParentToken = name != null
+                        val isNextTokenParentToken = name != null && parentKind.first() == JsonEventType.START_OBJECT
                         addObjectRecord(keyValue!!.field, keyValue!!.value, isNextTokenParentToken)
                         keyValue = null
                     }
@@ -125,14 +122,14 @@ class KotlinJsonStreamingShredder(
                         keyValue = null
                     }
 
+                    val name = event.fieldName()
                     if (lastEndObjectOrEndArrayEventType != null) {
-                        processEndArrayOrEndObject(false)
+                        processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
                         lastEndObjectOrEndArrayEventType = null
                     }
 
                     level++
 
-                    val name = event.fieldName()
                     if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
                         val insertedArrayNodeKey = insertArray()
 
@@ -150,7 +147,6 @@ class KotlinJsonStreamingShredder(
         parser.endHandler {
             processEndArrayOrEndObject(false)
             wtx.moveTo(insertedRootNodeKey[0])
-            latch.countDown()
         }
     }
 
