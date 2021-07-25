@@ -7,14 +7,13 @@ import io.vertx.core.json.JsonObject
 import io.vertx.core.parsetools.JsonEventType
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.kotlin.coroutines.await
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
+import io.vertx.kotlin.coroutines.awaitBlocking
 import org.sirix.access.trx.node.json.objectvalue.*
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.node.NodeKind
 import org.sirix.service.InsertPosition
 import org.sirix.settings.Fixed
+import kotlinx.coroutines.*
 
 class KotlinJsonStreamingShredder(
     val wtx: JsonNodeTrx,
@@ -30,16 +29,15 @@ class KotlinJsonStreamingShredder(
             try {
                 parents.add(Fixed.NULL_NODE_KEY.standardProperty)
                 val revision = wtx.revisionNumber
-                GlobalScope.launch (Dispatchers.IO) {
-                    val future = insertNewContent()
-                    val nodeKeyToMoveTo = future.await()
-
-                    parser.endHandler {
-                        processEndArrayOrEndObject(false)
-                        wtx.moveTo(nodeKeyToMoveTo)
-                        promise.tryComplete(revision)
+                val future = insertNewContent()
+                future.onFailure(Throwable::printStackTrace)
+                    .onSuccess { nodeKey ->
+                        parser.endHandler {
+                            processEndArrayOrEndObject(false)
+                            wtx.moveTo(nodeKey)
+                            promise.tryComplete(revision)
+                        }
                     }
-                }
             } catch (t: Throwable) {
                 promise.tryFail(t)
             }
