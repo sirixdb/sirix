@@ -3,7 +3,9 @@ package org.sirix.xquery.function.jn.temporal;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.sirix.JsonTestHelper;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -17,6 +19,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public final class FirstExistingTest {
 
   private static final Path SIRIX_DB_PATH = JsonTestHelper.PATHS.PATH1.getFile();
+
+  @BeforeEach
+  void setup() {
+    JsonTestHelper.deleteEverything();
+  }
+
+  @AfterEach
+  void tearDown() {
+    JsonTestHelper.deleteEverything();
+  }
 
   @Test
   public void test_whenRevisionsAndNodeExists_getRevision() throws IOException {
@@ -39,14 +51,14 @@ public final class FirstExistingTest {
   }
 
   @Test
-  public void test_whenNodeDoesnotExist_getRevision() throws IOException {
+  public void test_whenNodeDoesNotExist_getRevision() throws IOException {
     try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH).build();
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       SetupRevisions.setupRevisions(ctx, chain);
 
-      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',0), 11)))";
+      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',2), 11)))";
       final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
@@ -54,7 +66,7 @@ public final class FirstExistingTest {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
 
-      assertEquals(2L, Long.valueOf(buf.toString()));
+      assertEquals(1L, Long.valueOf(buf.toString()));
     }
   }
 }

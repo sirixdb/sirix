@@ -3,7 +3,9 @@ package org.sirix.xquery.function.jn.temporal;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.sirix.JsonTestHelper;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -17,6 +19,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public final class LastExistingTest {
 
   private static final Path SIRIX_DB_PATH = JsonTestHelper.PATHS.PATH1.getFile();
+
+  @BeforeEach
+  void setup() {
+    JsonTestHelper.deleteEverything();
+  }
+
+  @AfterEach
+  void tearDown() {
+    JsonTestHelper.deleteEverything();
+  }
 
   @Test
   public void test_whenRevisionsAndNodeExists_getRevision() throws IOException {

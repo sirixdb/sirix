@@ -105,15 +105,6 @@ subprojects {
         it.options.compilerArgs.add('--enable-preview')
     }
     
-    test {
-        testLogging {
-            events "failed"
-            exceptionFormat "short"
-        }
-
-        useJUnitPlatform()
-    }
-
     spotless {
         enforceCheck false
         java {
@@ -223,8 +214,13 @@ subprojects {
     }
 
     test {
+        testLogging {
+            events "failed"
+            exceptionFormat "short"
+        }
         useTestNG()
         useJUnit()
+        useJUnitPlatform()
         jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
 
         minHeapSize = '2g'
