@@ -9,5 +9,7 @@ public interface JsonDBItem extends JsonItem {
 
   JsonNodeReadOnlyTrx getTrx();
 
+  long getNodeKey();
+
   JsonDBCollection getCollection();
 }

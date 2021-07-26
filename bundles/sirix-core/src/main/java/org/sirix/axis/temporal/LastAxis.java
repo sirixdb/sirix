@@ -18,13 +18,13 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     extends AbstractTemporalAxis<R, W> {
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> mResourceManager;
+  private final ResourceManager<R, W> resourceManager;
 
   /** Node key to lookup and retrieve. */
-  private long mNodeKey;
+  private long nodeKey;
 
   /** Determines if it's the first call. */
-  private boolean mFirst;
+  private boolean first;
 
   /**
    * Constructor.
@@ -32,27 +32,27 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
   public LastAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    mResourceManager = checkNotNull(resourceManager);
-    mNodeKey = rtx.getNodeKey();
-    mFirst = true;
+    this.resourceManager = checkNotNull(resourceManager);
+    nodeKey = rtx.getNodeKey();
+    first = true;
   }
 
   @Override
   protected R computeNext() {
-    if (mFirst) {
-      mFirst = false;
+    if (first) {
+      first = false;
 
       final Optional<R> optionalRtx =
-          mResourceManager.getNodeReadTrxByRevisionNumber(mResourceManager.getMostRecentRevisionNumber());
+          resourceManager.getNodeReadTrxByRevisionNumber(resourceManager.getMostRecentRevisionNumber());
 
       final R rtx;
       if (optionalRtx.isPresent()) {
         rtx = optionalRtx.get();
       } else {
-        rtx = mResourceManager.beginNodeReadOnlyTrx(mResourceManager.getMostRecentRevisionNumber());
+        rtx = resourceManager.beginNodeReadOnlyTrx(resourceManager.getMostRecentRevisionNumber());
       }
 
-      if (rtx.moveTo(mNodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey).hasMoved()) {
         return rtx;
       } else {
         rtx.close();
@@ -65,6 +65,6 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
   @Override
   public ResourceManager<R, W> getResourceManager() {
-    return mResourceManager;
+    return resourceManager;
   }
 }

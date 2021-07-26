@@ -37,13 +37,7 @@ import org.sirix.xquery.function.jn.io.DocByPointInTime;
 import org.sirix.xquery.function.jn.io.Load;
 import org.sirix.xquery.function.jn.io.OpenRevisions;
 import org.sirix.xquery.function.jn.io.Store;
-import org.sirix.xquery.function.jn.temporal.AllTimes;
-import org.sirix.xquery.function.jn.temporal.First;
-import org.sirix.xquery.function.jn.temporal.Future;
-import org.sirix.xquery.function.jn.temporal.Last;
-import org.sirix.xquery.function.jn.temporal.Next;
-import org.sirix.xquery.function.jn.temporal.Past;
-import org.sirix.xquery.function.jn.temporal.Previous;
+import org.sirix.xquery.function.jn.temporal.*;
 import org.sirix.xquery.function.jn.trx.SelectJsonItem;
 import org.sirix.xquery.function.jn.diff.Diff;
 
@@ -87,7 +81,11 @@ public final class JNFun {
         new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
     Functions.predefine(new First(First.FIRST,
         new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
+    Functions.predefine(new FirstExisting(FirstExisting.FIRST_EXISTING,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
     Functions.predefine(new Last(Last.LAST,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
+    Functions.predefine(new LastExisting(LastExisting.LAST_EXISTING,
         new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
     Functions.predefine(
         new AllTimes(AllTimes.ALL_TIMES, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM)));
