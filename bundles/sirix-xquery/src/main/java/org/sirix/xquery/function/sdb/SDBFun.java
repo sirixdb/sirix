@@ -4,6 +4,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
 import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
@@ -94,7 +95,7 @@ public final class SDBFun {
 
     // select item
     Functions.predefine(new SelectItem(SelectItem.SELECT_NODE,
-        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
+        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(new AtomicType(Type.LON), Cardinality.One))));
 
     // select parent
     Functions.predefine(new SelectParent(SelectParent.SELECT_PARENT,
