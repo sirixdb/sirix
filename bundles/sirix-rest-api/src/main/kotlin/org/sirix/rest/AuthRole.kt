@@ -6,6 +6,6 @@ enum class AuthRole(private val role: String) {
     VIEW("view"),
     DELETE("delete");
 
-    fun keycloakRole() = role
+    fun keycloakRole() = "realm:$role"
     fun databaseRole(database: String) = "realm:$database-$role"
 }
