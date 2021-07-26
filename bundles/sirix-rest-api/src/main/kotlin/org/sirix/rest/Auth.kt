@@ -43,7 +43,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
                 PermissionBasedAuthorization.create(role.databaseRole(database)).match(user)
             }
 
-        if (!isAuthorized && !PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
+        if (!isAuthorized && PermissionBasedAuthorization.create(role.keycloakRole()).match(user)) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
         }
