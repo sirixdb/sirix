@@ -46,7 +46,7 @@ public final class LastExistingTest {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
 
-      assertEquals(3L, Long.valueOf(buf.toString()));
+      assertEquals(4L, Long.valueOf(buf.toString()));
     }
   }
 
@@ -66,7 +66,7 @@ public final class LastExistingTest {
         serializer.setFormat(true).serialize(allTimesSeq);
       }
 
-      assertEquals(2L, Long.valueOf(buf.toString()));
+      assertEquals(3L, Long.valueOf(buf.toString()));
     }
   }
 }

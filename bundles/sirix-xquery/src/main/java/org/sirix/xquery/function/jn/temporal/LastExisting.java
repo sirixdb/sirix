@@ -69,26 +69,26 @@ public final class LastExisting extends AbstractFunction {
           rtx.close();
           final var mostRecentRevisionTrx =
               resourceManager.getNodeReadTrxByRevisionNumber(resourceManager.getMostRecentRevisionNumber());
-          return getJsonItem(item, revision, resourceManager, mostRecentRevisionTrx);
+          return getJsonItem(item, resourceManager.getMostRecentRevisionNumber(), resourceManager, mostRecentRevisionTrx);
         } else {
           rtx.moveTo(item.getNodeKey());
           return new JsonItemFactory().getSequence(rtx, item.getCollection());
         }
       } else {
-        final var mostRecentRevisionTrx = resourceManager.getNodeReadTrxByRevisionNumber(rtx.getRevisionNumber() - 1);
-        return getJsonItem(item, revision, resourceManager, mostRecentRevisionTrx);
+        final var mostRecentRevisionTrx = resourceManager.getNodeReadTrxByRevisionNumber(revision - 1);
+        return getJsonItem(item, revision - 1, resourceManager, mostRecentRevisionTrx);
       }
     }).orElseThrow(() -> new QueryException(new QNm("May never happen.")));
   }
 
-  private JsonItem getJsonItem(JsonDBItem item, Integer revision, JsonResourceManager resourceManager,
+  private JsonItem getJsonItem(JsonDBItem item, int revision, JsonResourceManager resourceManager,
       Optional<JsonNodeReadOnlyTrx> mostRecentRevisionTrx) {
     return mostRecentRevisionTrx.map(trx -> {
       trx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(trx, item.getCollection());
     }).orElseGet(() -> {
       final var trx = resourceManager.beginNodeReadOnlyTrx(revision);
-      trx.moveTo(item.getNodeKey()).hasMoved();
+      trx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(trx, item.getCollection());
     });
   }
