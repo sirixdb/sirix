@@ -22,3 +22,7 @@ jar {
         attributes('Main-Class': 'org.sirix.xquery.Main')
     }
 }
+
+test {
+    useJUnitPlatform()
+}
