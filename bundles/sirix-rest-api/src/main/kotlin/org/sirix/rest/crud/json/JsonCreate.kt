@@ -147,104 +147,107 @@ class JsonCreate(
                     resConfig
                 )
 
-                if (resourceHasBeenCreated) {
-                    val manager = database.openResourceManager(resPathName)
 
-                    manager.use {
-                        val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
+                val manager = database.openResourceManager(resPathName)
 
+                manager.use {
+                    val maxNodeKey = if (resourceHasBeenCreated) {
+                        insertJsonSubtreeAsFirstChild(manager, ctx)
+                    } else {
+                        manager.beginNodeReadOnlyTrx().maxNodeKey
+                    }
 //                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
 
-                        if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
-                            body = serializeJson(manager, ctx)
-                        } else {
-                            ctx.response().setStatusCode(200)
-                        }
+                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
+                        body = serializeJson(manager, ctx)
+                    } else {
+                        ctx.response().setStatusCode(200)
                     }
                 }
             }
+        }
 
-            if (body != null) {
-                ctx.response().end(body)
-            } else {
-                ctx.response().end()
-            }
+        if (body != null) {
+            ctx.response().end(body)
+        } else {
+            ctx.response().end()
         }
     }
+}
 
-    private fun serializeJson(
-        manager: JsonResourceManager,
-        routingCtx: RoutingContext
-    ): String {
-        val out = StringWriter()
-        val serializerBuilder = JsonSerializer.newBuilder(manager, out)
-        val serializer = serializerBuilder.build()
+private fun serializeJson(
+    manager: JsonResourceManager,
+    routingCtx: RoutingContext
+): String {
+    val out = StringWriter()
+    val serializerBuilder = JsonSerializer.newBuilder(manager, out)
+    val serializer = serializerBuilder.build()
 
-        return JsonSerializeHelper().serialize(
-            serializer,
-            out,
-            routingCtx,
-            manager,
-            intArrayOf(1),
-            null
-        )
-    }
+    return JsonSerializeHelper().serialize(
+        serializer,
+        out,
+        routingCtx,
+        manager,
+        intArrayOf(1),
+        null
+    )
+}
 
-    private suspend fun createDatabaseIfNotExists(
-        dbFile: Path,
-        context: Context
-    ): DatabaseConfiguration? {
-        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
-            val dbExists = Files.exists(dbFile)
+private suspend fun createDatabaseIfNotExists(
+    dbFile: Path,
+    context: Context
+): DatabaseConfiguration? {
+    return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
+        val dbExists = Files.exists(dbFile)
 
-            if (!dbExists) {
-                Files.createDirectories(dbFile.parent)
-            }
-
-            val dbConfig = DatabaseConfiguration(dbFile)
-
-            if (!Databases.existsDatabase(dbFile)) {
-                Databases.createJsonDatabase(dbConfig)
-            }
-
-            promise.complete(dbConfig)
-        }.await()
-    }
-
-    private fun createResourceIfNotExisting(
-        database: Database<JsonResourceManager>,
-        resConfig: ResourceConfiguration?,
-    ): Boolean {
-        LOGGER.debug("Try to create resource: $resConfig")
-        return database.createResource(resConfig)
-    }
-
-    private suspend fun insertJsonSubtreeAsFirstChild(
-        manager: JsonResourceManager,
-        ctx: RoutingContext
-    ): Long {
-        val wtx = manager.beginNodeTrx()
-        return wtx.use {
-            val jsonParser = JsonParser.newParser(ctx.request())
-            val future = KotlinJsonStreamingShredder(wtx, jsonParser).call()
-            ctx.request().resume()
-            future.await()
-            wtx.commit()
-            wtx.maxNodeKey
+        if (!dbExists) {
+            Files.createDirectories(dbFile.parent)
         }
-    }
 
-    private fun insertJsonSubtreeAsFirstChild(
-        manager: JsonResourceManager,
-        resFileToStore: Path
-    ): Long {
-        val wtx = manager.beginNodeTrx()
-        return wtx.use {
-            val eventReader = JsonShredder.createFileReader(resFileToStore)
-            eventReader.use {
-                wtx.insertSubtreeAsFirstChild(eventReader)
-            }
-            wtx.maxNodeKey
+        val dbConfig = DatabaseConfiguration(dbFile)
+
+        if (!Databases.existsDatabase(dbFile)) {
+            Databases.createJsonDatabase(dbConfig)
         }
+
+        promise.complete(dbConfig)
+    }.await()
+}
+
+private fun createResourceIfNotExisting(
+    database: Database<JsonResourceManager>,
+    resConfig: ResourceConfiguration?,
+): Boolean {
+    LOGGER.debug("Try to create resource: $resConfig")
+    return database.createResource(resConfig)
+}
+
+private suspend fun insertJsonSubtreeAsFirstChild(
+    manager: JsonResourceManager,
+    ctx: RoutingContext
+): Long {
+    val wtx = manager.beginNodeTrx()
+    return wtx.use {
+        val jsonParser = JsonParser.newParser(ctx.request())
+        val future = KotlinJsonStreamingShredder(wtx, jsonParser).call()
+        ctx.request().resume()
+        future.await()
+        wtx.commit()
+        wtx.maxNodeKey
     }
+}
+
+private fun insertJsonSubtreeAsFirstChild(
+    manager: JsonResourceManager,
+    resFileToStore: Path
+): Long {
+    val wtx = manager.beginNodeTrx()
+    return wtx.use {
+        val eventReader = JsonShredder.createFileReader(resFileToStore)
+        eventReader.use {
+            wtx.insertSubtreeAsFirstChild(eventReader)
+        }
+        wtx.maxNodeKey
+    }
+}
 }
