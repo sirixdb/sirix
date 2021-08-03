@@ -8,7 +8,6 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.await
-import io.vertx.kotlin.coroutines.awaitBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
@@ -26,8 +25,6 @@ import org.slf4j.LoggerFactory
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 private const val MAX_NODES_TO_SERIALIZE = 5000
 
@@ -83,18 +80,20 @@ class JsonCreate(
                     val fileName = fileUpload.fileName()
                     val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true).build()
 
-                    createOrRemoveAndCreateResource(
+                    val resourceHasBeenCreated = createResourceIfNotExisting(
                         database,
                         resConfig
                     )
 
-                    val manager = database.openResourceManager(fileName)
+                    if (resourceHasBeenCreated) {
+                        val manager = database.openResourceManager(fileName)
 
-                    manager.use {
-                        insertJsonSubtreeAsFirstChild(
-                            manager,
-                            fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
-                        )
+                        manager.use {
+                            insertJsonSubtreeAsFirstChild(
+                                manager,
+                                fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
+                            )
+                        }
                     }
                 }
             }
@@ -143,7 +142,7 @@ class JsonCreate(
                 val resConfig =
                     ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).build()
 
-                createOrRemoveAndCreateResource(
+                createResourceIfNotExisting(
                     database,
                     resConfig
                 )
@@ -210,12 +209,12 @@ class JsonCreate(
         }.await()
     }
 
-    private fun createOrRemoveAndCreateResource(
+    private fun createResourceIfNotExisting(
         database: Database<JsonResourceManager>,
         resConfig: ResourceConfiguration?,
-    ) {
-        LOGGER.debug("Create resource: ${resConfig}")
-        database.createResource(resConfig)
+    ) : Boolean {
+        LOGGER.debug("Try to create resource: $resConfig")
+        return database.createResource(resConfig)
     }
 
     private suspend fun insertJsonSubtreeAsFirstChild(

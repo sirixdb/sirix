@@ -21,7 +21,8 @@
 
 package org.sirix.io.memorymapped;
 
-import jdk.incubator.foreign.*;
+import jdk.incubator.foreign.MemoryAccess;
+import jdk.incubator.foreign.MemorySegment;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
@@ -31,8 +32,6 @@ import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
 import java.io.*;
-import java.lang.invoke.VarHandle;
-import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
