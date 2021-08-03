@@ -638,10 +638,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     if (!isClosed) {
-      isClosed = true;
-
       if (trxIntentLog == null) {
         pageReader.close();
       }
@@ -653,6 +651,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (resourceManager.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceManager.closePageReadTransaction(trxId);
       }
+
+      isClosed = true;
     }
   }
 

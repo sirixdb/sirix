@@ -535,11 +535,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     if (!isClosed) {
-      // Close state.
-      isClosed = true;
-
       // Close own state.
       pageReadOnlyTrx.close();
 
@@ -551,6 +548,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Immediately release all references.
       pageReadOnlyTrx = null;
       currentNode = null;
+
+      // Close state.
+      isClosed = true;
     }
   }
 
