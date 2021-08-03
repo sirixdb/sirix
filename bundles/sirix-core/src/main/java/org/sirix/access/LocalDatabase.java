@@ -345,7 +345,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     if (isClosed) {
       return;
     }
