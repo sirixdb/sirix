@@ -1576,7 +1576,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     acquireLock();
     try {
       if (!isClosed()) {
@@ -1608,7 +1608,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XmlNodeTrx rollback() {
+  public synchronized XmlNodeTrx rollback() {
     acquireLock();
     try {
       nodeReadOnlyTrx.assertNotClosed();

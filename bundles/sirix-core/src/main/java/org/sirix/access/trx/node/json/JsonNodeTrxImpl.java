@@ -2361,7 +2361,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     acquireLockIfNecessary();
     try {
       if (!isClosed()) {
@@ -2393,7 +2393,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx rollback() {
+  public synchronized JsonNodeTrx rollback() {
     acquireLockIfNecessary();
     try {
       nodeReadOnlyTrx.assertNotClosed();
