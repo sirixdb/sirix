@@ -142,22 +142,24 @@ class JsonCreate(
                 val resConfig =
                     ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).build()
 
-                createResourceIfNotExisting(
+                val resourceHasBeenCreated = createResourceIfNotExisting(
                     database,
                     resConfig
                 )
 
-                val manager = database.openResourceManager(resPathName)
+                if (resourceHasBeenCreated) {
+                    val manager = database.openResourceManager(resPathName)
 
-                manager.use {
-                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
+                    manager.use {
+                        val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, ctx)
 
 //                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()
 
-                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
-                        body = serializeJson(manager, ctx)
-                    } else {
-                        ctx.response().setStatusCode(200)
+                        if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
+                            body = serializeJson(manager, ctx)
+                        } else {
+                            ctx.response().setStatusCode(200)
+                        }
                     }
                 }
             }
@@ -212,7 +214,7 @@ class JsonCreate(
     private fun createResourceIfNotExisting(
         database: Database<JsonResourceManager>,
         resConfig: ResourceConfiguration?,
-    ) : Boolean {
+    ): Boolean {
         LOGGER.debug("Try to create resource: $resConfig")
         return database.createResource(resConfig)
     }
