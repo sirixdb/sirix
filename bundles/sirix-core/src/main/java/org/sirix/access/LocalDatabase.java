@@ -62,7 +62,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   /**
    * Determines if the database instance is in the closed state or not.
    */
-  protected boolean isClosed;
+  protected volatile boolean isClosed;
 
   /**
    * Buffers / page cache for each resource.

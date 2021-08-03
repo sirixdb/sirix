@@ -82,7 +82,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * Determines if page reading transaction is closed or not.
    */
-  private boolean isClosed;
+  private volatile boolean isClosed;
 
   /**
    * {@link ResourceConfiguration} instance.
@@ -640,6 +640,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Override
   public void close() {
     if (!isClosed) {
+      isClosed = true;
+
       if (trxIntentLog == null) {
         pageReader.close();
       }
@@ -651,8 +653,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (resourceManager.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceManager.closePageReadTransaction(trxId);
       }
-
-      isClosed = true;
     }
   }
 

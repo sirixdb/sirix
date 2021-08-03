@@ -157,7 +157,7 @@ class JsonCreate(
                         val rtx = manager.beginNodeReadOnlyTrx()
 
                         rtx.use {
-                            rtx.maxNodeKey
+                            return@use rtx.maxNodeKey
                         }
                     }
 //                    ctx.vertx().fileSystem().delete(pathToFile.toAbsolutePath().toString()).await()

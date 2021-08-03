@@ -441,6 +441,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
+      isClosed = true;
       threadPool.shutdown();
       try {
         threadPool.awaitTermination(5, TimeUnit.SECONDS);
@@ -473,8 +474,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       resourceStore.closeResourceManager(resourceConfig.getResource());
 
       storage.close();
-
-      isClosed = true;
     }
   }
 
