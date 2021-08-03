@@ -147,7 +147,6 @@ class JsonCreate(
                     resConfig
                 )
 
-
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
