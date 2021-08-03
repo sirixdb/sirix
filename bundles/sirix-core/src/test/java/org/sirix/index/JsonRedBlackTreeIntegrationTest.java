@@ -176,27 +176,27 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       final var name = new QNm("streetaddress");
 
-      final var nodeGreater = allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.GREATER);
+      final var nodeGreater = allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.GREATER);
 
       assertTrue(nodeGreater.isPresent());
       assertEquals("twitteraccount", nodeGreater.get().getKey().getLocalName());
 
       final var nodeGreaterNotPresent =
-          allObjectKeyNamesIndexReader.getCurrentAVLNode(new QNm("type"), SearchMode.GREATER);
+          allObjectKeyNamesIndexReader.getCurrentNode(new QNm("type"), SearchMode.GREATER);
 
       assertFalse(nodeGreaterNotPresent.isPresent());
 
-      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.GREATER_OR_EQUAL);
+      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.GREATER_OR_EQUAL);
 
       assertTrue(nodeGreaterOrEqual.isPresent());
       assertEquals("streetaddress", nodeGreaterOrEqual.get().getKey().getLocalName());
 
-      final var nodeLess = allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.LOWER);
+      final var nodeLess = allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.LOWER);
 
       assertTrue(nodeLess.isPresent());
       assertEquals("id", nodeLess.get().getKey().getLocalName());
 
-      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getCurrentAVLNode(nodeGreaterOrEqual.get().getNodeKey(),
+      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getCurrentNode(nodeGreaterOrEqual.get().getNodeKey(),
                                                                                  name,
                                                                                  SearchMode.LOWER_OR_EQUAL);
 
@@ -211,7 +211,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertEquals(18, stream.count());
 
       final var nodeGreaterWithComp =
-          allObjectKeyNamesIndexReader.getCurrentAVLNode(name, SearchMode.GREATER, Comparator.naturalOrder());
+          allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.GREATER, Comparator.naturalOrder());
 
       assertEquals("twitteraccount", nodeGreaterWithComp.get().getKey().getLocalName());
 

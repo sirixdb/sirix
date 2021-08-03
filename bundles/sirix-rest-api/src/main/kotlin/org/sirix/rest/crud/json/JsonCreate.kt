@@ -8,6 +8,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.awaitBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration

@@ -63,13 +63,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
       if (mode == SearchMode.EQUAL) {
         // Compare for equality by PCR and atomic value.
-        final Optional<RBNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentAVLNode(value, mode);
+        final Optional<RBNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentNode(value, mode);
 
         return optionalNode.map(node -> Iterators.forArray(node.getValue()))
                            .orElse(Iterators.unmodifiableIterator(Collections.emptyIterator()));
       } else {
         // Compare for search criteria by PCR and atomic value.
-        final Optional<RBNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentAVLNode(value, mode);
+        final Optional<RBNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentNode(value, mode);
 
         return optionalNode.map(concatWithFilterAxis(filter, reader)).orElse(Collections.emptyIterator());
       }
@@ -82,13 +82,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
       if (mode == SearchMode.EQUAL) {
         // Compare for equality by PCR and atomic value.
-        final Optional<RBNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentAVLNode(value, mode);
+        final Optional<RBNode<CASValue, NodeReferences>> optionalNode = reader.getCurrentNode(value, mode);
 
         return optionalNode.map(concatWithFilterAxis(filter, reader)).orElse(Collections.emptyIterator());
       } else {
         // Compare for equality only by PCR.
         final Optional<RBNode<CASValue, NodeReferences>> optionalNode =
-            reader.getCurrentAVLNode(value, SearchMode.EQUAL, Comparator.comparingLong(CASValue::getPathNodeKey));
+            reader.getCurrentNode(value, SearchMode.EQUAL, Comparator.comparingLong(CASValue::getPathNodeKey));
 
         return optionalNode.map(findFirstNodeWithMatchingPCRAndAtomicValue(filter, reader, mode, value))
                            .orElse(Collections.emptyIterator());
@@ -107,7 +107,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // Now compare for equality by PCR and atomic value and find first
       // node which satisfies criteria.
       final Optional<RBNode<CASValue, NodeReferences>> firstFoundNode =
-          reader.getCurrentAVLNode(node.getNodeKey(), value, mode);
+          reader.getCurrentNode(node.getNodeKey(), value, mode);
 
       return firstFoundNode.map(theNode -> {
         // Iterate over subtree.
