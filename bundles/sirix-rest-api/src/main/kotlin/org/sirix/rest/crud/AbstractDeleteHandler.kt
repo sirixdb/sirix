@@ -70,6 +70,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
         database.use {
             if (!database.existsResource(resPathName)) {
+                database.close()
                 ctx.fail(
                     HttpException(
                         HttpResponseStatus.NOT_FOUND.code(),
@@ -115,10 +116,10 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         database: Database<*>,
         resPathName: String,
         nodeId: Long,
-        context: Context,
-        routingContext: RoutingContext
+        ctx: Context,
+        routingCtx: RoutingContext
     ) {
-        context.executeBlocking { promise: Promise<Unit> ->
+        ctx.executeBlocking { promise: Promise<Unit> ->
             val manager = database.openResourceManager(resPathName)
             manager.use {
                 val wtx = manager.beginNodeTrx()
@@ -126,15 +127,17 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                 wtx.use {
                     if (wtx.moveTo(nodeId).hasMoved()) {
                         if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
-                            val hashCode = routingContext.request().getHeader(HttpHeaders.ETAG)
+                            val hashCode = routingCtx.request().getHeader(HttpHeaders.ETAG)
 
                             if (hashCode == null) {
-                                routingContext.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                                database.close()
+                                routingCtx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
                                 return@use
                             }
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                routingContext.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                                database.close()
+                                routingCtx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
                                 return@use
                             }
                         }

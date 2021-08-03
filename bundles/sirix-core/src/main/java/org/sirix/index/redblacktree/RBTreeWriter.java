@@ -125,7 +125,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       moveToDocumentRoot();
     }
     final RevisionRootPage root = pageTrx.getActualRevisionRootPage();
-    if (rbTreeReader.getCurrentAVLNode() == null
+    if (rbTreeReader.getCurrentNode() == null
         && ((StructNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       // Index is empty.. create root node.
       final long nodeKey = getNewNodeKey(root);
@@ -149,11 +149,11 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       return value;
     }
 
-    if (move == MoveCursor.TO_DOCUMENT_ROOT || rbTreeReader.getCurrentAVLNode() == null) {
+    if (move == MoveCursor.TO_DOCUMENT_ROOT || rbTreeReader.getCurrentNode() == null) {
       moveToDocumentRoot();
       moveToFirstChild();
     }
-    RBNode<K, V> node = rbTreeReader.getCurrentAVLNode();
+    RBNode<K, V> node = rbTreeReader.getCurrentNode();
     while (true) {
       final int c = key.compareTo(node.getKey());
       if (c == 0) {
@@ -167,7 +167,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
 
       final boolean moved = c < 0 ? moveToFirstChild().hasMoved() : moveToLastChild().hasMoved();
       if (moved) {
-        node = rbTreeReader.getCurrentAVLNode();
+        node = rbTreeReader.getCurrentNode();
         continue;
       }
 
@@ -297,7 +297,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     if (((StructNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
       //noinspection ConstantConditions
-      setChanged(rbTreeReader.getCurrentAVLNode(), false);
+      setChanged(rbTreeReader.getCurrentNode(), false);
     }
     moveTo(nodeKey);
   }
@@ -331,7 +331,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       assert node.getLeftChildKey() == leftChild.getNodeKey();
       return leftChild;
     }
-    return moveTo(node.getLeftChildKey()).hasMoved() ? rbTreeReader.getCurrentAVLNode() : null;
+    return moveTo(node.getLeftChildKey()).hasMoved() ? rbTreeReader.getCurrentNode() : null;
   }
 
   /**
@@ -350,7 +350,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       assert node.getRightChildKey() == rightChild.getNodeKey();
       return rightChild;
     }
-    return moveTo(node.getRightChildKey()).hasMoved() ? rbTreeReader.getCurrentAVLNode() : null;
+    return moveTo(node.getRightChildKey()).hasMoved() ? rbTreeReader.getCurrentNode() : null;
   }
 
   /**
@@ -369,7 +369,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       assert node.getParentKey() == parent.getNodeKey();
       return parent;
     }
-    return moveTo(node.getParentKey()).hasMoved() ? rbTreeReader.getCurrentAVLNode() : null;
+    return moveTo(node.getParentKey()).hasMoved() ? rbTreeReader.getCurrentNode() : null;
   }
 
   /**
@@ -382,7 +382,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   private void rotateLeft(RBNode<K, V> node) {
     moveTo(node.getNodeKey());
 
-    RBNode<K, V> right = ((RBTreeReader<K, V>) moveToLastChild().trx()).getCurrentAVLNode();
+    RBNode<K, V> right = ((RBTreeReader<K, V>) moveToLastChild().trx()).getCurrentNode();
 
     node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
     assert right != null;
@@ -406,7 +406,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                                      rbTreeReader.index);
       parent.setFirstChildKey(right.getNodeKey());
     } else //noinspection ConstantConditions
-      if (moveTo(node.getParentKey()).hasMoved() && rbTreeReader.getCurrentAVLNode().getLeftChildKey() == node.getNodeKey()) {
+      if (moveTo(node.getParentKey()).hasMoved() && rbTreeReader.getCurrentNode().getLeftChildKey() == node.getNodeKey()) {
         final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
                                                                          rbTreeReader.indexType,
                                                                          rbTreeReader.index);
@@ -439,7 +439,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   private void rotateRight(RBNode<K, V> node) {
     moveTo(node.getNodeKey());
 
-    RBNode<K, V> leftChild = ((RBTreeReader<K, V>) moveToFirstChild().trx()).getCurrentAVLNode();
+    RBNode<K, V> leftChild = ((RBTreeReader<K, V>) moveToFirstChild().trx()).getCurrentNode();
     node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
     assert leftChild != null;
     node.setLeftChildKey(leftChild.getRightChildKey());
@@ -465,7 +465,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       parent.setFirstChildKey(leftChild.getNodeKey());
     } else //noinspection ConstantConditions
       if (moveTo(node.getParentKey()).hasMoved()
-          && rbTreeReader.getCurrentAVLNode().getRightChildKey() == node.getNodeKey()) {
+          && rbTreeReader.getCurrentNode().getRightChildKey() == node.getNodeKey()) {
         final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
                                                                          rbTreeReader.indexType,
                                                                          rbTreeReader.index);

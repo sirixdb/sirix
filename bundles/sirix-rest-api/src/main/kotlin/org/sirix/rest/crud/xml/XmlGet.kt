@@ -96,6 +96,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                     }
                 }
             } catch (e: SirixUsageException) {
+                database.close()
                 ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }

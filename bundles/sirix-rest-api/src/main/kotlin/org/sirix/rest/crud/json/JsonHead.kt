@@ -64,6 +64,7 @@ class JsonHead(private val location: Path) {
                     rtx.use {
                         if (nodeId != null) {
                             if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
+                                database.close()
                                 ctx.fail(
                                     HttpResponseStatus.BAD_REQUEST.code(),
                                     IllegalStateException("Node with ID ${nodeId} doesn't exist.")
@@ -77,6 +78,7 @@ class JsonHead(private val location: Path) {
                     }
                 }
             } catch (e: SirixUsageException) {
+                database.close()
                 ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }

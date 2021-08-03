@@ -89,6 +89,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                     }
                 }
             } catch (e: SirixUsageException) {
+                database.close()
                 ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
