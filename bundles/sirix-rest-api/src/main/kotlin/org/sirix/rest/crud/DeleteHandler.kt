@@ -20,8 +20,7 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             val openDatabases = DatabasesInternals.getOpenDatabases()
 
             if (openDatabases.isNotEmpty()) {
-                ctx.fail(IllegalStateException("Open databases found: $openDatabases"))
-                return ctx.currentRoute()
+                throw IllegalStateException("Open databases found: $openDatabases")
             }
 
             ctx.vertx().executeBlocking { _: Promise<Unit> ->
@@ -41,7 +40,7 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             val databaseName = ctx.pathParam("database")
 
             if (databaseName == null) {
-                ctx.fail(IllegalStateException("No database name given."))
+                throw IllegalStateException("No database name given.")
             } else {
                 val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
 

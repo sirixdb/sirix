@@ -51,9 +51,7 @@ class DiffHandler(private val location: Path) {
                         val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
 
                         if (firstRevision == null || secondRevision == null) {
-                            database.close()
-                            ctx.fail(IllegalArgumentException("First and second revision must be specified."))
-                            return@executeBlocking
+                            throw IllegalArgumentException("First and second revision must be specified.")
                         }
 
                         val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)

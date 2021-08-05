@@ -1,6 +1,5 @@
 package org.sirix.rest.crud
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
@@ -9,13 +8,10 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.HttpException
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.json.JsonGet
 import org.sirix.rest.crud.xml.XmlGet
 import org.sirix.service.json.serialize.StringValue
@@ -25,7 +21,11 @@ import java.nio.file.Path
 import java.util.stream.Collectors
 
 @Suppress("RedundantLambdaArrow")
-class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) {
+class GetHandler(
+    private val location: Path,
+    private val keycloak: OAuth2Auth,
+    private val authz: AuthorizationProvider
+) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
@@ -117,7 +117,7 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, p
         } else if (databaseName != null && resourceName == null) {
             val buffer = StringBuilder()
             buffer.append("{")
-            emitResourcesOfDatabase(buffer, location.resolve(databaseName), ctx)
+            emitResourcesOfDatabase(buffer, location.resolve(databaseName))
 
             if (!ctx.failed()) {
                 buffer.append("}")
@@ -161,15 +161,17 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, p
                     val databaseName = database.fileName
                     val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
                     buffer.append(
-                        "{\"name\":\"${StringValue.escape(databaseName.toString())}\",\"type\":\"${StringValue.escape(
-                            databaseType
-                        )}\""
+                        "{\"name\":\"${StringValue.escape(databaseName.toString())}\",\"type\":\"${
+                            StringValue.escape(
+                                databaseType
+                            )
+                        }\""
                     )
 
                     val withResources = ctx.queryParam("withResources")
                     if (withResources.isNotEmpty() && withResources[0]!!.toBoolean()) {
                         buffer.append(",")
-                        emitResourcesOfDatabase(buffer, databaseName, ctx)
+                        emitResourcesOfDatabase(buffer, databaseName)
                     }
                     buffer.append("}")
 
@@ -190,19 +192,14 @@ class GetHandler(private val location: Path, private val keycloak: OAuth2Auth, p
 
     private fun emitResourcesOfDatabase(
         buffer: StringBuilder,
-        databaseName: Path,
-        ctx: RoutingContext
+        databaseName: Path
     ) {
-        try {
-            val database = Databases.openJsonDatabase(location.resolve(databaseName))
+        val database = Databases.openJsonDatabase(location.resolve(databaseName))
 
-            database.use {
-                buffer.append("\"resources\":[")
-                emitCommaSeparatedResourceString(it, buffer)
-                buffer.append("]")
-            }
-        } catch (e: SirixUsageException) {
-            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
+        database.use {
+            buffer.append("\"resources\":[")
+            emitCommaSeparatedResourceString(it, buffer)
+            buffer.append("]")
         }
     }
 

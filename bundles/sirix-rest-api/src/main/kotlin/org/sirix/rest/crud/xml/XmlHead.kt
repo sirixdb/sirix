@@ -24,11 +24,10 @@ class XmlHead(private val location: Path) {
         val resource = ctx.pathParam("resource")
 
         if (databaseName == null || resource == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
-            return ctx.currentRoute()
+            throw IllegalStateException("Database name and resource name must be given.")
         }
 
-        ctx.vertx().orCreateContext.executeBlocking { _: Promise<Unit> ->
+        ctx.vertx().executeBlocking<Unit> {
             head(databaseName, ctx, resource)
         }.await()
 
@@ -41,46 +40,31 @@ class XmlHead(private val location: Path) {
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        val database: Database<XmlResourceManager>
-        try {
-            database = Databases.openXmlDatabase(location.resolve(databaseName))
-        } catch (e: SirixUsageException) {
-            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
-            return
-        }
+        val database = Databases.openXmlDatabase(location.resolve(databaseName))
 
         database.use {
-            try {
-                val manager = database.openResourceManager(resource)
+            val manager = database.openResourceManager(resource)
 
-                manager.use {
-                    if (manager.resourceConfig.hashType == HashType.NONE)
-                        return
+            manager.use {
+                if (manager.resourceConfig.hashType == HashType.NONE)
+                    return
 
-                    val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
+                val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
+                val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
 
-                    rtx.use {
-                        if (nodeId != null) {
-                            if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
-                                database.close()
-                                ctx.fail(
-                                    HttpResponseStatus.BAD_REQUEST.code(),
-                                    IllegalStateException("Node with ID ${nodeId} doesn't exist.")
-                                )
-                            } else {
-                                writeResponse(ctx, rtx)
-                            }
-                        } else if (rtx.isDocumentRoot) {
-                            rtx.moveToFirstChild()
+                rtx.use {
+                    if (nodeId != null) {
+                        if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
+                            throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
+                        } else {
                             writeResponse(ctx, rtx)
                         }
+                    } else if (rtx.isDocumentRoot) {
+                        rtx.moveToFirstChild()
+                        writeResponse(ctx, rtx)
                     }
                 }
-            } catch (e: SirixUsageException) {
-                database.close()
-                ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
 

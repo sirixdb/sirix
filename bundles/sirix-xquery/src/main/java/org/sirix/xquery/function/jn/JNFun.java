@@ -1,5 +1,29 @@
 package org.sirix.xquery.function.jn;
 
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.function.json.JSONFun;
+import org.brackit.xquery.module.Functions;
+import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.type.AnyJsonItemType;
+import org.brackit.xquery.xdm.type.AtomicType;
+import org.brackit.xquery.xdm.type.Cardinality;
+import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.xquery.function.jn.diff.Diff;
+import org.sirix.xquery.function.jn.index.create.CreateCASIndex;
+import org.sirix.xquery.function.jn.index.create.CreateNameIndex;
+import org.sirix.xquery.function.jn.index.create.CreatePathIndex;
+import org.sirix.xquery.function.jn.index.find.FindCASIndex;
+import org.sirix.xquery.function.jn.index.find.FindNameIndex;
+import org.sirix.xquery.function.jn.index.find.FindPathIndex;
+import org.sirix.xquery.function.jn.index.scan.ScanCASIndex;
+import org.sirix.xquery.function.jn.index.scan.ScanCASIndexRange;
+import org.sirix.xquery.function.jn.index.scan.ScanNameIndex;
+import org.sirix.xquery.function.jn.index.scan.ScanPathIndex;
+import org.sirix.xquery.function.jn.io.*;
+import org.sirix.xquery.function.jn.temporal.*;
+import org.sirix.xquery.function.jn.trx.SelectJsonItem;
+
+import static org.sirix.xquery.function.jn.diff.Diff.DIFF;
 import static org.sirix.xquery.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static org.sirix.xquery.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static org.sirix.xquery.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
@@ -11,35 +35,6 @@ import static org.sirix.xquery.function.jn.io.DocByPointInTime.OPEN;
 import static org.sirix.xquery.function.jn.io.Load.LOAD;
 import static org.sirix.xquery.function.jn.io.OpenRevisions.OPEN_REVISIONS;
 import static org.sirix.xquery.function.jn.io.Store.STORE;
-import static org.sirix.xquery.function.jn.diff.Diff.DIFF;
-
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.function.json.JSONFun;
-import org.brackit.xquery.module.Functions;
-import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.type.AnyJsonItemType;
-import org.brackit.xquery.xdm.type.AtomicType;
-import org.brackit.xquery.xdm.type.Cardinality;
-import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.xquery.function.jn.index.create.CreateCASIndex;
-import org.sirix.xquery.function.jn.index.create.CreateNameIndex;
-import org.sirix.xquery.function.jn.index.create.CreatePathIndex;
-import org.sirix.xquery.function.jn.index.find.FindCASIndex;
-import org.sirix.xquery.function.jn.index.find.FindNameIndex;
-import org.sirix.xquery.function.jn.index.find.FindPathIndex;
-import org.sirix.xquery.function.jn.index.scan.ScanCASIndex;
-import org.sirix.xquery.function.jn.index.scan.ScanCASIndexRange;
-import org.sirix.xquery.function.jn.index.scan.ScanNameIndex;
-import org.sirix.xquery.function.jn.index.scan.ScanPathIndex;
-import org.sirix.xquery.function.jn.io.Doc;
-import org.sirix.xquery.function.jn.io.DocByPointInTime;
-import org.sirix.xquery.function.jn.io.Load;
-import org.sirix.xquery.function.jn.io.OpenRevisions;
-import org.sirix.xquery.function.jn.io.Store;
-import org.sirix.xquery.function.jn.temporal.*;
-import org.sirix.xquery.function.jn.trx.SelectJsonItem;
-import org.sirix.xquery.function.jn.diff.Diff;
 
 
 /**

@@ -65,39 +65,28 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        val database: Database<XmlResourceManager>
-        try {
-            database = Databases.openXmlDatabase(location.resolve(databaseName))
-        } catch (e: SirixUsageException) {
-            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
-            return
-        }
+        var body: String?
 
-        var body: String? = null
+        val database = Databases.openXmlDatabase(location.resolve(databaseName))
 
         database.use {
-            try {
-                val manager = database.openResourceManager(resource)
+            val manager = database.openResourceManager(resource)
 
-                manager.use {
-                    body = if (query != null && query.isNotEmpty()) {
-                        queryResource(
-                            databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                            vertxContext, user
+            manager.use {
+                body = if (query != null && query.isNotEmpty()) {
+                    queryResource(
+                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                        vertxContext, user
+                    )
+                } else {
+                    val revisions: IntArray =
+                        Revisions.getRevisionsToSerialize(
+                            startRevision, endRevision, startRevisionTimestamp,
+                            endRevisionTimestamp, manager, revision, revisionTimestamp
                         )
-                    } else {
-                        val revisions: IntArray =
-                            Revisions.getRevisionsToSerialize(
-                                startRevision, endRevision, startRevisionTimestamp,
-                                endRevisionTimestamp, manager, revision, revisionTimestamp
-                            )
 
-                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
-                    }
+                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                 }
-            } catch (e: SirixUsageException) {
-                database.close()
-                ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
 
