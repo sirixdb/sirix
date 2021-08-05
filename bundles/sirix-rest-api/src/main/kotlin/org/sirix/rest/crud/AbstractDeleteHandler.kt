@@ -128,17 +128,10 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                     if (wtx.moveTo(nodeId).hasMoved()) {
                         if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = routingCtx.request().getHeader(HttpHeaders.ETAG)
-
-                            if (hashCode == null) {
-                                database.close()
-                                routingCtx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
-                                return@use
-                            }
+                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
 
                             if (wtx.hash != BigInteger(hashCode)) {
-                                database.close()
-                                routingCtx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
-                                return@use
+                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }
 

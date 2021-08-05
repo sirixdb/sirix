@@ -367,7 +367,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting4() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("twitter.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/statuses/[]/user/entities/url/urls/[]/url') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -381,7 +381,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting5() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting5").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get/tags/[]', '/paths/\\/consolidated_screening_list\\/search/get/tags')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -395,7 +395,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting6() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting6").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get','/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
@@ -414,7 +414,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting7() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting7").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -428,7 +428,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting8() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting8").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -442,7 +442,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting9() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting9").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]/foo') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -456,7 +456,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting10() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting10").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -470,7 +470,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting11() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting11").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -484,7 +484,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting12() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting12").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/sirix/[]/revision/tada/[]/foo','/sirix/[]/revision/tada/[]/[]/foo')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -498,7 +498,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting13() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting13").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -512,7 +512,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting14() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting14").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[4]]=>foo[[1]]=>baz";
@@ -525,7 +525,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting15() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting15").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[4]][[0]]=>foo[[1]]=>baz";
@@ -538,7 +538,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting16() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting16").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -553,7 +553,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting17() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting17").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
@@ -573,7 +573,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting18() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting18").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/pathx')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
@@ -592,7 +592,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting19() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting19").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('foo')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
@@ -612,7 +612,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting20() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting20").resolve("trade-apis.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search','/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
@@ -632,7 +632,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testNesting21() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting21").resolve("multiple-revisions.json").toUri();
-    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri.toString());
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
@@ -641,5 +641,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          indexQuery,
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting21").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testNesting22() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting22").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-name-index($doc, 'foo') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix=>revision=>foo return $result";
+    test(storeQuery,
+        indexQuery,
+        openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting22").resolve("expectedOutput")));
   }
 }

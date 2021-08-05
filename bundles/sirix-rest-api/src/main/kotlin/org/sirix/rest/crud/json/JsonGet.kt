@@ -58,39 +58,28 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        val database: Database<JsonResourceManager>
-        try {
-            database = Databases.openJsonDatabase(location.resolve(databaseName))
-        } catch (e: SirixUsageException) {
-            ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
-            return
-        }
+        var body: String?
 
-        var body: String? = null
+        val database = Databases.openJsonDatabase(location.resolve(databaseName))
 
         database.use {
-            try {
-                val manager = database.openResourceManager(resource)
+            val manager = database.openResourceManager(resource)
 
-                manager.use {
-                    body = if (query != null && query.isNotEmpty()) {
-                        queryResource(
-                            databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                            vertxContext, user
+            manager.use {
+                body = if (query != null && query.isNotEmpty()) {
+                    queryResource(
+                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                        vertxContext, user
+                    )
+                } else {
+                    val revisions: IntArray =
+                        Revisions.getRevisionsToSerialize(
+                            startRevision, endRevision, startRevisionTimestamp,
+                            endRevisionTimestamp, manager, revision, revisionTimestamp
                         )
-                    } else {
-                        val revisions: IntArray =
-                            Revisions.getRevisionsToSerialize(
-                                startRevision, endRevision, startRevisionTimestamp,
-                                endRevisionTimestamp, manager, revision, revisionTimestamp
-                            )
 
-                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
-                    }
+                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
                 }
-            } catch (e: SirixUsageException) {
-                database.close()
-                ctx.fail(HttpException(HttpResponseStatus.NOT_FOUND.code(), e))
             }
         }
 
@@ -146,7 +135,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                 jsonDBStore,
                 SirixQueryContext.CommitStrategy.AUTO
             )
-                                             
+
             var body: String? = null
 
             queryCtx.use {
@@ -208,7 +197,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                     )
                 }
             }
-                                             
+
             promise.complete(body)
         }.await()
     }
@@ -286,7 +275,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         ctx: RoutingContext,
         vertxContext: Context
     ): String {
-        val serializedString =  vertxContext.executeBlocking { promise: Promise<String> ->
+        val serializedString = vertxContext.executeBlocking { promise: Promise<String> ->
             val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
             val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 

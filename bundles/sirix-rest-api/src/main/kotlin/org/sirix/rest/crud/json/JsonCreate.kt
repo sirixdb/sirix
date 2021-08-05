@@ -70,7 +70,7 @@ class JsonCreate(
 
         val sirixDBUser = SirixDBUser.create(ctx)
 
-        withContext(Dispatchers.IO) {
+        ctx.vertx().executeBlocking<Unit> {
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
@@ -97,7 +97,7 @@ class JsonCreate(
                     }
                 }
             }
-        }
+        }.await()
 
         ctx.response().setStatusCode(201).end()
     }
