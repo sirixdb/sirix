@@ -43,6 +43,10 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
     final var pathData = traversePath(astNode, predicateNode);
 
+    if (pathData == null) {
+      return astNode;
+    }
+
     final var node = pathData.node();
     final var pathSegmentNames = pathData.pathSegmentNames();
     final var arrayIndexes = pathData.arrayIndexes();
@@ -78,8 +82,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
       var pathNodeKeysToRemove = pathNodeKeys.stream()
                                              .filter(pathNodeKey -> pathNodeKeyToRemove(pathSegmentNames,
-                                                                                     pathSummary,
-                                                                                     pathNodeKey))
+                                                                                        pathSummary,
+                                                                                        pathNodeKey))
                                              .collect(Collectors.toList());
 
       // remove path node keys which do not belong to the query result
@@ -195,8 +199,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return notFound;
   }
 
-  private boolean pathNodeKeyToRemove(Deque<String> pathSegmentNames,
-      PathSummaryReader pathSummary, int pathNodeKey) {
+  private boolean pathNodeKeyToRemove(Deque<String> pathSegmentNames, PathSummaryReader pathSummary, int pathNodeKey) {
     final var currentPathSegmentNames = new ArrayDeque<>(pathSegmentNames);
     pathSummary.moveTo(pathNodeKey);
     var candidatePath = pathSummary.getPath();
