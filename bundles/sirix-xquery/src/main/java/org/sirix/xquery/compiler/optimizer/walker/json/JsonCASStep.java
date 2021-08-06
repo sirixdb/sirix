@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 
 public final class JsonCASStep extends AbstractJsonPathWalker {
 
-  private ComparatorData comparatorData;
+  private final ComparatorData comparatorData;
   
   private Deque<String> pathSegmentNames;
 
@@ -116,15 +116,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
       return true;
     }
 
-    if (!(new ArrayList<>(this.pathSegmentNames).equals(new ArrayList<>(pathSegmentNames)))) {
-      return true;
-    }
-
-    return false;
+    return !(new ArrayList<>(this.pathSegmentNames).equals(new ArrayList<>(pathSegmentNames)));
   }
 
   private List<Integer> toList(Map<String, Deque<Integer>> arrayIndexes) {
-    return arrayIndexes.values().stream().flatMap(indices -> indices.stream()).collect(Collectors.toList());
+    return arrayIndexes.values().stream().flatMap(Collection::stream).collect(Collectors.toList());
   }
 
   @Override
@@ -226,11 +222,10 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     final var derefPredicateChild = predicateChildAstNode.getChild(1);
     final var typeKindChild = predicateChildAstNode.getChild(2);
 
-    if (!(typeKindChild.getValue() instanceof Atomic)) {
+    if (!(typeKindChild.getValue() instanceof final Atomic atomic)) {
       return astNode;
     }
 
-    final var atomic = (Atomic) typeKindChild.getValue();
     final var atomicType = atomic.type();
 
     if (firstInAndComparison || noAndComparison) {
@@ -305,7 +300,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   private AST getAst(AST astNode, AST predicateChild, AST derefNode, Type type) {
-    final var node = replaceAstIfIndexApplicable(derefNode, predicateChild, type);
+    final var node = replaceAstIfIndexApplicable(derefNode, predicateChild, type, false);
 
     if (node != null) {
       return node;
