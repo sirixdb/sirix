@@ -143,7 +143,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     pathSegmentNames.add(pathSegmentName);
     final var newNode = getPathStep(node, pathSegmentNames, arrayIndexes);
 
-    return new PathData(pathSegmentNames, arrayIndexes, predicateSegmentNames, newNode.get());
+    return newNode.map(unwrappedNode -> new PathData(pathSegmentNames, arrayIndexes, predicateSegmentNames, unwrappedNode)).orElse(null);
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,
