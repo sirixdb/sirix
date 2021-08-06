@@ -36,7 +36,13 @@ public class JsonObjectKeyNameStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    return replaceAstIfIndexApplicable(astNode, null, null);
+    final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null, false);
+
+    if (replaceNode == null) {
+      return astNode;
+    }
+
+    return replaceNode;
   }
 
   @Override

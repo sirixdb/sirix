@@ -33,12 +33,13 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     this.jsonDBStore = jsonDBStore;
   }
 
-  protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type) {
-    boolean foundDerefAncestor = findDerefAncestor(astNode);
+  protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type, boolean checkforAncestorDeref) {
+    if (checkforAncestorDeref) {
+      boolean foundDerefAncestor = findDerefAncestor(astNode);
 
-    if (foundDerefAncestor || !(astNode.getChild(0).getType() == XQ.DerefExpr
-        || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
-      return null;
+      if (foundDerefAncestor || !(astNode.getChild(0).getType() == XQ.DerefExpr || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
+        return null;
+      }
     }
 
     final var pathData = traversePath(astNode, predicateNode);
