@@ -34,7 +34,7 @@ public final class JsonPathStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null, false);
+    final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null);
 
     if (replaceNode == null) {
       return astNode;

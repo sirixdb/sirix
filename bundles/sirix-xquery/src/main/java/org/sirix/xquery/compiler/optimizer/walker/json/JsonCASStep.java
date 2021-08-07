@@ -278,9 +278,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   private AST processFirstInAndComparison(AST astNode, AST derefPredicateChild) {
-    boolean foundDerefAncestor = findDerefAncestor(astNode);
-
-    if (foundDerefAncestor || !(astNode.getChild(0).getType() == XQ.DerefExpr
+    if (!(astNode.getChild(0).getType() == XQ.DerefExpr
         || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
       return null;
     }
@@ -300,7 +298,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   private AST getAst(AST astNode, AST predicateChild, AST derefNode, Type type) {
-    final var node = replaceAstIfIndexApplicable(derefNode, predicateChild, type, false);
+    final var node = replaceAstIfIndexApplicable(derefNode, predicateChild, type);
 
     if (node != null) {
       return node;
