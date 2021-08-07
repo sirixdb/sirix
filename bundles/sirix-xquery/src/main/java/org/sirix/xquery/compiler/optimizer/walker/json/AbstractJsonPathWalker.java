@@ -37,9 +37,16 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     if (checkforAncestorDeref) {
       boolean foundDerefAncestor = findDerefAncestor(astNode);
 
-      if (foundDerefAncestor || !(astNode.getChild(0).getType() == XQ.DerefExpr || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
+      if (foundDerefAncestor) {
         return null;
       }
+    }
+
+    final var firstChildNode = astNode.getChild(0);
+
+    if (!(firstChildNode.getType() == XQ.DerefExpr || firstChildNode.getType() == XQ.ArrayAccess
+        || firstChildNode.getType() == XQ.FunctionCall)) {
+      return null;
     }
 
     final var pathData = traversePath(astNode, predicateNode);
@@ -143,7 +150,10 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     pathSegmentNames.add(pathSegmentName);
     final var newNode = getPathStep(node, pathSegmentNames, arrayIndexes);
 
-    return newNode.map(unwrappedNode -> new PathData(pathSegmentNames, arrayIndexes, predicateSegmentNames, unwrappedNode)).orElse(null);
+    return newNode.map(unwrappedNode -> new PathData(pathSegmentNames,
+                                                     arrayIndexes,
+                                                     predicateSegmentNames,
+                                                     unwrappedNode)).orElse(null);
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,
