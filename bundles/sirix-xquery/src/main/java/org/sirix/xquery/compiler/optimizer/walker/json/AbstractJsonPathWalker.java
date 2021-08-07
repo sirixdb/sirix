@@ -33,15 +33,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     this.jsonDBStore = jsonDBStore;
   }
 
-  protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type, boolean checkforAncestorDeref) {
-    if (checkforAncestorDeref) {
-      boolean foundDerefAncestor = findDerefAncestor(astNode);
-
-      if (foundDerefAncestor) {
-        return null;
-      }
-    }
-
+  protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type) {
     final var firstChildNode = astNode.getChild(0);
 
     if (!(firstChildNode.getType() == XQ.DerefExpr || firstChildNode.getType() == XQ.ArrayAccess
@@ -233,11 +225,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       }
     }
 
-    if (!currentPathSegmentNames.isEmpty() || !found) {
-      return true;
-    }
-
-    return false;
+    return !currentPathSegmentNames.isEmpty() || !found;
   }
 
   private RevisionData getRevisionData(final AST node) {
@@ -278,16 +266,6 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   private boolean isDocumentNodeFunction(AST newChildNode) {
     return new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "doc").equals(newChildNode.getValue())
         || new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open").equals(newChildNode.getValue());
-  }
-
-  protected boolean findDerefAncestor(AST astNode) {
-    boolean foundDerefAncestor = false;
-    AST ancestor = astNode.getParent();
-    while (ancestor != null && !foundDerefAncestor) {
-      foundDerefAncestor = ancestor.getType() == XQ.DerefExpr;
-      ancestor = ancestor.getParent();
-    }
-    return foundDerefAncestor;
   }
 
   abstract Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames,
@@ -371,8 +349,9 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         return currAstNode;
       }).orElse(null);
     } else if (stepNode.getType() == XQExt.IndexExpr) {
-      final Deque<String> indexPathSegmentNames = (Deque<String>) stepNode.getProperty("pathSegmentNames");
-      final Map<String, Deque<Integer>> indexArrayIndexes =
+      @SuppressWarnings("unchecked") final Deque<String> indexPathSegmentNames =
+          (Deque<String>) stepNode.getProperty("pathSegmentNames");
+      @SuppressWarnings("unchecked") final Map<String, Deque<Integer>> indexArrayIndexes =
           (Map<String, Deque<Integer>>) stepNode.getProperty("arrayIndexes");
 
       pathNames.addAll(indexPathSegmentNames);

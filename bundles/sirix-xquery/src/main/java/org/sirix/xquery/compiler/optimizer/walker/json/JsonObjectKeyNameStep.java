@@ -3,7 +3,6 @@ package org.sirix.xquery.compiler.optimizer.walker.json;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
-import org.brackit.xquery.compiler.optimizer.walker.topdown.ScopeWalker;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.IndexController;
@@ -36,7 +35,7 @@ public class JsonObjectKeyNameStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null, false);
+    final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null);
 
     if (replaceNode == null) {
       return astNode;
