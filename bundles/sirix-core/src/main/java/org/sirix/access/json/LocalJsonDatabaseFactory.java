@@ -35,7 +35,7 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
 
     @Override
     public Database<JsonResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
-        logger.trace("Creating new local json database");
+        logger.trace("Creating new local JSON database instance (open)");
 
         return this.subComponentBuilder.get()
                 .databaseConfiguration(configuration)

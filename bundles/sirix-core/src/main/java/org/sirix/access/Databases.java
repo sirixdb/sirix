@@ -1,10 +1,6 @@
 package org.sirix.access;
 
-import org.sirix.api.Database;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
@@ -15,10 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -96,7 +89,6 @@ public final class Databases {
               if (!toCreate.getFileName().equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())) {
                 Files.createFile(toCreate);
               }
-              returnVal = true;
             } catch (final IOException e) {
               SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
               throw new SirixIOException(e);
@@ -213,7 +205,6 @@ public final class Databases {
           final Path file,
           final User user,
           final DatabaseType databaseType) {
-
     checkNotNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());

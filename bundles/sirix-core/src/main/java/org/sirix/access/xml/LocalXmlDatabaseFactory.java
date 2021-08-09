@@ -35,7 +35,7 @@ public class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlResource
 
     @Override
     public Database<XmlResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
-        logger.trace("Creating new local xml database");
+        logger.trace("Creating new local XML database instance (open)");
 
         return this.subcomponentBuilder.get()
                 .databaseConfiguration(configuration)
