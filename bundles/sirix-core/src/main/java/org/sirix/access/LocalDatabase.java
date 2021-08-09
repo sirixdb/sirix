@@ -350,6 +350,8 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
       return;
     }
 
+    logger.trace("Close local database instance.");
+
     isClosed = true;
     resourceStore.close();
     transactionManager.close();
