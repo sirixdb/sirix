@@ -51,13 +51,10 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
         if (resPathName == null) {
             if (!Files.exists(dbFile)) {
-                ctx.fail(
-                    HttpException(
-                        HttpResponseStatus.NOT_FOUND.code(),
-                        IllegalStateException("Database not found.")
-                    )
+                throw HttpException(
+                    HttpResponseStatus.NOT_FOUND.code(),
+                    IllegalStateException("Database not found.")
                 )
-                return
             }
             removeDatabase(dbFile, dispatcher)
             ctx.response().setStatusCode(204).end()
@@ -70,14 +67,10 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
         database.use {
             if (!database.existsResource(resPathName)) {
-                database.close()
-                ctx.fail(
-                    HttpException(
-                        HttpResponseStatus.NOT_FOUND.code(),
-                        IllegalStateException("Resource not found.")
-                    )
+                throw HttpException(
+                    HttpResponseStatus.NOT_FOUND.code(),
+                    IllegalStateException("Resource not found.")
                 )
-                return@use
             }
 
             if (nodeId == null) {
