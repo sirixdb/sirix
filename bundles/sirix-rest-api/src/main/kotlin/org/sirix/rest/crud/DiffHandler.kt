@@ -32,8 +32,7 @@ class DiffHandler(private val location: Path) {
         val resourceName = ctx.pathParam("resource")
 
         if (databaseName == null || resourceName == null) {
-            ctx.fail(IllegalArgumentException("Database name and resource name must be in the URL path."))
-            return ctx.currentRoute()
+            throw IllegalArgumentException("Database name and resource name must be in the URL path.")
         }
 
         LOGGER.debug("Open databases before: ${DatabasesInternals.getOpenDatabases()}")
