@@ -417,7 +417,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     try {
       if (!writeLock.tryLock(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException(
-            "No read-write transaction available, please close the read-write transaction first.");
+            "No read-write transaction available, please close the running read-write transaction first.");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
