@@ -2334,7 +2334,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       // Reset internal transaction state to new uber page.
       resourceManager.closeNodePageWriteTransaction(getId());
-      final PageTrx pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
+      pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
       resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
@@ -2344,6 +2344,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Reset node factory.
       nodeFactory = null;
       nodeFactory = new JsonNodeFactoryImpl(hashFunction, pageTrx);
+
+      final boolean isBulkInsert = nodeHashing.isBulkInsert();
+      nodeHashing = null;
+      nodeHashing = new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
+      nodeHashing.setBulkInsert(isBulkInsert);
+
+      updateOperationsUnordered.clear();
+      updateOperationsOrdered.clear();
 
       // New index instances.
       reInstantiateIndexes();
@@ -2411,18 +2419,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Remember succesfully committed uber page in resource manager.
       resourceManager.setLastCommittedUberPage(uberPage);
 
-      resourceManager.closeNodePageWriteTransaction(getId());
-      nodeReadOnlyTrx.setPageReadTransaction(null);
       removeCommitFile();
 
-      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
-      nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-      resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
-
-      nodeFactory = null;
-      nodeFactory = new JsonNodeFactoryImpl(hashFunction, pageTrx);
-
-      reInstantiateIndexes();
+      reInstantiate(trxID, revNumber);
 
       return this;
     } finally {
