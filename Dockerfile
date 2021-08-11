@@ -23,6 +23,7 @@ WORKDIR /opt/sirix
 COPY --from=builder /usr/app/bundles/sirix-rest-api/build/libs/$VERTICLE_FILE ./
 
 # Copy additional configuration files
+COPY bundles/sirix-rest-api/src/test/resources/logback-test.xml ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/cert.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/key.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/sirix-conf.json ./
