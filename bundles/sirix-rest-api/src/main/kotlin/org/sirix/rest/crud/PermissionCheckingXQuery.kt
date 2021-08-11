@@ -123,11 +123,4 @@ class PermissionCheckingXQuery {
         this.isPrettyPrint = true
         return this
     }
-
-    companion object {
-        private const val DEBUG_CFG = "org.brackit.xquery.debug"
-        private const val DEBUG_DIR_CFG = "org.brackit.xquery.debugDir"
-        private var DEBUG = Cfg.asBool(DEBUG_CFG, false)
-        private var DEBUG_DIR = Cfg.asString(DEBUG_DIR_CFG, "debug/")
-    }
 }
