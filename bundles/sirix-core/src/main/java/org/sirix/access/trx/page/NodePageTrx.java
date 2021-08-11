@@ -110,7 +110,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   /**
    * Determines if transaction is closed.
    */
-  private boolean isClosed;
+  private volatile boolean isClosed;
 
   /**
    * {@link XmlIndexController} instance.
@@ -444,7 +444,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
