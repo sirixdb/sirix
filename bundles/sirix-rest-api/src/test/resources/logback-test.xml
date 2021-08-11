@@ -33,7 +33,7 @@
 
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <filter class="ch.qos.logback.classic.filter.LevelFilter">
-      <level>DEBUG</level>
+      <level>TRACE</level>
       <onMatch>ACCEPT</onMatch>
       <onMismatch>DENY</onMismatch>
     </filter>
@@ -50,7 +50,7 @@
     </encoder>
   </appender>
 
-  <root level="debug">
+  <root level="trace">
     <appender-ref ref="FILE"/>
     <appender-ref ref="STDOUT"/>
   </root>
