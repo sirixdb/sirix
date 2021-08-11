@@ -33,6 +33,8 @@ import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Node;
 import org.sirix.page.UberPage;
 import org.sirix.settings.Fixed;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -64,6 +66,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceManager.class);
 
   /**
    * Thread pool.
@@ -419,6 +423,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixThreadedException(e);
     }
 
+    LOGGER.debug("Lock: lock acquired (beginNodeTrx)");
+
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
@@ -558,6 +564,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     removeFromPageMapping(transactionID);
 
     // Make new transactions available.
+    LOGGER.debug("Lock unlock (closeWriteTransaction).");
     writeLock.unlock();
   }
 
@@ -587,6 +594,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     pageTrxMap.remove(transactionID);
 
     // Make new transactions available.
+    LOGGER.debug("Lock unlock (closePageWriteTransaction).");
     writeLock.unlock();
   }
 
@@ -706,6 +714,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
     }
+
+    LOGGER.debug("Lock: lock acquired (beginPageTrx)");
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = lastCommittedUberPage.get().getRevisionNumber();

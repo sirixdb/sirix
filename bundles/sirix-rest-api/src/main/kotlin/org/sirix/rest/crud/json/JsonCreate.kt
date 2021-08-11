@@ -235,7 +235,7 @@ class JsonCreate(
             ctx.request().resume()
             future.await()
             wtx.commit()
-            wtx.maxNodeKey
+            return wtx.maxNodeKey
         }
     }
 
