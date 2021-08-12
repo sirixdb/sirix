@@ -511,10 +511,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
     if (writeLock.tryAcquire()) {
       writeLock.release();
-      return true;
+      return false;
     }
 
-    return false;
+    return true;
   }
 
   /**
