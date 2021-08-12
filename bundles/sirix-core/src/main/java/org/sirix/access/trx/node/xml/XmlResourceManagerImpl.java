@@ -44,6 +44,7 @@ import org.sirix.page.UberPage;
 import javax.inject.Inject;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
@@ -82,7 +83,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
                          final BufferManager bufferManager,
                          final IOStorage storage,
                          final UberPage uberPage,
-                         final Lock writeLock,
+                         final Semaphore writeLock,
                          final User user,
                          final PageTrxFactory pageTrxFactory) {
 
