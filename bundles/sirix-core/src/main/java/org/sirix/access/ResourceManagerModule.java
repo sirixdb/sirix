@@ -9,6 +9,7 @@ import org.sirix.io.StorageType;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 
 /**
@@ -27,7 +28,7 @@ public interface ResourceManagerModule {
 
     @Provides
     @ResourceManagerScope
-    static Lock writeLock(final WriteLocksRegistry registry, final ResourceConfiguration resourceConfiguration) {
+    static Semaphore writeLock(final WriteLocksRegistry registry, final ResourceConfiguration resourceConfiguration) {
         return registry.getWriteLock(resourceConfiguration.getResource());
     }
 

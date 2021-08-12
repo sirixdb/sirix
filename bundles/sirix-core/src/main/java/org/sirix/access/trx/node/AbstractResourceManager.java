@@ -48,13 +48,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -77,7 +71,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Write lock to assure only one exclusive write transaction exists.
    */
-  final Lock writeLock;
+  final Semaphore writeLock;
 
   /**
    * Strong reference to uber page before the begin of a write transaction.
@@ -164,7 +158,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
                                     final @Nonnull BufferManager bufferManager,
                                     final @Nonnull IOStorage storage,
                                     final @Nonnull UberPage uberPage,
-                                    final @Nonnull Lock writeLock,
+                                    final @Nonnull Semaphore writeLock,
                                     final @Nullable User user,
                                     final PageTrxFactory pageTrxFactory) {
     this.resourceStore = checkNotNull(resourceStore);
@@ -415,7 +409,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     // Make sure not to exceed available number of write transactions.
     try {
-      if (!writeLock.tryLock(20, TimeUnit.SECONDS)) {
+      if (!writeLock.tryAcquire(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException(
             "No read-write transaction available, please close the running read-write transaction first.");
       }
@@ -423,7 +417,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixThreadedException(e);
     }
 
-    LOGGER.debug("Lock: lock acquired (beginNodeTrx)");
+    LOGGER.trace("Lock: lock acquired (beginNodeTrx)");
 
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
@@ -515,8 +509,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public boolean hasRunningNodeWriteTrx() {
     assertNotClosed();
-    if (writeLock.tryLock()) {
-      writeLock.unlock();
+    if (writeLock.tryAcquire()) {
+      writeLock.release();
       return true;
     }
 
@@ -564,8 +558,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     removeFromPageMapping(transactionID);
 
     // Make new transactions available.
-    LOGGER.debug("Lock unlock (closeWriteTransaction).");
-    writeLock.unlock();
+    LOGGER.trace("Lock unlock (closeWriteTransaction).");
+    writeLock.release();
   }
 
   /**
@@ -594,8 +588,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     pageTrxMap.remove(transactionID);
 
     // Make new transactions available.
-    LOGGER.debug("Lock unlock (closePageWriteTransaction).");
-    writeLock.unlock();
+    LOGGER.trace("Lock unlock (closePageWriteTransaction).");
+    writeLock.release();
   }
 
   /**
@@ -708,7 +702,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     // Make sure not to exceed available number of write transactions.
     try {
-      if (!writeLock.tryLock(20, TimeUnit.SECONDS)) {
+      if (!writeLock.tryAcquire(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException("No write transaction available, please close the write transaction first.");
       }
     } catch (final InterruptedException e) {

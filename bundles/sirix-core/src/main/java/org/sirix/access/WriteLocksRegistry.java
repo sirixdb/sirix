@@ -10,6 +10,7 @@ import javax.inject.Singleton;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -31,7 +32,7 @@ public class WriteLocksRegistry {
     private static final Logger logger = LoggerFactory.getLogger(WriteLocksRegistry.class);
 
     /** Central repository of all resource {@code <=>} write locks mappings. */
-    private final Map<Path, Lock> locks;
+    private final Map<Path, Semaphore> locks;
 
     @Inject
     WriteLocksRegistry() {
@@ -46,10 +47,9 @@ public class WriteLocksRegistry {
      * @param resourcePath The path that identifies the resource.
      * @return The lock to be used to perform write operations to the given resource.
      */
-    public Lock getWriteLock(final Path resourcePath) {
-        logger.trace("Fetching log for resource with path {}", resourcePath);
-
-        return this.locks.computeIfAbsent(resourcePath, res -> new ReentrantLock());
+    public Semaphore getWriteLock(final Path resourcePath) {
+        logger.trace("Getting lock for resource with path {}", resourcePath);
+        return this.locks.computeIfAbsent(resourcePath, res -> new Semaphore(1));
     }
 
     /**
@@ -60,6 +60,7 @@ public class WriteLocksRegistry {
      * @param resourcePath The path that identifies the resource.
      */
     public void removeWriteLock(final Path resourcePath) {
+        logger.trace("Removing lock for resource with path {}", resourcePath);
         this.locks.remove(resourcePath);
     }
 }
