@@ -23,6 +23,7 @@ WORKDIR /opt/sirix
 COPY --from=builder /usr/app/bundles/sirix-rest-api/build/libs/$VERTICLE_FILE ./
 
 # Copy additional configuration files
+COPY bundles/sirix-rest-api/src/test/resources/logback-test.xml ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/cert.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/key.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/sirix-conf.json ./
@@ -35,4 +36,4 @@ EXPOSE 9443
 
 # Launch the verticle
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -Xms3g -Xmx8g --enable-preview --add-modules=jdk.incubator.foreign -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
+CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Xms3g -Xmx8g --enable-preview --add-modules=jdk.incubator.foreign -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
