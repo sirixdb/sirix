@@ -2,7 +2,6 @@ package org.sirix.cache;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.IndexType;
 import org.sirix.page.*;
@@ -33,8 +32,6 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   private final PersistentFileCache secondCache;
 
-  private final int maxInMemoryCapacity;
-
   /**
    * The log key.
    */
@@ -53,13 +50,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     logKey = 0;
     this.secondCache = secondCache;
     mapToPersistentLogKey = new HashMap<>(maxInMemoryCapacity >> 1);
-    map = _createMap(maxInMemoryCapacity);
-    this.maxInMemoryCapacity = maxInMemoryCapacity;
-  }
-
-  @NotNull
-  private Map<PageReference, PageContainer> _createMap(int maxInMemoryCapacity) {
-    return new LinkedHashMap<>(maxInMemoryCapacity >> 1) {
+    map = new LinkedHashMap<>(maxInMemoryCapacity >> 1) {
       private static final long serialVersionUID = 1;
 
       @Override
@@ -103,19 +94,6 @@ public final class TransactionIntentLog implements AutoCloseable {
         return false;
       }
     };
-  }
-
-  /**
-   * Copy constructor.
-   * @param trxIntentLog the transaction intent log to copy
-   */
-  TransactionIntentLog(TransactionIntentLog trxIntentLog) {
-    maxInMemoryCapacity = trxIntentLog.maxInMemoryCapacity;
-    this.secondCache = trxIntentLog.secondCache;
-    mapToPersistentLogKey = new HashMap<>(maxInMemoryCapacity >> 1);
-    mapToPersistentLogKey.putAll(trxIntentLog.mapToPersistentLogKey);
-    map = _createMap(maxInMemoryCapacity);
-    map.putAll(trxIntentLog.map);
   }
 
   /**
@@ -222,14 +200,9 @@ public final class TransactionIntentLog implements AutoCloseable {
     return this;
   }
 
-  public TransactionIntentLog copy() {
-    return new TransactionIntentLog(this);
-  }
-
   @Override
   public void close() {
     map.clear();
-    mapToPersistentLogKey.clear();
     secondCache.close();
   }
 }

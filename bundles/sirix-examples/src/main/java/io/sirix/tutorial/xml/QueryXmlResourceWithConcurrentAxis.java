@@ -42,7 +42,7 @@ public class QueryXmlResourceWithConcurrentAxis {
         queryXmlDatabase();
     }
 
-    static void createXmlDatabase() throws IOException {
+    static void createXmlDatabase() throws FileNotFoundException, IOException {
         final var pathToXmlFile = XML.resolve("10mb.xml");
 
         if (Files.exists(DATABASE_PATH))

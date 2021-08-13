@@ -23,7 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 
@@ -67,6 +66,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -80,10 +80,8 @@ public final class JsonShredderTest {
                                                      .useTextCompression(false)
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx(3, TimeUnit.SECONDS)) {
+             final var trx = manager.beginNodeTrx(10_000_000)) {
           trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
-        } catch (Error e) {
-          e.printStackTrace();
         }
       }
     } catch (Error e) {
