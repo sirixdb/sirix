@@ -23,6 +23,8 @@ import javax.annotation.Nullable;
  */
 public interface PageTrx extends PageReadOnlyTrx {
 
+  PageTrx clone();
+
   /**
    * Truncate resource to given revision.
    *
@@ -110,6 +112,24 @@ public interface PageTrx extends PageReadOnlyTrx {
    */
   UberPage commit(@Nullable String commitMessage);
 
+//  /**
+//   * Commit the transaction, that is persist changes if any and create a new revision.
+//   *
+//   * @return UberPage the new revision after commit
+//   * @throws SirixException if Sirix fails to commit
+//   */
+//  UberPage asyncCommit();
+//
+//  /**
+//   * Commit the transaction, that is persist changes if any and create a new revision. The commit
+//   * message is going to be persisted as well.
+//   *
+//   * @param commitMessage the commit message
+//   * @return UberPage the revision after commit
+//   * @throws SirixException if Sirix fails to commit
+//   */
+//  UberPage asyncCommit(String commitMessage);
+
   /**
    * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.
    *
@@ -155,6 +175,13 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return the transaction intent log
    */
   TransactionIntentLog getLog();
+
+  /**
+   * Get the former transaction intent log.
+   *
+   * @return the former transaction intent log
+   */
+  TransactionIntentLog getFormerLog();
 
   /**
    * Get the revision, which this page trx is going to represent in case of a revert.

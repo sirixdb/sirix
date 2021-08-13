@@ -1,19 +1,19 @@
 /**
  * Copyright (c) 2018, Sirix
- *
+ * <p>
  * All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the <organization> nor the
- *       names of its contributors may be used to endorse or promote products
- *       derived from this software without specific prior written permission.
- *
+ * * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ * * Neither the name of the <organization> nor the
+ * names of its contributors may be used to endorse or promote products
+ * derived from this software without specific prior written permission.
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,6 +28,8 @@
 package org.sirix.access.trx.page;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
@@ -48,13 +50,28 @@ public interface TreeModifier {
    *
    * @param uberPage the uber page
    * @param pageRtx the page reading transaction
+   * @param oldRevisionRootPage the old revision root page
+   * @param representRevision the revision to represent
+   * @return new {@link RevisionRootPage} instance
+   * @throws SirixIOException if an I/O error occurs
+   */
+  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
+      TransactionIntentLog log, TransactionIntentLog previousLog, @Nonnull RevisionRootPage oldRevisionRootPage,
+      @Nonnegative int representRevision);
+
+  /**
+   * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
+   *
+   * @param uberPage the uber page
+   * @param pageRtx the page reading transaction
    * @param baseRevision base revision
    * @param representRevision the revision to represent
    * @return new {@link RevisionRootPage} instance
    * @throws SirixIOException if an I/O error occurs
    */
   RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
-      TransactionIntentLog log, @Nonnegative int baseRevision, @Nonnegative int representRevision);
+      TransactionIntentLog log, TransactionIntentLog previousLog, @Nonnegative int baseRevision,
+      @Nonnegative int representRevision);
 
   /**
    * Prepare the leaf of a tree, namely the reference to a {@link UnorderedKeyValuePage} and put the
@@ -73,9 +90,9 @@ public interface TreeModifier {
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
-  PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
-      PageReference startReference, @Nonnegative long pageKey, int indexNumber, IndexType indexType,
-      RevisionRootPage revisionRootPage);
+  PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, TransactionIntentLog previousLog,
+      int[] inpLevelPageCountExp, PageReference startReference, @Nonnegative long pageKey, int indexNumber,
+      IndexType indexType, RevisionRootPage revisionRootPage);
 
   /**
    * Prepare indirect page, that is getting the referenced indirect page or a new page and put the
@@ -87,5 +104,6 @@ public interface TreeModifier {
    * @return {@link IndirectPage} reference
    * @throws SirixIOException if an I/O error occurs
    */
-  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
+  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, TransactionIntentLog previousLog,
+      PageReference reference);
 }

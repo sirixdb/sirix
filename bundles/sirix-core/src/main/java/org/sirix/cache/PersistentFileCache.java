@@ -19,14 +19,13 @@ public final class PersistentFileCache implements AutoCloseable {
     checkNotNull(pageReadTrx);
 
     if (reference.getPersistentLogKey() < 0)
-      return PageContainer.emptyInstance();
+      return null;
 
     final Page modifiedPage = writer.read(reference, pageReadTrx);
     final Page completePage;
 
     if (modifiedPage instanceof KeyValuePage) {
       final long peristKey = reference.getPersistentLogKey();
-//      reference.setPersistentLogKey(peristKey + reference.getLength());
       completePage = writer.read(reference, pageReadTrx);
       reference.setPersistentLogKey(peristKey);
     } else {

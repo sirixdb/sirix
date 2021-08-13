@@ -45,7 +45,7 @@ import java.nio.file.Path;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFactory {
+public final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFactory {
 
   /**
    * Package private constructor.

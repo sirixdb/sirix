@@ -30,6 +30,11 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   }
 
   @Override
+  public PageTrx clone() {
+    return delegate().clone();
+  }
+
+  @Override
   public void close() throws SirixIOException {
     delegate().close();
   }
