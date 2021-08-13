@@ -9,8 +9,6 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
 
@@ -32,16 +30,6 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * @throws SirixException if this revision couldn't be committed
    */
   NodeTrx commit(@Nullable String commitMessage);
-
-  /**
-   * Commit all modifications of the exclusive write transaction. Even commit if there are no
-   * modification at all. The author assignes a commit message.
-   *
-   * @param commitMessage message of the commit
-   * @return NodeTrx return current instance
-   * @throws SirixException if this revision couldn't be committed
-   */
-  Future<NodeTrx> commitAsync(String commitMessage);
 
   /**
    * Rollback all modifications of the exclusive write transaction.
