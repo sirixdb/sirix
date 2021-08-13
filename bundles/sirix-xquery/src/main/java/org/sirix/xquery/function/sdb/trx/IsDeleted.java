@@ -57,22 +57,15 @@ public final class IsDeleted extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
     final NodeReadOnlyTrx rtx = item.getTrx();
-
     final var resMgr = rtx.getResourceManager();
     final var mostRecentRevisionNumber = resMgr.getMostRecentRevisionNumber();
     final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resMgr, mostRecentRevisionNumber);
-
     final Optional<RevisionReferencesNode> optionalNode =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
-
-    final RevisionReferencesNode node = optionalNode.orElseThrow(() -> new IllegalStateException());
-
+    final var node = optionalNode.orElseThrow(() -> new IllegalStateException());
     final var revisions = node.getRevisions();
-
     final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
-
-    final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
-
+    final var rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
     return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;
   }
 

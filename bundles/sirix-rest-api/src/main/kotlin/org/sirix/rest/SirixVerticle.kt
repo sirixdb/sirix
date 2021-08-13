@@ -81,7 +81,6 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
-
         val oauth2Config = oAuth2OptionsOf()
             .setFlow(OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD")))
             .setSite(config.getString("keycloak.url"))

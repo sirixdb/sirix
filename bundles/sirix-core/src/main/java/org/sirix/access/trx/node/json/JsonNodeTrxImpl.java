@@ -37,6 +37,7 @@ import org.sirix.access.trx.node.*;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
@@ -45,6 +46,7 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
 import org.sirix.diff.DiffTuple;
@@ -84,10 +86,7 @@ import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
@@ -147,7 +146,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Modification counter.
    */
-  long modificationCount;
+  volatile long modificationCount;
 
   /**
    * Hash kind of Structure.
@@ -157,8 +156,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /**
    * Scheduled executor service.
    */
-  private final ScheduledExecutorService threadPool =
-      Executors.newScheduledThreadPool(1, new JsonNodeTrxThreadFactory());
+  private final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(1);
+
+  /**
+   * Single threaded executor service to commit asynchronally.
+   */
+  private final ExecutorService commitThreadPool = Executors.newSingleThreadExecutor(new JsonNodeTrxThreadFactory());
 
   /**
    * {@link InternalJsonNodeReadOnlyTrx} reference.
@@ -268,6 +271,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     Closed
   }
 
+  private final Lock commitLock = new ReentrantLock();
+
   /**
    * Constructor.
    *
@@ -295,7 +300,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
                   @Nonnull final AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
     // Do not accept negative values.
     Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
-                                "Negative arguments for maxNodeCount and maxTime are not accepted.");
+        "Negative arguments for maxNodeCount and maxTime are not accepted.");
 
     this.databaseName = checkNotNull(databaseName);
     this.nodeToRevisionsIndex = checkNotNull(nodeToRevisionsIndex);
@@ -318,10 +323,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     isAutoCommitting = maxNodeCount > 0 || maxTime > 0;
 
-    if (maxTime > 0) {
-      threadPool.scheduleWithFixedDelay(() -> commit("autoCommit"), maxTime, maxTime, timeUnit);
-    }
-
     // Synchronize commit and other public methods if needed.
     lock = maxTime > 0 ? new ReentrantLock() : null;
 
@@ -335,6 +336,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     this.afterCommitState = checkNotNull(afterCommitState);
     state = State.Running;
+
+    if (maxTime > 0) {
+      scheduledExecutorService.scheduleWithFixedDelay(() -> commitAsync("autoCommit"), maxTime, maxTime, timeUnit);
+    }
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
@@ -443,7 +448,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(reader);
     assert insertionPosition != null;
 
-    acquireLockIfNecessary();
+    //    acquireLockIfNecessary();
 
     try {
       checkState();
@@ -459,7 +464,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       switch (insertionPosition) {
         case AS_FIRST_CHILD, AS_LAST_CHILD -> {
           if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
-            throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+            throw new IllegalStateException(
+                "Current node must either be the document root, an array or an object key.");
           }
           switch (peekedJsonToken) {
             case BEGIN_OBJECT:
@@ -533,14 +539,15 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         commit();
       }
 
-//      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-//        System.out.println(nodeReadOnlyTrx.getDeweyID());
-//      }
+      //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+      //        System.out.println(nodeReadOnlyTrx.getDeweyID());
+      //      }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
-    } finally {
-      unLockIfNecessary();
     }
+    //    } finally {
+    //      unLockIfNecessary();
+    //    }
     return this;
   }
 
@@ -894,13 +901,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
 
-      final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey,
-                                                                     leftSibKey,
-                                                                     rightSibKey,
-                                                                     pathNodeKey,
-                                                                     key,
-                                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                     id);
+      final ObjectKeyNode node =
+          nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key,
+              Fixed.NULL_NODE_KEY.getStandardProperty(), id);
 
       adaptNodesAndHashesForInsertAsChild(node);
 
@@ -947,13 +950,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final SirixDeweyID id =
           (structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID();
 
-      final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey,
-                                                                     leftSibKey,
-                                                                     rightSibKey,
-                                                                     pathNodeKey,
-                                                                     key,
-                                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                     id);
+      final ObjectKeyNode node =
+          nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key,
+              Fixed.NULL_NODE_KEY.getStandardProperty(), id);
 
       adaptNodesAndHashesForInsertAsChild(node);
 
@@ -978,10 +977,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   public void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey) {
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED,
-                                        newNodeKey,
-                                        0,
-                                        id == null ? null : new DiffDepth(id.getLevel(), 0));
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0,
+        id == null ? null : new DiffDepth(id.getLevel(), 0));
     if (id == null) {
       updateOperationsUnordered.put(newNodeKey, diffTuple);
     } else {
@@ -991,10 +988,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   public void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
     final var level = id.getLevel();
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
-                                        newNodeKey,
-                                        oldNodeKey,
-                                        id == null ? null : new DiffDepth(level, level));
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey,
+        id == null ? null : new DiffDepth(level, level));
     if (id == null) {
       updateOperationsUnordered.put(newNodeKey, diffTuple);
     } else {
@@ -2174,10 +2169,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED,
-                                        nodeKey,
-                                        nodeKey,
-                                        id == null ? null : new DiffDepth(id.getLevel(), id.getLevel()));
+    final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey,
+        id == null ? null : new DiffDepth(id.getLevel(), id.getLevel()));
     if (id == null && updateOperationsUnordered.get(nodeKey) == null) {
       updateOperationsUnordered.put(nodeKey, diffTuple);
     } else if (hasNoUpdatingNodeWithGivenNodeKey(nodeKey)) {
@@ -2324,6 +2317,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   @Override
   public JsonNodeTrx revertTo(final @Nonnegative int revision) {
     acquireLockIfNecessary();
+    commitLock.lock();
     try {
       nodeReadOnlyTrx.assertNotClosed();
       resourceManager.assertAccess(revision);
@@ -2333,8 +2327,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final int revNumber = getRevisionNumber();
 
       // Reset internal transaction state to new uber page.
+      final var log = getPageWtx().getLog();
       resourceManager.closeNodePageWriteTransaction(getId());
-      pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
+
+      pageTrx = null;
+      pageTrx =
+          resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true, log);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
       resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
@@ -2365,12 +2363,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       return this;
     } finally {
       unLockIfNecessary();
+      commitLock.unlock();
     }
   }
 
   @Override
   public synchronized void close() {
     acquireLockIfNecessary();
+    //    commitLock.lock();
     try {
       if (!isClosed()) {
         // Make sure to commit all dirty data.
@@ -2380,6 +2380,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
         // Release all state immediately.
         final long trxId = getId();
+        final var pageTrx = getPageWtx();
+        pageTrx.getLog().close();
+        if (pageTrx.getFormerLog() != null) {
+          pageTrx.getFormerLog().close();
+        }
         nodeReadOnlyTrx.close();
         resourceManager.closeWriteTransaction(trxId);
         removeCommitFile();
@@ -2387,16 +2392,23 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         pathSummaryWriter = null;
         nodeFactory = null;
 
-        // Shutdown pool.
-        threadPool.shutdown();
+        // Shutdown pools.
+        scheduledExecutorService.shutdown();
         try {
-          threadPool.awaitTermination(2, TimeUnit.SECONDS);
+          scheduledExecutorService.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (final InterruptedException e) {
+          throw new SirixThreadedException(e);
+        }
+        commitThreadPool.shutdown();
+        try {
+          commitThreadPool.awaitTermination(2, TimeUnit.SECONDS);
         } catch (final InterruptedException e) {
           throw new SirixThreadedException(e);
         }
       }
     } finally {
       unLockIfNecessary();
+      //      commitLock.unlock();
     }
   }
 
@@ -2442,17 +2454,20 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     return commit(null);
   }
 
-  /**
-   * Create new instances.
-   *
-   * @param trxID     transaction ID
-   * @param revNumber revision number
-   */
-  void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
-    // Reset page transaction to new uber page.
-    resourceManager.closeNodePageWriteTransaction(getId());
-    pageTrx = null;
-    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
+  void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber, final UberPage uberPage,
+      final boolean closeOldPageTrx, final @Nonnull TransactionIntentLog log) {
+    if (closeOldPageTrx) {
+      log.close();
+      resourceManager.closeNodePageWriteTransaction(getId());
+      pageTrx = null;
+    }
+
+    if (uberPage == null) {
+      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true, log);
+    } else {
+      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, uberPage, true, log);
+    }
+
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
@@ -2737,6 +2752,51 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     return this;
   }
 
+  @Override
+  public Future<NodeTrx> commitAsync(String commitMessage) {
+    nodeReadOnlyTrx.assertNotClosed();
+
+    // Execute pre-commit hooks.
+    for (final PreCommitHook hook : preCommitHooks) {
+      hook.preCommit(this);
+    }
+
+    commitLock.lock();
+
+    // Reinstantiate everything.
+    acquireLockIfNecessary();
+    try {
+      final var uberPage = pageTrx.getUberPage();
+      final var log = pageTrx.getLog();
+      final var currPageTrx = pageTrx;
+
+      // Reset modification counter.
+      modificationCount = 0L;
+
+      if (pageTrx.getFormerLog() != null) {
+        pageTrx.getFormerLog().close();
+      }
+
+      reInstantiate(getId(), getRevisionNumber(), uberPage, false, log);
+
+      CompletableFuture.supplyAsync(
+          () -> new CommitTask(commitMessage, currPageTrx, commitLock, lock, resourceManager, nodeHashing,
+              beforeBulkInsertionRevisionNumber, isAutoCommitting, updateOperationsOrdered, updateOperationsUnordered,
+              storeDeweyIDs()).call(), commitThreadPool);
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      unLockIfNecessary();
+    }
+
+    // Execute post-commit hooks.
+    for (final PostCommitHook hook : postCommitHooks) {
+      hook.postCommit(this);
+    }
+
+    return CompletableFuture.completedFuture(this);
+  }
+
   public void serializeUpdateDiffs() {
     final int revisionNumber = getRevisionNumber();
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
@@ -2798,6 +2858,57 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
+  @Override
+  public JsonNodeTrx doCommit(final String commitMessage) {
+    nodeReadOnlyTrx.assertNotClosed();
+
+    acquireLockIfNecessary();
+    try {
+      state = State.Committing;
+
+      // Execute pre-commit hooks.
+      for (final PreCommitHook hook : preCommitHooks) {
+        hook.preCommit(this);
+      }
+
+      // Reset modification counter.
+      modificationCount = 0L;
+    } finally {
+      unLockIfNecessary();
+    }
+
+    final UberPage uberPage = new CommitTask(commitMessage, pageTrx, null, null, resourceManager, nodeHashing,
+        beforeBulkInsertionRevisionNumber, isAutoCommitting, updateOperationsOrdered, updateOperationsUnordered,
+        storeDeweyIDs()).call();
+
+    acquireLockIfNecessary();
+    try {
+      // Remember succesfully committed uber page in resource manager.
+      resourceManager.setLastCommittedUberPage(uberPage);
+
+      if (resourceManager.getResourceConfig().storeDiffs()) {
+        serializeUpdateDiffs();
+      }
+
+      // Reinstantiate everything.
+      if (afterCommitState == AfterCommitState.KeepOpen) {
+        reInstantiate(getId(), getRevisionNumber(), null, true, null);
+        state = State.Running;
+      } else {
+        state = State.Committed;
+      }
+    } finally {
+      unLockIfNecessary();
+    }
+
+    // Execute post-commit hooks.
+    for (final PostCommitHook hook : postCommitHooks) {
+      hook.postCommit(this);
+    }
+
+    return this;
+  }
+
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
     @Override
     public Thread newThread(@Nonnull final Runnable runnable) {
@@ -2807,6 +2918,108 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       thread.setDaemon(false);
 
       return thread;
+    }
+  }
+
+  private final static class CommitTask implements Callable<UberPage> {
+    private final String commitMessage;
+
+    private final PageTrx pageTrx;
+
+    private final Lock commitLock;
+
+    private final Lock lock;
+
+    private final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager;
+
+    private final int revisionNumber;
+
+    private final JsonNodeHashing nodeHashing;
+
+    private final int beforeBulkInsertionRevisionNumber;
+
+    private final boolean isAutoCommitting;
+
+    /**
+     * Collects update operations in pre-order, thus it must be an order-preserving sorted map.
+     */
+    private final SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered;
+
+    /**
+     * Collects update operations in no particular order (if DeweyIDs used for sorting are not stored).
+     */
+    private final Map<Long, DiffTuple> updateOperationsUnordered;
+    private final boolean storeDeweyIds;
+
+    public CommitTask(final String commitMessage, final PageTrx pageTrx, final Lock commitLock, final Lock lock,
+        final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+        final JsonNodeHashing nodeHashing, final int beforeBulkInsertionRevisionNumber, final boolean isAutoCommitting,
+        SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered,
+        final Map<Long, DiffTuple> updateOperationsUnordered, final boolean storeDeweyIds) {
+      this.commitMessage = commitMessage;
+      this.pageTrx = pageTrx;
+      this.commitLock = commitLock;
+      this.lock = lock;
+      this.resourceManager = resourceManager;
+      this.revisionNumber = pageTrx.getRevisionNumber();
+      this.nodeHashing = nodeHashing;
+      this.beforeBulkInsertionRevisionNumber = beforeBulkInsertionRevisionNumber;
+      this.isAutoCommitting = isAutoCommitting;
+      this.updateOperationsOrdered = new TreeMap<>(updateOperationsOrdered);
+      this.updateOperationsUnordered = new HashMap<>(updateOperationsUnordered);
+      this.storeDeweyIds = storeDeweyIds;
+    }
+
+    public UberPage call() {
+      UberPage uberPage = null;
+      try {
+        uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
+
+        if (lock != null)
+          lock.lock();
+        try {
+          // Remember succesfully committed uber page in resource manager.
+          resourceManager.setLastCommittedUberPage(uberPage);
+        } finally {
+          if (lock != null)
+            lock.unlock();
+        }
+
+        if (resourceManager.getResourceConfig().storeDiffs()) {
+          serializeUpdateDiffs();
+        }
+      } catch (Exception e) {
+        System.out.println(e.getStackTrace());
+      } finally {
+        if (commitLock != null) {
+          commitLock.unlock();
+        }
+      }
+      return uberPage;
+    }
+
+    public void serializeUpdateDiffs() {
+      if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
+        final var diffSerializer = new JsonDiffSerializer((JsonResourceManager) resourceManager,
+            beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+                ? beforeBulkInsertionRevisionNumber
+                : revisionNumber - 1, revisionNumber,
+            storeDeweyIds ? updateOperationsOrdered.values() : updateOperationsUnordered.values());
+        final var jsonDiff = diffSerializer.serialize(false);
+
+        // Deserialize index definitions.
+        final Path diff = resourceManager.getResourceConfig()
+                                         .getResource()
+                                         .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                         .resolve(
+                                             "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+        try {
+          Files.createFile(diff);
+          Files.writeString(diff, jsonDiff);
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      }
     }
   }
 }
