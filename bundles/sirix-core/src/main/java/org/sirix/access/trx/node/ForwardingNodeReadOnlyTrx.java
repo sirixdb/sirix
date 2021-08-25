@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * TODO: Class AbstractForwardingNodeReadOnlyTrx's description.
+ * A forwarding {@link NodeReadOnlyTrx} based on the decorator pattern.
  *
  * @author Joao Sousa
  */
