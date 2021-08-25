@@ -29,8 +29,6 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.json.Array;
-import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.*;
@@ -69,9 +67,9 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.*;
 import org.sirix.page.NamePage;
 import org.sirix.page.UberPage;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.json.shredder.JsonItemShredder;
 import org.sirix.service.json.shredder.JsonShredder;
-import org.sirix.service.InsertPosition;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
@@ -112,7 +110,7 @@ import static java.nio.file.Files.deleteIfExists;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implements InternalJsonNodeTrx {
+final class JsonNodeTrxImpl implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
 
   /**
    * A factory that creates new {@link PageTrx} instances.
@@ -1810,6 +1808,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
+  public JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
+    return nodeReadOnlyTrx;
+  }
+
+  @Override
   public JsonNodeTrx insertNumberValueAsRightSibling(Number value) {
     acquireLockIfNecessary();
     try {
@@ -2627,11 +2630,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  protected JsonNodeReadOnlyTrx delegate() {
-    return nodeReadOnlyTrx;
-  }
-
-  @Override
   public JsonNodeTrx addPreCommitHook(final PreCommitHook hook) {
     acquireLockIfNecessary();
     try {
@@ -2689,7 +2687,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public CommitCredentials getCommitCredentials() {
     nodeReadOnlyTrx.assertNotClosed();
 
-    return nodeReadOnlyTrx.getCommitCredentials();
+    return ForwardingJsonNodeReadOnlyTrx.super.getCommitCredentials();
   }
 
   @Override
