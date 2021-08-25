@@ -32,11 +32,7 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
-import org.sirix.api.Axis;
-import org.sirix.api.Movement;
-import org.sirix.api.PageTrx;
-import org.sirix.api.PostCommitHook;
-import org.sirix.api.PreCommitHook;
+import org.sirix.api.*;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -54,24 +50,15 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.*;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
+import org.sirix.node.xml.*;
 import org.sirix.page.NamePage;
 import org.sirix.page.UberPage;
-import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -114,7 +101,7 @@ import static java.nio.file.Files.deleteIfExists;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implements XmlNodeTrx, InternalXmlNodeTrx {
+final class XmlNodeTrxImpl implements XmlNodeTrx, InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
   /**
    * Maximum number of node modifications before auto commit.
@@ -279,6 +266,11 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   @Override
   public SirixDeweyID getDeweyID() {
     return getNode().getDeweyID();
+  }
+
+  @Override
+  public XmlNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
+    return nodeReadOnlyTrx;
   }
 
   @Override
@@ -2157,11 +2149,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
                       .add("readTrx", nodeReadOnlyTrx.toString())
                       .add("hashKind", hashType)
                       .toString();
-  }
-
-  @Override
-  protected XmlNodeReadOnlyTrx delegate() {
-    return nodeReadOnlyTrx;
   }
 
   @Override

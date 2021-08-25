@@ -90,12 +90,6 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  public boolean storeDeweyIDs() {
-    // TODO should this be resourceManager.getResourceConfig().areDeweyIDsStored?
-    return false;
-  }
-
-  @Override
   public ImmutableXmlNode getNode() {
     assertNotClosed();
 
