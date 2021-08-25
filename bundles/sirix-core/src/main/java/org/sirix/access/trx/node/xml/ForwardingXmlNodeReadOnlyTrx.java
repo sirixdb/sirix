@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Forwards all methods to the nodeReadOnlyTrxDelegate.
+ * Forwards all methods to the {@link #nodeReadOnlyTrxDelegate}.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
