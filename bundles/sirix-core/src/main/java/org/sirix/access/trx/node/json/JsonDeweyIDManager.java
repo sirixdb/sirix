@@ -4,7 +4,7 @@ import org.sirix.access.trx.node.AbstractDeweyIDManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.SirixDeweyID;
 
-final class JsonDeweyIDManager extends AbstractDeweyIDManager {
+final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTrx> {
 
   private final InternalJsonNodeTrx nodeTrx;
 

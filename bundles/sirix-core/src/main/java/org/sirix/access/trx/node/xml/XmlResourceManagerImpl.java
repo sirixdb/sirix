@@ -28,6 +28,7 @@ import org.sirix.access.User;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.RecordToRevisionsIndex;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -42,11 +43,12 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
 
 import javax.inject.Inject;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Provides node transactions on different revisions of XML resources.
@@ -100,8 +102,14 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
-      int maxTime, Node documentNode, AfterCommitState afterCommitState) {
+  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
+                                           PageTrx pageTrx,
+                                           int maxNodeCount,
+                                           TimeUnit timeUnit,
+                                           int maxTime,
+                                           Duration autoCommitDelay,
+                                           Node documentNode,
+                                           AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
@@ -117,16 +125,20 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
     } else {
       pathSummaryWriter = null;
     }
-
+    // Synchronize commit and other public methods if needed.
+    final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
+    final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
     return new XmlNodeTrxImpl(this,
-                              nodeReadTrx,
-                              pathSummaryWriter,
-                              maxNodeCount,
-                              timeUnit,
-                              maxTime,
-                              new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageTrx),
-                              nodeFactory,
-                              afterCommitState);
+            nodeReadTrx,
+            pathSummaryWriter,
+            maxNodeCount,
+            transactionLock,
+            autoCommitDelay,
+            new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageTrx),
+            nodeFactory,
+            afterCommitState,
+            new RecordToRevisionsIndex(pageTrx)
+    );
   }
 
   @Override
