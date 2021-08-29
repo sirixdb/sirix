@@ -74,7 +74,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.StandardOpenOption.CREATE;
 
@@ -133,6 +132,11 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
    * {@code true}, if transaction is auto-committing, {@code false} if not.
    */
   private final boolean isAutoCommitting;
+
+  /**
+   * The revision number before bulk-inserting nodes.
+   */
+  private int beforeBulkInsertionRevisionNumber;
 
   /**
    * Constructor.

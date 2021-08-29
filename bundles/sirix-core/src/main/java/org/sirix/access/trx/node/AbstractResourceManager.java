@@ -335,8 +335,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public abstract W createNodeReadWriteTrx(long nodeTrxId,
                                            PageTrx pageTrx,
                                            int maxNodeCount,
-                                           @Deprecated TimeUnit timeUnit,
-                                           @Deprecated int maxTime,
                                            Duration autoCommitDelay,
                                            Node documentNode,
                                            AfterCommitState afterCommitState);
@@ -436,7 +434,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     // Create new node write transaction.
     final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
     final W wtx =
-        createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, timeUnit, maxTime, autoCommitDelay, documentNode, afterCommitState);
+        createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
 
     // Remember node transaction for debugging and safe close.
     if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, pageWtx) != null) {

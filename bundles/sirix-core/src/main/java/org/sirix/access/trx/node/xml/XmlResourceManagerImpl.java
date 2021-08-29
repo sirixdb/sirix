@@ -47,7 +47,6 @@ import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -105,8 +104,6 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
                                            PageTrx pageTrx,
                                            int maxNodeCount,
-                                           TimeUnit timeUnit,
-                                           int maxTime,
                                            Duration autoCommitDelay,
                                            Node documentNode,
                                            AfterCommitState afterCommitState) {
