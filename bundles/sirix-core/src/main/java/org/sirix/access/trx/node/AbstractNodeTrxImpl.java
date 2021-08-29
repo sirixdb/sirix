@@ -4,9 +4,7 @@ import com.google.common.base.MoreObjects;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
-import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.*;
-import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffTuple;
@@ -26,7 +24,6 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -39,14 +36,16 @@ import static java.nio.file.Files.deleteIfExists;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 
 /**
- * TODO: Class AbstractNodeTrxImpl's description.
+ * Abstract implementation for {@link InternalNodeTrx}.
  *
  * @author Joao Sousa
  */
-public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor,
-        NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>> implements NodeReadOnlyTrx,
-        InternalNodeTrx<W>,
-        NodeCursor {
+public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor,
+        W extends NodeTrx & NodeCursor,
+        NF extends NodeFactory,
+        N extends ImmutableNode,
+        IN extends InternalNodeReadOnlyTrx<N>>
+        implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
 
     /**
      * Maximum number of node modifications before auto commit.
@@ -143,12 +142,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
      * Collection holding post-commit hooks.
      */
     private final List<PostCommitHook> postCommitHooks = new ArrayList<>();
-
-    /**
-     * The revision number before bulk-inserting nodes.
-     */
-    // TODO never used here. Push down?
-    protected int beforeBulkInsertionRevisionNumber;
 
     /**
      * Hashes nodes.
@@ -316,7 +309,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
             state = State.Committing;
 
             // Execute pre-commit hooks.
-            // TODO should commit hooks execute immediately?
             for (final PreCommitHook hook : preCommitHooks) {
                 hook.preCommit(this);
             }
@@ -345,7 +337,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         });
 
         // Execute post-commit hooks.
-        // TODO should commit hooks execute immediately?
         for (final PostCommitHook hook : postCommitHooks) {
             hook.postCommit(this);
         }

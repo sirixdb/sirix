@@ -48,7 +48,6 @@ import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -114,8 +113,8 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
                                             PageTrx pageTrx,
                                             int maxNodeCount,
-                                            TimeUnit timeUnit, // TODO delete me
-                                            int maxTime, // TODO delete me
+                                            // TODO delete me
+                                            // TODO delete me
                                             Duration autoCommitDelay,
                                             Node documentNode,
                                             AfterCommitState afterCommitState) {
