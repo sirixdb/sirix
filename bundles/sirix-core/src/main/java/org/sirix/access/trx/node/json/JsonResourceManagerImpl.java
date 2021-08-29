@@ -44,11 +44,11 @@ import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 
 import javax.inject.Inject;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Provides node transactions on different revisions of JSON resources.
@@ -110,8 +110,14 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
-      int maxTime, Node documentNode, AfterCommitState afterCommitState) {
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
+                                            PageTrx pageTrx,
+                                            int maxNodeCount,
+                                            // TODO delete me
+                                            // TODO delete me
+                                            Duration autoCommitDelay,
+                                            Node documentNode,
+                                            AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
 
@@ -127,17 +133,21 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       pathSummaryWriter = null;
     }
 
+    // Synchronize commit and other public methods if needed.
+    final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
+    final var lock = isAutoCommitting ? new ReentrantLock() : null;
     return new JsonNodeTrxImpl(this.databaseName,
             this,
             nodeReadOnlyTrx,
             pathSummaryWriter,
             maxNodeCount,
-            timeUnit,
-            maxTime,
+            lock,
+            autoCommitDelay,
             new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
             nodeFactory,
             afterCommitState,
-            new RecordToRevisionsIndex(pageTrx));
+            new RecordToRevisionsIndex(pageTrx),
+            isAutoCommitting);
   }
 
   @SuppressWarnings("unchecked")

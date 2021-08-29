@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -331,8 +332,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, TimeUnit timeUnit,
-      int maxTime, Node documentNode, AfterCommitState afterCommitState);
+  public abstract W createNodeReadWriteTrx(long nodeTrxId,
+                                           PageTrx pageTrx,
+                                           int maxNodeCount,
+                                           Duration autoCommitDelay,
+                                           Node documentNode,
+                                           AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node documentNode;
@@ -427,8 +432,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final Node documentNode = getDocumentNode(pageWtx);
 
     // Create new node write transaction.
+    final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
     final W wtx =
-        createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, timeUnit, maxTime, documentNode, afterCommitState);
+        createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
 
     // Remember node transaction for debugging and safe close.
     if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, pageWtx) != null) {

@@ -10,9 +10,8 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.xml.ElementNode;
-import org.sirix.page.PageKind;
 
-final class XmlDeweyIDManager extends AbstractDeweyIDManager {
+final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx> {
   private final InternalXmlNodeTrx nodeTrx;
 
   private final PageTrx pageTrx;
