@@ -72,7 +72,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * {@link InternalResourceManager} reference.
    */
-  private final InternalResourceManager<?, ?> resourceManager;
+  final InternalResourceManager<?, ?> resourceManager;
 
   /**
    * The revision number, this page trx is bound to.
