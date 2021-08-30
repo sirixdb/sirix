@@ -354,7 +354,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public final UberPage getUberPage() {
+  public UberPage getUberPage() {
     assertNotClosed();
     return uberPage;
   }

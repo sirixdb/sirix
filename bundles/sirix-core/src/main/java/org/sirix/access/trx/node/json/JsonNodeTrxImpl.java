@@ -2127,7 +2127,6 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
-
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
       final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceManager) resourceManager,
               beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
