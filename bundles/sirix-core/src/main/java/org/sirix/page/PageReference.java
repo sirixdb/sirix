@@ -117,16 +117,30 @@ public final class PageReference {
     return this;
   }
 
+  /**
+   * Add a page fragment key.
+   * @param key the page fragment key to add.
+   * @return this instance
+   */
   public PageReference addPageFragment(final PageFragmentKey key) {
     pageFragments.add(key);
     return this;
   }
 
+  /**
+   * Get the page fragments keys.
+   * @return the page fragments keys
+   */
   public List<PageFragmentKey> getPageFragments() {
     return pageFragments;
   }
 
-  public PageReference setPageFragments(List<PageFragmentKey> previousPageFragmentKeys) {
+  /**
+   * Set the page fragment keys.
+   * @param previousPageFragmentKeys the previous page fragment keys to set
+   * @return this instance
+   */
+  public PageReference setPageFragments(final List<PageFragmentKey> previousPageFragmentKeys) {
     pageFragments = previousPageFragmentKeys;
     return this;
   }
@@ -144,6 +158,7 @@ public final class PageReference {
    * Set in-memory log-key.
    *
    * @param key key of this reference set by the transaction intent log.
+   * @return this instance
    */
   public PageReference setLogKey(final int key) {
     logKey = key;

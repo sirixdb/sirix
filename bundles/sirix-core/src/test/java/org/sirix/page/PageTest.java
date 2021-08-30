@@ -108,7 +108,7 @@ public class PageTest {
     final String name = new String(XmlTestHelper.generateRandomBytes(256));
     namePage.setName(name, NodeKind.ELEMENT, createPageTrxMock());
 
-    // ValuePage setup.
+    // PathPage setup.
     final PathPage valuePage = new PathPage();
 
     // PathSummaryPage setup.

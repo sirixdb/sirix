@@ -331,8 +331,8 @@ public enum SerializationType {
     final var keys = pageReference.getPageFragments();
     out.writeByte(keys.size());
     for (final PageFragmentKey key : keys) {
-      out.writeInt(key.getRevision());
-      out.writeLong(key.getKey());
+      out.writeInt(key.revision());
+      out.writeLong(key.key());
     }
     out.writeLong(pageReference.getKey());
   }
