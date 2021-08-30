@@ -151,17 +151,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
    * @param bufferManager  the cache of in-memory pages shared amongst all resource managers and transactions
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
-   *
    * @throws SirixException if Sirix encounters an exception
    */
   protected AbstractResourceManager(final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
-                                    final @Nonnull ResourceConfiguration resourceConf,
-                                    final @Nonnull BufferManager bufferManager,
-                                    final @Nonnull IOStorage storage,
-                                    final @Nonnull UberPage uberPage,
-                                    final @Nonnull Semaphore writeLock,
-                                    final @Nullable User user,
-                                    final PageTrxFactory pageTrxFactory) {
+      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
+      final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore writeLock,
+      final @Nullable User user, final PageTrxFactory pageTrxFactory) {
     this.resourceStore = checkNotNull(resourceStore);
     resourceConfig = checkNotNull(resourceConf);
     this.bufferManager = checkNotNull(bufferManager);
@@ -226,18 +221,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final Writer writer = storage.createWriter();
     final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    return this.pageTrxFactory.createPageTrx(this,
-                                              abort == Abort.YES && lastCommittedUberPage.isBootstrap()
-                                                  ? new UberPage()
-                                                  : new UberPage(lastCommittedUberPage,
-                                                                 representRevision > 0 ? writer.readUberPageReference()
-                                                                                               .getKey() : -1),
-                                              writer,
-                                              id,
-                                              representRevision,
-                                              storedRevision,
-                                              lastCommittedRev,
-                                              isBoundToNodeTrx);
+    return this.pageTrxFactory.createPageTrx(this, abort == Abort.YES && lastCommittedUberPage.isBootstrap()
+            ? new UberPage()
+            : new UberPage(lastCommittedUberPage, representRevision > 0 ? writer.readUberPageReference().getKey() : -1),
+        writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx);
   }
 
   @Override
@@ -272,8 +259,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final int lastCommittedRevision = lastCommittedUberPage.get().getRevisionNumber();
     final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
 
-    for (int revision = lastCommittedRevision; revision > 0 && revision > lastCommittedRevision - revisions;
-        revision--) {
+    for (int revision = lastCommittedRevision;
+         revision > 0 && revision > lastCommittedRevision - revisions; revision--) {
       revisionInfos.add(threadPool.submit(new RevisionInfoRunnable(this, revision)));
     }
 
@@ -332,18 +319,13 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId,
-                                           PageTrx pageTrx,
-                                           int maxNodeCount,
-                                           Duration autoCommitDelay,
-                                           Node documentNode,
-                                           AfterCommitState afterCommitState);
+  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
+      Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node documentNode;
 
-    @SuppressWarnings("unchecked")
-    final Optional<? extends Node> node =
+    @SuppressWarnings("unchecked") final Optional<? extends Node> node =
         pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node.isPresent()) {
       documentNode = node.get();
@@ -680,14 +662,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
-                                                                    this,
-                                                                    lastCommittedUberPage.get(),
-                                                                    revision,
-                                                                    storage.createReader(),
-                                                                    null,
-                                                                    bufferManager,
-                                                                    new RevisionRootPageReader());
+    final NodePageReadOnlyTrx pageReadTrx =
+        new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(), revision, storage.createReader(),
+            null, bufferManager, new RevisionRootPageReader());
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -773,8 +750,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final R rtxRevision = beginNodeReadOnlyTrx(revision);
 
     if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                rtxRevision.getRevisionTimestamp()
-                                                                                                           .toEpochMilli())) {
+        rtxRevision.getRevisionTimestamp().toEpochMilli())) {
       rtxRevision.close();
       return rtxRevisionMinus1;
     } else {
@@ -829,8 +805,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       final int revisionNumber;
 
       if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                  rtxRevision.getRevisionTimestamp()
-                                                                                                             .toEpochMilli())) {
+          rtxRevision.getRevisionTimestamp().toEpochMilli())) {
         revisionNumber = rtxRevisionMinus1.getRevisionNumber();
       } else {
         revisionNumber = rtxRevision.getRevisionNumber();

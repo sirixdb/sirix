@@ -20,12 +20,12 @@ import org.testng.annotations.Test;
 public class DatabaseConfigurationTest {
 
   @BeforeMethod
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
   }
 
   @AfterMethod
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     XmlTestHelper.deleteEverything();
   }
 
@@ -37,7 +37,7 @@ public class DatabaseConfigurationTest {
    * @throws SirixIOException if an I/O exception occurs
    */
   @Test
-  public void testDeSerialize() throws SirixIOException {
+  public void testDeSerialize() {
     DatabaseConfiguration conf = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
     assertTrue(Databases.createXmlDatabase(conf));
     DatabaseConfiguration serializedConf =

@@ -1,7 +1,5 @@
 package org.sirix.access;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -9,9 +7,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -49,9 +45,9 @@ class PathBasedPoolTest {
         this.sessions.putObject(key1, object2);
         this.sessions.putObject(key2, object3);
 
-        final Map<Path, Set<Object>> expected = ImmutableMap.of(
-                key1, ImmutableSet.of(object1, object2),
-                key2, ImmutableSet.of(object3)
+        final Map<Path, Set<Object>> expected = Map.of(
+                key1, Set.of(object1, object2),
+                key2, Set.of(object3)
         );
 
         assertEquals(expected, this.sessions.asMap());
