@@ -34,6 +34,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 
@@ -127,11 +128,13 @@ public final class BitmapReferencesPage implements Page {
     references = new GapList<>(length);
 
     for (int offset = 0; offset < length; offset++) {
-      final PageReference reference = new PageReference();
+      final PageReference pageReference = new PageReference();
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
-      reference.setKey(pageReferenceToClone.getKey());
-      reference.setPageFragments(pageReferenceToClone.getPageFragments());
-      references.add(offset, reference);
+      pageReference.setKey(pageReferenceToClone.getKey());
+      pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+      pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
+      references.add(offset, pageReference);
     }
   }
 
@@ -170,11 +173,7 @@ public final class BitmapReferencesPage implements Page {
     }
     bitmap.set(index, true);
 
-    if (bitmap.cardinality() == THRESHOLD) {
-      return true;
-    }
-
-    return false;
+    return bitmap.cardinality() == THRESHOLD;
   }
 
   private PageReference createNewReference(final int offset) {
@@ -209,7 +208,7 @@ public final class BitmapReferencesPage implements Page {
    * @param pageTrx the page read-write transaction
    */
   @Override
-  public final void commit(@Nonnull final PageTrx pageTrx) {
+  public void commit(@Nonnull final PageTrx pageTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageTrx.commit(reference);

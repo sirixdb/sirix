@@ -32,6 +32,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 
@@ -84,7 +85,17 @@ public final class FullReferencesPage implements Page {
    * @param pageToClone committed page
    */
   public FullReferencesPage(final FullReferencesPage pageToClone) {
-    references = pageToClone.references;
+    references = new PageReference[Constants.INP_REFERENCE_COUNT];
+
+    for (int index = 0, size = pageToClone.references.length; index < size; index++) {
+      final var pageReference = new PageReference();
+      final var pageReferenceToClone = pageToClone.getReferences().get(index);
+      pageReference.setKey(pageReferenceToClone.getKey());
+      pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+      pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
+      references[index] = pageReference;
+    }
   }
 
   @Override
@@ -121,7 +132,7 @@ public final class FullReferencesPage implements Page {
    * @param pageWriteTrx the page write transaction
    */
   @Override
-  public final void commit(@Nonnull final PageTrx pageWriteTrx) {
+  public void commit(@Nonnull final PageTrx pageWriteTrx) {
     for (final PageReference reference : references) {
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
           || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {

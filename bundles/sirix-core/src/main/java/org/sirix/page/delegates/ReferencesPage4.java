@@ -87,7 +87,9 @@ public final class ReferencesPage4 implements Page {
       final var pageReference = new PageReference();
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
       pageReference.setKey(pageReferenceToClone.getKey());
+      pageReference.setLogKey(pageReferenceToClone.getLogKey());
       pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
+      pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
       references.add(pageReference);
     }
   }
@@ -149,7 +151,7 @@ public final class ReferencesPage4 implements Page {
    * @param pageWriteTrx the page write transaction
    */
   @Override
-  public final void commit(@Nonnull final PageTrx pageWriteTrx) {
+  public void commit(@Nonnull final PageTrx pageWriteTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageWriteTrx.commit(reference);

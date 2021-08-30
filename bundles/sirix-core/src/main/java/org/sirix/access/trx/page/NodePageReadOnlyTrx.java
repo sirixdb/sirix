@@ -72,7 +72,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * {@link InternalResourceManager} reference.
    */
-  protected final InternalResourceManager<?, ?> resourceManager;
+  private final InternalResourceManager<?, ?> resourceManager;
 
   /**
    * The revision number, this page trx is bound to.
@@ -201,7 +201,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * Make sure that the transaction is not yet closed when calling this method.
    */
-  final void assertNotClosed() {
+  void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("Transaction is already closed.");
     }
@@ -245,7 +245,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param toCheck node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  final Optional<DataRecord> checkItemIfDeleted(final @Nullable DataRecord toCheck) {
+  Optional<DataRecord> checkItemIfDeleted(final @Nullable DataRecord toCheck) {
     if (toCheck instanceof DeletedNode) {
       return Optional.empty();
     } else {
@@ -428,7 +428,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         && mostRecentlyReadRecordPage.getIndexType() == indexLogKey.getIndexType();
   }
 
-  final Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
+  Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
     return Optional.ofNullable(getReferenceToLeafOfSubtree(pageReferenceToSubtree,
@@ -445,7 +445,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  final <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(
+  <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(
       final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();
@@ -473,12 +473,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPreviousPageFragments(
       final Collection<PageFragmentKey> pageFragments) {
     return pageFragments.stream().map(pageFragmentKey -> {
-      if (pageFragmentKey.getRevision() == rootPage.getRevision()) {
-        return (T) pageReader.read(new PageReference().setKey(pageFragmentKey.getKey()), this);
+      if (pageFragmentKey.revision() == rootPage.getRevision()) {
+        return (T) pageReader.read(new PageReference().setKey(pageFragmentKey.key()), this);
       } else {
-        try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.getRevision())) {
+        try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.revision())) {
           return (T) pageReadOnlyTrx.getReader()
-                                    .read(new PageReference().setKey(pageFragmentKey.getKey()), pageReadOnlyTrx);
+                                    .read(new PageReference().setKey(pageFragmentKey.key()), pageReadOnlyTrx);
         }
       }
     }).sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed()).collect(Collectors.toList());
@@ -572,7 +572,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         break;
       } else {
         offset = (int) (levelKey >> inpLevelPageCountExp[level]);
-        levelKey -= offset << inpLevelPageCountExp[level];
+        levelKey -= (long) offset << inpLevelPageCountExp[level];
 
         try {
           reference = derefPage.getOrCreateReference(offset);
