@@ -45,3 +45,7 @@ jar {
         attributes('Main-Class': 'org.sirix.utils.CommandoLineExplorer')
     }
 }
+
+test {
+    useJUnitPlatform()
+}
