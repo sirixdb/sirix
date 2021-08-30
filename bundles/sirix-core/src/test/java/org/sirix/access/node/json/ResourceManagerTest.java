@@ -7,6 +7,7 @@ import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.io.StorageType;
 import org.sirix.settings.VersioningType;
@@ -16,6 +17,11 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Test the {@link ResourceManager}.
+ *
+ * @author Johannes Lichtenberger
+ */
 public final class ResourceManagerTest {
   @Before
   public void setUp() {
