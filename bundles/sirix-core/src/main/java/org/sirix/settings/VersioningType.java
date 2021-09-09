@@ -135,7 +135,7 @@ public enum VersioningType {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final int revision = pageReadTrx.getUberPage().getRevision();
+      final int revision = pageReadTrx.getUberPage().getRevisionNumber();
       final List<T> returnVal = new ArrayList<>(2);
 
       reference.setPageFragments(List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())));
