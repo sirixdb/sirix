@@ -101,7 +101,9 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @return new {@link PageReadOnlyTrx} instance
    */
-  PageReadOnlyTrx beginPageReadOnlyTrx();
+  default PageReadOnlyTrx beginPageReadOnlyTrx() {
+    return beginPageReadOnlyTrx(getMostRecentRevisionNumber());
+  }
 
   /**
    * Begin a new {@link PageReadOnlyTrx}.
@@ -118,7 +120,9 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  PageTrx beginPageTrx();
+  default PageTrx beginPageTrx() {
+    return beginPageTrx(getMostRecentRevisionNumber());
+  }
 
   /**
    * Begin a new {@link PageTrx}.
@@ -136,7 +140,9 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    * @throws SirixException if can't begin Read Transaction
    */
-  R beginNodeReadOnlyTrx();
+  default R beginNodeReadOnlyTrx() {
+    return beginNodeReadOnlyTrx(getMostRecentRevisionNumber());
+  }
 
   /**
    * Begin a read-only transaction on the given revision number.
@@ -273,7 +279,9 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return {@link PathSummaryReader} instance
    * @throws SirixException if can't open path summary
    */
-  PathSummaryReader openPathSummary();
+  default PathSummaryReader openPathSummary() {
+    return openPathSummary(getMostRecentRevisionNumber());
+  }
 
   /**
    * Get the revision number, which was committed at the closest time to the given point in time.

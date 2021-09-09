@@ -68,11 +68,6 @@ public final class UberPage extends AbstractForwardingPage {
   private RevisionRootPage rootPage;
 
   /**
-   * The current most recent revision
-   */
-  private final int revision;
-
-  /**
    * Key to previous uberpage in persistent storage.
    */
   private long previousUberPageKey;
@@ -87,7 +82,6 @@ public final class UberPage extends AbstractForwardingPage {
    */
   public UberPage() {
     delegate = new ReferencesPage4();
-    revision = Constants.UBP_ROOT_REVISION_NUMBER;
     revisionCount = Constants.UBP_ROOT_REVISION_COUNT;
     isBootstrap = true;
     previousUberPageKey = -1;
@@ -106,7 +100,6 @@ public final class UberPage extends AbstractForwardingPage {
     revisionCount = in.readInt();
     if (in.readBoolean())
       previousUberPageKey = in.readLong();
-    revision = revisionCount == 0 ? 0 : revisionCount - 1;
     isBootstrap = false;
     rootPage = null;
     currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
@@ -128,12 +121,10 @@ public final class UberPage extends AbstractForwardingPage {
     }
     this.previousUberPageKey = previousUberPageKey;
     if (committedUberPage.isBootstrap()) {
-      revision = committedUberPage.revision;
       revisionCount = committedUberPage.revisionCount;
       isBootstrap = committedUberPage.isBootstrap;
       rootPage = committedUberPage.rootPage;
     } else {
-      revision = committedUberPage.revision + 1;
       revisionCount = committedUberPage.revisionCount + 1;
       isBootstrap = false;
       rootPage = null;
@@ -283,15 +274,6 @@ public final class UberPage extends AbstractForwardingPage {
         throw new IllegalStateException("page kind not known!");
     }
     return inpLevelPageCountExp;
-  }
-
-  /**
-   * Get the revision number.
-   *
-   * @return revision number
-   */
-  public int getRevision() {
-    return revision;
   }
 
   @Override
