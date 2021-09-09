@@ -256,7 +256,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   private List<RevisionInfo> getHistoryInformations(int revisions) {
     checkArgument(revisions > 0);
 
-    final int lastCommittedRevision = lastCommittedUberPage.get().getRevisionNumber();
+    final int lastCommittedRevision = getMostRecentRevisionNumber();
     final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
 
     for (int revision = lastCommittedRevision;
@@ -291,11 +291,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     return commitLock;
-  }
-
-  @Override
-  public R beginNodeReadOnlyTrx() {
-    return beginNodeReadOnlyTrx(lastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
@@ -388,7 +383,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public synchronized W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnegative int maxTime,
       final @Nonnull TimeUnit timeUnit, final @Nonnull AfterCommitState afterCommitState) {
     // Checks.
-    assertAccess(lastCommittedUberPage.get().getRevision());
+    assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
       throw new SirixUsageException("maxNodeCount may not be < 0!");
     }
@@ -408,7 +403,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
-    final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
+    final int lastRev = getMostRecentRevisionNumber();
     final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
@@ -477,9 +472,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
     if (revision < 0) {
       throw new IllegalArgumentException("Revision must be at least 0!");
-    } else if (revision > lastCommittedUberPage.get().getRevision()) {
+    } else if (revision > getMostRecentRevisionNumber()) {
       throw new IllegalArgumentException(
-          "Revision must not be bigger than " + Long.toString(lastCommittedUberPage.get().getRevision()) + "!");
+          "Revision must not be bigger than " + Long.toString(getMostRecentRevisionNumber()) + "!");
     }
   }
 
@@ -648,16 +643,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PathSummaryReader openPathSummary() {
-    return openPathSummary(lastCommittedUberPage.get().getRevisionNumber());
-  }
-
-  @Override
-  public PageReadOnlyTrx beginPageReadOnlyTrx() {
-    return beginPageReadOnlyTrx(lastCommittedUberPage.get().getRevisionNumber());
-  }
-
-  @Override
   public PageReadOnlyTrx beginPageReadOnlyTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
@@ -672,11 +657,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
 
     return pageReadTrx;
-  }
-
-  @Override
-  public PageTrx beginPageTrx() {
-    return beginPageTrx(lastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
@@ -695,7 +675,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     LOGGER.debug("Lock: lock acquired (beginPageTrx)");
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final int lastRev = lastCommittedUberPage.get().getRevisionNumber();
+    final int lastRev = getMostRecentRevisionNumber();
     final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
