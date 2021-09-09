@@ -376,7 +376,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   @Override
   public void commit(@Nonnull final PageTrx pageWriteTrx) {
-    if (revision == pageWriteTrx.getUberPage().getRevision()) {
+    if (revision == pageWriteTrx.getUberPage().getRevisionNumber()) {
       super.commit(pageWriteTrx);
     }
   }
