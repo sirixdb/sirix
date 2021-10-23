@@ -23,6 +23,7 @@ package org.sirix.io.memorymapped;
 
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
@@ -71,9 +72,14 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private final MemorySegment revisionsOffsetSegment;
 
+  private final ResourceScope revisionsOffsetScope;
+
   private MemorySegment dataSegment;
 
+  private ResourceScope dataScope;
+
   private long dataSegmentFileSize;
+
 
   private long revisionsOffsetSize;
 
@@ -99,11 +105,13 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       currByteSizeToMap = currByteSizeToMap << 1;
     }
 
+    this.dataScope = ResourceScope.newConfinedScope();
     this.dataSegment =
-        MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE).share();
+        MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataScope);
 
+    this.revisionsOffsetScope = ResourceScope.newConfinedScope();
     this.revisionsOffsetSegment =
-        MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE).share();
+        MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE, revisionsOffsetScope);
 
     reader = new MMFileReader(dataSegment,
                               revisionsOffsetSegment,
@@ -215,14 +223,15 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
       ifSegmentIsAliveCloseSegment();
 
-      dataSegment = MemorySegment.mapFile(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE).share();
+      dataScope = ResourceScope.newConfinedScope();
+      dataSegment = MemorySegment.mapFile(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataScope);
       reader.setDataSegment(dataSegment);
     }
   }
 
   private void ifSegmentIsAliveCloseSegment() {
-    if (dataSegment.isAlive()) {
-      dataSegment.close();
+    if (dataScope.isAlive()) {
+      dataScope.close();
     }
   }
 
