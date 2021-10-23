@@ -100,7 +100,7 @@ subprojects {
         failOnError = false
         options {
             addBooleanOption('-enable-preview', true)
-            addStringOption('-release', '16')
+            addStringOption('-release', '17')
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
