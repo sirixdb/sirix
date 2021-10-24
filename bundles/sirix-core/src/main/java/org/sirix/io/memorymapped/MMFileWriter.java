@@ -105,11 +105,11 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       currByteSizeToMap = currByteSizeToMap << 1;
     }
 
-    this.dataScope = ResourceScope.newConfinedScope();
+    this.dataScope = ResourceScope.newSharedScope();
     this.dataSegment =
         MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataScope);
 
-    this.revisionsOffsetScope = ResourceScope.newConfinedScope();
+    this.revisionsOffsetScope = ResourceScope.newSharedScope();
     this.revisionsOffsetSegment =
         MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE, revisionsOffsetScope);
 
