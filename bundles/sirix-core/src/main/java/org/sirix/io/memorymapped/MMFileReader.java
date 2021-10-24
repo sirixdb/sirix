@@ -96,10 +96,10 @@ public final class MMFileReader implements Reader {
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
-    dataFileScope = ResourceScope.newConfinedScope();
+    dataFileScope = ResourceScope.newSharedScope();
     dataFileSegment =
         MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY, dataFileScope);
-    revisionFileScope = ResourceScope.newConfinedScope();
+    revisionFileScope = ResourceScope.newSharedScope();
     revisionFileSegment = MemorySegment.mapFile(revisionsOffsetFile, 0, revisionsOffsetFile.toFile().length(),
         FileChannel.MapMode.READ_ONLY, revisionFileScope);
   }
