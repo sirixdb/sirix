@@ -25,7 +25,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.nio.mapmode.ExtendedMapMode;
+import jdk.incubator.foreign.ResourceScope;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -71,13 +71,17 @@ public final class MMFileReader implements Reader {
   private final SerializationType type;
 
   /**
-   * Used to serialize/deserialze pages.
+   * Used to serialize/deserialize pages.
    */
   private final PagePersister pagePersiter;
 
   private MemorySegment dataFileSegment;
 
+  private ResourceScope dataFileScope;
+
   private MemorySegment revisionFileSegment;
+
+  private ResourceScope revisionFileScope;
 
   /**
    * Constructor.
@@ -92,10 +96,12 @@ public final class MMFileReader implements Reader {
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
+    dataFileScope = ResourceScope.newSharedScope();
     dataFileSegment =
-        MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY).share();
+        MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY, dataFileScope);
+    revisionFileScope = ResourceScope.newSharedScope();
     revisionFileSegment = MemorySegment.mapFile(revisionsOffsetFile, 0, revisionsOffsetFile.toFile().length(),
-        FileChannel.MapMode.READ_ONLY).share();
+        FileChannel.MapMode.READ_ONLY, revisionFileScope);
   }
 
   /**
@@ -188,11 +194,11 @@ public final class MMFileReader implements Reader {
 
   @Override
   public void close() {
-    if (dataFileSegment != null && dataFileSegment.isAlive()) {
-      dataFileSegment.close();
+    if (dataFileScope != null && dataFileScope.isAlive()) {
+      dataFileScope.close();
     }
-    if (revisionFileSegment != null && revisionFileSegment.isAlive()) {
-      revisionFileSegment.close();
+    if (revisionFileScope != null && revisionFileScope.isAlive()) {
+      revisionFileScope.close();
     }
   }
 

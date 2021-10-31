@@ -144,7 +144,7 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 16, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 17, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
 
 ### Maven artifacts
 At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
@@ -271,7 +271,7 @@ The fat-JAR in the future will be downloadable from the [maven repository](https
 ### Run the Integration Tests
 In order to run the integration tests under `bundles/sirix-rest-api/src/test/kotlin` make sure that you assign your admin user all the user-roles you have created in the Keycloak setup (last step). Make sure that Keycloak is running first and execute the tests in your favorite IDE for instance.
 
-Note that the following VM-parameters currently are needed: `-ea --enable-preview --add-modules=jdk.incubator.foreign`
+Note that the following VM-parameters currently are needed: `-ea --add-modules=jdk.incubator.foreign`
 
 ### Command-line tool
 We ship a (very) simple command-line tool for the sirix-xquery bundle:
