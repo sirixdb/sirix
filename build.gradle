@@ -86,8 +86,8 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_16
-        targetCompatibility = JavaVersion.VERSION_16
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
         withSourcesJar()
         withJavadocJar()
 
@@ -99,24 +99,19 @@ subprojects {
     javadoc {
         failOnError = false
         options {
-            addBooleanOption('-enable-preview', true)
-            addStringOption('-release', '16')
+            addStringOption('-release', '17')
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
 
     compileJava {
-        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
+        options.compilerArgs += ["--add-modules=jdk.incubator.foreign"]
     }
 
     compileTestJava {
-        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
+        options.compilerArgs += ["--add-modules=jdk.incubator.foreign"]
     }
 
-    tasks.withType(JavaCompile).each {
-        it.options.compilerArgs.add('--enable-preview')
-    }
-    
     spotless {
         enforceCheck false
         java {
@@ -125,7 +120,7 @@ subprojects {
     }
     
     jacoco {
-        toolVersion = "0.8.6"
+        toolVersion = "0.8.7"
     }
 
     jacocoTestReport {
@@ -232,7 +227,7 @@ subprojects {
         }
         useTestNG()
         useJUnit()
-        jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
+        jvmArgs(["--add-modules=jdk.incubator.foreign"])
 
         minHeapSize = '2g'
         maxHeapSize = '7g'

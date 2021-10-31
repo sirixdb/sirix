@@ -37,8 +37,10 @@ dependencies {
 description = 'Kotlin API for SirixDB.'
 
 compileKotlin {
-    kotlinOptions.jvmTarget = "1.8"
+    // TODO: Upgrade to Java 17 when Kotlin compatibility is available
+    kotlinOptions.jvmTarget = '16'
 }
 compileTestKotlin {
-    kotlinOptions.jvmTarget = "1.8"
+    // TODO: Upgrade to Java 17 when Kotlin compatibility is available
+    kotlinOptions.jvmTarget = '16'
 }
