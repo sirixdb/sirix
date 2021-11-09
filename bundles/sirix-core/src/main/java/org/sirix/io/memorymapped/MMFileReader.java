@@ -38,7 +38,6 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -77,32 +76,7 @@ public final class MMFileReader implements Reader {
 
   private MemorySegment dataFileSegment;
 
-  private ResourceScope dataFileScope;
-
-  private MemorySegment revisionFileSegment;
-
-  private ResourceScope revisionFileScope;
-
-  /**
-   * Constructor.
-   *
-   * @param dataFile            the data file
-   * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler             {@link ByteHandler} instance
-   */
-  public MMFileReader(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
-      final SerializationType type, final PagePersister pagePersistenter) throws IOException {
-    hashFunction = Hashing.sha256();
-    byteHandler = checkNotNull(handler);
-    this.type = checkNotNull(type);
-    pagePersiter = checkNotNull(pagePersistenter);
-    dataFileScope = ResourceScope.newSharedScope();
-    dataFileSegment =
-        MemorySegment.mapFile(checkNotNull(dataFile), 0, dataFile.toFile().length(), FileChannel.MapMode.READ_ONLY, dataFileScope);
-    revisionFileScope = ResourceScope.newSharedScope();
-    revisionFileSegment = MemorySegment.mapFile(revisionsOffsetFile, 0, revisionsOffsetFile.toFile().length(),
-        FileChannel.MapMode.READ_ONLY, revisionFileScope);
-  }
+  private MemorySegment revisionsOffsetFileSegment;
 
   /**
    * Constructor.
@@ -116,7 +90,7 @@ public final class MMFileReader implements Reader {
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
     this.dataFileSegment = dataFileSegment;
-    this.revisionFileSegment = revisionFileSegment;
+    this.revisionsOffsetFileSegment = revisionFileSegment;
   }
 
   @Override
@@ -146,7 +120,7 @@ public final class MMFileReader implements Reader {
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {
-        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, offset + (long)i);
+        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, offset + (long) i);
       }
 
       return deserialize(pageReadTrx, page);
@@ -169,13 +143,13 @@ public final class MMFileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      final long dataFileOffset = MemoryAccess.getLongAtOffset(revisionFileSegment, revision * 8);
+      final long dataFileOffset = MemoryAccess.getLongAtOffset(revisionsOffsetFileSegment, revision * 8);
       final int dataLength = MemoryAccess.getIntAtOffset(dataFileSegment, dataFileOffset);
 
       final byte[] page = new byte[dataLength];
 
       for (int i = 0; i < dataLength; i++) {
-        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, dataFileOffset + 4L + (long)i);
+        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, dataFileOffset + 4L + (long) i);
       }
 
       return (RevisionRootPage) deserialize(pageReadTrx, page);
@@ -194,12 +168,6 @@ public final class MMFileReader implements Reader {
 
   @Override
   public void close() {
-    if (dataFileScope != null && dataFileScope.isAlive()) {
-      dataFileScope.close();
-    }
-    if (revisionFileScope != null && revisionFileScope.isAlive()) {
-      revisionFileScope.close();
-    }
   }
 
   public void setDataSegment(MemorySegment dataSegment) {

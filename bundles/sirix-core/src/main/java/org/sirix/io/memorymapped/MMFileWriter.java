@@ -36,6 +36,7 @@ import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -52,12 +53,19 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private static int TEST_BLOCK_SIZE = 64 * 1024; // Smallest safe block size for Windows 8+.
 
+  private final ResourceScope dataFileScope;
+
+  private final ResourceScope revisionsOffsetFileScope;
+
+  private final Path dataFilePath;
+
+  private final Path revisionsOffsetFilePath;
+
+  private final MMStorage storage;
+
   private long currByteSizeToMap = Integer.MAX_VALUE;//OS.is64Bit() ? 64L << 20 : TEST_BLOCK_SIZE;
 
-  /**
-   * Random access to work on.
-   */
-  private final Path dataFile;
+  private MemorySegment dataFileSegment;
 
   /**
    * {@link MMFileReader} reference for this writer.
@@ -66,69 +74,62 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private final SerializationType type;
 
-  private final Path revisionsOffsetFile;
+  private MemorySegment revisionsOffsetFileSegment;
 
   private final PagePersister pagePersister;
 
-  private final MemorySegment revisionsOffsetSegment;
-
-  private final ResourceScope revisionsOffsetScope;
-
-  private MemorySegment dataSegment;
-
-  private ResourceScope dataScope;
-
   private long dataSegmentFileSize;
 
-
-  private long revisionsOffsetSize;
+  private long revisionsOffsetSegmentFileSize;
 
   /**
    * Constructor.
    *
-   * @param dataFile            the data file
-   * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler             the byte handler
-   * @param serializationType   the serialization type (for the transaction log or the data file)
-   * @param pagePersister       transforms in-memory pages into byte-arrays and back
+   * @param dataFileSegment            the data file segment
+   * @param revisionsOffsetFileSegment the file segment, which holds pointers to the revision root pages
+   * @param handler                    the byte handler
+   * @param serializationType          the serialization type (for the transaction log or the data file)
+   * @param pagePersister              transforms in-memory pages into byte-arrays and back
    */
-  public MMFileWriter(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
-      final SerializationType serializationType, final PagePersister pagePersister) throws IOException {
-    this.dataFile = checkNotNull(dataFile);
-    dataSegmentFileSize = Files.size(dataFile);
+  public MMFileWriter(final MMStorage storage, final Path dataFilePath, final ResourceScope dataFileScope,
+      final MemorySegment dataFileSegment, final Path revisionsOffsetFilePath,
+      final ResourceScope revisionsOffsetFileScope, final MemorySegment revisionsOffsetFileSegment,
+      final long revisionsOffsetFileSize, final ByteHandler handler, final SerializationType serializationType,
+      final PagePersister pagePersister) throws IOException {
+    this.storage = checkNotNull(storage);
+    this.dataFilePath = checkNotNull(dataFilePath);
+    this.dataFileScope = checkNotNull(dataFileScope);
+    this.dataFileSegment = checkNotNull(dataFileSegment);
+    dataSegmentFileSize = Files.size(dataFilePath);
     type = checkNotNull(serializationType);
-    this.revisionsOffsetFile = checkNotNull(revisionsOffsetFile);
-    revisionsOffsetSize = Files.size(revisionsOffsetFile);
+    this.revisionsOffsetFilePath = checkNotNull(revisionsOffsetFilePath);
+    this.revisionsOffsetFileScope = checkNotNull(revisionsOffsetFileScope);
+    this.revisionsOffsetFileSegment = checkNotNull(revisionsOffsetFileSegment);
+    revisionsOffsetSegmentFileSize = revisionsOffsetFileSize;
     this.pagePersister = checkNotNull(pagePersister);
 
     while (currByteSizeToMap < dataSegmentFileSize) {
       currByteSizeToMap = currByteSizeToMap << 1;
     }
 
-    this.dataScope = ResourceScope.newSharedScope();
-    this.dataSegment =
-        MemorySegment.mapFile(checkNotNull(dataFile), 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataScope);
-
-    this.revisionsOffsetScope = ResourceScope.newSharedScope();
-    this.revisionsOffsetSegment =
-        MemorySegment.mapFile(revisionsOffsetFile, 0, Integer.MAX_VALUE, FileChannel.MapMode.READ_WRITE, revisionsOffsetScope);
-
-    reader = new MMFileReader(dataSegment,
-                              revisionsOffsetSegment,
-                              handler,
-                              serializationType,
-                              pagePersister);
+    reader = new MMFileReader(dataFileSegment, revisionsOffsetFileSegment, handler, serializationType, pagePersister);
   }
 
   @Override
   public Writer truncateTo(final int revision) {
     UberPage uberPage = (UberPage) reader.readUberPageReference().getPage();
+    final int currentRevision = uberPage.getRevisionNumber();
 
     while (uberPage.getRevisionNumber() != revision) {
       uberPage = (UberPage) reader.read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
       if (uberPage.getRevisionNumber() == revision) {
-        try (final RandomAccessFile file = new RandomAccessFile(dataFile.toFile(), "rw")) {
+        try (final RandomAccessFile file = new RandomAccessFile(dataFilePath.toFile(), "rw")) {
           file.setLength(uberPage.getPreviousUberPageKey());
+        } catch (final IOException e) {
+          throw new SirixIOException(e);
+        }
+        try (final RandomAccessFile file = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw")) {
+          file.setLength(file.length() - 8 * (currentRevision - revision));
         } catch (final IOException e) {
           throw new SirixIOException(e);
         }
@@ -178,14 +179,14 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       dataSegmentFileSize += 4;
       dataSegmentFileSize += serializedPage.length;
 
-      reInstantiateSegment();
+      reInstantiateDataFileSegment();
 
-      MemoryAccess.setIntAtOffset(dataSegment, offset, serializedPage.length);
+      MemoryAccess.setIntAtOffset(dataFileSegment, offset, serializedPage.length);
 
       long currOffsetWithInt = offset + 4;
 
       for (int i = 0; i < serializedPage.length; i++) {
-        MemoryAccess.setByteAtOffset(dataSegment, currOffsetWithInt + (long)i, serializedPage[i]);
+        MemoryAccess.setByteAtOffset(dataFileSegment, currOffsetWithInt + (long) i, serializedPage[i]);
       }
 
       // Remember page coordinates.
@@ -204,9 +205,26 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
-        MemoryAccess.setLongAtOffset(revisionsOffsetSegment, revisionsOffsetSize, offset);
+        if (revisionsOffsetFileSegment.byteSize() < Integer.MAX_VALUE) {
+          try {
+            storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+            revisionsOffsetFileSegment = MemorySegment.mapFile(revisionsOffsetFilePath,
+                                                               0,
+                                                               Integer.MAX_VALUE,
+                                                               FileChannel.MapMode.READ_WRITE,
+                                                               revisionsOffsetFileScope);
+            storage.revisionsOffsetFileScope = revisionsOffsetFileScope;
+            storage.revisionsOffsetFileSegment = revisionsOffsetFileSegment;
+          } catch (InterruptedException e) {
+            throw new SirixIOException(e);
+          } finally {
+            storage.semaphore.release();
+          }
+        }
 
-        revisionsOffsetSize += 8;
+        MemoryAccess.setLongAtOffset(revisionsOffsetFileSegment, revisionsOffsetSegmentFileSize, offset);
+
+        revisionsOffsetSegmentFileSize += 8;
       }
 
       return this;
@@ -215,40 +233,53 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     }
   }
 
-  private void reInstantiateSegment() throws IOException {
-    if (dataSegmentFileSize > dataSegment.byteSize()) {
+  private void reInstantiateDataFileSegment() throws IOException {
+    if (dataSegmentFileSize > dataFileSegment.byteSize()) {
       do {
         currByteSizeToMap = currByteSizeToMap << 1;
       } while (dataSegmentFileSize > currByteSizeToMap);
 
-      ifSegmentIsAliveCloseSegment();
+      try {
+        storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
-      dataScope = ResourceScope.newConfinedScope();
-      dataSegment = MemorySegment.mapFile(dataFile, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataScope);
-      reader.setDataSegment(dataSegment);
-    }
-  }
-
-  private void ifSegmentIsAliveCloseSegment() {
-    if (dataScope.isAlive()) {
-      dataScope.close();
+        dataFileSegment =
+            MemorySegment.mapFile(dataFilePath, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataFileScope);
+        reader.setDataSegment(dataFileSegment);
+        storage.dataFileScope = dataFileScope;
+        storage.dataFileSegment = dataFileSegment;
+      } catch (InterruptedException e) {
+        throw new SirixIOException(e);
+      } finally {
+        storage.semaphore.release();
+      }
     }
   }
 
   @Override
   public void close() {
-    if (reader != null) {
-      reader.close();
-    }
-    try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
-      outChan.truncate(dataSegmentFileSize);
-    } catch (IOException e) {
+    try {
+      storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+
+      if (reader != null) {
+        reader.close();
+      }
+      try (final FileChannel outChan = new FileOutputStream(dataFilePath.toFile(), true).getChannel()) {
+        outChan.truncate(dataSegmentFileSize);
+      } catch (IOException e) {
+        throw new SirixIOException(e);
+      }
+      try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFilePath.toFile(), true).getChannel()) {
+        outChan.truncate(revisionsOffsetSegmentFileSize);
+      } catch (IOException e) {
+        throw new SirixIOException(e);
+      }
+      storage.revisionsOffsetFileSize = revisionsOffsetSegmentFileSize;
+      storage.dataFileSegment = null;
+      storage.revisionsOffsetFileSegment = null;
+    } catch (InterruptedException e) {
       throw new SirixIOException(e);
-    }
-    try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFile.toFile(), true).getChannel()) {
-      outChan.truncate(revisionsOffsetSize);
-    } catch (IOException e) {
-      throw new SirixIOException(e);
+    } finally {
+      storage.semaphore.release();
     }
   }
 
@@ -257,9 +288,9 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     write(pageReference);
 
     try {
-      reInstantiateSegment();
+      reInstantiateDataFileSegment();
 
-      MemoryAccess.setLong(dataSegment, pageReference.getKey());
+      MemoryAccess.setLong(dataFileSegment, pageReference.getKey());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -274,12 +305,12 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   @Override
   public Writer truncate() {
-    try (final FileChannel outChan = new FileOutputStream(dataFile.toFile(), true).getChannel()) {
+    try (final FileChannel outChan = new FileOutputStream(dataFilePath.toFile(), true).getChannel()) {
       outChan.truncate(0);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
-    try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFile.toFile(), true).getChannel()) {
+    try (final FileChannel outChan = new FileOutputStream(revisionsOffsetFilePath.toFile(), true).getChannel()) {
       outChan.truncate(0);
     } catch (IOException e) {
       throw new SirixIOException(e);
@@ -290,7 +321,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   @Override
   public String toString() {
-    return "MemoryMappedFileWriter{" + "dataFile=" + dataFile + ", reader=" + reader + ", type=" + type
-        + ", revisionsOffsetFile=" + revisionsOffsetFile + ", pagePersister=" + pagePersister + '}';
+    return "MemoryMappedFileWriter{" + "dataFile=" + dataFileSegment + ", reader=" + reader + ", type=" + type
+        + ", revisionsOffsetFile=" + revisionsOffsetFileSegment + ", pagePersister=" + pagePersister + '}';
   }
 }

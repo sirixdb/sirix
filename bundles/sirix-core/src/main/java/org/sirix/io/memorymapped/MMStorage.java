@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+/*
+ * Copyright (c) 2021, All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
@@ -21,6 +21,8 @@
 
 package org.sirix.io.memorymapped;
 
+import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IOStorage;
@@ -33,28 +35,51 @@ import org.sirix.page.SerializationType;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Storage, to provide offheap memory mapped access.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class MMStorage implements IOStorage {
 
-  /** Data file name. */
+  /**
+   * Data file name.
+   */
   private static final String FILENAME = "sirix.data";
 
-  /** Revisions file name. */
+  /**
+   * Revisions file name.
+   */
   private static final String REVISIONS_FILENAME = "sirix.revisions";
 
-  /** Instance to storage. */
+  /**
+   * Instance to storage.
+   */
   private final Path file;
 
-  /** Byte handler pipeline. */
+  /**
+   * Byte handler pipeline.
+   */
   private final ByteHandlePipeline byteHandlerPipeline;
+
+  long revisionsOffsetFileSize;
+
+  ResourceScope dataFileScope;
+
+  MemorySegment dataFileSegment;
+
+  ResourceScope revisionsOffsetFileScope;
+
+  MemorySegment revisionsOffsetFileSegment;
+
+  final Semaphore semaphore = new Semaphore(1);
 
   /**
    * Constructor.
@@ -70,19 +95,49 @@ public final class MMStorage implements IOStorage {
   @Override
   public Reader createReader() {
     try {
+      semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      return new MMFileReader(dataFilePath,
-                              revisionsOffsetFilePath,
+      if (revisionsOffsetFileSize == 0)
+        revisionsOffsetFileSize = Files.size(revisionsOffsetFilePath);
+
+      createMemoryMappingsIfNeeded(dataFilePath, revisionsOffsetFilePath);
+
+      return new MMFileReader(dataFileSegment,
+                              revisionsOffsetFileSegment,
                               new ByteHandlePipeline(byteHandlerPipeline),
                               SerializationType.DATA,
                               new PagePersister());
-    } catch (final IOException e) {
+    } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
+    } finally {
+      semaphore.release();
     }
+  }
+
+  private void createMemoryMappingsIfNeeded(Path dataFilePath, Path revisionsOffsetFilePath) throws IOException {
+    if (dataFileScope == null)
+      dataFileScope = ResourceScope.newSharedScope();
+
+    if (dataFileSegment == null)
+      dataFileSegment = MemorySegment.mapFile(dataFilePath,
+                                              0,
+                                              Files.size(dataFilePath),
+                                              FileChannel.MapMode.READ_WRITE,
+                                              dataFileScope);
+
+    if (revisionsOffsetFileScope == null)
+      revisionsOffsetFileScope = ResourceScope.newSharedScope();
+
+    if (revisionsOffsetFileSegment == null)
+      revisionsOffsetFileSegment = MemorySegment.mapFile(revisionsOffsetFilePath,
+                                                         0,
+                                                         Files.size(revisionsOffsetFilePath),
+                                                         FileChannel.MapMode.READ_WRITE,
+                                                         revisionsOffsetFileScope);
   }
 
   private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
@@ -105,24 +160,44 @@ public final class MMStorage implements IOStorage {
   @Override
   public Writer createWriter() {
     try {
+      semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      return new MMFileWriter(dataFilePath,
+      if (revisionsOffsetFileSize == 0)
+        revisionsOffsetFileSize = Files.size(revisionsOffsetFilePath);
+
+      createMemoryMappingsIfNeeded(dataFilePath, revisionsOffsetFilePath);
+
+      return new MMFileWriter(this,
+                              dataFilePath,
+                              dataFileScope,
+                              dataFileSegment,
                               revisionsOffsetFilePath,
+                              revisionsOffsetFileScope,
+                              revisionsOffsetFileSegment,
+                              revisionsOffsetFileSize,
                               new ByteHandlePipeline(byteHandlerPipeline),
                               SerializationType.DATA,
                               new PagePersister());
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
+    } catch (final IOException | InterruptedException e) {
+      throw new SirixIOException(e);
+    } finally {
+      semaphore.release();
     }
   }
 
   @Override
   public void close() {
-    // not used over here
+    if (dataFileScope != null && dataFileScope.isAlive()) {
+      dataFileScope.close();
+    }
+
+    if (revisionsOffsetFileScope != null && revisionsOffsetFileScope.isAlive()) {
+      revisionsOffsetFileScope.close();
+    }
   }
 
   /**

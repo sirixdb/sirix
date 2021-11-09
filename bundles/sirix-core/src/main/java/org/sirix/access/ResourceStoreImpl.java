@@ -37,12 +37,10 @@ public class ResourceStoreImpl<R extends ResourceManager<? extends NodeReadOnlyT
                         final @Nonnull BufferManager bufferManager,
                         final @Nonnull Path resourceFile) {
     return this.resourceManagers.computeIfAbsent(resourceFile, k -> {
-
       final var resourceManager = this.resourceManagerFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceManagers.putObject(resourceFile, resourceManager);
       return resourceManager;
     });
-
   }
 
   @Override
