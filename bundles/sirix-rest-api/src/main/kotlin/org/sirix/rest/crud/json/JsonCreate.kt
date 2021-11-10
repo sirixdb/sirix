@@ -14,6 +14,7 @@ import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
+import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.rest.KotlinJsonStreamingShredder
@@ -76,9 +77,12 @@ class JsonCreate(
             database.use {
                 BodyHandler.create().handle(ctx)
                 val fileResolver = FileResolver()
+                val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                 ctx.fileUploads().forEach { fileUpload ->
                     val fileName = fileUpload.fileName()
-                    val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true).build()
+                    val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true).hashKind(
+                        HashType.valueOf(hashType.uppercase())
+                    ).build()
 
                     val resourceHasBeenCreated = createResourceIfNotExisting(
                         database,
@@ -139,8 +143,10 @@ class JsonCreate(
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
+                val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                 val resConfig =
-                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).build()
+                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).hashKind(HashType.valueOf(hashType.uppercase()))
+                        .build()
 
                 val resourceHasBeenCreated = createResourceIfNotExisting(
                     database,

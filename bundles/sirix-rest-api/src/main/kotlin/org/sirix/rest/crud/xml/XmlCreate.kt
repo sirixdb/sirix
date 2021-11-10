@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
+import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.crud.SirixDBUser
@@ -74,7 +75,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                 val fileResolver = FileResolver()
                 ctx.fileUploads().forEach { fileUpload ->
                     val fileName = fileUpload.fileName()
-                    val resConfig = ResourceConfiguration.Builder(fileName).build()
+                    val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
+                    val resConfig = ResourceConfiguration.Builder(fileName).hashKind(HashType.valueOf(hashType.uppercase())).build()
 
                     createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
@@ -132,7 +134,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
             database.use {
-                val resConfig = ResourceConfiguration.Builder(resPathName).build()
+                val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
+                val resConfig = ResourceConfiguration.Builder(resPathName).hashKind(HashType.valueOf(hashType.uppercase())).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
                 val manager = database.openResourceManager(resPathName)
 
@@ -140,7 +143,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     val pathToFile = filePath.toPath()
                     val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-                    ctx.vertx().fileSystem().deleteAwait(filePath.toString())
+                    ctx.vertx().fileSystem().delete(filePath.toString()).await()
 
                     if (maxNodeKey < 5000) {
                         body = serializeXml(manager, ctx)

@@ -27,7 +27,7 @@ class JsonHead(private val location: Path) {
         }
 
         ctx.vertx().executeBlocking<Unit> {
-            head(databaseName!!, ctx, resource!!)
+            head(databaseName, ctx, resource)
         }.await()
 
         return ctx.currentRoute()
@@ -46,23 +46,23 @@ class JsonHead(private val location: Path) {
 
             manager.use {
                 if (manager.resourceConfig.hashType == HashType.NONE) {
-                    return
-                }
+                    ctx.response().putHeader(HttpHeaders.ETAG, "")
+                } else {
+                    val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
+                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
 
-                val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
-
-                rtx.use {
-                    if (nodeId != null) {
-                        if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
-                            throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
+                    rtx.use {
+                        if (nodeId != null) {
+                            if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
+                                throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
+                            }
+                        } else if (rtx.isDocumentRoot) {
+                            rtx.moveToFirstChild()
                         }
-                    } else if (rtx.isDocumentRoot) {
-                        rtx.moveToFirstChild()
-                    }
 
-                    ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
+                        ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
+                    }
                 }
             }
         }
