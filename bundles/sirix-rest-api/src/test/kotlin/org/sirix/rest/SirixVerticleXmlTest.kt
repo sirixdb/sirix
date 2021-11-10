@@ -104,7 +104,7 @@ class SirixVerticleXmlTest {
                 val user = response.bodyAsJsonObject()
                 accessToken = user.getString("access_token")
 
-                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                var httpResponse = client.putAbs("$server$serverPath?hashType=ROLLING").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
@@ -273,7 +273,7 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource as well as a subsequent modification thereof")
     fun testPUTthenPOSTthenGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -312,7 +312,7 @@ class SirixVerticleXmlTest {
                 val user = response.bodyAsJsonObject()
                 accessToken = user.getString("access_token")
 
-                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                var httpResponse = client.putAbs("$server$serverPath?hashType=ROLLING").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
@@ -801,7 +801,7 @@ class SirixVerticleXmlTest {
                 val user = response.bodyAsJsonObject()
                 accessToken = user.getString("access_token")
 
-                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                var httpResponse = client.putAbs("$server$serverPath?hashType=ROLLING").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
@@ -865,7 +865,7 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

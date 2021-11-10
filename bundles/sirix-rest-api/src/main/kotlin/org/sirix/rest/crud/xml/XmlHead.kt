@@ -1,19 +1,13 @@
 package org.sirix.rest.crud.xml
 
-import io.netty.handler.codec.http.HttpResponseStatus
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.HttpException
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
-import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
-import org.sirix.exception.SirixUsageException
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -46,23 +40,24 @@ class XmlHead(private val location: Path) {
             val manager = database.openResourceManager(resource)
 
             manager.use {
-                if (manager.resourceConfig.hashType == HashType.NONE)
-                    return
+                if (manager.resourceConfig.hashType == HashType.NONE) {
+                    ctx.response().putHeader(HttpHeaders.ETAG, "")
+                } else {
+                    val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
+                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
 
-                val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
-
-                rtx.use {
-                    if (nodeId != null) {
-                        if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
-                            throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
-                        } else {
+                    rtx.use {
+                        if (nodeId != null) {
+                            if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
+                                throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
+                            } else {
+                                writeResponse(ctx, rtx)
+                            }
+                        } else if (rtx.isDocumentRoot) {
+                            rtx.moveToFirstChild()
                             writeResponse(ctx, rtx)
                         }
-                    } else if (rtx.isDocumentRoot) {
-                        rtx.moveToFirstChild()
-                        writeResponse(ctx, rtx)
                     }
                 }
             }
