@@ -7,6 +7,7 @@ import org.sirix.JsonTestHelper;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.service.json.shredder.JsonShredder;
 
 import java.io.IOException;
@@ -152,7 +153,7 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaData1() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
@@ -177,7 +178,7 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaData2() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
@@ -202,7 +203,7 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaData3() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
@@ -227,7 +228,7 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {

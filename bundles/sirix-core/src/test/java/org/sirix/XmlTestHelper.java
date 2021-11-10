@@ -39,6 +39,7 @@ import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -172,6 +173,34 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
+  public static final Database<XmlResourceManager> getDatabaseWithRollingHashesEnabled(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createXmlDatabase(config);
+        }
+        final var database = Databases.openXmlDatabase(file);
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).hashKind(HashType.ROLLING).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
   public static final Database<XmlResourceManager> getDatabaseWithDeweyIDsEnabled(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
@@ -271,8 +300,7 @@ public final class XmlTestHelper {
    * @throws SirixException if anything went wrong
    */
   public static void createPICommentTestDocument() {
-    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(PATHS.PATH1.getFile());
     try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.createCommentPI(wtx);

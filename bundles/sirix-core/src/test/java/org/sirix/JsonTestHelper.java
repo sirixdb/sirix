@@ -27,6 +27,7 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -129,6 +130,34 @@ public final class JsonTestHelper {
   }
 
   /**
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
+  public static Database<JsonResourceManager> getDatabaseWithHashesEnabled(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createJsonDatabase(config);
+        }
+        final var database = Databases.openJsonDatabase(file);
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).hashKind(HashType.ROLLING).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
+
+  /**
    * Deleting all resources as defined in the enum {@link PATHS}.
    *
    * @throws SirixException if anything went wrong
@@ -163,8 +192,7 @@ public final class JsonTestHelper {
    * @throws SirixException if anything went wrong
    */
   public static void createTestDocument() {
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
+    final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final JsonResourceManager manager = database.openResourceManager(RESOURCE);
         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);

@@ -30,8 +30,6 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
@@ -48,37 +46,37 @@ public class HashTest {
 
   @Test
   public void testPostorderInsertRemove() throws SirixException {
-    final XmlNodeTrx wtx = createWtx(HashType.POSTORDER);
+    final XmlNodeTrx wtx = createWtx();
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testPostorderDeep() throws SirixException {
-    final XmlNodeTrx wtx = createWtx(HashType.POSTORDER);
+    final XmlNodeTrx wtx = createWtx();
     testDeepTree(wtx);
   }
 
   @Test
   public void testPostorderSetter() throws SirixException {
-    final XmlNodeTrx wtx = createWtx(HashType.POSTORDER);
+    final XmlNodeTrx wtx = createWtx();
     testSetter(wtx);
   }
 
   @Test
   public void testRollingInsertRemove() throws SirixException {
-    final XmlNodeTrx wtx = createWtx(HashType.ROLLING);
+    final XmlNodeTrx wtx = createWtx();
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testRollingDeep() throws SirixException {
-    final XmlNodeTrx wtx = createWtx(HashType.ROLLING);
+    final XmlNodeTrx wtx = createWtx();
     testDeepTree(wtx);
   }
 
   @Test
   public void testRollingSetter() throws SirixException {
-    final XmlNodeTrx wtx = createWtx(HashType.ROLLING);
+    final XmlNodeTrx wtx = createWtx();
     testSetter(wtx);
   }
 
@@ -214,9 +212,8 @@ public class HashTest {
     assertFalse(hashRoot4.equals(hashLeaf3));
   }
 
-  private XmlNodeTrx createWtx(final HashType kind) throws SirixException {
-    final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
+  private XmlNodeTrx createWtx() throws SirixException {
+    final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
     final XmlNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
