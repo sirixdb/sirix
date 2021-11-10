@@ -385,7 +385,7 @@ public enum NodeKind implements NodePersistenter {
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                   source.readByte() == ((byte) 0) ? 0 : 1,
-                                                                  source.readLong());
+                                                                  pageReadTrx.getResourceManager().getResourceConfig().hashType == HashType.NONE ? 0 : source.readLong());
       return new XmlDocumentRootNode(nodeDel, structDel);
     }
 
@@ -397,7 +397,8 @@ public enum NodeKind implements NodePersistenter {
       putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
-      sink.writeLong(node.getDescendantCount());
+      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+        sink.writeLong(node.getDescendantCount());
     }
 
     @Override

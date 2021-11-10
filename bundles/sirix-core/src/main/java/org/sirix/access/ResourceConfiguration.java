@@ -172,7 +172,7 @@ public final class ResourceConfiguration {
   /**
    * Type of hashing.
    */
-  private static final HashType HASHKIND = HashType.ROLLING;
+  private static final HashType HASHKIND = HashType.NONE;
 
   /**
    * Versions to restore.

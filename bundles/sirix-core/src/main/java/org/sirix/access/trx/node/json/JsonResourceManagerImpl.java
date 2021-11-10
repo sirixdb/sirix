@@ -94,7 +94,6 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
                           final User user,
                           @DatabaseName final String databaseName,
                           final PageTrxFactory pageTrxFactory) {
-
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
     this.databaseName = databaseName;
