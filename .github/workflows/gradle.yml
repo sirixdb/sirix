@@ -32,7 +32,7 @@ jobs:
       - name: run python client tests
         uses: actions/checkout@v2
         with:
-          name: sirixdb/sirix-python-client
+          repository: sirixdb/sirix-python-client
           path: ./sirix-python-client
       - name: setup python
         uses: actions/setup-python@v2
