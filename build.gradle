@@ -100,16 +100,17 @@ subprojects {
         failOnError = false
         options {
             addStringOption('-release', '17')
+            addBooleanOption('-enable-preview', true)
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
 
     compileJava {
-        options.compilerArgs += ["--add-modules=jdk.incubator.foreign"]
+        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
     }
 
     compileTestJava {
-        options.compilerArgs += ["--add-modules=jdk.incubator.foreign"]
+        options.compilerArgs += ["--enable-preview", "--add-modules=jdk.incubator.foreign"]
     }
 
     spotless {
