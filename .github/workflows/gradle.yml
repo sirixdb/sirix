@@ -30,7 +30,7 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build --info --stacktrace --refresh-dependencies
       - name: run python client tests
-      - uses: actions/checkout@v2
+        uses: actions/checkout@v2
         with:
           name: sirixdb/sirix-python-client
           path: ./sirix-python-client
