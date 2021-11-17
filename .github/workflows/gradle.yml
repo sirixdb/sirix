@@ -43,7 +43,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r sirix-python-client/requirements-all.txt
-          cd && python -m pytest sirix-python-client -v
+          python -m pytest sirix-python-client -v
 
   Deploy:
     name: Deploy to OSSRH and Docker Hub
