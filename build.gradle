@@ -228,7 +228,7 @@ subprojects {
         }
         useTestNG()
         useJUnit()
-        jvmArgs(["--add-modules=jdk.incubator.foreign"])
+        jvmArgs(["--enable-preview", "--add-modules=jdk.incubator.foreign"])
 
         minHeapSize = '2g'
         maxHeapSize = '7g'
