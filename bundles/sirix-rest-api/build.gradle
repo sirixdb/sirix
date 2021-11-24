@@ -61,12 +61,12 @@ jar {
 
 compileKotlin {
     // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-    kotlinOptions.jvmTarget = '17'
+    kotlinOptions.jvmTarget = '16'
 }
 
 compileTestKotlin {
     // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-    kotlinOptions.jvmTarget = '17'
+    kotlinOptions.jvmTarget = '16'
 }
 
 test {
