@@ -46,6 +46,7 @@ jobs:
           pip install -r sirix-python-client/requirements-all.txt
           bash sirix-python-client/tests/resources/wait.sh
           java --enable-preview --add-modules=jdk.incubator.foreign -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-SNAPSHOT-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
+          sleep 5
           python -m pytest sirix-python-client -v
 
   Deploy:
