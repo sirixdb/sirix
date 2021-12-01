@@ -1,6 +1,5 @@
 package org.sirix.rest.crud.json
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
@@ -9,13 +8,10 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.exception.SirixUsageException
-import org.sirix.rest.AuthRole
 import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
@@ -248,7 +244,6 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                 PermissionCheckingXQuery(
                     sirixCompileChain,
                     query,
-                    AuthRole.MODIFY,
                     keycloak,
                     routingContext.get("user"),
                     authz
@@ -260,7 +255,6 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                     queryCtx,
                     startResultSeqIndex,
                     endResultSeqIndex,
-                    AuthRole.MODIFY,
                     keycloak,
                     authz,
                     routingContext.get("user"),

@@ -25,7 +25,9 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.ElementType;
 import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.rest.AuthRole;
 import org.sirix.xquery.function.FunUtil;
+import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBStore;
@@ -91,6 +93,8 @@ public final class Store extends AbstractFunction {
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
           ? false
           : true);
+
+      Roles.check(ctx, collName, AuthRole.CREATE);
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {

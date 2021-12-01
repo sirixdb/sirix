@@ -1,9 +1,6 @@
 package org.sirix.xquery;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.Function;
 import org.brackit.xquery.BrackitQueryContext;
 import org.brackit.xquery.QueryContext;
@@ -22,6 +19,7 @@ import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.NodeCollection;
 import org.brackit.xquery.xdm.node.NodeFactory;
 import org.brackit.xquery.xdm.type.ItemType;
+import org.sirix.access.User;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -60,6 +58,8 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   /** The json item store. */
   private final JsonDBStore jsonStore;
+
+  private final Map<String, Object> properties;
 
   public static SirixQueryContext createWithNodeStore(final XmlDBStore nodeStore) {
     return new SirixQueryContext(nodeStore, null, CommitStrategy.AUTO);
@@ -105,6 +105,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
         : jsonItemStore;
     queryContextDelegate = new BrackitQueryContext(nodeStore);
     this.commitStrategy = Preconditions.checkNotNull(commitStrategy);
+    properties = new HashMap<>();
   }
 
   @Override
@@ -271,5 +272,16 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   public void close() {
     xmlStore.close();
     jsonStore.close();
+  }
+
+  public SirixQueryContext addProperty(String key, Object value) {
+    Preconditions.checkNotNull(key);
+    Preconditions.checkNotNull(value);
+    properties.put(key, value);
+    return this;
+  }
+
+  public Map<String, Object> getProperties() {
+    return Collections.unmodifiableMap(properties);
   }
 }

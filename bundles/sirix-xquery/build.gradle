@@ -1,9 +1,12 @@
 dependencies {
     implementation project(':sirix-core')
+    implementation implLibraries.vertxAuthOauth2
 
     testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.brackit
 }
+
+apply plugin: 'kotlin'
 
 description = 'Sirix/Brackit binding.'
 
