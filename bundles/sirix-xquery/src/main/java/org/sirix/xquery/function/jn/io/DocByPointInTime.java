@@ -11,7 +11,9 @@ import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.sirix.rest.AuthRole;
 import org.sirix.xquery.function.DateTimeToInstant;
+import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 
@@ -57,6 +59,8 @@ public final class DocByPointInTime extends AbstractFunction {
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
+
+    Roles.check(ctx, col.getName(), AuthRole.VIEW);
 
     final String expResName = ((Str) args[1]).stringValue();
     final DateTime dateTime = (DateTime) args[2];
