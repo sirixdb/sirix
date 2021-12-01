@@ -3,10 +3,8 @@ package org.sirix.rest.crud
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import org.brackit.xquery.XQuery
 import org.brackit.xquery.util.serialize.Serializer
 import org.brackit.xquery.xdm.Item
-import org.sirix.rest.AuthRole
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 
@@ -18,7 +16,6 @@ class QuerySerializer {
             queryCtx: SirixQueryContext,
             startResultSeqIndex: Long,
             endResultSeqIndex: Long?,
-            role: AuthRole,
             keycloak: OAuth2Auth,
             authz: AuthorizationProvider,
             user: User,
@@ -27,7 +24,7 @@ class QuerySerializer {
         ) {
             serializer.use {
                 val sequence =
-                    PermissionCheckingXQuery(sirixCompileChain, query, role, keycloak, user, authz).execute(queryCtx)
+                    PermissionCheckingXQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
 
                 if (sequence != null) {
                     val itemIterator = sequence.iterate()

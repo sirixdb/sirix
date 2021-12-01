@@ -26,7 +26,6 @@ import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.ext.web.handler.HttpException
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
-import org.sirix.api.Database
 import org.sirix.rest.crud.*
 import org.sirix.rest.crud.json.JsonCreate
 import org.sirix.rest.crud.json.JsonHead

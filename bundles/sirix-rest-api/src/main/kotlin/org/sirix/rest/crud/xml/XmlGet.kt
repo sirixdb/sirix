@@ -1,6 +1,5 @@
 package org.sirix.rest.crud.xml
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
@@ -9,16 +8,12 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.HttpException
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
-import org.sirix.exception.SirixUsageException
-import org.sirix.rest.AuthRole
 import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
@@ -143,7 +138,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                 SirixQueryContext.CommitStrategy.AUTO
             )
 
-            var body: String? = null
+            var body: String?
 
             queryCtx.use {
                 if (manager != null && dbCollection != null && revisionNumber != null) {
@@ -234,7 +229,6 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                     PermissionCheckingXQuery(
                         sirixCompileChain,
                         query,
-                        AuthRole.MODIFY,
                         keycloak,
                         routingContext.get("user"),
                         authz
@@ -249,7 +243,6 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                         queryCtx,
                         startResultSeqIndex,
                         endResultSeqIndex,
-                        AuthRole.MODIFY,
                         keycloak,
                         authz,
                         routingContext.get("user"),

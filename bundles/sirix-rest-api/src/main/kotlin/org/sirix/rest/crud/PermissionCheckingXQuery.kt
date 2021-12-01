@@ -3,7 +3,6 @@ package org.sirix.rest.crud
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
-import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.kotlin.coroutines.await
@@ -14,12 +13,12 @@ import org.brackit.xquery.QueryException
 import org.brackit.xquery.compiler.CompileChain
 import org.brackit.xquery.module.Module
 import org.brackit.xquery.operator.TupleImpl
-import org.brackit.xquery.util.Cfg
 import org.brackit.xquery.util.serialize.Serializer
 import org.brackit.xquery.util.serialize.StringSerializer
 import org.brackit.xquery.xdm.Item
 import org.brackit.xquery.xdm.Sequence
 import org.sirix.rest.AuthRole
+import org.sirix.xquery.SirixQueryContext
 import java.io.PrintStream
 import java.io.PrintWriter
 
@@ -29,30 +28,26 @@ import java.io.PrintWriter
 class PermissionCheckingXQuery {
     private val module: Module
     private var isPrettyPrint: Boolean = false
-    private val role: AuthRole
     val keycloak: OAuth2Auth
     val user: User
     val authz: AuthorizationProvider
 
-    constructor(module: Module, role: AuthRole, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
+    constructor(module: Module, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = module
-        this.role = role
         this.keycloak = keycloak
         this.user = user
         this.authz = authz
     }
 
-    constructor(query: String, role: AuthRole, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
+    constructor(query: String, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = CompileChain().compile(query)
-        this.role = role
         this.keycloak = keycloak
         this.user = user
         this.authz = authz
     }
 
-    constructor(chain: CompileChain, query: String, role: AuthRole, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
+    constructor(chain: CompileChain, query: String, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = chain.compile(query)
-        this.role = role
         this.keycloak = keycloak
         this.user = user
         this.authz = authz
@@ -67,6 +62,10 @@ class PermissionCheckingXQuery {
     }
 
     private fun run(ctx: QueryContext, lazy: Boolean): Sequence? {
+        if (ctx is SirixQueryContext) {
+            ctx.addProperty("user", user)
+            ctx.addProperty("authz", authz)
+        }
         val body = module.body
             ?: throw QueryException(ErrorCode.BIT_DYN_INT_ERROR, "Module does not contain a query body.")
         val result = body.evaluate(ctx, TupleImpl())
@@ -77,7 +76,7 @@ class PermissionCheckingXQuery {
             // FIXME: Better way?
             runBlocking {
                 authz.getAuthorizations(user).await()
-                require(RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
+                if (!RoleBasedAuthorization.create(AuthRole.MODIFY.keycloakRole()).match(user)) {
                     throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
                 }
             }
