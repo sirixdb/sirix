@@ -1,7 +1,5 @@
 package org.sirix.xquery.function.xml.io;
 
-import java.time.Instant;
-import java.util.ArrayList;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.DTD;
@@ -13,11 +11,12 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.ItemSequence;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.rest.AuthRole;
-import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.time.Instant;
+import java.util.ArrayList;
 
 public final class OpenRevisions extends AbstractFunction {
 
@@ -46,8 +45,6 @@ public final class OpenRevisions extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    Roles.check(ctx, col.getName(), AuthRole.VIEW);
-
     final var expResName = ((Str) args[1]).stringValue();
     final var millis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
                                            .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
@@ -75,6 +72,6 @@ public final class OpenRevisions extends AbstractFunction {
 
     documentNodes.add(endDocNode);
 
-    return new ItemSequence(documentNodes.toArray(new XmlDBNode[documentNodes.size()]));
+    return new ItemSequence(documentNodes.toArray(new XmlDBNode[0]));
   }
 }

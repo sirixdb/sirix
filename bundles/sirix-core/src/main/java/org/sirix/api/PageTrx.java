@@ -14,6 +14,7 @@ import org.sirix.page.UberPage;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.time.Instant;
 
 /**
  * Interface for writing pages to disk and to create in-memory records.
@@ -98,7 +99,9 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return UberPage the new revision after commit
    * @throws SirixException if Sirix fails to commit
    */
-  UberPage commit();
+  default UberPage commit() {
+    return commit(null, null);
+  }
 
   /**
    * Commit the transaction, that is persist changes if any and create a new revision. The commit
@@ -108,7 +111,20 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return UberPage the revision after commit
    * @throws SirixException if Sirix fails to commit
    */
-  UberPage commit(@Nullable String commitMessage);
+  default UberPage commit(@Nullable String commitMessage) {
+    return commit(commitMessage, null);
+  }
+
+  /**
+   * Commit the transaction, that is persist changes if any and create a new revision. The commit
+   * message is going to be persisted as well.
+   *
+   * @param commitMessage the commit message
+   * @param commitTimeStamp the commit timestamp
+   * @return UberPage the revision after commit
+   * @throws SirixException if Sirix fails to commit
+   */
+  UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp);
 
   /**
    * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.

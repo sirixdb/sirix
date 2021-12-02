@@ -21,10 +21,6 @@
  */
 package org.sirix.xquery.function.xml.io;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.PrintStream;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int32;
@@ -42,6 +38,10 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.function.xml.XMLFun;
+
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 
 /**
  *
@@ -82,7 +82,7 @@ public final class Serialize extends AbstractFunction {
       buf = IOUtils.createBuffer();
     } else {
       try {
-        buf = new PrintStream(new FileOutputStream(new File(file)));
+        buf = new PrintStream(new FileOutputStream(file));
       } catch (final FileNotFoundException e) {
         throw new QueryException(SDBFun.ERR_FILE_NOT_FOUND, e);
       }

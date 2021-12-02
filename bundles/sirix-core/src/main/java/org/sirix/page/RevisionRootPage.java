@@ -144,6 +144,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   private User user;
 
+  private Instant commitTimestamp;
+
   /**
    * Create revision root page.
    */
@@ -381,9 +383,18 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     }
   }
 
+  public void setCommitTimestamp(final Instant revisionTimestamp) {
+    checkNotNull(revisionTimestamp);
+    final long revisionTimestampToSet = revisionTimestamp.toEpochMilli();
+    if (this.revisionTimestamp > revisionTimestampToSet || revisionTimestamp.isAfter(Instant.now())) {
+      throw new IllegalStateException("Revision timestamp must be bigger than previous revision timestamp, but not bigger than current time.");
+    }
+    this.commitTimestamp = revisionTimestamp;
+  }
+
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-    revisionTimestamp = Instant.now().toEpochMilli();
+    revisionTimestamp = commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
     delegate.serialize(checkNotNull(out), checkNotNull(type));
     out.writeInt(revision);
     out.writeLong(maxNodeKeyInDocumentIndex);

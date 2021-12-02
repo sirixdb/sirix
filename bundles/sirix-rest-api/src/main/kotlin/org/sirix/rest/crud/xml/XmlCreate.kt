@@ -22,6 +22,7 @@ import org.sirix.access.ResourceConfiguration
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
+import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder

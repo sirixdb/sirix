@@ -5,7 +5,10 @@ import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.api.NodeTrx
 import org.sirix.api.ResourceManager
 import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 
 class Revisions {
     companion object {
@@ -51,21 +54,31 @@ class Revisions {
                       R : NodeCursor,
                       W : NodeTrx,
                       W : NodeCursor {
-            val revisionDateTime = LocalDateTime.parse(revision)
-            val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
+            val zdt = parseRevisionTimestamp(revision)
             return manager.getRevisionNumber(zdt.toInstant())
+        }
+
+        fun parseRevisionTimestamp(revision: String): ZonedDateTime {
+            var revisionDateTime: LocalDateTime
+            try {
+                revisionDateTime = LocalDateTime.parse(revision)
+            } catch (e: DateTimeParseException) {
+                revisionDateTime = LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+            }
+            val zdt = revisionDateTime.atZone(ZoneOffset.UTC)
+            return zdt
         }
 
         private fun <R, W> getRevisionNumbers(
                 manager: ResourceManager<R, W>,
-                revisions: Pair<LocalDateTime, LocalDateTime>
+                revisions: Pair<ZonedDateTime, ZonedDateTime>
         ): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
                       W : NodeCursor {
-            val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
-            val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
+            val zdtFirstRevision = revisions.first
+            val zdtLastRevision = revisions.second
             var firstRevisionNumber = manager.getRevisionNumber(zdtFirstRevision.toInstant())
             var lastRevisionNumber = manager.getRevisionNumber(zdtLastRevision.toInstant())
 
@@ -82,9 +95,9 @@ class Revisions {
         private fun parseTimestampRevisions(
                 startRevision: String,
                 endRevision: String
-        ): Pair<LocalDateTime, LocalDateTime> {
-            val firstRevisionDateTime = LocalDateTime.parse(startRevision)
-            val lastRevisionDateTime = LocalDateTime.parse(endRevision)
+        ): Pair<ZonedDateTime, ZonedDateTime> {
+            val firstRevisionDateTime = parseRevisionTimestamp(startRevision)
+            val lastRevisionDateTime = parseRevisionTimestamp(endRevision)
 
             return Pair(firstRevisionDateTime, lastRevisionDateTime)
         }

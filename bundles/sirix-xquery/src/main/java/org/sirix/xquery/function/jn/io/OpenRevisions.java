@@ -12,9 +12,6 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.ItemSequence;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.rest.AuthRole;
-import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBItem;
 
@@ -47,8 +44,6 @@ public final class OpenRevisions extends AbstractFunction {
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
-
-    Roles.check(ctx, col.getName(), AuthRole.VIEW);
 
     final var expResName = ((Str) args[1]).stringValue();
     final var millis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))

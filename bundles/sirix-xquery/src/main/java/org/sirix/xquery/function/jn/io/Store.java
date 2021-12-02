@@ -16,10 +16,8 @@ import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.rest.AuthRole;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
 
@@ -85,8 +83,6 @@ public final class Store extends AbstractFunction {
       final boolean createNew = args.length != 4 || args[3].booleanValue();
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
 
-      Roles.check(ctx, collName, AuthRole.CREATE);
-
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       if (createNew) {
         create(store, collName, resName, nodes);
@@ -114,8 +110,7 @@ public final class Store extends AbstractFunction {
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (nodes instanceof FunctionConversionSequence) {
-      final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
+    } else if (nodes instanceof final FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
         int size = coll.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null; ) {
@@ -131,8 +126,7 @@ public final class Store extends AbstractFunction {
 
   private static void create(final JsonDBStore store, final String collName, final String resName,
       final Sequence nodes) {
-    if (nodes instanceof Str) {
-      final var string = (Str) nodes;
+    if (nodes instanceof final Str string) {
       if (string.stringValue().isEmpty()) {
         store.create(collName, resName, (String) null);
       } else {
@@ -142,8 +136,7 @@ public final class Store extends AbstractFunction {
           throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
         }
       }
-    } else if (nodes instanceof FunctionConversionSequence) {
-      final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
+    } else if (nodes instanceof final FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
         final List<Str> list = new ArrayList<>();
 

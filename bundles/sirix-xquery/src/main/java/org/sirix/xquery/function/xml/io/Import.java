@@ -1,10 +1,5 @@
 package org.sirix.xquery.function.xml.io;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -20,13 +15,18 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
-import org.sirix.rest.AuthRole;
 import org.sirix.utils.SirixFiles;
-import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -73,8 +73,6 @@ public final class Import extends AbstractFunction {
 
     final String resName = ((Str) args[1]).stringValue();
     final String resToImport = ((Str) args[2]).stringValue();
-
-    Roles.check(ctx, coll.getName(), AuthRole.CREATE);
 
     XmlDBNode doc = null;
     final XmlNodeReadOnlyTrx trx;

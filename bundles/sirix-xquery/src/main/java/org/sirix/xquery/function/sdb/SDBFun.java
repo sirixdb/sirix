@@ -168,6 +168,7 @@ public final class SDBFun {
 
     // commit
     Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+    Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE, new SequenceType(AtomicType.DATI, Cardinality.One))));
 
     // rollback
     Functions.predefine(new Rollback(ROLLBACK, new Signature(SequenceType.INTEGER, SequenceType.NODE)));

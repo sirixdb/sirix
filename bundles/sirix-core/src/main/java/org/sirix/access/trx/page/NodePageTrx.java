@@ -61,6 +61,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -359,7 +360,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public UberPage commit(final String commitMessage) {
+  public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     pageRtx.assertNotClosed();
 
     pageRtx.resourceManager.getCommitLock().lock();
@@ -378,7 +379,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       setUserIfPresent();
 
       if (commitMessage != null) {
-        getActualRevisionRootPage().setCommitMessage(commitMessage);
+        newRevisionRootPage.setCommitMessage(commitMessage);
+      }
+
+      if (commitTimestamp != null) {
+        newRevisionRootPage.setCommitTimestamp(commitTimestamp);
       }
 
       // Recursively write indirectly referenced pages.
@@ -429,11 +434,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   private void setUserIfPresent() {
     final Optional<User> optionalUser = pageRtx.resourceManager.getUser();
     optionalUser.ifPresent(user -> getActualRevisionRootPage().setUser(user));
-  }
-
-  @Override
-  public UberPage commit() {
-    return commit((String) null);
   }
 
   @Override

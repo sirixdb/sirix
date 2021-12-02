@@ -35,6 +35,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
+import java.time.Instant;
 
 /**
  * <h2>Description</h2>
@@ -480,18 +481,32 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    */
   @Override
   default XmlNodeTrx commit() {
-    return commit(null);
+    return commit(null, null);
   }
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
-   * modification at all. The author assignes a commit message.
+   * modification at all. The author assigns a commit message.
    *
    * @param commitMessage message of the commit
    * @throws SirixException if this revision couldn't be commited
    */
   @Override
-  XmlNodeTrx commit(@Nullable String commitMessage);
+  default XmlNodeTrx commit(@Nullable String commitMessage) {
+    commit(commitMessage, null);
+    return this;
+  }
+
+  /**
+   * Commit all modifications of the exclusive write transaction. Even commit if there are no
+   * modification at all. The author assigns a commit message.
+   *
+   * @param commitMessage message of the commit
+   * @param commitTimestamp a commit timestamp
+   * @throws SirixException if this revision couldn't be commited
+   */
+  @Override
+  XmlNodeTrx commit(@Nullable String commitMessage, @Nullable Instant commitTimestamp);
 
   /**
    * Rollback all modifications of the exclusive write transaction.

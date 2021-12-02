@@ -61,7 +61,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
                 val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
 
                 require(isAuthorized || RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
-                    IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")
+                    "${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name"
                 }
             }
         }

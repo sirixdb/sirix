@@ -101,7 +101,6 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
 
         dbCollection.use {
             val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
-
             val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
             val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
 
@@ -132,10 +131,20 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
             val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
             val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
 
+            val commitMessage = routingContext.queryParam("commitMessage").getOrNull(0)
+            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrNull(0)
+            val commitTimestamp = if (commitTimestampAsString == null) {
+                null
+            } else {
+                Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+            }
+
             val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
                 xmlDBStore,
                 jsonDBStore,
-                SirixQueryContext.CommitStrategy.AUTO
+                SirixQueryContext.CommitStrategy.AUTO,
+                commitMessage,
+                commitTimestamp
             )
 
             var body: String?

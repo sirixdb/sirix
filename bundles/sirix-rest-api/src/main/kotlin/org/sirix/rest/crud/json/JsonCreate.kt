@@ -18,6 +18,7 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.rest.KotlinJsonStreamingShredder
+import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
@@ -234,13 +235,21 @@ class JsonCreate(
         manager: JsonResourceManager,
         ctx: RoutingContext
     ): Long {
+        val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
+        val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
+        val commitTimestamp = if (commitTimestampAsString == null) {
+            null
+        } else {
+            Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+        }
+
         val wtx = manager.beginNodeTrx()
         return wtx.use {
             val jsonParser = JsonParser.newParser(ctx.request())
             val future = KotlinJsonStreamingShredder(wtx, jsonParser).call()
             ctx.request().resume()
             future.await()
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
             return wtx.maxNodeKey
         }
     }

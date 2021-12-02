@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.xml.io;
 
-import java.io.IOException;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -12,22 +11,10 @@ import org.brackit.xquery.node.parser.StreamSubtreeParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.node.Node;
-import org.brackit.xquery.xdm.type.AnyNodeType;
-import org.brackit.xquery.xdm.type.AtomicType;
-import org.brackit.xquery.xdm.type.Cardinality;
-import org.brackit.xquery.xdm.type.ElementType;
-import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.rest.AuthRole;
+import org.brackit.xquery.xdm.type.*;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBStore;
@@ -87,14 +74,8 @@ public final class Store extends AbstractFunction {
       final Sequence nodes = args[2];
       if (nodes == null)
         throw new QueryException(new QNm("No sequence of nodes specified!"));
-      final boolean createNew = args.length == 4
-          ? args[3].booleanValue()
-          : true;
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
-          ? false
-          : true);
-
-      Roles.check(ctx, collName, AuthRole.CREATE);
+      final boolean createNew = args.length != 4 || args[3].booleanValue();
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, !createNew);
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
@@ -102,7 +83,7 @@ public final class Store extends AbstractFunction {
       } else {
         try {
           final XmlDBCollection coll = store.lookup(collName);
-          add(store, coll, resName, nodes);
+          add(coll, resName, nodes);
         } catch (final DocumentException e) {
           // collection does not exist
           create(store, collName, resName, nodes);
@@ -115,27 +96,21 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final XmlDBStore store, final XmlDBCollection coll, final String resName,
-      final Sequence nodes) throws DocumentException, IOException {
-    if (nodes instanceof Node) {
-      final Node<?> n = (Node<?>) nodes;
+  private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes) throws DocumentException {
+    if (nodes instanceof final Node<?> n) {
       coll.add(resName, new StoreParser(n));
     } else {
-      final ParserStream parsers = new ParserStream(nodes);
-      try {
+      try (ParserStream parsers = new ParserStream(nodes)) {
         for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
           coll.add(parser);
         }
-      } finally {
-        parsers.close();
       }
     }
   }
 
   private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes)
-      throws DocumentException, IOException {
-    if (nodes instanceof Node) {
-      final Node<?> n = (Node<?>) nodes;
+      throws DocumentException {
+    if (nodes instanceof final Node<?> n) {
       store.create(collName, resName, new StoreParser(n));
     } else {
       store.create(collName, new ParserStream(nodes));
@@ -159,12 +134,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static class InterceptorHandler implements SubtreeHandler {
-    private final SubtreeHandler handler;
-
-    public InterceptorHandler(final SubtreeHandler handler) {
-      this.handler = handler;
-    }
+  private record InterceptorHandler(SubtreeHandler handler) implements SubtreeHandler {
 
     @Override
     public void beginFragment() throws DocumentException {
@@ -258,8 +228,7 @@ public final class Store extends AbstractFunction {
         if (i == null) {
           return null;
         }
-        if (i instanceof Node<?>) {
-          final Node<?> n = (Node<?>) i;
+        if (i instanceof final Node<?> n) {
           return new StoreParser(n);
         } else {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
