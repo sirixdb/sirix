@@ -17,9 +17,7 @@ import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.rest.AuthRole;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.Roles;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
 
@@ -86,8 +84,6 @@ public final class Load extends AbstractFunction {
         throw new QueryException(new QNm("No sequence of resources specified!"));
       final boolean createNew = args.length != 4 || args[3].booleanValue();
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
-
-      Roles.check(ctx, collName, AuthRole.CREATE);
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       JsonDBCollection coll;

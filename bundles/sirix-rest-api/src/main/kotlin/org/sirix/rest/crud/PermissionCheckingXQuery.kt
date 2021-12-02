@@ -21,6 +21,7 @@ import org.sirix.rest.AuthRole
 import org.sirix.xquery.SirixQueryContext
 import java.io.PrintStream
 import java.io.PrintWriter
+import java.time.Instant
 
 /**
  * @author Johannes Lichtenberger
@@ -62,10 +63,6 @@ class PermissionCheckingXQuery {
     }
 
     private fun run(ctx: QueryContext, lazy: Boolean): Sequence? {
-        if (ctx is SirixQueryContext) {
-            ctx.addProperty("user", user)
-            ctx.addProperty("authz", authz)
-        }
         val body = module.body
             ?: throw QueryException(ErrorCode.BIT_DYN_INT_ERROR, "Module does not contain a query body.")
         val result = body.evaluate(ctx, TupleImpl())

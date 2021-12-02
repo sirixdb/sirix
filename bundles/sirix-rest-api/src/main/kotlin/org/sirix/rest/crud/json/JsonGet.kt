@@ -126,10 +126,20 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
             val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
             val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
 
+            val commitMessage = routingContext.queryParam("commitMessage").getOrNull(0)
+            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrNull(0)
+            val commitTimestamp = if (commitTimestampAsString == null) {
+                null
+            } else {
+                Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+            }
+
             val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
                 xmlDBStore,
                 jsonDBStore,
-                SirixQueryContext.CommitStrategy.AUTO
+                SirixQueryContext.CommitStrategy.AUTO,
+                commitMessage,
+                commitTimestamp
             )
 
             var body: String? = null

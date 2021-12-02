@@ -6,12 +6,12 @@ import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.access.trx.node.json.objectvalue.*
 import org.sirix.api.json.JsonNodeTrx
+import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.rest.crud.json.JsonInsertionMode.Companion.getInsertionModeByName
 import org.sirix.service.json.JsonNumber
@@ -21,77 +21,143 @@ import java.io.IOException
 import java.io.StringWriter
 import java.math.BigInteger
 import java.nio.file.Path
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.*
 
 @Suppress("unused")
 enum class JsonInsertionMode {
     ASFIRSTCHILD {
-        override fun insertSubtree(wtx: JsonNodeTrx, jsonReader: JsonReader) {
-            wtx.insertSubtreeAsFirstChild(jsonReader)
+        override fun insertSubtree(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertSubtreeAsFirstChild(jsonReader, JsonNodeTrx.Commit.No)
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertString(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertString(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertStringValueAsFirstChild(jsonReader.nextString())
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertNumber(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertNumber(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertNumberValueAsFirstChild(JsonNumber.stringToNumber(jsonReader.nextString()))
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertNull(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertNull(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             jsonReader.nextNull()
             wtx.insertNullValueAsFirstChild()
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertBoolean(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertBoolean(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertBooleanValueAsFirstChild(jsonReader.nextBoolean())
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertObjectRecord(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertObjectRecord(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertObjectRecordAsFirstChild(jsonReader.nextName(), getObjectRecordValue(jsonReader))
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
     },
     ASRIGHTSIBLING {
-        override fun insertSubtree(wtx: JsonNodeTrx, jsonReader: JsonReader) {
-            wtx.insertSubtreeAsRightSibling(jsonReader)
+        override fun insertSubtree(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertSubtreeAsRightSibling(jsonReader, JsonNodeTrx.Commit.No)
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertString(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertString(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertStringValueAsRightSibling(jsonReader.nextString())
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertNumber(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertNumber(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertNumberValueAsRightSibling(JsonNumber.stringToNumber(jsonReader.nextString()))
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertNull(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertNull(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             jsonReader.nextNull()
             wtx.insertNullValueAsRightSibling()
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertBoolean(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertBoolean(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertBooleanValueAsRightSibling(jsonReader.nextBoolean())
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
 
-        override fun insertObjectRecord(wtx: JsonNodeTrx, jsonReader: JsonReader) {
+        override fun insertObjectRecord(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertObjectRecordAsRightSibling(jsonReader.nextName(), getObjectRecordValue(jsonReader))
-            wtx.commit()
+            wtx.commit(commitMessage, commitTimestamp)
         }
     };
 
     @Throws(IOException::class)
-    fun getObjectRecordValue(jsonReader: JsonReader): ObjectRecordValue<*>? {
-        val nextToken: JsonToken = jsonReader.peek()
-        val value: ObjectRecordValue<*>
-        value = when (nextToken) {
+    fun getObjectRecordValue(jsonReader: JsonReader): ObjectRecordValue<*> {
+        val value: ObjectRecordValue<*> = when (jsonReader.peek()) {
             JsonToken.BEGIN_OBJECT -> {
                 jsonReader.beginObject()
                 ObjectValue()
@@ -122,20 +188,45 @@ enum class JsonInsertionMode {
         return value
     }
 
-    abstract fun insertSubtree(wtx: JsonNodeTrx, jsonReader: JsonReader)
+    abstract fun insertSubtree(
+        wtx: JsonNodeTrx,
+        jsonReader: JsonReader,
+        commitMessage: String?,
+        commitTimestamp: Instant?
+    )
 
-    abstract fun insertString(wtx: JsonNodeTrx, jsonReader: JsonReader)
+    abstract fun insertString(
+        wtx: JsonNodeTrx,
+        jsonReader: JsonReader,
+        commitMessage: String?,
+        commitTimestamp: Instant?
+    )
 
-    abstract fun insertNumber(wtx: JsonNodeTrx, jsonReader: JsonReader)
+    abstract fun insertNumber(
+        wtx: JsonNodeTrx,
+        jsonReader: JsonReader,
+        commitMessage: String?,
+        commitTimestamp: Instant?
+    )
 
-    abstract fun insertNull(wtx: JsonNodeTrx, jsonReader: JsonReader)
+    abstract fun insertNull(wtx: JsonNodeTrx, jsonReader: JsonReader, commitMessage: String?, commitTimestamp: Instant?)
 
-    abstract fun insertBoolean(wtx: JsonNodeTrx, jsonReader: JsonReader)
+    abstract fun insertBoolean(
+        wtx: JsonNodeTrx,
+        jsonReader: JsonReader,
+        commitMessage: String?,
+        commitTimestamp: Instant?
+    )
 
-    abstract fun insertObjectRecord(wtx: JsonNodeTrx, jsonReader: JsonReader)
+    abstract fun insertObjectRecord(
+        wtx: JsonNodeTrx,
+        jsonReader: JsonReader,
+        commitMessage: String?,
+        commitTimestamp: Instant?
+    )
 
     companion object {
-        fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
+        fun getInsertionModeByName(name: String) = valueOf(name.uppercase(Locale.getDefault()))
     }
 }
 
@@ -175,6 +266,13 @@ class JsonUpdate(private val location: Path) {
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
+                    val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
+                    val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
+                    val commitTimestamp = if (commitTimestampAsString == null) {
+                        null
+                    } else {
+                        Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+                    }
                     val wtx = manager.beginNodeTrx()
                     val revision = wtx.revisionNumber
                     val (maxNodeKey, hash) = wtx.use {
@@ -206,15 +304,15 @@ class JsonUpdate(private val location: Path) {
                         @Suppress("unused")
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
                             when (jsonReader.peek()) {
-                                JsonToken.STRING -> insertionModeByName.insertString(wtx, jsonReader)
-                                JsonToken.NULL -> insertionModeByName.insertNull(wtx, jsonReader)
-                                JsonToken.NUMBER -> insertionModeByName.insertNumber(wtx, jsonReader)
-                                JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(wtx, jsonReader)
-                                JsonToken.NAME -> insertionModeByName.insertObjectRecord(wtx, jsonReader)
+                                JsonToken.STRING -> insertionModeByName.insertString(wtx, jsonReader, commitMessage, commitTimestamp)
+                                JsonToken.NULL -> insertionModeByName.insertNull(wtx, jsonReader, commitMessage, commitTimestamp)
+                                JsonToken.NUMBER -> insertionModeByName.insertNumber(wtx, jsonReader, commitMessage, commitTimestamp)
+                                JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(wtx, jsonReader, commitMessage, commitTimestamp)
+                                JsonToken.NAME -> insertionModeByName.insertObjectRecord(wtx, jsonReader, commitMessage, commitTimestamp)
                                 else -> throw IllegalStateException()
                             }
                         } else {
-                            insertionModeByName.insertSubtree(wtx, jsonReader)
+                            insertionModeByName.insertSubtree(wtx, jsonReader, commitMessage, commitTimestamp)
                         }
 
                         if (nodeId != null) {

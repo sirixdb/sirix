@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
+import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
@@ -10,7 +11,10 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.xquery.StructuredDBItem;
+import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.sdb.SDBFun;
+
+import java.time.Instant;
 
 /**
  * <p>
@@ -29,6 +33,8 @@ public final class Commit extends AbstractFunction {
   /** Get most recent revision function name. */
   public final static QNm COMMIT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "commit");
 
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
+
   /**
    * Constructor.
    *
@@ -42,6 +48,15 @@ public final class Commit extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+
+    final Instant pointInTime;
+
+    if (args.length == 2) {
+      final DateTime dateTime = (DateTime) args[2];
+      pointInTime = dateTimeToInstant.convert(dateTime);
+    } else {
+      pointInTime = null;
+    }
 
     if (doc.getTrx() instanceof NodeTrx) {
       final NodeTrx wtx = (NodeTrx) doc.getTrx();

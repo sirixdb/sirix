@@ -23,6 +23,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -205,7 +206,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         this.state = State.Running;
 
         if (!afterCommitDelay.isZero()) {
-            commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit"),
+            commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null),
                     afterCommitDelay.toMillis(),
                     afterCommitDelay.toMillis(),
                     TimeUnit.MILLISECONDS);
@@ -302,7 +303,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     @Override
-    public W commit(@Nullable final String commitMessage) {
+    public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
         nodeReadOnlyTrx.assertNotClosed();
 
         runLocked(() -> {
@@ -318,7 +319,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
             final var preCommitRevision = getRevisionNumber();
 
-            final UberPage uberPage = pageTrx.commit(commitMessage);
+            final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp);
 
             // Remember successfully committed uber page in resource manager.
             resourceManager.setLastCommittedUberPage(uberPage);
@@ -377,7 +378,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
      * @param revNumber revision number
      */
     private void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
-
         // Reset page transaction to new uber page.
         resourceManager.closeNodePageWriteTransaction(getId());
         pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
@@ -422,7 +422,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     @Override
     public synchronized W rollback() {
-
         return supplyLocked(() -> {
             nodeReadOnlyTrx.assertNotClosed();
 
@@ -465,7 +464,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     @Override
     public W revertTo(final int revision) {
-
         return supplyLocked(() -> {
             nodeReadOnlyTrx.assertNotClosed();
             resourceManager.assertAccess(revision);
