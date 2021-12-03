@@ -205,7 +205,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    *
    * @throws SirixException if something went wrong while inserting
    */
-  protected final void insertNewContent() {
+  protected void insertNewContent() {
     try {
       boolean firstElement = true;
       int level = 0;

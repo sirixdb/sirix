@@ -9,37 +9,54 @@ import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.xml.XmlNodeTrx
+import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.nio.file.Path
+import java.time.Instant
 import javax.xml.stream.XMLEventReader
 
 enum class XmlInsertionMode {
     ASFIRSTCHILD {
-        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(
+            wtx: XmlNodeTrx, xmlReader: XMLEventReader, commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
         }
     },
     ASRIGHTSIBLING {
-        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(
+            wtx: XmlNodeTrx, xmlReader: XMLEventReader, commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertSubtreeAsRightSibling(xmlReader)
         }
     },
     ASLEFTSIBLING {
-        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(
+            wtx: XmlNodeTrx, xmlReader: XMLEventReader, commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.insertSubtreeAsLeftSibling(xmlReader)
         }
     },
     REPLACE {
-        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(
+            wtx: XmlNodeTrx, xmlReader: XMLEventReader, commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
             wtx.replaceNode(xmlReader)
         }
     };
 
-    abstract fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader)
+    abstract fun insert(
+        wtx: XmlNodeTrx, xmlReader: XMLEventReader, commitMessage: String?,
+        commitTimestamp: Instant?
+    )
 
     companion object {
         fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
@@ -83,6 +100,14 @@ class XmlUpdate(private val location: Path) {
                 val manager = database.openResourceManager(resPathName)
 
                 manager.use {
+                    val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
+                    val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
+                    val commitTimestamp = if (commitTimestampAsString == null) {
+                        null
+                    } else {
+                        Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+                    }
+
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
                         if (nodeId != null) {
@@ -104,7 +129,8 @@ class XmlUpdate(private val location: Path) {
                         val xmlReader = XmlShredder.createStringReader(resFileToStore)
 
                         if (insertionMode != null)
-                            XmlInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
+                            XmlInsertionMode.getInsertionModeByName(insertionMode)
+                                .insert(wtx, xmlReader, commitMessage, commitTimestamp)
                         else
                             wtx.replaceNode(xmlReader)
 

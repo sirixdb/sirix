@@ -3,6 +3,7 @@ package org.sirix.rest.crud.json
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
@@ -36,14 +37,14 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
             jsonBody?.getString("query")
         }
 
-        get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
+        get(databaseName, ctx, resource, query, context, ctx.get("user") as User, jsonBody)
 
         return ctx.currentRoute()
     }
 
     private suspend fun get(
         databaseName: String, ctx: RoutingContext, resource: String?, query: String?,
-        vertxContext: Context, user: User
+        vertxContext: Context, user: User, jsonBody: JsonObject?
     ) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
@@ -65,7 +66,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                 body = if (query != null && query.isNotEmpty()) {
                     queryResource(
                         databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                        vertxContext, user
+                        vertxContext, user, jsonBody
                     )
                 } else {
                     val revisions: IntArray =
@@ -89,7 +90,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
     private suspend fun queryResource(
         databaseName: String?, database: Database<JsonResourceManager>, revision: String?,
         revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
-        nodeId: String?, query: String, vertxContext: Context, user: User
+        nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
     ): String? {
         val dbCollection = JsonDBCollection(databaseName, database)
 
@@ -109,7 +110,8 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                 vertxContext,
                 user,
                 startResultSeqIndex?.toLong(),
-                endResultSeqIndex?.toLong()
+                endResultSeqIndex?.toLong(),
+                jsonBody
             )
         }
     }
@@ -119,15 +121,19 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         dbCollection: JsonDBCollection?,
         nodeId: String?,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
-        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
+        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
     ): String? {
         return vertxContext.executeBlocking { promise: Promise<String> ->
             // Initialize queryResource context and store.
             val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
             val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
 
-            val commitMessage = routingContext.queryParam("commitMessage").getOrNull(0)
-            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrNull(0)
+            val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
+                jsonBody?.getString("commitMessage")
+            }
+            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrElse(0) {
+                jsonBody?.getString("commitTimestamp")
+            }
             val commitTimestamp = if (commitTimestampAsString == null) {
                 null
             } else {

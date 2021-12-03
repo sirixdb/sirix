@@ -111,6 +111,12 @@ import java.time.Instant;
  */
 public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
 
+  enum Commit {
+    Implicit,
+
+    No
+  }
+
   // --- Node Modifiers
   // --------------------------------------------------------
 
@@ -408,6 +414,22 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx insertSubtreeAsFirstChild(XMLEventReader reader);
 
   /**
+   * Insert a subtree as a first child.
+   *
+   * @param reader {@link XMLEventReader} instance maybe derived from
+   *        {@link XmlShredder#createStringReader(String)},
+   *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
+   * @param commit determines if a commit should be done implicitly or not
+   * @return the current transaction located at the root of the subtree which has been inserted
+   * @throws SirixException if an I/O error occurs or another sirix internal error occurs
+   * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
+   *         document-node
+   * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
+   */
+  XmlNodeTrx insertSubtreeAsFirstChild(XMLEventReader reader, Commit commit);
+
+  /**
    * Insert a subtree as a right sibling.
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
@@ -423,6 +445,22 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx insertSubtreeAsRightSibling(XMLEventReader reader);
 
   /**
+   * Insert a subtree as a right sibling.
+   *
+   * @param reader {@link XMLEventReader} instance maybe derived from
+   *        {@link XmlShredder#createStringReader(String)},
+   *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
+   * @param commit determines if a commit should be done implicitly or not
+   * @return the current transaction located at the root of the subtree which has been inserted
+   * @throws SirixException if an I/O error occurs or another sirix internal error occurs
+   * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
+   *         document-node
+   * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
+   */
+  XmlNodeTrx insertSubtreeAsRightSibling(XMLEventReader reader, Commit commit);
+
+  /**
    * Insert a subtree as a left sibling.
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
@@ -436,6 +474,22 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
    */
   XmlNodeTrx insertSubtreeAsLeftSibling(XMLEventReader reader);
+
+  /**
+   * Insert a subtree as a left sibling.
+   *
+   * @param reader {@link XMLEventReader} instance maybe derived from
+   *        {@link XmlShredder#createStringReader(String)},
+   *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)}
+   * @param commit determines if a commit should be done implicitly or not
+   * @return the current transaction located at the root of the subtree which has been inserted
+   * @throws SirixException if an I/O error occurs or another sirix internal error occurs
+   * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
+   *         document-node
+   * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
+   */
+  XmlNodeTrx insertSubtreeAsLeftSibling(XMLEventReader reader, Commit commit);
 
   /**
    * Remove currently selected node. This does automatically remove descendants. If two adjacent
