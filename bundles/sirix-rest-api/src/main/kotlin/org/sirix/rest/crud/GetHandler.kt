@@ -74,7 +74,8 @@ class GetHandler(
                                 context,
                                 ctx.get("user") as User,
                                 startResultSeqIndex,
-                                endResultSeqIndex
+                                endResultSeqIndex,
+                                jsonBody
                             )
                         }
                         contains("application/xml") -> {
@@ -88,7 +89,8 @@ class GetHandler(
                                 context,
                                 ctx.get("user") as User,
                                 startResultSeqIndex,
-                                endResultSeqIndex
+                                endResultSeqIndex,
+                                jsonBody
                             )
                         }
                         else -> {
@@ -102,7 +104,8 @@ class GetHandler(
                                 context,
                                 ctx.get("user") as User,
                                 startResultSeqIndex,
-                                endResultSeqIndex
+                                endResultSeqIndex,
+                                jsonBody
                             )
                         }
                     }

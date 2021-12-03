@@ -7,10 +7,6 @@ import io.vertx.core.file.impl.FileResolver
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
-import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.file.deleteAwait
-import io.vertx.kotlin.core.file.openAwait
-import io.vertx.kotlin.core.http.pipeToAwait
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
@@ -21,6 +17,7 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
+import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
@@ -86,7 +83,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     manager.use {
                         insertXmlSubtreeAsFirstChild(
                             manager,
-                            fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath()
+                            fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath(),
+                            ctx
                         )
                     }
                 }
@@ -142,7 +140,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
                 manager.use {
                     val pathToFile = filePath.toPath()
-                    val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
+                    val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath(), ctx)
 
                     ctx.vertx().fileSystem().delete(filePath.toString()).await()
 
@@ -209,15 +207,25 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
     private fun insertXmlSubtreeAsFirstChild(
         manager: XmlResourceManager,
-        resFileToStore: Path
+        resFileToStore: Path,
+        ctx: RoutingContext
     ): Long {
+        val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
+        val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
+        val commitTimestamp = if (commitTimestampAsString == null) {
+            null
+        } else {
+            Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+        }
+
         val wtx = manager.beginNodeTrx()
         return wtx.use {
             val inputStream = FileInputStream(resFileToStore.toFile())
             return@use inputStream.use {
                 val eventStream = XmlShredder.createFileReader(inputStream)
-                wtx.insertSubtreeAsFirstChild(eventStream)
+                wtx.insertSubtreeAsFirstChild(eventStream, XmlNodeTrx.Commit.No)
                 eventStream.close()
+                wtx.commit(commitMessage, commitTimestamp)
                 wtx.maxNodeKey
             }
         }

@@ -27,6 +27,7 @@ import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.Movement;
 import org.sirix.api.PageTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -560,20 +561,35 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
   @Override
   public XmlNodeTrx insertSubtreeAsFirstChild(final XMLEventReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD);
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, Commit.Implicit);
   }
 
   @Override
   public XmlNodeTrx insertSubtreeAsRightSibling(final XMLEventReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING);
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, Commit.Implicit);
   }
 
   @Override
   public XmlNodeTrx insertSubtreeAsLeftSibling(final XMLEventReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING);
+    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, Commit.Implicit);
   }
 
-  private XmlNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insertionPosition) {
+  @Override
+  public XmlNodeTrx insertSubtreeAsFirstChild(final XMLEventReader reader, final Commit commit) {
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit);
+  }
+
+  @Override
+  public XmlNodeTrx insertSubtreeAsRightSibling(final XMLEventReader reader, final Commit commit) {
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit);
+  }
+
+  @Override
+  public XmlNodeTrx insertSubtreeAsLeftSibling(final XMLEventReader reader, final Commit commit) {
+    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, commit);
+  }
+
+  private XmlNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insertionPosition, final Commit commit) {
     checkNotNull(reader);
     assert insertionPosition != null;
 
@@ -611,8 +627,11 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
         adaptHashesInPostorderTraversal();
 
-        commit();
         nodeHashing.setBulkInsert(false);
+
+        if (commit == XmlNodeTrx.Commit.Implicit) {
+          commit();
+        }
       }
       return this;
     });
