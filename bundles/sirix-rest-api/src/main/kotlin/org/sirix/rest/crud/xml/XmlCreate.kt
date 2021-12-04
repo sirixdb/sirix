@@ -74,7 +74,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                 ctx.fileUploads().forEach { fileUpload ->
                     val fileName = fileUpload.fileName()
                     val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
-                    val resConfig = ResourceConfiguration.Builder(fileName).hashKind(HashType.valueOf(hashType.uppercase())).build()
+                    val resConfig =
+                        ResourceConfiguration.Builder(fileName).hashKind(HashType.valueOf(hashType.uppercase())).build()
 
                     createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
@@ -134,7 +135,10 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
             database.use {
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
-                val resConfig = ResourceConfiguration.Builder(resPathName).hashKind(HashType.valueOf(hashType.uppercase())).build()
+                val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
+                val resConfig =
+                    ResourceConfiguration.Builder(resPathName).hashKind(HashType.valueOf(hashType.uppercase()))
+                        .customCommitTimestamps(commitTimestampAsString != null).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
                 val manager = database.openResourceManager(resPathName)
 

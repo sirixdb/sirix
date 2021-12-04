@@ -267,6 +267,11 @@ public final class ResourceConfiguration {
    */
   private final boolean storeDiffs;
 
+  /**
+   * Determines if custom commit timestamps should be stored or not.
+   */
+  private final boolean customCommitTimestamps;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -299,6 +304,11 @@ public final class ResourceConfiguration {
     nodeHashFunction = builder.hashFunction;
     storeChildCount = builder.storeChildCount;
     storeDiffs = builder.storeDiffs;
+    customCommitTimestamps = builder.customCommitTimestamps;
+  }
+
+  public boolean customCommitTimestamps() {
+    return customCommitTimestamps;
   }
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
@@ -345,7 +355,7 @@ public final class ResourceConfiguration {
   }
 
   @Override
-  public final boolean equals(final Object obj) {
+  public boolean equals(final Object obj) {
     if (!(obj instanceof ResourceConfiguration))
       return false;
 
@@ -415,7 +425,7 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind",
           "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter",
-          "storeDiffs" };
+          "storeDiffs", "customCommitTimestamps" };
 
   /**
    * Serialize the configuration.
@@ -459,6 +469,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[11]).value(config.recordPersister.getClass().getName());
       // Diffs.
       jsonWriter.name(JSONNAMES[12]).value(config.storeDiffs);
+      // Custom commit timestamps.
+      jsonWriter.name(JSONNAMES[13]).value(config.customCommitTimestamps);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -500,8 +512,8 @@ public final class ResourceConfiguration {
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
-        @SuppressWarnings("unchecked")
-        final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        @SuppressWarnings("unchecked") final Class<ByteHandler> clazzName =
+            (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
       }
@@ -549,6 +561,9 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[12]);
       final boolean storeDiffs = jsonReader.nextBoolean();
+      name = jsonReader.nextName();
+      assert name.equals(JSONNAMES[13]);
+      final boolean customCommitTimestamps = jsonReader.nextBoolean();
 
       jsonReader.endObject();
       jsonReader.close();
@@ -568,7 +583,8 @@ public final class ResourceConfiguration {
              .useTextCompression(compression)
              .buildPathSummary(pathSummary)
              .useDeweyIDs(deweyIDsStored)
-             .storeDiffs(storeDiffs);
+             .storeDiffs(storeDiffs)
+             .customCommitTimestamps(customCommitTimestamps);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -648,6 +664,11 @@ public final class ResourceConfiguration {
      * Determines whether child count should be tracked or not.
      */
     private boolean storeChildCount;
+
+    /**
+     * Determines if custom commit timestamps should be stored or not.
+     */
+    private boolean customCommitTimestamps;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -777,6 +798,17 @@ public final class ResourceConfiguration {
 
     public Builder storeChildCount(final boolean storeChildCount) {
       this.storeChildCount = storeChildCount;
+      return this;
+    }
+
+    /**
+     * Set to {@code true} if custom commit timestamps should be stored.
+     *
+     * @param customCommitTimestamps {code true}, if custom commit timestamps should be stored, {@code false} if not
+     * @return reference to the builder object
+     */
+    public Builder customCommitTimestamps(final boolean customCommitTimestamps) {
+      this.customCommitTimestamps = customCommitTimestamps;
       return this;
     }
 
