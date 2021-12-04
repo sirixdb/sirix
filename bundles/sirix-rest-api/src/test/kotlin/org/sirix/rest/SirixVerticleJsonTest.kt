@@ -81,6 +81,99 @@ class SirixVerticleJsonTest {
     }
 
     @Test
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the update of a resource with JSONiq update statements")
+    fun testJSONiqUpdates(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectedJson = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                """.trimIndent()
+
+                val json = """
+                 {
+                   "foo": ["bar", null, 2.33],
+                   "bar": { "hello": "world", "helloo": true },
+                   "baz": "hello",
+                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
+                 }
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJson(credentials).await()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                var httpResponse = client.putAbs("$server$serverPath?commitTimestamp=2014-01-01T12:11:12&commitMessage=Initial+Commit").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendBuffer(Buffer.buffer(json)).await()
+
+                testContext.verify {
+                    JSONAssert.assertEquals(
+                        expectedJson.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                    assertEquals(200, httpResponse.statusCode())
+                }
+
+                val url = "$server"
+
+                val updateQuery = """
+                        {"query":"let ${"$"}doc := jn:doc('database','json-resource') return ( append json {\"tadaaa\":true()} into sdb:select-item(${"$"}doc, 3) )",
+                         "commitMessage":"this is a commit message",
+                         "commitTimestamp":"2014-01-01T12:12:12"}
+                     """.trimIndent()
+
+                httpResponse = client.postAbs(url).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .sendBuffer(Buffer.buffer(updateQuery)).await()
+
+                testContext.verify {
+                    assertEquals(200, httpResponse.statusCode())
+                }
+
+                httpResponse = client.getAbs("$server$serverPath").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().await()
+
+                val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+
+                testContext.verify {
+                    JSONAssert.assertEquals(
+                        expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                        false
+                    )
+                    assertEquals(200, httpResponse.statusCode())
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+
+    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the history of a resource")
     fun testResourceHistory(vertx: Vertx, testContext: VertxTestContext) {
@@ -464,12 +557,13 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpGetResponseJson.statusCode())
                 }
 
-                httpGetResponseJson = client.getAbs("$server/database/resource?nextTopLevelNodes=3&lastTopLevelNodeKey=13").putHeader(
-                    HttpHeaders.AUTHORIZATION
-                        .toString(), "Bearer $accessToken"
-                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
-                    .send().await()
+                httpGetResponseJson =
+                    client.getAbs("$server/database/resource?nextTopLevelNodes=3&lastTopLevelNodeKey=13").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .send().await()
 
                 testContext.verify {
                     val expectedJson = """
@@ -1823,7 +1917,8 @@ class SirixVerticleJsonTest {
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBuffer(Buffer.buffer(json)).await()
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBuffer(Buffer.buffer(json))
+                    .await()
 
                 testContext.verify {
                     JSONAssert.assertEquals(

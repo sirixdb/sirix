@@ -144,9 +144,12 @@ class JsonCreate(
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
+                val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                 val resConfig =
-                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(true).hashKind(HashType.valueOf(hashType.uppercase()))
+                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(true)
+                        .hashKind(HashType.valueOf(hashType.uppercase()))
+                        .customCommitTimestamps(commitTimestampAsString != null)
                         .build()
 
                 val resourceHasBeenCreated = createResourceIfNotExisting(

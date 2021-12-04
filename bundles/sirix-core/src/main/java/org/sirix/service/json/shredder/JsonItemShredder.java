@@ -263,7 +263,7 @@ public final class JsonItemShredder implements Callable<Long> {
    *
    * @throws SirixException if something went wrong while inserting
    */
-  protected final void insertNewContent() {
+  protected void insertNewContent() {
     level = 0;
 
     json(null, item, null, false);

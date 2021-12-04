@@ -8,6 +8,7 @@ import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+import java.time.Instant;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -255,7 +256,12 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
             final T resourceTrxManager =
                     openResourceManager(resConfig.getResource().getFileName().toString());
             final W wtx = resourceTrxManager.beginNodeTrx()) {
-      wtx.commit();
+      final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
+      if (useCustomCommitTimestamps) {
+        wtx.commit(null, Instant.ofEpochMilli(0));
+      } else {
+        wtx.commit();
+      }
       return true;
     } catch (final SirixException e) {
       logger.error(e.getMessage(), e);
