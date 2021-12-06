@@ -34,7 +34,8 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
 <p>&nbsp;</p>
 -->
 
-**Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project: **
+**Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project**
+
 **Note: Work on a [Frontend](https://github.com/sirixdb/sirix-svelte-frontend) built with [Svelte](https://svelte.dev), [D3.js](https://d3js), and Typescript has just begun**
 
 **Discuss it in the [Community Forum](https://sirix.discourse.group)**
