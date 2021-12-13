@@ -352,9 +352,6 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
           commit();
         }
 
-//      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-//        System.out.println(nodeReadOnlyTrx.getDeweyID());
-//      }
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -450,10 +447,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
             if (nodeKind == NodeKind.OBJECT)
               skipRootJsonToken = true;
           }
-          else if (item.itemType().isListOrUnion()) {
-            if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
-              throw new IllegalStateException("Current node in storage must be an array node.");
-            }
+          else if (item.itemType().isListOrUnion() && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+            throw new IllegalStateException("Current node in storage must be an array node.");
           }
         }
         case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
@@ -514,9 +509,6 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
         commit();
       }
 
-      //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-      //        System.out.println(nodeReadOnlyTrx.getDeweyID());
-      //      }
     });
     return this;
   }
@@ -598,10 +590,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     return supplyLocked(() -> {
       checkAccessAndCommit();
 
-      if (!nodeHashing.isBulkInsert()) {
-        if (getParentKind() != NodeKind.ARRAY) {
-          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
-        }
+      if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
+        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
       }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
@@ -631,10 +621,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     return supplyLocked(() -> {
       checkAccessAndCommit();
 
-      if (!nodeHashing.isBulkInsert()) {
-        if (getParentKind() != NodeKind.ARRAY) {
-          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
-        }
+      if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
+        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
       }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
@@ -775,12 +763,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
                                         newNodeKey,
                                         oldNodeKey,
-                                        id == null ? null : new DiffDepth(level, level));
-    if (id == null) {
-      updateOperationsUnordered.put(newNodeKey, diffTuple);
-    } else {
-      updateOperationsOrdered.put(id, diffTuple);
-    }
+            new DiffDepth(level, level));
+    updateOperationsOrdered.put(id, diffTuple);
   }
 
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {

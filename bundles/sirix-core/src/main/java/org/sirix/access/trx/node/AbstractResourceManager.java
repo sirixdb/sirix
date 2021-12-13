@@ -275,6 +275,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     try {
       return revisionInfo.get();
     } catch (InterruptedException | ExecutionException e) {
+      Thread.currentThread().interrupt();
       throw new IllegalStateException(e);
     }
   }
@@ -396,6 +397,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
             "No read-write transaction available, please close the running read-write transaction first.");
       }
     } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new SirixThreadedException(e);
     }
 
@@ -428,6 +430,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       try {
         threadPool.awaitTermination(5, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
         throw new IllegalStateException(e);
       }
 
@@ -523,7 +526,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
-      // assert pageRtx != null : "Must be in the page trx map!";
       pageRtx.close();
     }
   }
@@ -669,6 +671,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
         throw new SirixUsageException("No write transaction available, please close the write transaction first.");
       }
     } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new SirixThreadedException(e);
     }
 
@@ -705,7 +708,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public synchronized Optional<W> getNodeTrx() {
     assertNotClosed();
 
-    return nodeTrxMap.values().stream().filter(rtx -> rtx instanceof NodeTrx).map(rtx -> (W) rtx).findAny();
+    return nodeTrxMap.values().stream().filter(NodeTrx.class::isInstance).map(rtx -> (W) rtx).findAny();
   }
 
   @Override

@@ -135,8 +135,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
         diffTupleObject = null;
       }
 
-      if (diffTupleObject != null) {
-        if ("jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
+      if (diffTupleObject != null && "jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
           final var nodeKey = diffTupleObject.get("nodeKey").getAsLong();
           final var currentNodeKey = getNodeKey();
           moveTo(nodeKey);
@@ -151,7 +150,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
           JsonDiffSerializer.serialize(revisionNumber, getResourceManager(), this, diffTupleObject);
           moveTo(currentNodeKey);
-        }
       }
 
       diffTuples.add(diff.getAsJsonObject());
@@ -164,13 +162,11 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var updateOperations = getUpdateOperations();
 
-    final var filteredAndSortedUpdateOperations = updateOperations.stream()
-                                                                  .filter(filterAncestorOperations(rootDeweyId,
-                                                                                                   maxDepth))
-                                                                  .sorted(sortByDeweyID())
-                                                                  .collect(Collectors.toList());
+    return updateOperations.stream()
+            .filter(filterAncestorOperations(rootDeweyId, maxDepth))
+            .sorted(sortByDeweyID())
+            .collect(Collectors.toList());
 
-    return filteredAndSortedUpdateOperations;
   }
 
   private Comparator<JsonObject> sortByDeweyID() {
@@ -382,7 +378,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     helper.add("Revision number", getRevisionNumber());
 
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
+    if (getName() != null && currentNode.getKind() == NodeKind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
 
