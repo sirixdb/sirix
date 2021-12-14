@@ -42,8 +42,8 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   }
 
   @Override
-  public NodeKind getKind() {
-    return node.getKind();
+  public NodeKind getPathKind() {
+    return node.getPathKind();
   }
 
   @Override

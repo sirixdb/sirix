@@ -103,12 +103,12 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     final Path<QNm> path = new Path<>();
     for (final PathNode pathNode : pathNodes) {
       reader.moveTo(pathNode.getNodeKey());
-      if (pathNode.getPathKind() == NodeKind.ATTRIBUTE) {
+      if (pathNode.getKind() == NodeKind.ATTRIBUTE) {
         path.attribute(reader.getName());
       } else {
         final QNm name;
         if (reader.getPathKind() == NodeKind.OBJECT_KEY) {
-          name = new QNm(null, null, java.util.Objects.requireNonNull(reader.getName()).getLocalName().replace("/", "\\/"));
+          name = new QNm(null, null, reader.getName().getLocalName().replace("/", "\\/"));
           path.child(name);
         } else if (reader.getPathKind() == NodeKind.ARRAY) {
           path.childArray();
@@ -172,13 +172,13 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *
    * @return path kind
    */
-  public NodeKind getPathKind() {
-    return NodeKind.PATH;
+  public NodeKind getKind() {
+    return kind;
   }
 
   @Override
-  public NodeKind getKind() {
-    return kind;
+  public NodeKind getPathKind() {
+    return NodeKind.PATH;
   }
 
   @Override
@@ -237,7 +237,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof final PathNode other) {
+    if (obj instanceof PathNode) {
+      final PathNode other = (PathNode) obj;
       return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameNodeDel, other.nameNodeDel);
     }
     return false;

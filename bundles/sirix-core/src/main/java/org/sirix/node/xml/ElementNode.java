@@ -264,7 +264,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.ELEMENT;
   }
 

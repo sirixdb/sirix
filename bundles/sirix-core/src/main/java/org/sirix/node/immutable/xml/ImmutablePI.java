@@ -80,8 +80,8 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
-  public NodeKind getKind() {
-    return mNode.getKind();
+  public NodeKind getPathKind() {
+    return mNode.getPathKind();
   }
 
   @Override

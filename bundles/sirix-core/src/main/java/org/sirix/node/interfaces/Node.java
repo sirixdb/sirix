@@ -36,7 +36,7 @@ public interface Node extends ImmutableNode {
   BigInteger MAX_POSITIVE_VALUE_128_BIT = new BigInteger("340282366920938463463374607431768211455");
 
   @Override
-  NodeKind getKind();
+  NodeKind getPathKind();
 
   /**
    * Set a new DeweyID (may only be necessary during moves.)

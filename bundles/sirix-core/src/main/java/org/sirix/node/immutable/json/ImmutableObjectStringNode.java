@@ -69,8 +69,8 @@ public final class ImmutableObjectStringNode extends AbstractImmutableJsonStruct
   }
 
   @Override
-  public NodeKind getKind() {
-    return node.getKind();
+  public NodeKind getPathKind() {
+    return node.getPathKind();
   }
 
   @Override

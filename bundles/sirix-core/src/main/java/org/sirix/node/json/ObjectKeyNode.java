@@ -98,7 +98,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.OBJECT_KEY;
   }
 

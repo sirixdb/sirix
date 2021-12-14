@@ -52,7 +52,7 @@ public final class ObjectStringNode extends AbstractStringNode {
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.OBJECT_STRING_VALUE;
   }
 

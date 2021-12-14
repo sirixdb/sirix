@@ -52,7 +52,7 @@ public final class ObjectNullNode extends AbstractNullNode {
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.OBJECT_NULL_VALUE;
   }
 

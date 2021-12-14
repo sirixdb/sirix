@@ -49,7 +49,7 @@ public final class HashCountEntryNode implements DataRecord {
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.HASH_NAME_COUNT_TO_NAME_ENTRY;
   }
 

@@ -55,7 +55,7 @@ public final class HashEntryNode implements DataRecord {
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.HASH_ENTRY;
   }
 

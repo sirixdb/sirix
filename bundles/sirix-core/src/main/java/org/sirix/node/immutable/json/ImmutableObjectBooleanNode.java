@@ -56,7 +56,7 @@ public final class ImmutableObjectBooleanNode extends AbstractImmutableJsonStruc
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.BOOLEAN_VALUE;
   }
 

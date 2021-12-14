@@ -180,7 +180,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
         final Optional<? extends DataRecord> deweyIDNode =
             pageReadOnlyTrx.getRecord(nodeKeyOfNode, IndexType.DEWEYID_TO_RECORDID, 0);
 
-        if (deweyIDNode.isPresent() && deweyIDNode.get().getKind() != NodeKind.DELETE) {
+        if (deweyIDNode.isPresent() && deweyIDNode.get().getPathKind() != NodeKind.DELETE) {
           deweyIDsToNodeKeys.put(deweyIDNode.get().getDeweyID(), nodeKeyOfNode);
         }
       }

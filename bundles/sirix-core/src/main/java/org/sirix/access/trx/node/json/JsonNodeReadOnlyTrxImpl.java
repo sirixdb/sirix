@@ -135,7 +135,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
         diffTupleObject = null;
       }
 
-      if (diffTupleObject != null && "jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
+      if (diffTupleObject != null) {
+        if ("jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
           final var nodeKey = diffTupleObject.get("nodeKey").getAsLong();
           final var currentNodeKey = getNodeKey();
           moveTo(nodeKey);
@@ -150,6 +151,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
           JsonDiffSerializer.serialize(revisionNumber, getResourceManager(), this, diffTupleObject);
           moveTo(currentNodeKey);
+        }
       }
 
       diffTuples.add(diff.getAsJsonObject());
@@ -162,11 +164,13 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var updateOperations = getUpdateOperations();
 
-    return updateOperations.stream()
-            .filter(filterAncestorOperations(rootDeweyId, maxDepth))
-            .sorted(sortByDeweyID())
-            .collect(Collectors.toList());
+    final var filteredAndSortedUpdateOperations = updateOperations.stream()
+                                                                  .filter(filterAncestorOperations(rootDeweyId,
+                                                                                                   maxDepth))
+                                                                  .sorted(sortByDeweyID())
+                                                                  .collect(Collectors.toList());
 
+    return filteredAndSortedUpdateOperations;
   }
 
   private Comparator<JsonObject> sortByDeweyID() {
@@ -220,7 +224,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
-    return switch (currentNode.getKind()) {
+    return switch (currentNode.getPathKind()) {
       case OBJECT_STRING_VALUE, STRING_VALUE -> new String(((ValueNode) currentNode).getRawValue(),
                                                            Constants.DEFAULT_ENCODING);
       case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) currentNode).getValue());
@@ -237,9 +241,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     assertNotClosed();
 
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE)
+    if (currentNode.getPathKind() == NodeKind.BOOLEAN_VALUE)
       return ((BooleanNode) currentNode).getValue();
-    else if (currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
+    else if (currentNode.getPathKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
       return ((ObjectBooleanNode) currentNode).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
@@ -248,9 +252,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public Number getNumberValue() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.NUMBER_VALUE)
+    if (currentNode.getPathKind() == NodeKind.NUMBER_VALUE)
       return ((NumberNode) currentNode).getValue();
-    else if (currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
+    else if (currentNode.getPathKind() == NodeKind.OBJECT_NUMBER_VALUE)
       return ((ObjectNumberNode) currentNode).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
@@ -267,7 +271,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
-    return switch (currentNode.getKind()) {
+    return switch (currentNode.getPathKind()) {
       case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);
       case OBJECT_KEY -> ImmutableObjectKeyNode.of((ObjectKeyNode) currentNode);
       case ARRAY -> ImmutableArrayNode.of((ArrayNode) currentNode);
@@ -287,47 +291,47 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.ARRAY;
+    return getCurrentNode().getPathKind() == NodeKind.ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.OBJECT;
+    return getCurrentNode().getPathKind() == NodeKind.OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.OBJECT_KEY;
+    return getCurrentNode().getPathKind() == NodeKind.OBJECT_KEY;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
+    return currentNode.getPathKind() == NodeKind.NUMBER_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
+    return currentNode.getPathKind() == NodeKind.NULL_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
+    return currentNode.getPathKind() == NodeKind.STRING_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
+    return currentNode.getPathKind() == NodeKind.BOOLEAN_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
   @Override
@@ -339,7 +343,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public boolean isDocumentRoot() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.JSON_DOCUMENT;
+    return currentNode.getPathKind() == NodeKind.JSON_DOCUMENT;
   }
 
   @Override
@@ -347,9 +351,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     assertNotClosed();
 
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
+    if (currentNode.getPathKind() == NodeKind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) currentNode).getNameKey();
-      final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getKind());
+      final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getPathKind());
       return new QNm(localName);
     }
 
@@ -366,7 +370,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public int getNameKey() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
+    if (currentNode.getPathKind() == NodeKind.OBJECT_KEY) {
       return ((ObjectKeyNode) currentNode).getNameKey();
     }
     return -1;
@@ -378,18 +382,18 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     helper.add("Revision number", getRevisionNumber());
 
     final var currentNode = getCurrentNode();
-    if (getName() != null && currentNode.getKind() == NodeKind.OBJECT_KEY) {
+    if (currentNode.getPathKind() == NodeKind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
 
-    if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
-        || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
+    if (currentNode.getPathKind() == NodeKind.BOOLEAN_VALUE || currentNode.getPathKind() == NodeKind.STRING_VALUE
+        || currentNode.getPathKind() == NodeKind.NUMBER_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_BOOLEAN_VALUE
+        || currentNode.getPathKind() == NodeKind.OBJECT_NULL_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || currentNode.getPathKind() == NodeKind.OBJECT_STRING_VALUE) {
       helper.add("Value of Node", getValue());
     }
 
-    if (currentNode.getKind() == NodeKind.JSON_DOCUMENT) {
+    if (currentNode.getPathKind() == NodeKind.JSON_DOCUMENT) {
       helper.addValue("Node is DocumentRoot");
     }
 
