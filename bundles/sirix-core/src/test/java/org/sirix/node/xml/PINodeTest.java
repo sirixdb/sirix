@@ -83,7 +83,7 @@ public class PINodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getPathKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID(), mPageReadTrx);
@@ -107,7 +107,7 @@ public class PINodeTest {
 
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.PROCESSING_INSTRUCTION, node.getKind());
+    assertEquals(NodeKind.PROCESSING_INSTRUCTION, node.getPathKind());
     assertEquals(true, node.hasParent());
     assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
   }

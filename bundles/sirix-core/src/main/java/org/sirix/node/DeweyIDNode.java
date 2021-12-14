@@ -25,7 +25,7 @@ public final class DeweyIDNode implements DataRecord {
   }
 
   @Override
-  public RecordSerializer getKind() {
+  public RecordSerializer getPathKind() {
     return NodeKind.DEWEY_ID_NODE;
   }
 

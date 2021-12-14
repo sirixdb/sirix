@@ -55,7 +55,7 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.BOOLEAN_VALUE;
   }
 

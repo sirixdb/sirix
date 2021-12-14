@@ -61,7 +61,7 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.ARRAY;
   }
 

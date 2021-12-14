@@ -7,6 +7,8 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Optional;
@@ -56,7 +58,7 @@ public final class XQueryUsage {
    *
    * @param args not used
    */
-  public static void main(final String[] args) throws SirixException {
+  public static void main(final String[] args) throws SirixException, NoSuchAlgorithmException {
     try {
       // loadOrgaDocumentAndQuery();
       loadDocumentAndQuery();
@@ -143,7 +145,7 @@ public final class XQueryUsage {
   /**
    * Load a document and update it.
    */
-  private static void loadDocumentAndUpdate() throws QueryException, IOException {
+  private static void loadDocumentAndUpdate() throws QueryException, IOException, NoSuchAlgorithmException {
     // Prepare sample document.
     final Path doc = generateSampleDoc("sample");
 
@@ -176,7 +178,7 @@ public final class XQueryUsage {
   /**
    * Load a document and query it (temporal enhancements).
    */
-  private static void loadDocumentAndQueryTemporal() throws QueryException, IOException, SirixException {
+  private static void loadDocumentAndQueryTemporal() throws QueryException, IOException, SirixException, NoSuchAlgorithmException {
     // Initialize query context and store (implicit transaction commit).
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx1 = SirixQueryContext.createWithNodeStore(store);
@@ -500,10 +502,10 @@ public final class XQueryUsage {
    * @return the generated file
    * @throws IOException if any I/O exception occured
    */
-  private static Path generateSampleDoc(final String prefix) throws IOException {
+  private static Path generateSampleDoc(final String prefix) throws IOException, NoSuchAlgorithmException {
     final Path file = Files.createTempFile(prefix, ".xml");
     final PrintStream out = new PrintStream(new FileOutputStream(file.toFile()));
-    final Random rnd = new Random();
+    final Random rnd = SecureRandom.getInstanceStrong();
     final long now = System.currentTimeMillis();
     final int diff = rnd.nextInt(6000 * 60 * 24 * 7);
     new Date(now - diff);

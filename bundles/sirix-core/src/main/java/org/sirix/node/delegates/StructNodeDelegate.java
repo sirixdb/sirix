@@ -117,8 +117,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public NodeKind getKind() {
-    return nodeDelegate.getKind();
+  public NodeKind getPathKind() {
+    return nodeDelegate.getPathKind();
   }
 
   @Override

@@ -5,9 +5,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.PageTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.xml.AttributeNode;
 
 import java.io.*;
 
@@ -38,15 +35,15 @@ public final class RevisionReferencesNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
+    node.getPathKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final RevisionReferencesNode node2 =
-        (RevisionReferencesNode) node.getKind().deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
+        (RevisionReferencesNode) node.getPathKind().deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
     checkNode(node2);
   }
 
   private void checkNode(RevisionReferencesNode node) {
-    assertEquals(NodeKind.REVISION_REFERENCES_NODE, node.getKind());
+    assertEquals(NodeKind.REVISION_REFERENCES_NODE, node.getPathKind());
     assertEquals(1, node.getNodeKey());
     assertArrayEquals(new int[] { 3, 7, 8, 13 }, node.getRevisions());
 

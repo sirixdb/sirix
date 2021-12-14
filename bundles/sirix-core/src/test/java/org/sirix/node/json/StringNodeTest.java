@@ -70,7 +70,7 @@ public class StringNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
+    node.getPathKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final StringNode node2 =
         (StringNode) NodeKind.STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
@@ -85,7 +85,7 @@ public class StringNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.STRING_VALUE, node.getKind());
+    assertEquals(NodeKind.STRING_VALUE, node.getPathKind());
     assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
     assertTrue(node.hasLeftSibling());

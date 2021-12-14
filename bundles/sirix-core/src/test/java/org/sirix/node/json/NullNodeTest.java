@@ -63,7 +63,7 @@ public class NullNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getPathKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final NullNode node2 =
         (NullNode) NodeKind.NULL_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
@@ -77,7 +77,7 @@ public class NullNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(5L, node.getLeftSiblingKey());
     assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(NodeKind.NULL_VALUE, node.getKind());
+    assertEquals(NodeKind.NULL_VALUE, node.getPathKind());
     assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
     assertTrue(node.hasLeftSibling());

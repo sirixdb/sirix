@@ -15,7 +15,7 @@ import org.sirix.node.interfaces.DataRecord;
 public interface ImmutableNode extends DataRecord {
 
   @Override
-  NodeKind getKind();
+  NodeKind getPathKind();
 
   /**
    * Determines if {@code pOther} is the same item.

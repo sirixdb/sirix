@@ -80,7 +80,7 @@ public class NumberNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
+    node.getPathKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final NumberNode node2 =
         (NumberNode) NodeKind.NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
@@ -95,7 +95,7 @@ public class NumberNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(10.87463D, node.getValue().doubleValue(), 0);
-    assertEquals(NodeKind.NUMBER_VALUE, node.getKind());
+    assertEquals(NodeKind.NUMBER_VALUE, node.getPathKind());
     assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
     assertTrue(node.hasLeftSibling());

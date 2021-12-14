@@ -78,7 +78,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
   }
 
   @Override
-  public NodeKind getKind() {
+  public NodeKind getPathKind() {
     return NodeKind.OBJECT_KEY;
   }
 

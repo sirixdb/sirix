@@ -130,7 +130,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything went wrong
    */
   public long getPathNodeKey(final QNm name, final NodeKind pathKind) {
-    final NodeKind kind = nodeRtx.getNode().getKind();
+    final NodeKind kind = nodeRtx.getNode().getPathKind();
     int level = 0;
     if (kind == NodeKind.XML_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
       pathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
@@ -256,7 +256,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
                                          new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
-                                         new PathKindFilter(pathSummaryReader, node.getKind()));
+                                         new PathKindFilter(pathSummaryReader, node.getPathKind()));
       if (axis.hasNext()) {
         axis.next();
 
@@ -274,7 +274,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       } else {
         if (pathSummaryReader.getKind() == NodeKind.XML_DOCUMENT
             || pathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
-          insertPathAsFirstChild(name, node.getKind(), 1);
+          insertPathAsFirstChild(name, node.getPathKind(), 1);
         } else {
           /* The path summary just needs to be updated for the new renamed node. */
           pathSummaryReader.moveTo(oldPathNodeKey);
@@ -293,7 +293,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
                                          new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
-                                         new PathKindFilter(pathSummaryReader, node.getKind()));
+                                         new PathKindFilter(pathSummaryReader, node.getPathKind()));
       if (axis.hasNext()) {
         axis.next();
 
@@ -472,7 +472,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void processElementNonStructuralNodes(final long pathRootNodeKey, final int level) {
-    if (nodeRtx.getNode().getKind() == NodeKind.ELEMENT) {
+    if (nodeRtx.getNode().getPathKind() == NodeKind.ELEMENT) {
       final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) nodeRtx;
       final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
