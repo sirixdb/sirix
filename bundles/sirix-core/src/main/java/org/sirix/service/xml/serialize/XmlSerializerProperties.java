@@ -71,7 +71,7 @@ public final class XmlSerializerProperties {
   private String mFilePath;
 
   /** Properties. */
-  private final ConcurrentMap<String, Object> mProps = new ConcurrentHashMap<String, Object>();
+  private final ConcurrentMap<String, Object> mProps = new ConcurrentHashMap<>();
 
   /**
    * Constructor.
@@ -121,23 +121,24 @@ public final class XmlSerializerProperties {
 
     try {
       // Read and parse file.
-      final BufferedReader buffReader = new BufferedReader(new FileReader(mFilePath));
-      for (String line = buffReader.readLine(); line != null; line = buffReader.readLine()) {
-        line = line.trim();
-        if (line.isEmpty()) {
-          continue;
+      try (BufferedReader buffReader = new BufferedReader(new FileReader(mFilePath))) {
+        for (String line = buffReader.readLine(); line != null; line = buffReader.readLine()) {
+          line = line.trim();
+          if (line.isEmpty()) {
+            continue;
+          }
+
+          final int equals = line.indexOf('=');
+          if (equals < 0) {
+            LOGGER.error("Properties file has no '=' sign in line -- parsing error!");
+          }
+
+          final String key = line.substring(0, equals).toUpperCase();
+          final Object value = line.substring(equals + 1);
+
+          mProps.put(key, value);
+          buffReader.close();
         }
-
-        final int equals = line.indexOf('=');
-        if (equals < 0) {
-          LOGGER.error("Properties file has no '=' sign in line -- parsing error!");
-        }
-
-        final String key = line.substring(0, equals).toUpperCase();
-        final Object value = line.substring(equals + 1);
-
-        mProps.put(key, value);
-        buffReader.close();
       }
     } catch (final IOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -145,45 +146,6 @@ public final class XmlSerializerProperties {
 
     return mProps;
   }
-
-  // /**
-  // * Writes the properties to disk.
-  // */
-  // public final synchronized void write() {
-  // final File file = new File(mFilePath);
-  //
-  // try {
-  // // User has already specified key/values, so cache it.
-  // final StringBuilder strBuilder = new StringBuilder();
-  // if (file.exists()) {
-  // final BufferedReader buffReader = new BufferedReader(new FileReader(file));
-  //
-  // for (String line = buffReader.readLine(); line != null; line =
-  // buffReader.readLine()) {
-  // strBuilder.append(line + ECharsForSerializing.NEWLINE);
-  // }
-  //
-  // buffReader.close();
-  // }
-  //
-  // // Write map properties to file.
-  // final BufferedWriter buffWriter = new BufferedWriter(new FileWriter(file));
-  // for (final Field f : getClass().getFields()) {
-  // final Object obj = f.get(null);
-  // if (!(obj instanceof Object[]))
-  // continue;
-  // final String key = ((Object[])obj)[0].toString();
-  // final Object value = ((Object[])obj)[1];
-  // buffWriter.write(key + " = " + value + ECharsForSerializing.NEWLINE);
-  // }
-  //
-  // // Append cached properties.
-  // buffWriter.write(strBuilder.toString());
-  // buffWriter.close();
-  // } catch (final Exception e) {
-  // LOGGER.error(e.getMessage(), e);
-  // }
-  // }
 
   /**
    * Get properties map.

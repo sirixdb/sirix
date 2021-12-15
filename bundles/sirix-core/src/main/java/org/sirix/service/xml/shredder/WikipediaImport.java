@@ -191,7 +191,6 @@ public final class WikipediaImport implements Import<StartElement> {
     final StartElement page = data.get(1);
     final StartElement rev = data.get(2);
     final StartElement id = data.get(3);
-    // final StartElement text = pData.get(4);
 
     // Initialize variables.
     mFound = false;
@@ -493,7 +492,7 @@ public final class WikipediaImport implements Import<StartElement> {
         final Attribute attStartTag = (Attribute) itStartTag.next();
         for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext();) {
           final Attribute attElem = (Attribute) itElem.next();
-          if (attStartTag.getName().equals(attElem.getName()) && attStartTag.getName().equals(attElem.getName())) {
+          if (attStartTag.getName().equals(attElem.getName())) {
             foundAtts = true;
             break;
           }
@@ -515,7 +514,7 @@ public final class WikipediaImport implements Import<StartElement> {
         final Namespace nsStartTag = (Namespace) itStartTag.next();
         for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext();) {
           final Namespace nsElem = (Namespace) itElem.next();
-          if (nsStartTag.getName().equals(nsElem.getName()) && nsStartTag.getName().equals(nsElem.getName())) {
+          if (nsStartTag.getName().equals(nsElem.getName())) {
             foundNamesps = true;
             break;
           }
@@ -530,11 +529,7 @@ public final class WikipediaImport implements Import<StartElement> {
       }
 
       // Check if qname, atts and namespaces are the same.
-      if (foundAtts && foundNamesps) {
-        retVal = true;
-      } else {
-        retVal = false;
-      }
+      retVal = foundAtts && foundNamesps;
     }
     return retVal;
   }
@@ -572,7 +567,7 @@ public final class WikipediaImport implements Import<StartElement> {
         eventFactory.createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
     // Create list.
-    final List<StartElement> list = new LinkedList<StartElement>();
+    final List<StartElement> list = new LinkedList<>();
     list.add(timestamp);
     list.add(page);
     list.add(rev);

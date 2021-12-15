@@ -7,10 +7,10 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.SecureRandom;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Optional;
-import java.util.Random;
 import org.brackit.xquery.BrackitQueryContext;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -503,7 +503,7 @@ public final class XQueryUsage {
   private static Path generateSampleDoc(final String prefix) throws IOException {
     final Path file = Files.createTempFile(prefix, ".xml");
     final PrintStream out = new PrintStream(new FileOutputStream(file.toFile()));
-    final Random rnd = new Random();
+    final SecureRandom rnd = new SecureRandom();
     final long now = System.currentTimeMillis();
     final int diff = rnd.nextInt(6000 * 60 * 24 * 7);
     new Date(now - diff);

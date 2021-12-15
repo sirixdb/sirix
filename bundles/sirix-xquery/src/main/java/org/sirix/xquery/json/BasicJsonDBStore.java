@@ -308,6 +308,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       pool.awaitTermination(15, TimeUnit.SECONDS);
       return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException | InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new DocumentException(e.getCause());
     }
   }
@@ -362,6 +363,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       pool.awaitTermination(15, TimeUnit.SECONDS);
       return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException | InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new DocumentException(e.getCause());
     }
   }
@@ -425,6 +427,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       pool.awaitTermination(15, TimeUnit.SECONDS);
       return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException | InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new DocumentException(e.getCause());
     }
   }
