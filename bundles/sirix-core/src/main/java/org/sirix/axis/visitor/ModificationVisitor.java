@@ -2,7 +2,8 @@ package org.sirix.axis.visitor;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Random;
+
+import java.security.SecureRandom;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -37,7 +38,7 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
   private final XmlNodeTrx wtx;
 
   /** Random number generator. */
-  private final Random random = new Random();
+  private final SecureRandom random = new SecureRandom();
 
   /** Start key. */
   private final long startKey;

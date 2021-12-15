@@ -294,6 +294,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       pool.shutdown();
       pool.awaitTermination(5, TimeUnit.SECONDS);
     } catch (final SirixException | InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new DocumentException(e.getCause());
     }
   }

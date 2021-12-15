@@ -131,21 +131,22 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
-    final JsonResourceManager resource = database.openResourceManager(resName);
+    JsonNodeReadOnlyTrx trx;
+    try (final var resource = database.openResourceManager(resName)) {
+      trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
-    JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+        final int revision = trx.getRevisionNumber();
 
-    if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-      final int revision = trx.getRevisionNumber();
+        if (revision > 1) {
+          trx.close();
 
-      if (revision > 1) {
-        trx.close();
+          trx = resource.beginNodeReadOnlyTrx(revision - 1);
+        } else {
+          trx.close();
 
-        trx = resource.beginNodeReadOnlyTrx(revision - 1);
-      } else {
-        trx.close();
-
-        return null;
+          return null;
+        }
       }
     }
 
@@ -153,11 +154,11 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
-    final JsonResourceManager resource = database.openResourceManager(resName);
-    final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
-
-    final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
-
+    final JsonNodeReadOnlyTrx rtx;
+    try (final var resource = database.openResourceManager(resName)) {
+      final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
+      rtx = resource.beginNodeReadOnlyTrx(version);
+    }
     return getItem(rtx);
   }
 
@@ -220,11 +221,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         }
       }
       database.createResource(ResourceConfiguration.newBuilder(resName).useDeweyIDs(true).build());
-      final JsonResourceManager manager = database.openResourceManager(resName);
-      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader);
+      final JsonNodeReadOnlyTrx rtx;
+      try (final var manager = database.openResourceManager(resName)) {
+        try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(reader);
+        }
+        rtx = manager.beginNodeReadOnlyTrx();
       }
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
       rtx.moveToDocumentRoot();
       return getItem(rtx);
     } catch (final SirixException e) {

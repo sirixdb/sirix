@@ -65,12 +65,12 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   /**
    * "Caches" document nodes.
    */
-  private Map<DocumentData, XmlDBNode> documentDataToXmlDBNodes;
+  private final Map<DocumentData, XmlDBNode> documentDataToXmlDBNodes;
 
   /**
    * "Caches" document nodes.
    */
-  private Map<InstantDocumentData, XmlDBNode> instantDocumentDataToXmlDBNodes;
+  private final Map<InstantDocumentData, XmlDBNode> instantDocumentDataToXmlDBNodes;
 
   /**
    * Constructor.
@@ -142,20 +142,21 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
-    return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) ->
+    return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), unused ->
     {
-      final XmlResourceManager resource = database.openResourceManager(resName);
+      XmlNodeReadOnlyTrx trx;
+      try (final var resource = database.openResourceManager(resName)) {
+        trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
-      XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+        if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+          final int revision = trx.getRevisionNumber();
 
-      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-        final int revision = trx.getRevisionNumber();
-
-        trx.close();
-        if (revision > 1) {
-          trx = resource.beginNodeReadOnlyTrx(revision - 1);
-        } else {
-          return null;
+          trx.close();
+          if (revision > 1) {
+            trx = resource.beginNodeReadOnlyTrx(revision - 1);
+          } else {
+            return null;
+          }
         }
       }
 
@@ -167,7 +168,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     if (revision == -1) {
       return createXmlDBNode(revision, resName);
     } else {
-      return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision), (unused) -> createXmlDBNode(revision, resName));
+      return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision), unused -> createXmlDBNode(revision, resName));
     }
   }
 
@@ -213,7 +214,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
         return createXmlDBNode(revision, resourceName);
       } else {
         return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resourceName, revision),
-                                                        (unused) -> createXmlDBNode(revision, resourceName));
+                                                        unused -> createXmlDBNode(revision, resourceName));
       }
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
@@ -271,20 +272,6 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     instantDocumentDataToXmlDBNodes.put(new InstantDocumentData(resourceName, wtx.getRevisionTimestamp()), xmlDBNode);
     return xmlDBNode;
   }
-
-  //  public XmlDBNode add(final String resourceName, final XMLEventReader reader) {
-  //    try {
-  //      database.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
-  //      final XmlResourceManager resource = database.openResourceManager(resourceName);
-  //      final XmlNodeTrx wtx = resource.beginNodeTrx();
-  //      wtx.insertSubtreeAsFirstChild(reader);
-  //      wtx.moveToDocumentRoot();
-  //      return new XmlDBNode(wtx, this);
-  //    } catch (final SirixException e) {
-  //      LOGGER.error(e.getMessage(), e);
-  //      return null;
-  //    }
-  //  }
 
   @Override
   public void close() {
