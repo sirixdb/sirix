@@ -27,8 +27,6 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /**
  * <p>
