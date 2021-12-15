@@ -51,6 +51,7 @@ public final class TreeModifierImpl implements TreeModifier {
   public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodePageReadOnlyTrx pageRtx,
       final TransactionIntentLog log, final @Nonnegative int baseRevision, final @Nonnegative int representRevision) {
     final RevisionRootPage revisionRootPage;
+
     if (uberPage.isBootstrap()) {
       revisionRootPage = pageRtx.loadRevRoot(baseRevision);
     } else {
@@ -67,12 +68,11 @@ public final class TreeModifierImpl implements TreeModifier {
                                                                         IndexType.REVISIONS,
                                                                         revisionRootPage);
 
-      // Link the prepared revision root nodePageReference with the prepared
-      // indirect tree.
+      // Link the prepared revision root nodePageReference with the prepared indirect tree.
       log.put(revisionRootPageReference, PageContainer.getInstance(revisionRootPage, revisionRootPage));
-
-      // Return prepared revision root nodePageReference.
     }
+
+    // Return prepared revision root nodePageReference.
     return revisionRootPage;
   }
 

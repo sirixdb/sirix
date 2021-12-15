@@ -48,6 +48,10 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -119,6 +123,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   private RecordPage mostRecentlyReadRecordPage;
 
+  private final ExecutorService pool;
+
   /**
    * Standard constructor.
    *
@@ -146,6 +152,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     this.resourceConfig = resourceManager.getResourceConfig();
     this.pageReader = checkNotNull(reader);
     this.uberPage = checkNotNull(uberPage);
+    this.pool = Executors.newFixedThreadPool(resourceConfig.numberOfRevisionsToRestore - 1);
 
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
@@ -171,12 +178,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (page == null) {
           page = pageReader.read(reference, this);
 
-          if (page != null && trxIntentLog == null) {
+          if (page != null) {
             assert reference.getLogKey() == Constants.NULL_ID_INT
                 && reference.getPersistentLogKey() == Constants.NULL_ID_LONG;
-            // Put page into buffer manager and set page reference (just to
-            // track when the in-memory page must be removed).
-            resourceBufferManager.getPageCache().put(reference, page);
+            if (trxIntentLog == null) {
+              // Put page into buffer manager.
+              resourceBufferManager.getPageCache().put(reference, page);
+            }
             reference.setPage(page);
           }
         }
@@ -287,8 +295,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
       return revisionRootPage;
     } else {
-      // The indirect page reference either fails horribly or returns a non null
-      // instance.
+      // The indirect page reference either fails horribly or returns a non null instance.
       final PageReference reference =
           getReferenceToLeafOfSubtree(uberPage.getIndirectPageReference(), revisionKey, -1, IndexType.REVISIONS);
 
@@ -445,8 +452,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(
-      final PageReference pageReference) {
+  <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();
     final int revsToRestore = config.numberOfRevisionsToRestore;
@@ -455,16 +461,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final var pageFragments = pageReference.getPageFragments();
 
-    if (pageFragments.isEmpty()) {
-      @SuppressWarnings("unchecked")
-      final T page = (T) pageReader.read(pageReference, this);
-      pages.add(page);
-    } else {
-      final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(pageFragments.size() + 1);
-      pageFragmentKeys.add(new PageFragmentKeyImpl(rootPage.getRevision(), pageReference.getKey()));
-      pageFragmentKeys.addAll(pageFragments);
-      pages.addAll(getPreviousPageFragments(pageFragmentKeys));
+    @SuppressWarnings("unchecked") final T page = (T) pageReader.read(pageReference, this);
+    pages.add(page);
+
+    if (pageFragments.isEmpty() || ((UnorderedKeyValuePage) page).entrySet().size() == Constants.NDP_NODE_COUNT) {
+      return pages;
     }
+
+    final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(pageFragments.size() + 1);
+    pageFragmentKeys.addAll(pageFragments);
+    pages.addAll(getPreviousPageFragments(pageFragmentKeys));
 
     return pages;
   }
@@ -472,16 +478,29 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @SuppressWarnings("unchecked")
   private <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPreviousPageFragments(
       final Collection<PageFragmentKey> pageFragments) {
-    return pageFragments.stream().map(pageFragmentKey -> {
-      if (pageFragmentKey.revision() == rootPage.getRevision()) {
-        return (T) pageReader.read(new PageReference().setKey(pageFragmentKey.key()), this);
-      } else {
-        try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.revision())) {
-          return (T) pageReadOnlyTrx.getReader()
-                                    .read(new PageReference().setKey(pageFragmentKey.key()), pageReadOnlyTrx);
-        }
-      }
-    }).sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed()).collect(Collectors.toList());
+    final var pages = pageFragments.stream()
+                                   .map(CompletableFuture::completedFuture)
+                                   .map(future -> future.thenApplyAsync(pageFragmentKey -> (T) readPage(pageFragmentKey),
+                                                                        pool))
+                                   .collect(Collectors.toList());
+
+    return sequence(pages).join()
+                          .stream()
+                          .sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed())
+                          .collect(Collectors.toList());
+  }
+
+  private Page readPage(final PageFragmentKey pageFragmentKey) {
+    try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.revision())) {
+      return pageReadOnlyTrx.getReader().read(new PageReference().setKey(pageFragmentKey.key()), pageReadOnlyTrx);
+    }
+  }
+
+  static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {
+    return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0]))
+                            .thenApply(v -> listOfCompletableFutures.stream()
+                                                                    .map(CompletableFuture::join)
+                                                                    .collect(Collectors.toList()));
   }
 
   /**
@@ -564,8 +583,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int maxHeight = getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber, null);
 
     // Iterate through all levels.
-    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length; level < height;
-        level++) {
+    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
+         level < height; level++) {
       final Page derefPage = dereferenceIndirectPageReference(reference);
       if (derefPage == null) {
         reference = null;
@@ -650,6 +669,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
       if (resourceManager.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceManager.closePageReadTransaction(trxId);
+      }
+
+      pool.shutdownNow();
+      try {
+        pool.awaitTermination(2, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
       }
 
       isClosed = true;

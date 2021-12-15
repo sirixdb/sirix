@@ -235,7 +235,6 @@ public class XmlResourceManagerTest {
     }
   }
 
-  @Ignore
   @Test
   public void testAutoCommitWithScheduler() throws InterruptedException {
     // After 500 milliseconds commit.
@@ -245,7 +244,6 @@ public class XmlResourceManagerTest {
     }
   }
 
-  @Ignore
   @Test
   public void testFetchingOfClosestRevisionToAGivenPointInTime() throws InterruptedException {
     final Instant start = Instant.now();
