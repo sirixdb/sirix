@@ -23,8 +23,8 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
 
     pageCache = Caffeine.newBuilder()
                         .maximumSize(maxSize)
-                        .expireAfterWrite(5, TimeUnit.SECONDS)
-                        .expireAfterAccess(5, TimeUnit.SECONDS)
+                        .expireAfterWrite(15, TimeUnit.SECONDS)
+                        .expireAfterAccess(15, TimeUnit.SECONDS)
                         .removalListener(removalListener)
                         .build();
   }

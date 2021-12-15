@@ -337,7 +337,7 @@ class SirixVerticle : CoroutineVerticle() {
             val printWriter = PrintWriter(out)
 
             printWriter.use {
-                failure.printStackTrace(printWriter)
+                failure?.printStackTrace(printWriter)
                 printWriter.flush()
 
                 if (statusCode == -1) {
