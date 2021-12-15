@@ -87,7 +87,7 @@ public class ElementNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID(), mPageReadTrx);
@@ -108,7 +108,7 @@ public class ElementNodeTest {
     assertEquals(18, node.getPrefixKey());
     assertEquals(19, node.getLocalNameKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(NodeKind.ELEMENT, node.getPathKind());
+    assertEquals(NodeKind.ELEMENT, node.getKind());
     assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

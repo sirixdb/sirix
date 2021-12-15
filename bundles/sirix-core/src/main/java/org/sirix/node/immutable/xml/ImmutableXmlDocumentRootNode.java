@@ -78,8 +78,8 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return mNode.getPathKind();
+  public NodeKind getKind() {
+    return mNode.getKind();
   }
 
   @Override

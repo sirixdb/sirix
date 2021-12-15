@@ -80,7 +80,7 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.ARRAY;
   }
 

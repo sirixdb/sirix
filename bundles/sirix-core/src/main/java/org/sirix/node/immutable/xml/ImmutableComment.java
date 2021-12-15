@@ -79,8 +79,8 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return mNode.getPathKind();
+  public NodeKind getKind() {
+    return mNode.getKind();
   }
 
   @Override

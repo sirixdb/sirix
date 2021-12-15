@@ -130,7 +130,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.ATOMIC;
   }
 

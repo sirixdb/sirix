@@ -53,7 +53,7 @@ public final class NumberNode extends AbstractNumberNode {
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.NUMBER_VALUE;
   }
 

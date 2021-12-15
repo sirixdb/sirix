@@ -30,8 +30,8 @@ public final class ImmutableRBNodeImpl<K extends Comparable<? super K>, V> exten
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return node.getPathKind();
+  public NodeKind getKind() {
+    return node.getKind();
   }
 
   @Override

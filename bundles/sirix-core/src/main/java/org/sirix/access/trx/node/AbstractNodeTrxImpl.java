@@ -212,6 +212,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                     TimeUnit.MILLISECONDS);
         }
 
+        // // Redo last transaction if the system crashed.
+        // if (!pPageWriteTrx.isCreated()) {
+        // try {
+        // commit();
+        // } catch (final SirixException e) {
+        // throw new IllegalStateException(e);
+        // }
+        // }
     }
 
     protected abstract W self();
@@ -250,7 +258,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
      */
     protected void postOrderTraversalHashes() {
         new PostOrderAxis(this, IncludeSelf.YES)
-                .forEach(unused -> nodeHashing.addHashAndDescendantCount());
+                .forEach((unused) -> nodeHashing.addHashAndDescendantCount());
     }
 
     @Override
@@ -559,7 +567,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                 try {
                     commitScheduler.awaitTermination(2, TimeUnit.SECONDS);
                 } catch (final InterruptedException e) {
-                    Thread.currentThread().interrupt();
                     throw new SirixThreadedException(e);
                 }
             }

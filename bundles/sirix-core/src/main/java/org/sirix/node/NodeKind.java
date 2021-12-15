@@ -23,6 +23,7 @@ package org.sirix.node;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.hash.HashFunction;
+import com.google.common.primitives.Ints;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
@@ -594,7 +595,7 @@ public enum NodeKind implements NodePersistenter {
                               sink,
                               pageReadTrx.getResourceManager().getResourceConfig());
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
-      sink.writeByte(node.getKind().getId());
+      sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
       sink.writeInt(node.getLevel());
     }
@@ -1980,7 +1981,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public NodeKind getPathKind() {
+    public NodeKind getKind() {
       return NodeKind.NULL;
     }
 

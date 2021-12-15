@@ -53,7 +53,7 @@ public final class ImmutableObjectNullNode extends AbstractImmutableJsonStructur
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.NULL_VALUE;
   }
 

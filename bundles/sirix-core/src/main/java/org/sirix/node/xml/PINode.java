@@ -84,7 +84,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.PROCESSING_INSTRUCTION;
   }
 

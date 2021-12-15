@@ -31,6 +31,22 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   private final RecordSerializer recordPersister;
 
   /**
+   * Copy constructor.
+   *
+   * @param pageReadOnlyTrx the page read-only trx
+   * @param pageToClone     the page to clone
+   */
+  public HashedKeyValuePage(final PageReadOnlyTrx pageReadOnlyTrx, final HashedKeyValuePage<K> pageToClone) {
+    resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
+    this.pageReadOnlyTrx = pageToClone.pageReadOnlyTrx;
+    records = pageToClone.records;
+    revision = pageToClone.revision;
+    recordPageKey = pageToClone.recordPageKey;
+    indexType = pageToClone.indexType;
+    recordPersister = pageToClone.recordPersister;
+  }
+
+  /**
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *
    * @param recordPageKey   base key assigned to this node page
@@ -41,7 +57,8 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
-    if (pageReadOnlyTrx == null) throw new AssertionError("The page reading trx must not be null!");
+    assert recordPageKey >= 0 : "recordPageKey must not be negative!";
+    assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
 
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
@@ -58,7 +75,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
    * @param in              input bytes to read page from
    * @param pageReadOnlyTrx {@link PageReadOnlyTrx} implementation
    */
-  HashedKeyValuePage(final DataInput in, final PageReadOnlyTrx pageReadOnlyTrx) throws IOException {
+  protected HashedKeyValuePage(final DataInput in, final PageReadOnlyTrx pageReadOnlyTrx) throws IOException {
     this.pageReadOnlyTrx = pageReadOnlyTrx;
 
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();

@@ -352,6 +352,9 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
           commit();
         }
 
+//      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+//        System.out.println(nodeReadOnlyTrx.getDeweyID());
+//      }
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -447,8 +450,10 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
             if (nodeKind == NodeKind.OBJECT)
               skipRootJsonToken = true;
           }
-          else if (item.itemType().isListOrUnion() && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
-            throw new IllegalStateException("Current node in storage must be an array node.");
+          else if (item.itemType().isListOrUnion()) {
+            if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+              throw new IllegalStateException("Current node in storage must be an array node.");
+            }
           }
         }
         case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
@@ -509,6 +514,9 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
         commit();
       }
 
+      //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+      //        System.out.println(nodeReadOnlyTrx.getDeweyID());
+      //      }
     });
     return this;
   }
@@ -531,7 +539,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final long rightSibKey =
               kind == NodeKind.OBJECT_KEY ? Fixed.NULL_NODE_KEY.getStandardProperty() : structNode.getFirstChildKey();
 
-      final SirixDeweyID id = structNode.getPathKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
               ? deweyIDManager.newRecordValueID()
               : deweyIDManager.newFirstChildID();
 
@@ -567,7 +575,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
               kind == NodeKind.OBJECT_KEY ? Fixed.NULL_NODE_KEY.getStandardProperty() : structNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-      final SirixDeweyID id = structNode.getPathKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
               ? deweyIDManager.newRecordValueID()
               : ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
 
@@ -590,8 +598,10 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     return supplyLocked(() -> {
       checkAccessAndCommit();
 
-      if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
-        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+      if (!nodeHashing.isBulkInsert()) {
+        if (getParentKind() != NodeKind.ARRAY) {
+          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+        }
       }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
@@ -621,8 +631,10 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     return supplyLocked(() -> {
       checkAccessAndCommit();
 
-      if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
-        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+      if (!nodeHashing.isBulkInsert()) {
+        if (getParentKind() != NodeKind.ARRAY) {
+          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+        }
       }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
@@ -763,8 +775,12 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
                                         newNodeKey,
                                         oldNodeKey,
-            new DiffDepth(level, level));
-    updateOperationsOrdered.put(id, diffTuple);
+                                        id == null ? null : new DiffDepth(level, level));
+    if (id == null) {
+      updateOperationsUnordered.put(newNodeKey, diffTuple);
+    } else {
+      updateOperationsOrdered.put(id, diffTuple);
+    }
   }
 
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
@@ -906,7 +922,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
 
-      final SirixDeweyID id = currentNode.getPathKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
               ? deweyIDManager.newRecordValueID()
               : deweyIDManager.newFirstChildID();
 
@@ -945,7 +961,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
 
-      final SirixDeweyID id = currentNode.getPathKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
               ? deweyIDManager.newRecordValueID()
               : ((currentNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
 
@@ -1156,9 +1172,9 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   private long getPathNodeKey(StructNode structNode) {
     final long pathNodeKey;
 
-    if (structNode.getPathKind() == NodeKind.ARRAY) {
+    if (structNode.getKind() == NodeKind.ARRAY) {
       pathNodeKey = ((ArrayNode) structNode).getPathNodeKey();
-    } else if (structNode.getPathKind() == NodeKind.OBJECT_KEY) {
+    } else if (structNode.getKind() == NodeKind.OBJECT_KEY) {
       pathNodeKey = ((ObjectKeyNode) structNode).getPathNodeKey();
     } else {
       pathNodeKey = -1;
@@ -1707,7 +1723,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     checkAccessAndCommit();
     return supplyLocked(() -> {
       final StructNode node = (StructNode) getCurrentNode();
-      if (node.getPathKind() == NodeKind.JSON_DOCUMENT) {
+      if (node.getKind() == NodeKind.JSON_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       }
 
@@ -1744,7 +1760,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       }
 
       // Remove the name of subtree-root.
-      if (node.getPathKind() == NodeKind.OBJECT_KEY) {
+      if (node.getKind() == NodeKind.OBJECT_KEY) {
         removeName();
       } else {
         removeValue();
@@ -1787,18 +1803,18 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
   private void removeValue() {
     final var currentNode = getCurrentNode();
-    if (currentNode.getPathKind() == NodeKind.OBJECT_STRING_VALUE || currentNode.getPathKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || currentNode.getPathKind() == NodeKind.OBJECT_BOOLEAN_VALUE || currentNode.getPathKind() == NodeKind.STRING_VALUE
-        || currentNode.getPathKind() == NodeKind.NUMBER_VALUE || currentNode.getPathKind() == NodeKind.BOOLEAN_VALUE) {
+    if (currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
+        || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.BOOLEAN_VALUE) {
       final long nodeKey = getNodeKey();
 
       final long pathNodeKey;
 
       assert moveToParent().hasMoved();
 
-      if (getNode().getPathKind() == NodeKind.ARRAY) {
+      if (getNode().getKind() == NodeKind.ARRAY) {
         pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
-      } else if (getNode().getPathKind() == NodeKind.OBJECT_KEY) {
+      } else if (getNode().getKind() == NodeKind.OBJECT_KEY) {
         pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
       } else {
         pathNodeKey = -1;
@@ -1817,7 +1833,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   private void removeName() {
     if (getCurrentNode() instanceof ImmutableNameNode node) {
       indexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
-      final NodeKind nodeKind = node.getPathKind();
+      final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
       page.removeName(node.getLocalNameKey(), nodeKind, pageTrx);
 
@@ -1840,13 +1856,13 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final BigInteger oldHash = node.computeHash();
 
       // Remove old keys from mapping.
-      final NodeKind nodeKind = node.getPathKind();
+      final NodeKind nodeKind = node.getKind();
       final int oldNameKey = node.getNameKey();
       final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
       page.removeName(oldNameKey, nodeKind, pageTrx);
 
       // Create new key for mapping.
-      final int newNameKey = pageTrx.createNameKey(key, node.getPathKind());
+      final int newNameKey = pageTrx.createNameKey(key, node.getKind());
 
       // Set new keys for current node.
       node = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
@@ -2095,7 +2111,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     }
 
     // Remove non structural nodes of old node.
-    if (oldNode.getPathKind() == NodeKind.ELEMENT) {
+    if (oldNode.getKind() == NodeKind.ELEMENT) {
       moveTo(oldNode.getNodeKey());
       // removeNonStructural();
     }

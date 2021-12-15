@@ -74,7 +74,7 @@ public class BooleanNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, pageTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final BooleanNode node2 =
         (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
@@ -89,7 +89,7 @@ public class BooleanNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertTrue(node.getValue());
-    assertEquals(NodeKind.BOOLEAN_VALUE, node.getPathKind());
+    assertEquals(NodeKind.BOOLEAN_VALUE, node.getKind());
     assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
     assertTrue(node.hasLeftSibling());

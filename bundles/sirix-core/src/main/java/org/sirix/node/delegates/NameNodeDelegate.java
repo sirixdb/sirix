@@ -97,7 +97,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.UNKNOWN;
   }
 

@@ -100,7 +100,7 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.UNKNOWN;
   }
 
@@ -122,7 +122,7 @@ public class NodeDelegate implements Node {
 
   @Override
   public BigInteger computeHash() {
-    final Funnel<Node> nodeFunnel = (Node node, PrimitiveSink into) -> into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getPathKind().getId());
+    final Funnel<Node> nodeFunnel = (Node node, PrimitiveSink into) -> into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
 
     return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, mHashFunction.hashObject(this, nodeFunnel).asBytes()));
   }

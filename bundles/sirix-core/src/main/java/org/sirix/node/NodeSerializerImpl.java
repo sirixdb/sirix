@@ -29,7 +29,7 @@ public final class NodeSerializerImpl implements NodePersistenter {
   @Override
   public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
       throws IOException {
-    final NodeKind nodeKind = (NodeKind) record.getPathKind();
+    final NodeKind nodeKind = (NodeKind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);
     nodeKind.serialize(sink, record, pageReadTrx);

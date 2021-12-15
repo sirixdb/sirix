@@ -108,7 +108,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.TEXT;
   }
 

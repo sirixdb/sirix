@@ -26,7 +26,7 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.DEWEYIDMAPPING;
   }
 

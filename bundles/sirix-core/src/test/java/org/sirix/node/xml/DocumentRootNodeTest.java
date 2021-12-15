@@ -78,7 +78,7 @@ public class DocumentRootNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final XmlDocumentRootNode node2 =
         (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
@@ -94,7 +94,7 @@ public class DocumentRootNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
     assertEquals(0L, node.getChildCount());
-    assertEquals(NodeKind.XML_DOCUMENT, node.getPathKind());
+    assertEquals(NodeKind.XML_DOCUMENT, node.getKind());
   }
 
 }

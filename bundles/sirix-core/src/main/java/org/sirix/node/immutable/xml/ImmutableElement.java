@@ -130,8 +130,8 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return mNode.getPathKind();
+  public NodeKind getKind() {
+    return mNode.getKind();
   }
 
   @Override

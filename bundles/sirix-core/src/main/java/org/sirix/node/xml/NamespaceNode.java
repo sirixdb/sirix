@@ -94,7 +94,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.NAMESPACE;
   }
 

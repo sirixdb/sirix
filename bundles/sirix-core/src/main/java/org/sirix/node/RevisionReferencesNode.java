@@ -27,7 +27,7 @@ public final class RevisionReferencesNode implements DataRecord {
   }
 
   @Override
-  public RecordSerializer getPathKind() {
+  public RecordSerializer getKind() {
     return NodeKind.REVISION_REFERENCES_NODE;
   }
 

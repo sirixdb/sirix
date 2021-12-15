@@ -60,7 +60,7 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     if (key instanceof Long) {
       return NodeKind.PATHRB;
     }

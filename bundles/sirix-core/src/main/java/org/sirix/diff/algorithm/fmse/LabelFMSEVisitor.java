@@ -74,10 +74,10 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
       addLeafLabel();
       rtx.moveTo(nodeKey);
     }
-    if (!labels.containsKey(node.getPathKind())) {
-      labels.put(node.getPathKind(), new ArrayList<Long>());
+    if (!labels.containsKey(node.getKind())) {
+      labels.put(node.getKind(), new ArrayList<Long>());
     }
-    labels.get(node.getPathKind()).add(node.getNodeKey());
+    labels.get(node.getKind()).add(node.getNodeKey());
     return VisitResultType.CONTINUE;
   }
 

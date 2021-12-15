@@ -158,7 +158,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
       cursorToRoot = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       hashCodeForParent = getCurrentNode().computeHash().add(hashCodeForParent.multiply(PRIME));
       // Caring about attributes and namespaces if node is an element.
-      if (cursorToRoot.getPathKind() == NodeKind.ELEMENT) {
+      if (cursorToRoot.getKind() == NodeKind.ELEMENT) {
         final ElementNode currentElement = (ElementNode) cursorToRoot;
         // setting the attributes and namespaces
         final int attCount = ((ElementNode) cursorToRoot).getAttributeCount();
@@ -285,10 +285,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
     BigInteger newHash;
     BigInteger possibleOldHash = BigInteger.ZERO;
 
-    if (startNode.getPathKind() == NodeKind.STRING_VALUE || startNode.getPathKind() == NodeKind.OBJECT_STRING_VALUE
-        || startNode.getPathKind() == NodeKind.BOOLEAN_VALUE || startNode.getPathKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || startNode.getPathKind() == NodeKind.NUMBER_VALUE || startNode.getPathKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || startNode.getPathKind() == NodeKind.NULL_VALUE || startNode.getPathKind() == NodeKind.OBJECT_NULL_VALUE) {
+    if (startNode.getKind() == NodeKind.STRING_VALUE || startNode.getKind() == NodeKind.OBJECT_STRING_VALUE
+        || startNode.getKind() == NodeKind.BOOLEAN_VALUE || startNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
+        || startNode.getKind() == NodeKind.NUMBER_VALUE || startNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || startNode.getKind() == NodeKind.NULL_VALUE || startNode.getKind() == NodeKind.OBJECT_NULL_VALUE) {
       nodeReadOnlyTrx.moveTo(startNode.getParentKey());
     }
 

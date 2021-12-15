@@ -48,7 +48,7 @@ public final class ImmutableJsonDocumentRootNode extends AbstractImmutableJsonSt
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.XML_DOCUMENT;
   }
 

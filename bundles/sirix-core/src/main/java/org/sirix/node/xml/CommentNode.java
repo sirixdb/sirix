@@ -68,7 +68,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.COMMENT;
   }
 

@@ -71,7 +71,7 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.OBJECT;
   }
 

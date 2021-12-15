@@ -27,9 +27,12 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.PageTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.interfaces.DataRecord;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
 import java.io.ByteArrayInputStream;
@@ -78,7 +81,7 @@ public class ObjectNumberNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ObjectNumberNode node2 = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(new DataInputStream(in),
                                                                                                node.getNodeKey(),
@@ -95,7 +98,7 @@ public class ObjectNumberNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
     assertEquals(10.87463D, node.getValue().doubleValue(), 0);
-    assertEquals(NodeKind.OBJECT_NUMBER_VALUE, node.getPathKind());
+    assertEquals(NodeKind.OBJECT_NUMBER_VALUE, node.getKind());
     assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
     assertFalse(node.hasLeftSibling());

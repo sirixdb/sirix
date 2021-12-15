@@ -9,7 +9,7 @@ public final class HashEntryNodeTest {
   public void test() {
     final var node = new HashEntryNode(1, 3247389, "foobar");
 
-    assertEquals(NodeKind.HASH_ENTRY, node.getPathKind());
+    assertEquals(NodeKind.HASH_ENTRY, node.getKind());
     assertEquals(1, node.getNodeKey());
     assertEquals(3247389, node.getKey());
     assertEquals(-1168208943, node.hashCode());

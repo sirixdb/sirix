@@ -155,7 +155,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.UNKNOWN;
   }
 

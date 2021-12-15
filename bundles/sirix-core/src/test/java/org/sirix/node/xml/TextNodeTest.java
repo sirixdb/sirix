@@ -80,7 +80,7 @@ public class TextNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID(), mPageReadTrx);
@@ -96,7 +96,7 @@ public class TextNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.TEXT, node.getPathKind());
+    assertEquals(NodeKind.TEXT, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

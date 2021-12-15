@@ -190,7 +190,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   RBNode<K, V> getCurrentNode() {
     assertNotClosed();
-    if (currentNode.getPathKind() != NodeKind.XML_DOCUMENT && currentNode.getPathKind() != NodeKind.JSON_DOCUMENT) {
+    if (currentNode.getKind() != NodeKind.XML_DOCUMENT && currentNode.getKind() != NodeKind.JSON_DOCUMENT) {
       @SuppressWarnings("unchecked")
       final RBNode<K, V> node = (RBNode<K, V>) currentNode;
       return node;
@@ -636,7 +636,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     assertNotClosed();
     final NodeKind firstChildKind;
     if (moveToFirstChild().hasMoved()) {
-      firstChildKind = getNode().getPathKind();
+      firstChildKind = getNode().getKind();
       moveToParent();
     } else {
       firstChildKind = NodeKind.UNKNOWN;
@@ -649,7 +649,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     assertNotClosed();
     final NodeKind lastChildKind;
     if (moveToLastChild().hasMoved()) {
-      lastChildKind = getNode().getPathKind();
+      lastChildKind = getNode().getKind();
       moveToParent();
     } else {
       lastChildKind = NodeKind.UNKNOWN;
@@ -672,7 +672,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    return currentNode.getPathKind();
+    return currentNode.getKind();
   }
 
   @Override

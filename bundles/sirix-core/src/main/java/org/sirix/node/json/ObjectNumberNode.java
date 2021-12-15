@@ -50,7 +50,7 @@ public final class ObjectNumberNode extends AbstractNumberNode {
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.OBJECT_NUMBER_VALUE;
   }
 

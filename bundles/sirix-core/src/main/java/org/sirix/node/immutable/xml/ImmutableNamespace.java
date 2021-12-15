@@ -79,8 +79,8 @@ public class ImmutableNamespace implements ImmutableNameNode, ImmutableXmlNode {
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return mNode.getPathKind();
+  public NodeKind getKind() {
+    return mNode.getKind();
   }
 
   @Override

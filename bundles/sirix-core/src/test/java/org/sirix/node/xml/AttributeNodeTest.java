@@ -82,7 +82,7 @@ public class AttributeNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, pageReadOnlyTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageReadOnlyTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(),
                                                                                node.getDeweyID(), pageReadOnlyTrx);
@@ -100,9 +100,9 @@ public class AttributeNodeTest {
 
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.ATTRIBUTE, node.getPathKind());
+    assertEquals(NodeKind.ATTRIBUTE, node.getKind());
     assertEquals(true, node.hasParent());
-    assertEquals(NodeKind.ATTRIBUTE, node.getPathKind());
+    assertEquals(NodeKind.ATTRIBUTE, node.getKind());
     assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
   }
 

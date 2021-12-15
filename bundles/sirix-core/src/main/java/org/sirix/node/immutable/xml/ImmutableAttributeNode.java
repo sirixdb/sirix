@@ -84,8 +84,8 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return node.getPathKind();
+  public NodeKind getKind() {
+    return node.getKind();
   }
 
   @Override

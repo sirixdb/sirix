@@ -28,6 +28,7 @@ import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.xml.TextNode;
+import org.sirix.page.PageKind;
 import org.sirix.settings.Fixed;
 
 /**
@@ -56,7 +57,7 @@ public enum InsertPos {
       if (toNode.hasFirstChild()) {
         wtx.moveTo(toNode.getFirstChildKey());
 
-        if (wtx.getKind() == NodeKind.TEXT && fromNode.getPathKind() == NodeKind.TEXT) {
+        if (wtx.getKind() == NodeKind.TEXT && fromNode.getKind() == NodeKind.TEXT) {
           final StringBuilder builder = new StringBuilder(wtx.getValue());
 
           // Adapt right sibling key of moved node.
@@ -148,7 +149,7 @@ public enum InsertPos {
 
       final boolean hasMoved = wtx.moveTo(toNode.getRightSiblingKey()).hasMoved();
 
-      if (fromNode.getPathKind() == NodeKind.TEXT && toNode.getPathKind() == NodeKind.TEXT) {
+      if (fromNode.getKind() == NodeKind.TEXT && toNode.getKind() == NodeKind.TEXT) {
         // Merge text: FROM and TO are of TEXT_KIND.
         wtx.moveTo(toNode.getNodeKey());
         final StringBuilder builder = new StringBuilder(wtx.getValue());
@@ -181,7 +182,7 @@ public enum InsertPos {
         // Remove first child.
         wtx.moveTo(toNode.getNodeKey());
         wtx.remove();
-      } else if (hasMoved && fromNode.getPathKind() == NodeKind.TEXT && wtx.getKind() == NodeKind.TEXT) {
+      } else if (hasMoved && fromNode.getKind() == NodeKind.TEXT && wtx.getKind() == NodeKind.TEXT) {
         // Merge text: RIGHT and FROM are of TEXT_KIND.
         final StringBuilder builder = new StringBuilder(wtx.getValue());
 

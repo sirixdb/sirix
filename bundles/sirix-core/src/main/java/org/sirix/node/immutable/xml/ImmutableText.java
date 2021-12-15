@@ -78,8 +78,8 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
   }
 
   @Override
-  public NodeKind getPathKind() {
-    return mNode.getPathKind();
+  public NodeKind getKind() {
+    return mNode.getKind();
   }
 
   @Override

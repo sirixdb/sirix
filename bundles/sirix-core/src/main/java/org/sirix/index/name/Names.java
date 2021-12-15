@@ -11,6 +11,7 @@ import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 import com.google.common.collect.HashBiMap;
 
@@ -65,7 +66,7 @@ public final class Names {
       final long nodeKeyOfNode = i;
       final Optional<? extends DataRecord> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, IndexType.NAME, indexNumber);
 
-      if (nameNode.isPresent() && nameNode.get().getPathKind() != NodeKind.DELETE) {
+      if (nameNode.isPresent() && nameNode.get().getKind() != NodeKind.DELETE) {
         final HashEntryNode hashEntryNode = (HashEntryNode) nameNode.orElseThrow(
             () -> new IllegalStateException("Node couldn't be fetched from persistent storage: " + nodeKeyOfNode));
 

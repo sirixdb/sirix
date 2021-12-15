@@ -52,7 +52,7 @@ public final class ObjectBooleanNode extends AbstractBooleanNode {
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 

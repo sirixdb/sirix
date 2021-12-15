@@ -67,7 +67,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.JSON_DOCUMENT;
   }
 

@@ -106,7 +106,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public NodeKind getPathKind() {
+  public NodeKind getKind() {
     return NodeKind.ATTRIBUTE;
   }
 

@@ -141,7 +141,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (currentNode instanceof StructNode && hasLeftSibling()) {
       final long nodeKey = currentNode.getNodeKey();
       moveToLeftSibling();
-      final NodeKind leftSiblKind = currentNode.getPathKind();
+      final NodeKind leftSiblKind = currentNode.getKind();
       moveTo(nodeKey);
       return leftSiblKind;
     }
@@ -179,7 +179,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    return pageReadOnlyTrx.getName(key, currentNode.getPathKind());
+    return pageReadOnlyTrx.getName(key, currentNode.getKind());
   }
 
   @Override
@@ -192,7 +192,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (node instanceof ObjectKeyNode) {
       return ((ObjectKeyNode) node).getPathNodeKey();
     }
-    if (node.getPathKind() == NodeKind.XML_DOCUMENT || node.getPathKind() == NodeKind.JSON_DOCUMENT) {
+    if (node.getKind() == NodeKind.XML_DOCUMENT || node.getKind() == NodeKind.JSON_DOCUMENT) {
       return 0;
     }
     return -1;
@@ -294,7 +294,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    return currentNode.getPathKind();
+    return currentNode.getKind();
   }
 
   /**
@@ -409,7 +409,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
     final long nodeKey = node.getNodeKey();
     moveToParent();
-    final NodeKind parentKind = currentNode.getPathKind();
+    final NodeKind parentKind = currentNode.getKind();
     moveTo(nodeKey);
     return parentKind;
   }
@@ -444,7 +444,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (node instanceof StructNode && hasLastChild()) {
       final long nodeKey = node.getNodeKey();
       moveToLastChild();
-      final NodeKind lastChildKind = currentNode.getPathKind();
+      final NodeKind lastChildKind = currentNode.getKind();
       moveTo(nodeKey);
       return lastChildKind;
     }
@@ -458,7 +458,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (node instanceof StructNode && hasFirstChild()) {
       final long nodeKey = node.getNodeKey();
       moveToFirstChild();
-      final NodeKind firstChildKind = currentNode.getPathKind();
+      final NodeKind firstChildKind = currentNode.getKind();
       moveTo(nodeKey);
       return firstChildKind;
     }
@@ -510,7 +510,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (node instanceof StructNode && hasRightSibling()) {
       final long nodeKey = node.getNodeKey();
       moveToRightSibling();
-      final NodeKind rightSiblKind = currentNode.getPathKind();
+      final NodeKind rightSiblKind = currentNode.getKind();
       moveTo(nodeKey);
       return rightSiblKind;
     }

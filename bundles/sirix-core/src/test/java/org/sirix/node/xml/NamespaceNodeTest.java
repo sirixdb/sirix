@@ -75,7 +75,7 @@ public class NamespaceNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID(), mPageReadTrx);
@@ -90,7 +90,7 @@ public class NamespaceNodeTest {
     assertEquals(13, node.getURIKey());
     assertEquals(14, node.getPrefixKey());
     assertEquals(15, node.getLocalNameKey());
-    assertEquals(NodeKind.NAMESPACE, node.getPathKind());
+    assertEquals(NodeKind.NAMESPACE, node.getKind());
     assertEquals(true, node.hasParent());
   }
 

@@ -9,7 +9,7 @@ public final class HashCountEntryNodeTest {
   public void test() {
     final var node = new HashCountEntryNode(1, 44);
 
-    assertEquals(NodeKind.HASH_NAME_COUNT_TO_NAME_ENTRY, node.getPathKind());
+    assertEquals(NodeKind.HASH_NAME_COUNT_TO_NAME_ENTRY, node.getKind());
     assertEquals(1, node.getNodeKey());
     assertEquals(44, node.getValue());
     assertEquals(44, node.hashCode());

@@ -77,7 +77,7 @@ public class ArrayNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getPathKind().serialize(new DataOutputStream(out), node, pageTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ArrayNode node2 =
         (ArrayNode) NodeKind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
@@ -92,7 +92,7 @@ public class ArrayNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(18L, node.getPathNodeKey());
 
-    assertEquals(NodeKind.ARRAY, node.getPathKind());
+    assertEquals(NodeKind.ARRAY, node.getKind());
     assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
     assertTrue(node.hasRightSibling());
