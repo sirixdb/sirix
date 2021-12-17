@@ -3,6 +3,7 @@ package org.sirix.xquery.function.jn.io;
 import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
@@ -17,10 +18,12 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.service.json.shredder.JsonShredder;
+import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,6 +47,8 @@ public final class Store extends AbstractFunction {
 
   /** Store function name. */
   public final static QNm STORE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "store");
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Constructor.
@@ -72,27 +77,42 @@ public final class Store extends AbstractFunction {
         true);
   }
 
+  /**
+   * Constructor.
+   *
+   * @param name      the name of the function
+   * @param signature the signature of the function
+   */
+  public Store(final QNm name, final Signature signature) {
+    super(name, signature, true);
+  }
+
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
       final Sequence nodes = args[2];
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
       }
-      final boolean createNew = args.length != 4 || args[3].booleanValue();
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
+      final boolean createNew = args.length < 4 || args[3].booleanValue();
+
+      final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+
+      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
+      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       if (createNew) {
-        create(store, collName, resName, nodes);
+        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
       } else {
         try {
           final JsonDBCollection coll = store.lookup(collName);
-          add(coll, resName, nodes);
+          add(coll, resName, nodes, commitMessage, commitTimesstamp);
         } catch (final DocumentException e) {
           // collection does not exist
-          create(store, collName, resName, nodes);
+          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
         }
       }
 
@@ -103,10 +123,10 @@ public final class Store extends AbstractFunction {
   }
 
   private static void add(final JsonDBCollection coll, final String resName,
-      final Sequence nodes) {
+      final Sequence nodes, final String commitMessage, final Instant commitTimestamp) {
     if (nodes instanceof Str) {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        coll.add(resName, reader);
+        coll.add(resName, reader, commitMessage, commitTimestamp);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
@@ -125,10 +145,10 @@ public final class Store extends AbstractFunction {
   }
 
   private static void create(final JsonDBStore store, final String collName, final String resName,
-      final Sequence nodes) {
-    if (nodes instanceof final Str string) {
+      final Sequence nodes, String commitMessage, Instant commitTimestamp) {
+    if (nodes instanceof Str string) {
       if (string.stringValue().isEmpty()) {
-        store.create(collName, resName, (String) null);
+        store.create(collName, resName, (String) null, commitMessage, commitTimestamp);
       } else {
         try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
           store.create(collName, resName, reader);

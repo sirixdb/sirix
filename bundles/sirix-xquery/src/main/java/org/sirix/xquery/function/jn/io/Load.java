@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
@@ -17,6 +18,7 @@ import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
@@ -24,6 +26,7 @@ import org.sirix.xquery.json.JsonDBStore;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -47,6 +50,8 @@ public final class Load extends AbstractFunction {
 
   /** Load function name. */
   public final static QNm LOAD = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "load");
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Constructor.
@@ -75,27 +80,43 @@ public final class Load extends AbstractFunction {
         true);
   }
 
+  /**
+   * Constructor.
+   *
+   * @param name      the name of the function
+   * @param signature the signature of the function
+   */
+  public Load(final QNm name, final Signature signature) {
+    super(name, signature, true);
+  }
+
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final Sequence resources = args[2];
-      if (resources == null)
-        throw new QueryException(new QNm("No sequence of resources specified!"));
-      final boolean createNew = args.length != 4 || args[3].booleanValue();
       final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
+      final Sequence resources = args[2];
+      if (resources == null) {
+        throw new QueryException(new QNm("No sequence of resources specified!"));
+      }
+      final boolean createNew = args.length < 4 || args[3].booleanValue();
+
+      final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+
+      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
+      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       JsonDBCollection coll;
       if (createNew) {
-        coll = create(store, collName, resName, resources);
+        coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
       } else {
         try {
           coll = store.lookup(collName);
-          add(coll, resName, resources);
+          add(coll, resName, resources, commitMessage, commitTimesstamp);
         } catch (final DocumentException e) {
           // collection does not exist
-          coll = create(store, collName, resName, resources);
+          coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
         }
       }
 
@@ -106,17 +127,15 @@ public final class Load extends AbstractFunction {
   }
 
   private static void add(final JsonDBCollection coll, final String resName,
-      final Sequence resources) {
-    if (resources instanceof Atomic) {
-      final Atomic res = (Atomic) resources;
+      final Sequence resources, final String commitMessage, final Instant commitTimestamp) {
+    if (resources instanceof Atomic res) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
-        coll.add(resName, reader);
+        coll.add(resName, reader, commitMessage, commitTimestamp);
       } catch (final Exception e) {
         throw new QueryException(new QNm(e.getMessage()), e);
       }
-    } else if (resources instanceof FunctionConversionSequence) {
-      final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
+    } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
         int size = coll.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null; ) {
@@ -131,16 +150,15 @@ public final class Load extends AbstractFunction {
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collName, final String resName,
-      final Sequence resources) throws IOException {
+      final Sequence resources, final String commitMessage, final Instant commitTimestamp) throws IOException {
     if (resources instanceof Str) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) resources).stringValue())))) {
-        return store.create(collName, resName, reader);
+        return store.create(collName, resName, reader, commitMessage, commitTimestamp);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (resources instanceof FunctionConversionSequence) {
-      final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
+    } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
         final Set<JsonReader> jsonReaders = new HashSet<>();
 

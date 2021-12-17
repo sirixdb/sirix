@@ -195,7 +195,7 @@ public final class ResourceConfiguration {
   /**
    * Kind of revisioning (Full, Incremental, Differential).
    */
-  public final VersioningType revisioningType;
+  public final VersioningType versioningType;
 
   /**
    * Kind of integrity hash (rolling, postorder).
@@ -205,7 +205,7 @@ public final class ResourceConfiguration {
   /**
    * Number of revisions to restore a complete set of data.
    */
-  public final int numberOfRevisionsToRestore;
+  public final int maxNumberOfRevisionsToRestore;
 
   /**
    * Byte handler pipeline.
@@ -293,9 +293,9 @@ public final class ResourceConfiguration {
   private ResourceConfiguration(final ResourceConfiguration.Builder builder) {
     storageType = builder.type;
     byteHandlePipeline = builder.byteHandler;
-    revisioningType = builder.revisionKind;
+    versioningType = builder.revisionKind;
     hashType = builder.hashKind;
-    numberOfRevisionsToRestore = builder.revisionsToRestore;
+    maxNumberOfRevisionsToRestore = builder.maxNumberOfRevisionsToRestore;
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
     areDeweyIDsStored = builder.useDeweyIDs;
@@ -351,7 +351,7 @@ public final class ResourceConfiguration {
 
   @Override
   public int hashCode() {
-    return Objects.hash(storageType, revisioningType, hashType, resourcePath, databaseConfig);
+    return Objects.hash(storageType, versioningType, hashType, resourcePath, databaseConfig);
   }
 
   @Override
@@ -360,7 +360,7 @@ public final class ResourceConfiguration {
       return false;
 
     final ResourceConfiguration other = (ResourceConfiguration) obj;
-    return Objects.equals(storageType, other.storageType) && Objects.equals(revisioningType, other.revisioningType)
+    return Objects.equals(storageType, other.storageType) && Objects.equals(versioningType, other.versioningType)
         && Objects.equals(hashType, other.hashType) && Objects.equals(resourcePath, other.resourcePath)
         && Objects.equals(databaseConfig, other.databaseConfig);
   }
@@ -370,7 +370,7 @@ public final class ResourceConfiguration {
     return MoreObjects.toStringHelper(this)
                       .add("Resource", resourcePath)
                       .add("Type", storageType)
-                      .add("Revision", revisioningType)
+                      .add("Revision", versioningType)
                       .add("HashKind", hashType)
                       .toString();
   }
@@ -441,8 +441,8 @@ public final class ResourceConfiguration {
       // Versioning.
       jsonWriter.name(JSONNAMES[0]);
       jsonWriter.beginObject();
-      jsonWriter.name(JSONNAMES[1]).value(config.revisioningType.name());
-      jsonWriter.name(JSONNAMES[2]).value(config.numberOfRevisionsToRestore);
+      jsonWriter.name(JSONNAMES[1]).value(config.versioningType.name());
+      jsonWriter.name(JSONNAMES[2]).value(config.maxNumberOfRevisionsToRestore);
       jsonWriter.endObject();
       // ByteHandlers.
       jsonWriter.name(JSONNAMES[3]);
@@ -577,7 +577,7 @@ public final class ResourceConfiguration {
       builder.byteHandlerPipeline(pipeline)
              .hashKind(hashing)
              .versioningApproach(revisioning)
-             .revisionsToRestore(revisionToRestore)
+             .maxNumberOfRevisionsToRestore(revisionToRestore)
              .storageType(storage)
              .persistenter(serializer)
              .useTextCompression(compression)
@@ -628,7 +628,7 @@ public final class ResourceConfiguration {
     /**
      * Number of revisions to restore a complete set of data.
      */
-    private int revisionsToRestore = VERSIONS_TO_RESTORE;
+    private int maxNumberOfRevisionsToRestore = VERSIONS_TO_RESTORE;
 
     /**
      * Record/Node persistenter.
@@ -753,14 +753,14 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Set the number of revisions to restore after the last full dump.
+     * Set the maximum number of revisions to restore.
      *
      * @param revisionsToRestore number of versions to restore
      * @return reference to the builder object
      */
-    public Builder revisionsToRestore(final @Nonnegative int revisionsToRestore) {
+    public Builder maxNumberOfRevisionsToRestore(final @Nonnegative int revisionsToRestore) {
       checkArgument(revisionsToRestore > 0, "revisionsToRestore must be > 0!");
-      this.revisionsToRestore = revisionsToRestore;
+      this.maxNumberOfRevisionsToRestore = revisionsToRestore;
       return this;
     }
 
@@ -796,6 +796,12 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Determines if the child count of a node should be stored or not.
+     *
+     * @param storeChildCount store child count or not
+     * @return reference to the builder object
+     */
     public Builder storeChildCount(final boolean storeChildCount) {
       this.storeChildCount = storeChildCount;
       return this;

@@ -89,11 +89,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       return true;
     }
 
-    if (!(other instanceof JsonDBCollection)) {
+    if (!(other instanceof JsonDBCollection coll)) {
       return false;
     }
 
-    final JsonDBCollection coll = (JsonDBCollection) other;
     return database.equals(coll.database);
   }
 
@@ -209,7 +208,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     return null;
   }
 
-  public JsonDBItem add(final String resourceName, final JsonReader reader) {
+  public JsonDBItem add(final String resourceName, final JsonReader reader, final String commitMessage,
+      final Instant commitTimestamp) {
     try {
       String resName = resourceName;
       for (final Path resource : database.listResources()) {
@@ -219,10 +219,14 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
           break;
         }
       }
-      database.createResource(ResourceConfiguration.newBuilder(resName).useDeweyIDs(true).build());
+      database.createResource(ResourceConfiguration.newBuilder(resName)
+                                                   .useDeweyIDs(true)
+                                                   .customCommitTimestamps(commitTimestamp != null)
+                                                   .build());
       final JsonResourceManager manager = database.openResourceManager(resName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader);
+        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.No);
+        wtx.commit(commitMessage, commitTimestamp);
       }
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
       rtx.moveToDocumentRoot();
@@ -231,6 +235,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       LOGGER.error(e.getMessage(), e);
       return null;
     }
+  }
+
+  public JsonDBItem add(final String resourceName, final JsonReader reader) {
+    return add(resourceName, reader, null, null);
   }
 
   @Override
@@ -288,20 +296,22 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBItem add(final String json) {
     Preconditions.checkNotNull(json);
 
-    return add(JsonShredder.createStringReader(json));
+    return add(JsonShredder.createStringReader(json), null, null);
   }
 
-  private JsonDBItem add(final JsonReader reader) {
+  private JsonDBItem add(final JsonReader reader, final String commitMessage, final Instant commitTimestamp) {
     try {
       final String resourceName = "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
                                                    .buildPathSummary(true)
+                                                   .customCommitTimestamps(commitTimestamp != null)
                                                    .build());
       final JsonResourceManager manager = database.openResourceManager(resourceName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader);
+        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.No);
+        wtx.commit(commitMessage, commitTimestamp);
       }
 
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
@@ -316,7 +326,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBItem add(final Path file) {
     Preconditions.checkNotNull(file);
 
-    return add(JsonShredder.createFileReader(file));
+    return add(JsonShredder.createFileReader(file), null, null);
   }
 
 }

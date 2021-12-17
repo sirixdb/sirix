@@ -61,7 +61,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test();
   }
@@ -71,7 +71,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test1();
   }
@@ -81,7 +81,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test2();
   }
@@ -91,7 +91,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test();
   }
@@ -101,7 +101,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test1();
   }
@@ -111,7 +111,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test();
   }
@@ -121,7 +121,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test1();
   }
@@ -131,7 +131,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test1();
   }
@@ -141,7 +141,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test();
   }
@@ -151,7 +151,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test1();
   }
@@ -161,7 +161,7 @@ public class VersioningTest {
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                                  .hashKind(HashType.NONE)
-                                                                 .revisionsToRestore(3)
+                                                                 .maxNumberOfRevisionsToRestore(3)
                                                                  .build());
     test2();
   }

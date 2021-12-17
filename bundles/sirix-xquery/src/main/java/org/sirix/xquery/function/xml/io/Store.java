@@ -4,6 +4,7 @@ import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
@@ -14,10 +15,13 @@ import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.type.*;
+import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBStore;
+
+import java.time.Instant;
 
 /**
  * <p>
@@ -29,16 +33,18 @@ import org.sirix.xquery.node.XmlDBStore;
  * </pre>
  *
  * @author Johannes Lichtenberger
- *
  */
-@FunctionAnnotation(
-    description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
-    parameters = {"$coll", "$res", "$fragments", "$create-new"})
+@FunctionAnnotation(description = "Store the given fragments in a collection. "
+    + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+    parameters = { "$coll", "$res", "$fragments", "$create-new" })
 public final class Store extends AbstractFunction {
 
-  /** Store function name. */
+  /**
+   * Store function name.
+   */
   public final static QNm STORE = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "store");
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Constructor.
@@ -52,41 +58,61 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name the function name
+   * @param name      the function name
    * @param createNew determines if a new collection has to be created or not
    */
   public Store(final QNm name, final boolean createNew) {
-    super(name, createNew
-        ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-            new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
-        : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-            new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
-            new SequenceType(AtomicType.BOOL, Cardinality.One)),
-        true);
+    super(name,
+          createNew
+              ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+                              new SequenceType(AtomicType.STR, Cardinality.One),
+                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+                              new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
+              : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+                              new SequenceType(AtomicType.STR, Cardinality.One),
+                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+                              new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
+                              new SequenceType(AtomicType.BOOL, Cardinality.One)),
+          true);
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param name      the function name
+   * @param signature the signature
+   */
+  public Store(final QNm name, final Signature signature) {
+    super(name, signature, true);
   }
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
       final Sequence nodes = args[2];
-      if (nodes == null)
+      if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
-      final boolean createNew = args.length != 4 || args[3].booleanValue();
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, !createNew);
+      }
+      final boolean createNew = args.length < 4 || args[3].booleanValue();
+
+      final String commitMessage =
+          args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+
+      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
+      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
-        create(store, collName, resName, nodes);
+        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
       } else {
         try {
           final XmlDBCollection coll = store.lookup(collName);
-          add(coll, resName, nodes);
+          add(coll, resName, nodes, commitMessage, commitTimesstamp);
         } catch (final DocumentException e) {
           // collection does not exist
-          create(store, collName, resName, nodes);
+          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
         }
       }
 
@@ -96,9 +122,10 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes) throws DocumentException {
-    if (nodes instanceof final Node<?> n) {
-      coll.add(resName, new StoreParser(n));
+  private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes, final String commitMessage, final Instant commitTimestamp)
+      throws DocumentException {
+    if (nodes instanceof Node<?> n) {
+      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       try (ParserStream parsers = new ParserStream(nodes)) {
         for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
@@ -108,10 +135,10 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes)
-      throws DocumentException {
-    if (nodes instanceof final Node<?> n) {
-      store.create(collName, resName, new StoreParser(n));
+  private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes,
+      final String commitMessage, final Instant commitTimestamp) throws DocumentException {
+    if (nodes instanceof Node<?> n) {
+      store.create(collName, resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       store.create(collName, new ParserStream(nodes));
     }
@@ -232,7 +259,8 @@ public final class Store extends AbstractFunction {
           return new StoreParser(n);
         } else {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
-              "Cannot create subtree parser for item of type: %s", i.itemType());
+                                   "Cannot create subtree parser for item of type: %s",
+                                   i.itemType());
         }
       } catch (final QueryException e) {
         throw new DocumentException(e);

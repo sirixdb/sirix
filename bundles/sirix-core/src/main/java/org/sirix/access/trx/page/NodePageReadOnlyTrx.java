@@ -152,7 +152,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     this.resourceConfig = resourceManager.getResourceConfig();
     this.pageReader = checkNotNull(reader);
     this.uberPage = checkNotNull(uberPage);
-    this.pool = Executors.newFixedThreadPool(resourceConfig.numberOfRevisionsToRestore - 1);
+    this.pool = Executors.newFixedThreadPool(resourceConfig.maxNumberOfRevisionsToRestore - 1);
 
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
@@ -372,67 +372,66 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
     if (isMostRecentlyReadPage(indexLogKey)) {
-      return Optional.of(mostRecentlyReadRecordPage.getPage());
+      return Optional.of(mostRecentlyReadRecordPage.page());
     }
 
     final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(indexLogKey.getRecordPageKey(),
                                                                                    indexLogKey.getIndex(),
                                                                                    checkNotNull(indexLogKey.getIndexType()));
 
-    if (pageReferenceToRecordPage.isEmpty()) {
-      return Optional.empty();
-    }
+    return pageReferenceToRecordPage.map(pageReference -> {
+      final var page = pageReference.getPage();
 
-    // Try to get from resource buffer manager.
-    if (trxIntentLog == null) {
-      final var page = pageReferenceToRecordPage.get().getPage();
+      // Try to get from resource buffer manager.
+      if (trxIntentLog == null) {
+        if (page != null) {
+          mostRecentlyReadRecordPage =
+              new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
+          return page;
+        }
 
-      if (page != null) {
-        mostRecentlyReadRecordPage =
-            new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
-        return Optional.of(page);
+        final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReference);
+
+        if (recordPageFromBuffer != null) {
+          mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
+                                                      indexLogKey.getIndexType(),
+                                                      indexLogKey.getRecordPageKey(),
+                                                      recordPageFromBuffer);
+          pageReference.setPage(recordPageFromBuffer);
+          return recordPageFromBuffer;
+        }
       }
 
-      final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
+      // Load list of page "fragments" from persistent storage.
+      final List<T> pages = getPageFragments(pageReference);
 
-      if (recordPageFromBuffer != null) {
-        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
-                                                    indexLogKey.getIndexType(),
-                                                    indexLogKey.getRecordPageKey(),
-                                                    recordPageFromBuffer);
-        return Optional.of(recordPageFromBuffer);
+      if (pages.isEmpty()) {
+        return null;
       }
-    }
 
-    // Load list of page "fragments" from persistent storage.
-    final List<T> pages = getPageFragments(pageReferenceToRecordPage.get());
+      final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
+      final VersioningType versioningApproach = resourceConfig.versioningType;
+      final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
 
-    if (pages.isEmpty()) {
-      return Optional.empty();
-    }
+      if (trxIntentLog == null) {
+        resourceBufferManager.getRecordPageCache().put(pageReference, completePage);
+        pageReference.setPage(completePage);
+      }
 
-    final int mileStoneRevision = resourceConfig.numberOfRevisionsToRestore;
-    final VersioningType versioningApproach = resourceConfig.revisioningType;
-    final Page completePage = versioningApproach.combineRecordPages(pages, mileStoneRevision, this);
+      mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
+                                                  indexLogKey.getIndexType(),
+                                                  indexLogKey.getRecordPageKey(),
+                                                  completePage);
 
-    if (trxIntentLog == null) {
-      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), completePage);
-      pageReferenceToRecordPage.get().setPage(completePage);
-    }
-
-    mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
-                                                indexLogKey.getIndexType(),
-                                                indexLogKey.getRecordPageKey(),
-                                                completePage);
-
-    return Optional.of(completePage);
+      return completePage;
+    });
   }
 
   private boolean isMostRecentlyReadPage(IndexLogKey indexLogKey) {
     return mostRecentlyReadRecordPage != null
-        && mostRecentlyReadRecordPage.getRecordPageKey() == indexLogKey.getRecordPageKey()
-        && mostRecentlyReadRecordPage.getIndex() == indexLogKey.getIndex()
-        && mostRecentlyReadRecordPage.getIndexType() == indexLogKey.getIndexType();
+        && mostRecentlyReadRecordPage.recordPageKey() == indexLogKey.getRecordPageKey()
+        && mostRecentlyReadRecordPage.index() == indexLogKey.getIndex()
+        && mostRecentlyReadRecordPage.indexType() == indexLogKey.getIndexType();
   }
 
   Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
@@ -455,8 +454,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();
-    final int revsToRestore = config.numberOfRevisionsToRestore;
-    final int[] revisionsToRead = config.revisioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
+    final int revsToRestore = config.maxNumberOfRevisionsToRestore;
+    final int[] revisionsToRead = config.versioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<T> pages = new ArrayList<>(revisionsToRead.length);
 
     final var pageFragments = pageReference.getPageFragments();
@@ -717,52 +716,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
   }
 
-  private static class RecordPage {
-    private final int index;
-
-    private final IndexType indexType;
-
-    private final long recordPageKey;
-
-    private final Page page;
-
-    public RecordPage(int index, IndexType indexType, long recordPageKey, Page page) {
-      this.index = index;
-      this.indexType = indexType;
-      this.recordPageKey = recordPageKey;
-      this.page = page;
-    }
-
-    public int getIndex() {
-      return index;
-    }
-
-    public long getRecordPageKey() {
-      return recordPageKey;
-    }
-
-    public IndexType getIndexType() {
-      return indexType;
-    }
-
-    public Page getPage() {
-      return page;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o)
-        return true;
-      if (o == null || getClass() != o.getClass())
-        return false;
-      RecordPage that = (RecordPage) o;
-      return index == that.index && recordPageKey == that.recordPageKey && indexType == that.indexType
-          && Objects.equals(page, that.page);
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(index, indexType, recordPageKey, page);
-    }
+  private record RecordPage(int index, IndexType indexType, long recordPageKey, Page page) {
   }
 }

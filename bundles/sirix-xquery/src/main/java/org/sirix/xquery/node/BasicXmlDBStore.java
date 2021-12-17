@@ -1,20 +1,5 @@
 package org.sirix.xquery.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
@@ -29,39 +14,70 @@ import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.InsertPosition;
 
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.*;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * Database storage.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class BasicXmlDBStore implements XmlDBStore {
 
-  /** User home directory. */
+  /**
+   * User home directory.
+   */
   private static final String USER_HOME = System.getProperty("user.home");
 
-  /** Storage for databases: Sirix data in home directory. */
+  /**
+   * Storage for databases: Sirix data in home directory.
+   */
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
-  /** {@link Set} of databases. */
+  /**
+   * {@link Set} of databases.
+   */
   private final Set<Database<XmlResourceManager>> databases;
 
-  /** Mapping sirix databases to collections. */
+  /**
+   * Mapping sirix databases to collections.
+   */
   private final ConcurrentMap<Database<XmlResourceManager>, XmlDBCollection> collections;
 
-  /** {@link StorageType} instance. */
+  /**
+   * {@link StorageType} instance.
+   */
   private final StorageType storageType;
 
-  /** The location to store created collections/databases. */
+  /**
+   * The location to store created collections/databases.
+   */
   private final Path location;
 
-  /** Determines if a path summary should be built. */
+  /**
+   * Determines if a path summary should be built.
+   */
   private final boolean buildPathSummary;
 
-  /** Thread pool. */
+  /**
+   * Thread pool.
+   */
   private final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-  /** Get a new builder instance. */
+  /**
+   * Get a new builder instance.
+   */
   public static Builder newBuilder() {
     return new Builder();
   }
@@ -70,13 +86,19 @@ public final class BasicXmlDBStore implements XmlDBStore {
    * Builder setting up the store.
    */
   public static class Builder {
-    /** Storage type. */
+    /**
+     * Storage type.
+     */
     private StorageType storageType = StorageType.FILE;
 
-    /** The location to store created collections/databases. */
+    /**
+     * The location to store created collections/databases.
+     */
     private Path location = LOCATION;
 
-    /** Determines if for resources a path summary should be build. */
+    /**
+     * Determines if for resources a path summary should be build.
+     */
     private boolean buildPathSummary = true;
 
     /**
@@ -135,7 +157,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
     buildPathSummary = builder.buildPathSummary;
   }
 
-  /** Get the location of the generated collections/databases. */
+  /**
+   * Get the location of the generated collections/databases.
+   */
   public Path getLocation() {
     return location;
   }
@@ -183,11 +207,28 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String collName, final SubtreeParser parser) {
-    return create(collName, null, parser);
+    return createCollection(collName, null, parser, null, null);
+  }
+
+  @Override
+  public XmlDBCollection create(final String collName, final SubtreeParser parser, final String commitMessage,
+      final Instant commitTimestamp) {
+    return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 
   @Override
   public XmlDBCollection create(final String collName, final String optResName, final SubtreeParser parser) {
+    return createCollection(collName, null, parser, null, null);
+  }
+
+  @Override
+  public XmlDBCollection create(final String collName, final String optResName, final SubtreeParser parser,
+      final String commitMessage, final Instant commitTimestamp) {
+    return createCollection(collName, null, parser, commitMessage, commitTimestamp);
+  }
+
+  private XmlDBCollection createCollection(final String collName, final String optResName, final SubtreeParser parser,
+      final String commitMessage, final Instant commitTimestamp) {
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -195,23 +236,21 @@ public final class BasicXmlDBStore implements XmlDBStore {
       Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
-      final String resName = optResName != null
-          ? optResName
-          : "resource" + (database.listResources().size() + 1);
+      final String resName = optResName != null ? optResName : "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
                                                    .buildPathSummary(buildPathSummary)
                                                    .storageType(storageType)
+                                                   .customCommitTimestamps(commitTimestamp != null)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
 
       try (final XmlResourceManager manager = database.openResourceManager(resName);
-          final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
-
-        wtx.commit();
+        wtx.commit(commitMessage, commitTimestamp);
       }
       return collection;
     } catch (final SirixException e) {
@@ -236,14 +275,21 @@ public final class BasicXmlDBStore implements XmlDBStore {
             final SubtreeParser nextParser = parser;
             final String resourceName = "resource" + i;
             pool.submit(() -> {
-              database.createResource(ResourceConfiguration.newBuilder(resourceName).storageType(storageType).useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
+              database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                           .storageType(storageType)
+                                                           .useDeweyIDs(true)
+                                                           .useTextCompression(true)
+                                                           .buildPathSummary(true)
+                                                           .build());
               try (final XmlResourceManager manager = database.openResourceManager(resourceName);
                    final XmlNodeTrx wtx = manager.beginNodeTrx()) {
-                  final XmlDBCollection collection = new XmlDBCollection(collName, database);
-                  collections.put(database, collection);
-                  nextParser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD,
-                                                      Collections.emptyList()));
-                  wtx.commit();
+                final XmlDBCollection collection = new XmlDBCollection(collName, database);
+                collections.put(database, collection);
+                nextParser.parse(new SubtreeBuilder(collection,
+                                                    wtx,
+                                                    InsertPosition.AS_FIRST_CHILD,
+                                                    Collections.emptyList()));
+                wtx.commit();
               }
               return null;
             });
