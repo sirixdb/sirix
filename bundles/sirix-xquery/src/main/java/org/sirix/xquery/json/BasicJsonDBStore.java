@@ -1,24 +1,6 @@
 package org.sirix.xquery.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
@@ -32,7 +14,22 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.json.shredder.JsonShredder;
-import com.google.gson.stream.JsonReader;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.*;
+import java.util.function.Predicate;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Database storage.
@@ -218,25 +215,55 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
+  public JsonDBCollection create(String collName, Path path, String commitMessage, Instant commitTimestamp) {
+    return createCollection(collName, null, JsonShredder.createFileReader(path), commitMessage, commitTimestamp);
+  }
+
+  @Override
   public JsonDBCollection create(String collName, String json) {
     return create(collName, null, json);
   }
 
   @Override
+  public JsonDBCollection create(String collName, String json, String commitMessage, Instant commitTimestamp) {
+    return createCollection(collName, null, JsonShredder.createStringReader(json), commitMessage, commitTimestamp);
+  }
+
+  @Override
   public JsonDBCollection create(String collName, String optResName, String json) {
     if (json == null) {
-      return createCollection(collName, optResName, null);
+      return createCollection(collName, optResName, null, null, null);
     }
-    return createCollection(collName, optResName, JsonShredder.createStringReader(json));
+    return createCollection(collName, optResName, JsonShredder.createStringReader(json), null, null);
+  }
+
+  @Override
+  public JsonDBCollection create(String collName, String optResName, String json, String commitMessage, Instant commitTimestamp) {
+    return createCollection(collName, optResName, JsonShredder.createStringReader(json), commitMessage, commitTimestamp);
   }
 
   @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path) {
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path));
+    return createCollection(collName, optResName, JsonShredder.createFileReader(path), null, null);
+  }
+
+  @Override
+  public JsonDBCollection create(final String collName, final String optResName, final Path path, String commitMessage, Instant commitTimestamp) {
+    return createCollection(collName, optResName, JsonShredder.createFileReader(path), commitMessage, commitTimestamp);
+  }
+
+  @Override
+  public JsonDBCollection create(String collName, String resourceName, JsonReader jsonReader) {
+    return createCollection(collName, resourceName, jsonReader, null, null);
+  }
+
+  @Override
+  public JsonDBCollection create(String collName, String resourceName, JsonReader reader, String commitMessage, Instant commitTimestamp) {
+    return createCollection(collName, resourceName, reader, commitMessage, commitTimestamp);
   }
 
   private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
-      final JsonReader reader) {
+      final JsonReader reader, final String commitMessage, final Instant commitTimestamp) {
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -269,6 +296,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
                                                    .buildPathSummary(buildPathSummary)
+                                                   .customCommitTimestamps(commitTimestamp != null)
                                                    .storageType(storageType)
                                                    .build());
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
@@ -280,7 +308,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
       try (final JsonResourceManager manager = database.openResourceManager(resourceName);
            final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader);
+        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.No);
+        wtx.commit(commitMessage, commitTimestamp);
       }
       return collection;
     } catch (final SirixException e) {
@@ -310,11 +339,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
     } catch (final SirixRuntimeException | InterruptedException e) {
       throw new DocumentException(e.getCause());
     }
-  }
-
-  @Override
-  public JsonDBCollection create(String collectionName, String resourceName, JsonReader jsonReader) {
-    return createCollection(collectionName, resourceName, jsonReader);
   }
 
   @Override

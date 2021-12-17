@@ -541,8 +541,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<UnorderedKeyValuePage> pageFragments = pageRtx.getPageFragments(reference);
-    final VersioningType revisioning = pageRtx.resourceManager.getResourceConfig().revisioningType;
-    final int mileStoneRevision = pageRtx.resourceManager.getResourceConfig().numberOfRevisionsToRestore;
+    final VersioningType revisioning = pageRtx.resourceManager.getResourceConfig().versioningType;
+    final int mileStoneRevision = pageRtx.resourceManager.getResourceConfig().maxNumberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);
   }
 

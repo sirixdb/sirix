@@ -12,6 +12,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.DateTimeToInstant;
+import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 
 import java.time.Instant;
@@ -49,19 +50,15 @@ public final class Commit extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    final Instant pointInTime;
+    final String commitMessage = args.length >= 2 ? FunUtil.getString(args, 1, "commitMessage", null, null, false) : null;
 
-    if (args.length == 2) {
-      final DateTime dateTime = (DateTime) args[2];
-      pointInTime = dateTimeToInstant.convert(dateTime);
-    } else {
-      pointInTime = null;
-    }
+    final DateTime dateTime = args.length == 3 ? (DateTime) args[2] : null;
+    final Instant commitTimesstamp = args.length == 3 ? dateTimeToInstant.convert(dateTime) : null;
 
     if (doc.getTrx() instanceof NodeTrx) {
       final NodeTrx wtx = (NodeTrx) doc.getTrx();
       final long revision = wtx.getRevisionNumber();
-      wtx.commit();
+      wtx.commit(commitMessage, commitTimesstamp);
       return new Int64(revision);
     } else {
       final ResourceManager<?, ?> manager = doc.getTrx().getResourceManager();
@@ -79,7 +76,7 @@ public final class Commit extends AbstractFunction {
           wtx.revertTo(doc.getTrx().getRevisionNumber());
         }
         final int revisionToCommit = wtx.getRevisionNumber();
-        wtx.commit();
+        wtx.commit(commitMessage, commitTimesstamp);
         return new Int64(revisionToCommit);
       } finally {
         if (newTrxOpened && wtx != null) {

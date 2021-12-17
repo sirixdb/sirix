@@ -30,6 +30,7 @@ package org.sirix.xquery.node;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.NodeStore;
+import java.time.Instant;
 
 /**
  * Database store.
@@ -46,7 +47,11 @@ public interface XmlDBStore extends NodeStore, AutoCloseable {
   @Override
   XmlDBCollection create(String collName, SubtreeParser parser);
 
+  XmlDBCollection create(String collName, SubtreeParser parser, String commitMessage, Instant commitTimestamp);
+
   XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser);
+
+  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser, String commitMessage, Instant commitTimestamp);
 
   @Override
   XmlDBCollection create(String collName, Stream<SubtreeParser> parsers);

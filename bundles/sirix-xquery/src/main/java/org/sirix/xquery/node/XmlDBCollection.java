@@ -142,8 +142,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
-    return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) ->
-    {
+    return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) -> {
       final XmlResourceManager resource = database.openResourceManager(resName);
 
       XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
@@ -167,7 +166,8 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     if (revision == -1) {
       return createXmlDBNode(revision, resName);
     } else {
-      return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision), (unused) -> createXmlDBNode(revision, resName));
+      return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
+                                                      (unused) -> createXmlDBNode(revision, resName));
     }
   }
 
@@ -229,7 +229,17 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
 
   public XmlDBNode add(final String resourceName, SubtreeParser parser) {
     try {
-      return createResource(parser, resourceName);
+      return createResource(parser, resourceName, null, null);
+    } catch (final SirixException e) {
+      LOGGER.error(e.getMessage(), e);
+      return null;
+    }
+  }
+
+  public XmlDBNode add(final String resourceName, final SubtreeParser parser, final String commitMessage,
+      final Instant commitTimestamp) {
+    try {
+      return createResource(parser, resourceName, commitMessage, commitTimestamp);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -240,24 +250,26 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   public XmlDBNode add(SubtreeParser parser) throws DocumentException {
     try {
       final String resourceName = "resource" + (database.listResources().size() + 1);
-      return createResource(parser, resourceName);
+      return createResource(parser, resourceName, null, null);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
     }
   }
 
-  private XmlDBNode createResource(SubtreeParser parser, String resourceName) {
+  private XmlDBNode createResource(SubtreeParser parser, final String resourceName, final String commitMessage,
+      final Instant commitTimestamp) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .useDeweyIDs(true)
                                                  .useTextCompression(true)
                                                  .buildPathSummary(true)
+                                                 .customCommitTimestamps(commitTimestamp != null)
                                                  .build());
     final XmlResourceManager resource = database.openResourceManager(resourceName);
     final XmlNodeTrx wtx = resource.beginNodeTrx();
 
-    final SubtreeHandler handler = new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD,
-                                                      Collections.emptyList());
+    final SubtreeHandler handler =
+        new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
     // Make sure the CollectionParser is used.
     if (!(parser instanceof CollectionParser)) {
@@ -265,6 +277,8 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
 
     parser.parse(handler);
+
+    wtx.commit(commitMessage, commitTimestamp);
 
     final var xmlDBNode = new XmlDBNode(wtx, this);
     documentDataToXmlDBNodes.put(new DocumentData(resourceName, 1), xmlDBNode);

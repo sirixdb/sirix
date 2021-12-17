@@ -44,6 +44,34 @@ public final class LoadIntegrationTest extends TestCase {
   }
 
   @Test
+  public void testWithCommitMessage() {
+    // Initialize query context and store.
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      // Use XQuery to store a JSON string into the store.
+      final var str = jsonArray.toAbsolutePath().toString();
+      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "',true(),'commitMessage')";
+      new XQuery(chain, query).evaluate(ctx);
+    }
+  }
+
+  @Test
+  public void testWithCommitMessageAndCommitTimestamp() {
+    // Initialize query context and store.
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      // Use XQuery to store a JSON string into the store.
+      final var str = jsonArray.toAbsolutePath().toString();
+      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "',true(),'commitMessage',xs:dateTime(\"2021-05-01T00:00:00\"))";
+      new XQuery(chain, query).evaluate(ctx);
+    }
+  }
+
+  @Test
   public void testMultipleStrings() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
