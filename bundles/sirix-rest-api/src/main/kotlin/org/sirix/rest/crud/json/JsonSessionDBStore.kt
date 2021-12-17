@@ -5,12 +5,12 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
-import org.joda.time.Instant
 import org.sirix.rest.Auth
 import org.sirix.rest.AuthRole
 import org.sirix.xquery.json.JsonDBCollection
 import org.sirix.xquery.json.JsonDBStore
 import java.nio.file.Path
+import java.time.Instant
 
 class JsonSessionDBStore(
     private val ctx: RoutingContext,
