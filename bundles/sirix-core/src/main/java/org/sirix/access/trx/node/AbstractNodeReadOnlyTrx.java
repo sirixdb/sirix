@@ -18,6 +18,7 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
@@ -189,8 +190,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
     }
-    if (node instanceof ObjectKeyNode) {
-      return ((ObjectKeyNode) node).getPathNodeKey();
+    if (node instanceof ObjectKeyNode objectKeyNode) {
+      return objectKeyNode.getPathNodeKey();
+    }
+    if (node instanceof ArrayNode arrayNode) {
+      return arrayNode.getPathNodeKey();
     }
     if (node.getKind() == NodeKind.XML_DOCUMENT || node.getKind() == NodeKind.JSON_DOCUMENT) {
       return 0;
