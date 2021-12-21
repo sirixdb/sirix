@@ -154,7 +154,7 @@ public final class JsonShredder implements Callable<Long> {
    *
    * @throws SirixException if something went wrong while inserting
    */
-  protected final void insertNewContent() {
+  protected void insertNewContent() {
     try {
       level = 0;
       boolean endReached = false;

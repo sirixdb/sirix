@@ -26,17 +26,18 @@ import java.util.ArrayDeque;
  * </ul>
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class GetPath extends AbstractFunction {
 
-  /** Move to function name. */
+  /**
+   * Move to function name.
+   */
   public final static QNm GET_PATH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "path");
 
   /**
    * Constructor.
    *
-   * @param name the name of the function
+   * @param name      the name of the function
    * @param signature the signature of the function
    */
   public GetPath(final QNm name, final Signature signature) {
@@ -50,13 +51,18 @@ public final class GetPath extends AbstractFunction {
     final NodeReadOnlyTrx rtx = doc.getTrx();
 
     if (rtx.getResourceManager().getResourceConfig().withPathSummary) {
-      try (final PathSummaryReader pathSummaryReader =
-               rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber())) {
+      try (final PathSummaryReader pathSummaryReader = rtx.getResourceManager()
+                                                          .openPathSummary(rtx.getRevisionNumber())) {
         if (!pathSummaryReader.moveTo(rtx.getPathNodeKey()).hasMoved()) {
           return null;
         }
         assert pathSummaryReader.getPathNode() != null;
         final var path = pathSummaryReader.getPathNode().getPath(pathSummaryReader);
+
+        if (!(rtx instanceof JsonNodeReadOnlyTrx))
+          return new Str(path.toString());
+
+        final var trx = (JsonNodeReadOnlyTrx) rtx;
 
         if (!path.toString().contains("[]"))
           return new Str(path.toString());
@@ -68,23 +74,10 @@ public final class GetPath extends AbstractFunction {
           final var step = steps.get(i);
 
           if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
-            if (rtx instanceof JsonNodeReadOnlyTrx trx) {
-              positions.addFirst(addArrayPosition(trx));
-              trx.moveToParent();
-            } else if (rtx instanceof XmlNodeReadOnlyTrx trx) {
-              positions.addFirst(addArrayPosition(trx));
-              trx.moveToParent();
-            } else {
-              throw new IllegalStateException("Not supported.");
-            }
+            positions.addFirst(addArrayPosition(trx));
+            trx.moveToParent();
           } else {
-            if (rtx instanceof JsonNodeReadOnlyTrx trx) {
-              trx.moveToParent();
-            } else if (rtx instanceof XmlNodeReadOnlyTrx trx) {
-              trx.moveToParent();
-            } else {
-              throw new IllegalStateException("Not supported.");
-            }
+            trx.moveToParent();
           }
         }
 
@@ -106,15 +99,6 @@ public final class GetPath extends AbstractFunction {
   }
 
   private int addArrayPosition(JsonNodeReadOnlyTrx trx) {
-    int j = 0;
-    while (trx.hasLeftSibling()) {
-      trx.moveToLeftSibling();
-      j++;
-    }
-    return j;
-  }
-
-  private int addArrayPosition(XmlNodeReadOnlyTrx trx) {
     int j = 0;
     while (trx.hasLeftSibling()) {
       trx.moveToLeftSibling();
