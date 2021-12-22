@@ -30,7 +30,7 @@ import java.util.ArrayDeque;
 public final class GetPath extends AbstractFunction {
 
   /**
-   * Move to function name.
+   * Get path function name.
    */
   public final static QNm GET_PATH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "path");
 
