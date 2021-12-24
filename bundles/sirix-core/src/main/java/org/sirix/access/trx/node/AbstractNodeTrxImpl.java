@@ -305,6 +305,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     @Override
     public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
         nodeReadOnlyTrx.assertNotClosed();
+        if (commitTimestamp != null && !resourceManager.getResourceConfig().customCommitTimestamps()) {
+            throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
+        }
 
         runLocked(() -> {
             state = State.Committing;

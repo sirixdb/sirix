@@ -153,6 +153,68 @@ enum class JsonInsertionMode {
             wtx.insertObjectRecordAsRightSibling(jsonReader.nextName(), getObjectRecordValue(jsonReader))
             wtx.commit(commitMessage, commitTimestamp)
         }
+    },
+    ASLEFTSIBLING {
+        override fun insertSubtree(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertSubtreeAsLeftSibling(jsonReader, JsonNodeTrx.Commit.No)
+            wtx.commit(commitMessage, commitTimestamp)
+        }
+
+        override fun insertString(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertStringValueAsLeftSibling(jsonReader.nextString())
+            wtx.commit(commitMessage, commitTimestamp)
+        }
+
+        override fun insertNumber(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertNumberValueAsLeftSibling(JsonNumber.stringToNumber(jsonReader.nextString()))
+            wtx.commit(commitMessage, commitTimestamp)
+        }
+
+        override fun insertNull(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            jsonReader.nextNull()
+            wtx.insertNullValueAsLeftSibling()
+            wtx.commit(commitMessage, commitTimestamp)
+        }
+
+        override fun insertBoolean(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertBooleanValueAsLeftSibling(jsonReader.nextBoolean())
+            wtx.commit(commitMessage, commitTimestamp)
+        }
+
+        override fun insertObjectRecord(
+            wtx: JsonNodeTrx,
+            jsonReader: JsonReader,
+            commitMessage: String?,
+            commitTimestamp: Instant?
+        ) {
+            wtx.insertObjectRecordAsLeftSibling(jsonReader.nextName(), getObjectRecordValue(jsonReader))
+            wtx.commit(commitMessage, commitTimestamp)
+        }
     };
 
     @Throws(IOException::class)

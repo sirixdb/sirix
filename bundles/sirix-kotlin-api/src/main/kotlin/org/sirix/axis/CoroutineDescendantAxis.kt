@@ -37,9 +37,9 @@ import kotlin.coroutines.CoroutineContext
 /**
  * <h1>CoroutineDescendantAxis</h1>
  * <p>
- * DescendantAxis which simultaneously compute all right page results in another task.
- * The CoroutineDescendantAxis gets the computed right page results from common producer consumer channel
- * after it finish left page processing. As soon as the end of the computed result sequence is reached (marked by the
+ * DescendantAxis which simultaneously compute all right sibling results in another task.
+ * The CoroutineDescendantAxis gets the computed right sibling results from a common producer consumer channel
+ * after it finishs left node processing. As soon as the end of the computed result sequence is reached (marked by the
  * NULL_NODE_KEY), the CoroutineDescendantAxis returns <code>false</code>.
  * </p>
  */
@@ -202,8 +202,8 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     }
 
      private inner class Producer: CoroutineScope {
-        /** Stack for remembering next nodeKey in right page.  */
-        private val rightSiblingKeyStack: Deque<Long> = ArrayDeque<Long>()
+        /** Stack for remembering next nodeKey of right siblings.  */
+        private val rightSiblingKeyStack: Deque<Long> = ArrayDeque()
         /**
          * Channel that stores result keys already computed by the producer. End of the result sequence is
          * marked by the NULL_NODE_KEY.
