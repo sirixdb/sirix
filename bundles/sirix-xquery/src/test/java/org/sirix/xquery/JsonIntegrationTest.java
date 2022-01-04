@@ -119,6 +119,23 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testArrayIndexBounds() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}},
+                                           {"generic": 2, "location": {"state": "NY", "city": "New York"}},
+                                           {"generic": 3, "location": {"state": "AL", "city": "Montgomery"}}]')
+        """.strip();
+    final String query = """
+          let $doc := jn:doc('mycol.jn','mydoc.jn')
+          return $doc[[0:1]]
+        """.strip();
+    final String assertion = """
+          [{"generic":1,"location":{"state":"CA","city":"Los Angeles"}}]
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testSimpleDeleteQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}]')
