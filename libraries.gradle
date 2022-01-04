@@ -18,7 +18,7 @@ implLibraries = [
         guava                    : 'com.google.guava:guava:28.2-jre',
         guavaTestlib             : 'com.google.guava:guava-testlib:28.2-jre',
         jsr305                   : 'com.google.code.findbugs:jsr305:3.0.2',
-        brackit                  : 'io.sirix:brackit:0.1.8',
+        brackit                  : 'io.sirix:brackit:0.1.10-SNAPSHOT',
         caffeine                 : 'com.github.ben-manes.caffeine:caffeine:2.8.1',
         snappyJava               : 'org.xerial.snappy:snappy-java:1.1.7.3',
         browniesCollections      : 'org.magicwerk:brownies-collections:0.9.14',
