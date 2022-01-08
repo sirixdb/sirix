@@ -298,7 +298,7 @@ public final class JsonDBObject extends AbstractItem
     if (value instanceof Array) {
       trx.replaceObjectRecordValue(new ArrayValue());
       insertSubtree(value, trx);
-    } else if (value instanceof Record) {
+    } else if (value instanceof Object) {
       trx.replaceObjectRecordValue(new ObjectValue());
       insertSubtree(value, trx);
     } else if (value instanceof Str) {
