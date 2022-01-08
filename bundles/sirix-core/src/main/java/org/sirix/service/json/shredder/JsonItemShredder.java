@@ -237,7 +237,7 @@ public final class JsonItemShredder implements Callable<Long> {
       for (int i = 0; i < object.len(); i++) {
         final var value = object.value(i);
         json(object, value, object.name(i).stringValue(),
-            i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Record));
+            i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Object));
       }
 
       level--;
@@ -246,7 +246,7 @@ public final class JsonItemShredder implements Callable<Long> {
         parents.pop();
         wtx.moveTo(parents.peek());
 
-        if (parent instanceof Record) {
+        if (parent instanceof Object) {
           parents.pop();
           wtx.moveTo(parents.peek());
         }
