@@ -35,6 +35,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.json.Array;
+import org.brackit.xquery.xdm.json.Object;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 
@@ -81,7 +82,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
       if (sequence != null) {
         Item item = null;
         Iter it;
-        if (sequence instanceof Array || sequence instanceof Record) {
+        if (sequence instanceof Array || sequence instanceof Object) {
           item = (Item) sequence;
           it = null;
         } else {
@@ -119,7 +120,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               }
 
               item = printCommaIfNextItemExists(it);
-            } else if ((item instanceof Array) || (item instanceof Record)) {
+            } else if ((item instanceof Array) || (item instanceof Object)) {
               try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
                 new StringSerializer(printWriter).serialize(item);
                 this.out.append(out.toString(StandardCharsets.UTF_8));
