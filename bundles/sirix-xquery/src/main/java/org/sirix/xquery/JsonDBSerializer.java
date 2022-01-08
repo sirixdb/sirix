@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2020, SirixDB
+/*
+ * Copyright (c) 2022, SirixDB
  * <p>
  * All rights reserved.
  * <p>
@@ -35,10 +35,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.json.Array;
-import org.brackit.xquery.xdm.json.Record;
-import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 
 import java.io.ByteArrayOutputStream;
@@ -106,7 +103,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
                       .serializeTimestamp(true)
                       .isXQueryResultSequence();
               if (prettyPrint) {
-                serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
+                serializerBuilder.prettyPrint().withInitialIndent();
               }
               final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
               serializer.call();

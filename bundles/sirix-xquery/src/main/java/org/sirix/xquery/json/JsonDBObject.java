@@ -10,9 +10,9 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.Array;
-import org.brackit.xquery.xdm.json.Record;
+import org.brackit.xquery.xdm.json.Object;
 import org.brackit.xquery.xdm.type.ItemType;
-import org.brackit.xquery.xdm.type.RecordType;
+import org.brackit.xquery.xdm.type.ObjectType;
 import org.sirix.access.trx.node.json.objectvalue.*;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -32,7 +32,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class JsonDBObject extends AbstractItem
-    implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
+    implements TemporalJsonDBItem<JsonDBObject>, Object, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /**
    * Sirix transaction.
@@ -256,7 +256,7 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public ItemType itemType() {
-    return RecordType.RECORD;
+    return ObjectType.OBJECT;
   }
 
   @Override
@@ -277,7 +277,7 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
-  public Record replace(QNm field, Sequence value) {
+  public Object replace(QNm field, Sequence value) {
     moveRtx();
     if (rtx.hasChildren()) {
       modify(field, value);
@@ -345,7 +345,7 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
-  public Record rename(QNm field, QNm newFieldName) {
+  public Object rename(QNm field, QNm newFieldName) {
     moveRtx();
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
@@ -362,7 +362,7 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
-  public Record insert(QNm field, Sequence value) {
+  public Object insert(QNm field, Sequence value) {
     moveRtx();
     if (get(field) != null) {
       return this;
@@ -407,7 +407,7 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
-  public Record remove(QNm field) {
+  public Object remove(QNm field) {
     moveRtx();
     if (rtx.hasChildren()) {
       final var trx = getReadWriteTrx();
@@ -422,12 +422,12 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
-  public Record remove(IntNumeric index) {
+  public Object remove(IntNumeric index) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Record remove(int index) {
+  public Object remove(int index) {
     throw new UnsupportedOperationException();
   }
 

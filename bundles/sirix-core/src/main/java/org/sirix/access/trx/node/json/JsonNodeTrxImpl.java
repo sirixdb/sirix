@@ -434,7 +434,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     runLocked(() -> {
       assertRunning();
 
-      if (!item.itemType().isListOrUnion() && !item.itemType().isRecord())
+      if (!item.itemType().isArray() && !item.itemType().isObject())
         throw new SirixUsageException("JSON to insert must begin with an array or object.");
 
       final var nodeKind = getKind();
@@ -446,11 +446,11 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
           if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
             throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
           }
-          if (item.itemType().isRecord()) {
+          if (item.itemType().isObject()) {
             if (nodeKind == NodeKind.OBJECT)
               skipRootJsonToken = true;
           }
-          else if (item.itemType().isListOrUnion()) {
+          else if (item.itemType().isArray()) {
             if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
               throw new IllegalStateException("Current node in storage must be an array node.");
             }
