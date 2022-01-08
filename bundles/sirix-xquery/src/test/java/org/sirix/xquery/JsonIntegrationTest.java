@@ -36,11 +36,11 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """;
     final String query = """
       let $doc := jn:doc('mycol.jn','mydoc.jn')
-      let $records := for $i in $doc where deep-equal($i=>"generic", 1)
+      let $objects := for $i in $doc where deep-equal($i=>"generic", 1)
                       return $i
       let $fields := jn:parse('["location"]')
       for $i in $fields
-      return delete json $records=>$i
+      return delete json $objects=>$i
       """.stripIndent();
     final String openQuery = "jn:doc('mycol.jn','mydoc.jn')";
     final String assertion = """
@@ -355,7 +355,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery =
         "jn:store('mycol.jn','mydoc.jn','[{\"key\":0},{\"value\":{\"key\":true}},{\"key\":\"hey\",\"value\":false}]')";
     final String openQuery =
-        "for $i in jn:doc('mycol.jn','mydoc.jn')=>value where $i instance of record() and $i=>key eq true() return { $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')=>value where $i instance of object() and $i=>key eq true() return { $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery, openQuery, "{\"key\":true,\"nodekey\":7}");
   }
 
