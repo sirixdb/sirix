@@ -7,14 +7,14 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.json.Array;
-import org.brackit.xquery.xdm.json.Record;
+import org.brackit.xquery.xdm.json.Object;
 import org.sirix.access.trx.node.json.objectvalue.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.json.JsonNumber;
-import org.sirix.service.InsertPosition;
 import org.sirix.settings.Fixed;
 
 import javax.xml.stream.XMLStreamReader;
@@ -196,9 +196,7 @@ public final class JsonItemShredder implements Callable<Long> {
           insertStringValue(str, nextTokenIsParent);
         }
       }
-    } else if (s instanceof Array) {
-      Array a = (Array) s;
-
+    } else if (s instanceof Array a) {
       level++;
       if (!(level == 1 && skipRootJson)) {
         if (objectField != null) {
@@ -220,14 +218,12 @@ public final class JsonItemShredder implements Callable<Long> {
         parents.pop();
         wtx.moveTo(parents.peek());
 
-        if (parent instanceof Record) {
+        if (parent instanceof Object) {
           parents.pop();
           wtx.moveTo(parents.peek());
         }
       }
-    } else if (s instanceof Record) {
-      Record r = (Record) s;
-
+    } else if (s instanceof Object object) {
       level++;
       if (!(level == 1 && skipRootJson)) {
         if (objectField != null) {
@@ -238,10 +234,10 @@ public final class JsonItemShredder implements Callable<Long> {
         }
       }
 
-      for (int i = 0; i < r.len(); i++) {
-        final var value = r.value(i);
-        json(r, value, r.name(i).stringValue(),
-            i + 1 == r.len() || !(value instanceof Array) && !(value instanceof Record));
+      for (int i = 0; i < object.len(); i++) {
+        final var value = object.value(i);
+        json(object, value, object.name(i).stringValue(),
+            i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Record));
       }
 
       level--;
