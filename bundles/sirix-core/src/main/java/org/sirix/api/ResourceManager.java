@@ -347,7 +347,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param ID The ID of the reader.
    * @return The node reader if available.
    */
-  Optional<R> getNodeReadTrxByTrxId(long ID);
+  Optional<R> getNodeReadTrxByTrxId(Long ID);
 
   /**
    * Determines if this resource manager has a running read-write transaction.
