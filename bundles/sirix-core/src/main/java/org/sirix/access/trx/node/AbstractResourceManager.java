@@ -9,13 +9,7 @@ import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.access.trx.page.RevisionRootPageReader;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.PageTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.RevisionInfo;
+import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
@@ -514,7 +508,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
-  public void closeNodePageWriteTransaction(final @Nonnegative Long transactionID) {
+  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) {
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
@@ -641,15 +635,16 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    try (NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(), revision, storage.createReader(),
-            null, bufferManager, new RevisionRootPageReader())) {
-      // Remember page transaction for debugging and safe close.
-      if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
-        throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
-      }
+    final NodePageReadOnlyTrx pageReadTrx =
+        new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(), revision, storage.createReader(),
+            null, bufferManager, new RevisionRootPageReader());
 
-      return pageReadTrx;
+    // Remember page transaction for debugging and safe close.
+    if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
+      throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
     }
+
+    return pageReadTrx;
   }
 
   @Override
