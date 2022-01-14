@@ -299,9 +299,7 @@ public final class WikipediaImport implements Import<StartElement> {
         }
         mWtx.moveTo(nodeKey);
         rtx.close();
-        resourceManager.close();
       }
-      db.close();
     }
     Databases.removeDatabase(path);
   }
@@ -574,12 +572,7 @@ public final class WikipediaImport implements Import<StartElement> {
         eventFactory.createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
     // Create list.
-    final List<StartElement> list = new LinkedList<>();
-    list.add(timestamp);
-    list.add(page);
-    list.add(rev);
-    list.add(id);
-    list.add(text);
+    final List<StartElement> list = List.of(timestamp, page, rev, id, text);
 
     // Invoke import.
     new WikipediaImport(xml, resource).importData(DateBy.HOURS, list);
