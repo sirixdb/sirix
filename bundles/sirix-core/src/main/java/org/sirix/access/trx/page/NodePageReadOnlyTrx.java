@@ -402,6 +402,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         }
       }
 
+      if (pageReference.getKey() == Constants.NULL_ID_LONG
+          && pageReference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+        return null;
+      }
+
       // Load list of page "fragments" from persistent storage.
       final List<T> pages = getPageFragments(pageReference);
 

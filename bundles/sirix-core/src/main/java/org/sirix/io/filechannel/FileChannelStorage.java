@@ -1,25 +1,4 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-package org.sirix.io.direct;
+package org.sirix.io.filechannel;
 
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
@@ -33,13 +12,17 @@ import org.sirix.page.SerializationType;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Factory to provide File access as a backend.
+ * Factory to provide file channel access as a backend.
  *
- * @author Sebastian Graf, University of Konstanz.
+ * @author Johannes Lichtenberger
  *
  */
 public final class FileChannelStorage implements IOStorage {
@@ -56,6 +39,12 @@ public final class FileChannelStorage implements IOStorage {
   /** Byte handler pipeline. */
   private final ByteHandlePipeline byteHandlerPipeline;
 
+  private FileChannel revisionsOffsetFileChannel;
+
+  private FileChannel dataFileChannel;
+
+  final Semaphore semaphore = new Semaphore(1);
+
   /**
    * Constructor.
    *
@@ -70,16 +59,37 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public Reader createReader() {
     try {
+      semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
+      createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
+      createDataFileChannelIfNotInitialized(dataFilePath);
 
-      return new FileChannelReader(dataFilePath,
-                                   revisionsOffsetFilePath,
-                                   new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
-    } catch (final IOException e) {
+      return new FileChannelReader(dataFileChannel,
+                                   revisionsOffsetFileChannel,
+                                   new ByteHandlePipeline(byteHandlerPipeline),
+                                   SerializationType.DATA,
+                                   new PagePersister());
+    } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
+    } finally {
+      semaphore.release();
+    }
+  }
+
+  private void createDataFileChannelIfNotInitialized(Path dataFilePath) throws IOException {
+    if (dataFileChannel == null) {
+      dataFileChannel = FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
+    }
+  }
+
+  private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath)
+      throws IOException {
+    if (revisionsOffsetFileChannel == null) {
+      revisionsOffsetFileChannel =
+          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
     }
   }
 
@@ -97,20 +107,27 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public Writer createWriter() {
     try {
+      semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
+      createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
+      createDataFileChannelIfNotInitialized(dataFilePath);
 
-      return new FileChannelWriter(dataFilePath,
-                                   revisionsOffsetFilePath,
-                                   new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
-    } catch (final IOException e) {
+      return new FileChannelWriter(dataFileChannel,
+                                   revisionsOffsetFileChannel,
+                                   new ByteHandlePipeline(byteHandlerPipeline),
+                                   SerializationType.DATA,
+                                   new PagePersister());
+    } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
+    } finally {
+      semaphore.release();
     }
   }
 
-  private void createRevisionsOffsetFileIfNotExists(Path revisionsOffsetFilePath) throws IOException {
+  private synchronized void createRevisionsOffsetFileIfNotExists(Path revisionsOffsetFilePath) throws IOException {
     if (!Files.exists(revisionsOffsetFilePath)) {
       Files.createFile(revisionsOffsetFilePath);
     }
@@ -118,7 +135,14 @@ public final class FileChannelStorage implements IOStorage {
 
   @Override
   public void close() {
-    // not used over here
+    try {
+      if (revisionsOffsetFileChannel != null) {
+        revisionsOffsetFileChannel.close();
+      }
+      dataFileChannel.close();
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
   }
 
   /**
@@ -136,8 +160,7 @@ public final class FileChannelStorage implements IOStorage {
    * @return the concrete storage for this database
    */
   private Path getRevisionFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-               .resolve(REVISIONS_FILENAME);
+    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
   }
 
   @Override
