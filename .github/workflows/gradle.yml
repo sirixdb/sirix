@@ -48,7 +48,6 @@ jobs:
           java --enable-preview --add-modules=jdk.incubator.foreign -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-SNAPSHOT-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
           sleep 5
           python -m pytest sirix-python-client -v
-
   Deploy:
     name: Deploy to OSSRH and Docker Hub
     if: ${{ github.repository_owner == 'sirixdb' && (github.event_name == 'push' || github.event_name == 'schedule') }}
