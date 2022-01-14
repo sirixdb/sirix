@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -24,7 +24,7 @@ import java.io.RandomAccessFile;
 
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.direct.FileChannelStorage;
+import org.sirix.io.filechannel.FileChannelStorage;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
@@ -52,8 +52,8 @@ public enum StorageType {
     }
   },
 
-  /** FileChannel / direct I/O backend. */
-  DIRECT {
+  /** FileChannel backend. */
+  FILECHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       return new FileChannelStorage(resourceConf);

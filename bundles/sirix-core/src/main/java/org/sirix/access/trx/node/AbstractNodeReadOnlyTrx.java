@@ -2,13 +2,7 @@ package org.sirix.access.trx.node;
 
 import org.sirix.access.User;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
-import org.sirix.api.ItemList;
-import org.sirix.api.Move;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
@@ -260,7 +254,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       } else {
         newNode = getPageTransaction().getRecord(nodeKey, IndexType.DOCUMENT, -1);
       }
-    } catch (final SirixIOException | UncheckedIOException e) {
+    } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
       newNode = Optional.empty();
     }
 
