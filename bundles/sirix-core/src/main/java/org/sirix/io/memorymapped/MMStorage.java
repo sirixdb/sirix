@@ -93,7 +93,7 @@ public final class MMStorage implements IOStorage {
   }
 
   @Override
-  public Reader createReader() {
+  public synchronized Reader createReader() {
     try {
       semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();

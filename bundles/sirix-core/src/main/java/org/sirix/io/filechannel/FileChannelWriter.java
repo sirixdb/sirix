@@ -19,9 +19,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.io.direct;
+package org.sirix.io.filechannel;
 
-import com.sun.nio.file.ExtendedOpenOption;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
@@ -30,11 +29,11 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -69,22 +68,21 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * Constructor.
    *
-   * @param dataFile            the data file
-   * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler             the byte handler
-   * @param serializationType   the serialization type (for the transaction log or the data file)
-   * @param pagePersister       transforms in-memory pages into byte-arrays and back
+   * @param dataFileChannel            the data file channel
+   * @param revisionsOffsetFileChannel the channel to the file, which holds pointers to the revision root pages
+   * @param handler                    the byte handler
+   * @param serializationType          the serialization type (for the transaction log or the data file)
+   * @param pagePersister              transforms in-memory pages into byte-arrays and back
    */
-  public FileChannelWriter(final Path dataFile, final Path revisionsOffsetFile, final ByteHandler handler,
-      final SerializationType serializationType, final PagePersister pagePersister) throws IOException {
-    this.dataFileChannel = FileChannel.open(dataFile, StandardOpenOption.WRITE);
+  public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
+      final ByteHandler handler, final SerializationType serializationType, final PagePersister pagePersister)
+      throws IOException {
+    this.dataFileChannel = dataFileChannel;
     type = checkNotNull(serializationType);
-    this.revisionsOffsetFileChannel = type == SerializationType.DATA
-        ? FileChannel.open(revisionsOffsetFile,
-                           StandardOpenOption.WRITE)
-        : null;
+    this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     this.pagePersister = checkNotNull(pagePersister);
-    reader = new FileChannelReader(dataFile, revisionsOffsetFile, handler, serializationType, pagePersister);
+    reader =
+        new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, handler, serializationType, pagePersister);
   }
 
   @Override
@@ -148,8 +146,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         }
       }
 
-      dataFileChannel.position(offset);
-      dataFileChannel.write(buffer);
+      dataFileChannel.write(buffer, offset);
 
       // Remember page coordinates.
       switch (type) {
@@ -163,13 +160,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           // Must not happen.
       }
 
-//      pageReference.setLength(writtenPageLength);
+      //      pageReference.setLength(writtenPageLength);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
-        revisionsOffsetFileChannel.position(revisionsOffsetFileChannel.size());
         buffer = ByteBuffer.allocate(8);
-        revisionsOffsetFileChannel.write(buffer);
+        buffer.putLong(offset);
+        buffer.position(0);
+        revisionsOffsetFileChannel.write(buffer, revisionsOffsetFileChannel.size());
       }
 
       return this;
@@ -183,11 +181,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     try {
       if (dataFileChannel != null) {
         dataFileChannel.force(true);
-        dataFileChannel.close();
       }
       if (revisionsOffsetFileChannel != null) {
         revisionsOffsetFileChannel.force(true);
-        revisionsOffsetFileChannel.close();
       }
       if (reader != null) {
         reader.close();
@@ -201,13 +197,19 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   public Writer writeUberPageReference(final PageReference pageReference) {
     try {
       write(pageReference);
-      dataFileChannel.position(0);
 
       final ByteBuffer buffer = ByteBuffer.allocate(8);
       buffer.putLong(pageReference.getKey());
       buffer.position(0);
 
-      dataFileChannel.write(buffer);
+      dataFileChannel.write(buffer, 0);
+
+      if (dataFileChannel != null) {
+        dataFileChannel.force(true);
+      }
+      if (revisionsOffsetFileChannel != null) {
+        revisionsOffsetFileChannel.force(true);
+      }
 
       return this;
     } catch (final IOException e) {

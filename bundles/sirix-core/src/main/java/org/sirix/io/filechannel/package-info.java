@@ -25,5 +25,5 @@
  * 
  * @author Sebastian Graf, University of Konstanz
  */
-package org.sirix.io.direct;
+package org.sirix.io.filechannel;
 
