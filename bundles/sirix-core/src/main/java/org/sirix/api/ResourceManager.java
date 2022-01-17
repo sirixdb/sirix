@@ -164,7 +164,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixThreadedException   if the thread is interrupted
    * @throws SirixUsageException      if the number of read-transactions is exceeded for a defined time
    */
-  R beginNodeReadOnlyTrx(final @Nonnull Instant pointInTime);
+  R beginNodeReadOnlyTrx(@Nonnull Instant pointInTime);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -174,7 +174,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException    if the number of write-transactions is exceeded for a defined time
    */
-  W beginNodeTrx(final @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@Nonnull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -186,7 +186,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    */
-  W beginNodeTrx(final @Nonnegative int maxNodes, final @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@Nonnegative int maxNodes, @Nonnull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -200,7 +200,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit, final @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@Nonnegative int maxTime, @Nonnull TimeUnit timeUnit, @Nonnull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -215,7 +215,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(final @Nonnegative int maxNodes, final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit, final @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@Nonnegative int maxNodes, @Nonnegative int maxTime, @Nonnull TimeUnit timeUnit, @Nonnull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -235,7 +235,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    */
-  W beginNodeTrx(final @Nonnegative int maxNodes);
+  W beginNodeTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -248,12 +248,12 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit);
+  W beginNodeTrx(@Nonnegative int maxTime, @Nonnull TimeUnit timeUnit);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
    *
-   * @param maxNodes count of node modifications after which a commit is issued
+   * @param maxNodeCount count of node modifications after which a commit is issued
    * @param timeUnit unit used for time
    * @param maxTime  time after which a commit is issued
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
@@ -262,7 +262,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit);
+  W beginNodeTrx(@Nonnegative int maxNodeCount, @Nonnegative int maxTime, @Nonnull TimeUnit timeUnit);
 
   /**
    * Open the path summary to allow iteration (basically implementation of {@link XmlNodeReadOnlyTrx}.
