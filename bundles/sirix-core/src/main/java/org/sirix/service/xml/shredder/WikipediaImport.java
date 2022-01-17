@@ -276,31 +276,31 @@ public final class WikipediaImport implements Import<StartElement> {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
     Databases.removeDatabase(path);
     Databases.createXmlDatabase(dbConf);
-    final var db = Databases.openXmlDatabase(path);
-    db.createResource(new ResourceConfiguration.Builder("wiki").build());
-    final XmlResourceManager resourceManager = db.openResourceManager("wiki");
-    if (mPageEvents.peek().isStartElement()
-        && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
-      mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
-      mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
+    try (var db = Databases.openXmlDatabase(path)) {
+      db.createResource(new ResourceConfiguration.Builder("wiki").build());
+      try (XmlResourceManager resourceManager = db.openResourceManager("wiki")) {
+        if (mPageEvents.peek() != null && mPageEvents.peek().isStartElement()
+                && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
+          mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
+          mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
+        }
+        final XmlNodeTrx wtx = resourceManager.beginNodeTrx();
+        final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents),
+                InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+        wtx.close();
+        mPageEvents = new ArrayDeque<>();
+        final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx();
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        final long nodeKey = mWtx.getNodeKey();
+        try (final FMSE fmse = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
+          fmse.diff(mWtx, rtx);
+        }
+        mWtx.moveTo(nodeKey);
+        rtx.close();
+      }
     }
-    final XmlNodeTrx wtx = resourceManager.beginNodeTrx();
-    final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents),
-        InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-    shredder.call();
-    wtx.close();
-    mPageEvents = new ArrayDeque<>();
-    final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx();
-    rtx.moveToFirstChild();
-    rtx.moveToFirstChild();
-    final long nodeKey = mWtx.getNodeKey();
-    try (final FMSE fmse = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
-      fmse.diff(mWtx, rtx);
-    }
-    mWtx.moveTo(nodeKey);
-    rtx.close();
-    resourceManager.close();
-    db.close();
     Databases.removeDatabase(path);
   }
 
@@ -493,7 +493,7 @@ public final class WikipediaImport implements Import<StartElement> {
         final Attribute attStartTag = (Attribute) itStartTag.next();
         for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext();) {
           final Attribute attElem = (Attribute) itElem.next();
-          if (attStartTag.getName().equals(attElem.getName()) && attStartTag.getName().equals(attElem.getName())) {
+          if (attStartTag.getName().equals(attElem.getName())) {
             foundAtts = true;
             break;
           }
@@ -515,7 +515,7 @@ public final class WikipediaImport implements Import<StartElement> {
         final Namespace nsStartTag = (Namespace) itStartTag.next();
         for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext();) {
           final Namespace nsElem = (Namespace) itElem.next();
-          if (nsStartTag.getName().equals(nsElem.getName()) && nsStartTag.getName().equals(nsElem.getName())) {
+          if (nsStartTag.getName().equals(nsElem.getName())) {
             foundNamesps = true;
             break;
           }
@@ -572,12 +572,7 @@ public final class WikipediaImport implements Import<StartElement> {
         eventFactory.createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
     // Create list.
-    final List<StartElement> list = new LinkedList<StartElement>();
-    list.add(timestamp);
-    list.add(page);
-    list.add(rev);
-    list.add(id);
-    list.add(text);
+    final List<StartElement> list = List.of(timestamp, page, rev, id, text);
 
     // Invoke import.
     new WikipediaImport(xml, resource).importData(DateBy.HOURS, list);
