@@ -9,13 +9,7 @@ import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.access.trx.page.RevisionRootPageReader;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.PageTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.RevisionInfo;
+import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
@@ -470,9 +464,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void assertAccess(final @Nonnegative int revision) {
     assertNotClosed();
-    if (revision < 0) {
-      throw new IllegalArgumentException("Revision must be at least 0!");
-    } else if (revision > getMostRecentRevisionNumber()) {
+    if (revision > getMostRecentRevisionNumber()) {
       throw new IllegalArgumentException(
           "Revision must not be bigger than " + Long.toString(getMostRecentRevisionNumber()) + "!");
     }
@@ -523,7 +515,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
-      // assert pageRtx != null : "Must be in the page trx map!";
       pageRtx.close();
     }
   }
@@ -564,7 +555,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closePageWriteTransaction(final @Nonnegative long transactionID) {
+  public void closePageWriteTransaction(final @Nonnegative Long transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -581,7 +572,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closePageReadTransaction(final @Nonnegative long transactionID) {
+  public void closePageReadTransaction(final @Nonnegative Long transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -593,7 +584,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    *
    * @param transactionID transaction ID to remove
    */
-  private void removeFromPageMapping(final @Nonnegative long transactionID) {
+  private void removeFromPageMapping(final @Nonnegative Long transactionID) {
     assertNotClosed();
 
     // Purge transaction from internal state.
@@ -687,7 +678,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Optional<R> getNodeReadTrxByTrxId(final long ID) {
+  public Optional<R> getNodeReadTrxByTrxId(final Long ID) {
     assertNotClosed();
 
     return Optional.ofNullable(nodeTrxMap.get(ID));
@@ -705,7 +696,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public synchronized Optional<W> getNodeTrx() {
     assertNotClosed();
 
-    return nodeTrxMap.values().stream().filter(rtx -> rtx instanceof NodeTrx).map(rtx -> (W) rtx).findAny();
+    return nodeTrxMap.values().stream().filter(NodeTrx.class::isInstance).map(rtx -> (W) rtx).findAny();
   }
 
   @Override

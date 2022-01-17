@@ -138,11 +138,13 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
     );
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public synchronized XmlIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, (unused) -> createIndexController(revision));
+    return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public synchronized XmlIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
