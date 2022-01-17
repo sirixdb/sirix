@@ -355,7 +355,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery =
         "jn:store('mycol.jn','mydoc.jn','[{\"key\":0},{\"value\":{\"key\":true}},{\"key\":\"hey\",\"value\":false}]')";
     final String openQuery =
-        "for $i in jn:doc('mycol.jn','mydoc.jn')=>value where $i instance of object() and $i=>key eq true() return { $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')[]=>value where $i instance of object() and $i=>key eq true() return { $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery, openQuery, "{\"key\":true,\"nodekey\":7}");
   }
 
@@ -367,7 +367,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "for $i in jn:doc('mycol.jn','mydoc.jn')=>value=>key[.=>boolean] return { $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')[]=>value[]=>key[.=>boolean] return { $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery, indexQuery, openQuery, "{\"boolean\":true,\"nodekey\":10}");
   }
 
@@ -379,7 +379,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/value/[]/key/boolean') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "for $i in bit:array-values(jn:doc('mycol.jn','mydoc.jn')=>value=>key)[.=>boolean gt 3] return { $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')[[1]]=>value[]=>key[.=>boolean gt 3] return { $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery, indexQuery, openQuery, "{\"boolean\":5,\"nodekey\":10}");
   }
 
@@ -390,7 +390,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/statuses/[]/user/entities/url/urls/[]/url') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "for $i in jn:doc('mycol.jn','mydoc.jn')=>statuses=>user=>entities=>url[.=>urls=>url eq 'https://t.co/TcEE6NS8nD'] return {\"result\": $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')=>statuses[]=>user=>entities=>url[.=>urls[]=>url eq 'https://t.co/TcEE6NS8nD'] return {\"result\": $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -419,7 +419,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get','/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
         for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"=>get
-        let $j := $i=>parameters=>name
+        let $j := $i=>parameters[]=>name
         return for $k in $j
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
@@ -437,7 +437,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "let $result := jn:doc('mycol.jn','mydoc.jn')=>paths=>\"/consolidated_screening_list/search\"=>get[.=>parameters=>name = 'keyword'] return { \"result\": $result, \"nodekey\": sdb:nodekey($result) }";
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>paths=>\"/consolidated_screening_list/search\"=>get[.=>parameters[]=>name = 'keyword'] return { \"result\": $result, \"nodekey\": sdb:nodekey($result) }";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -507,7 +507,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/sirix/[]/revision/tada/[]/foo','/sirix/[]/revision/tada/[]/[]/foo')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada=>foo return $result";
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[][]=>foo return $result";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -521,7 +521,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[.=>foo=>baz = 'bar'] return $result";
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[.[][]=>foo[]=>baz = 'bar'] return $result";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -534,7 +534,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
-    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[4]]=>foo[[1]]=>baz";
+    final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[4]][]=>foo[[1]]=>baz";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -577,7 +577,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
         for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"=>get
-        let $j := $i=>parameters=>name
+        let $j := $i=>parameters[]=>name
         return for $k in $j
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
@@ -597,7 +597,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, ('/pathx')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery = """
         for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"=>get
-        let $j := $i=>parameters=>name
+        let $j := $i=>parameters[]=>name
         return for $k in $j
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
@@ -617,7 +617,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String openQuery = """
         for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"
         let $j := $i=>get
-        let $l := $j=>parameters=>name
+        let $l := $j=>parameters[]=>name
         return for $k in $l
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
@@ -637,7 +637,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String openQuery = """
         for $i in jn:doc('mycol.jn','mydoc.jn')=>paths=>"/consolidated_screening_list/search"
         let $j := $i=>get
-        let $l := $j=>parameters=>name
+        let $l := $j=>parameters[]=>name
         return for $k in $l
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
@@ -655,7 +655,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[.=>foo=>baz >= 'baa' and .=>foo=>baz <= 'brr'] return $result";
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[.[][]=>foo[]=>baz >= 'baa' and .[][]=>foo[]=>baz <= 'brr'] return $result";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -669,7 +669,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-name-index($doc, 'foo') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix=>revision=>foo return $result";
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[]=>revision=>foo return $result";
     test(storeQuery,
         indexQuery,
         openQuery,
@@ -683,7 +683,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-name-index($doc, 'revision') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix=>revision=>foo return $result";
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[]=>revision=>foo return $result";
     test(storeQuery,
          indexQuery,
          openQuery,

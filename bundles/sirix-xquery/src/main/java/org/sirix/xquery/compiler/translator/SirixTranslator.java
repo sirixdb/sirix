@@ -62,16 +62,6 @@ public final class SirixTranslator extends TopDownTranslator {
     super(options);
   }
 
-  @Override
-  protected Expr derefExpr(AST node) throws QueryException {
-    Expr record = expr(node.getChild(0), true);
-    Expr[] fields = new Expr[node.getChildCount() - 1];
-    for (int i = 1; i < node.getChildCount(); i++) {
-      fields[i - 1] = expr(node.getChild(i), true);
-    }
-    return new DerefExpr(record, fields);
-  }
-
   protected Expr anyExpr(AST node) throws QueryException {
     if (node.getType() == XQExt.IndexExpr) {
       return indexExpr(node);
