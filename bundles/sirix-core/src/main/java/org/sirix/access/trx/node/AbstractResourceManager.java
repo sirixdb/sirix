@@ -378,6 +378,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       final @Nonnull TimeUnit timeUnit, final @Nonnull AfterCommitState afterCommitState) {
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
+    if (maxNodeCount < 0 || maxTime < 0) {
+      throw new SirixUsageException("maxNodeCount may not be < 0!");
+    }
     checkNotNull(timeUnit);
 
     // Make sure not to exceed available number of write transactions.
