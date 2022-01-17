@@ -41,7 +41,7 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
 
   void closeReadTransaction(long trxId);
 
-  void closePageReadTransaction(long trxId);
+  void closePageReadTransaction(Long trxId);
 
-  void closePageWriteTransaction(long transactionID);
+  void closePageWriteTransaction(Long transactionID);
 }
