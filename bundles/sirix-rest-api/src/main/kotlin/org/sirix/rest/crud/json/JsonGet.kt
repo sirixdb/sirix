@@ -166,6 +166,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                         if (jsonItem != null) {
                             queryCtx.contextItem = jsonItem
 
+                            // TODO: able to collapse into one is branch?
                             when (jsonItem) {
                                 is AbstractJsonDBArray<*> -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
@@ -175,7 +176,15 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
-                                is AtomicJsonDBItem -> {
+                                is AtomicBooleanJsonDBItem -> {
+                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                                }
+                                is AtomicStrJsonDBItem -> {
+                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                                }
+                                is AtomicNullJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
@@ -183,7 +192,9 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
-                                else -> throw IllegalStateException("Node type not known.")
+                                else -> {
+                                    throw IllegalStateException("Node type not known.")
+                                }
                             }
                         }
 

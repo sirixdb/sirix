@@ -141,6 +141,29 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
           final var derefAstNode = arrayAstNode.getChild(0);
           final var indexAstNode = arrayAstNode.getChild(1);
 
+          if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
+            String pathSegmentName;
+            if (derefAstNode.getType() == XQ.FunctionCall) {
+              arrayIndexes.computeIfAbsent(null, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+
+              return Optional.of(derefAstNode);
+            } else if (derefAstNode.getType() == XQ.ContextItemExpr) {
+              pathSegmentName = getPathNameFromContextItem(derefAstNode);
+
+//              pathNames.add(pathSegmentName);
+              arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+
+              return Optional.of(derefAstNode);
+            } else {
+              pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
+
+              pathNames.add(pathSegmentName);
+              arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+
+              return getPredicatePathStep(derefAstNode, pathNames, arrayIndexes);
+            }
+          }
+
           final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
           pathNames.add(pathSegmentName);
 

@@ -18,7 +18,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
           jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')
         """;
     final String query = """
-       for $i in bit:array-values(jn:doc('mycol.jn','mydoc.jn'))
+       for $i in jn:doc('mycol.jn','mydoc.jn')
        let $value := xs:string($i=>test)
        where contains($value, 'test')
        return $i
@@ -390,7 +390,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/statuses/[]/user/entities/url/urls/[]/url') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
-        "for $i in jn:doc('mycol.jn','mydoc.jn')=>statuses[]=>user=>entities=>url[.=>urls[]=>url eq 'https://t.co/TcEE6NS8nD'] return {\"result\": $i, \"nodekey\": sdb:nodekey($i) }";
+        "for $i in jn:doc('mycol.jn','mydoc.jn')=>statuses[]=>user=>entities=>url[.=>urls[]=>url eq 'https://t.co/TcEE6NS8nD'] order by sdb:nodekey($i) return {\"result\": $i, \"nodekey\": sdb:nodekey($i) }";
     test(storeQuery,
          indexQuery,
          openQuery,
@@ -688,5 +688,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          indexQuery,
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting22").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testNesting24() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting24").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[][]=>foo[]=>baz[starts-with(., 'ba')] return $result";
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting24").resolve("expectedOutput")));
   }
 }

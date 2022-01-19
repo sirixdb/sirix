@@ -16,16 +16,16 @@ public final class JsonItemFactory {
       case OBJECT:
         return new JsonDBObject(rtx, collection);
       case OBJECT_KEY:
-        return new AtomicJsonDBItem(rtx, collection, rtx.getName());
+        return new AtomicStrJsonDBItem(rtx, collection, rtx.getName().getLocalName());
       case STRING_VALUE:
       case OBJECT_STRING_VALUE:
-        return new AtomicJsonDBItem(rtx, collection, new Str(rtx.getValue()));
+        return new AtomicStrJsonDBItem(rtx, collection, rtx.getValue());
       case BOOLEAN_VALUE:
       case OBJECT_BOOLEAN_VALUE:
-        return new AtomicJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
+        return new AtomicBooleanJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
       case OBJECT_NULL_VALUE:
       case NULL_VALUE:
-        return new AtomicJsonDBItem(rtx, collection, new Null());
+        return new AtomicNullJsonDBItem(rtx, collection);
       case OBJECT_NUMBER_VALUE:
       case NUMBER_VALUE:
         final Number number = rtx.getNumberValue();

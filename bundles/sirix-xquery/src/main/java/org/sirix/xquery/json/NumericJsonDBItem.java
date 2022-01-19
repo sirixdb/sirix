@@ -15,16 +15,16 @@ public final class NumericJsonDBItem extends AbstractNumeric
     implements JsonDBItem, Numeric, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** Sirix {@link JsonNodeReadOnlyTrx}. */
-  private final JsonNodeReadOnlyTrx mRtx;
+  private final JsonNodeReadOnlyTrx rtx;
 
   /** Sirix node key. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Collection this node is part of. */
-  private final JsonDBCollection mCollection;
+  private final JsonDBCollection collection;
 
   /** The atomic value delegate. */
-  private final Numeric mAtomic;
+  private final Numeric atomic;
 
   /**
    * Constructor.
@@ -34,160 +34,160 @@ public final class NumericJsonDBItem extends AbstractNumeric
    * @param atomic the atomic value delegate
    */
   public NumericJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final Numeric atomic) {
-    mCollection = Preconditions.checkNotNull(collection);
-    mRtx = Preconditions.checkNotNull(rtx);
-    mNodeKey = mRtx.getNodeKey();
-    mAtomic = atomic;
+    this.collection = Preconditions.checkNotNull(collection);
+    this.rtx = Preconditions.checkNotNull(rtx);
+    nodeKey = this.rtx.getNodeKey();
+    this.atomic = atomic;
   }
 
   @Override
   public JsonResourceManager getResourceManager() {
-    return mRtx.getResourceManager();
+    return rtx.getResourceManager();
   }
 
   private void moveRtx() {
-    mRtx.moveTo(mNodeKey);
+    rtx.moveTo(nodeKey);
   }
 
   @Override
   public JsonNodeReadOnlyTrx getTrx() {
     moveRtx();
 
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public JsonDBCollection getCollection() {
-    return mCollection;
+    return collection;
   }
 
   @Override
   public boolean booleanValue() {
-    return mAtomic.booleanValue();
+    return atomic.booleanValue();
   }
 
   @Override
   public Type type() {
-    return mAtomic.type();
+    return atomic.type();
   }
 
   @Override
   public int cmp(Atomic atomic) {
-    return mAtomic.cmp(atomic);
+    return this.atomic.cmp(atomic);
   }
 
   @Override
   public String stringValue() {
-    return mAtomic.stringValue();
+    return atomic.stringValue();
   }
 
   @Override
   public Atomic asType(Type type) {
-    return mAtomic.asType(type);
+    return atomic.asType(type);
   }
 
   @Override
   public long getNodeKey() {
-    return mNodeKey;
+    return nodeKey;
   }
 
   @Override
   public double doubleValue() {
-    return mAtomic.doubleValue();
+    return atomic.doubleValue();
   }
 
   @Override
   public float floatValue() {
-    return mAtomic.floatValue();
+    return atomic.floatValue();
   }
 
   @Override
   public BigDecimal integerValue() {
-    return mAtomic.integerValue();
+    return atomic.integerValue();
   }
 
   @Override
   public BigDecimal decimalValue() {
-    return mAtomic.decimalValue();
+    return atomic.decimalValue();
   }
 
   @Override
   public long longValue() {
-    return mAtomic.longValue();
+    return atomic.longValue();
   }
 
   @Override
   public int intValue() {
-    return mAtomic.intValue();
+    return atomic.intValue();
   }
 
   @Override
   public IntNumeric asIntNumeric() {
-    return mAtomic.asIntNumeric();
+    return atomic.asIntNumeric();
   }
 
   @Override
   public Numeric add(Numeric other) {
-    return mAtomic.add(other);
+    return atomic.add(other);
   }
 
   @Override
   public Numeric subtract(Numeric other) {
-    return mAtomic.subtract(other);
+    return atomic.subtract(other);
   }
 
   @Override
   public Numeric multiply(Numeric other) {
-    return mAtomic.multiply(other);
+    return atomic.multiply(other);
   }
 
   @Override
   public Numeric div(Numeric other) {
-    return mAtomic.div(other);
+    return atomic.div(other);
   }
 
   @Override
   public Numeric idiv(Numeric other) {
-    return mAtomic.idiv(other);
+    return atomic.idiv(other);
   }
 
   @Override
   public Numeric mod(Numeric other) {
-    return mAtomic.mod(other);
+    return atomic.mod(other);
   }
 
   @Override
   public Numeric negate() {
-    return mAtomic.negate();
+    return atomic.negate();
   }
 
   @Override
   public Numeric round() {
-    return mAtomic.round();
+    return atomic.round();
   }
 
   @Override
   public Numeric abs() {
-    return mAtomic.abs();
+    return atomic.abs();
   }
 
   @Override
   public Numeric floor() {
-    return mAtomic.floor();
+    return atomic.floor();
   }
 
   @Override
   public Numeric ceiling() {
-    return mAtomic.ceiling();
+    return atomic.ceiling();
   }
 
   @Override
   public Numeric roundHalfToEven(int precision) {
-    return mAtomic.roundHalfToEven(precision);
+    return atomic.roundHalfToEven(precision);
   }
 
   @Override
   public int atomicCmpInternal(Atomic atomic) {
-    return mAtomic.atomicCmp(atomic);
+    return this.atomic.atomicCmp(atomic);
   }
 }
