@@ -6,6 +6,7 @@ import org.brackit.xquery.Tuple;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.sequence.BaseIter;
+import org.brackit.xquery.sequence.ItemSequence;
 import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.ExprUtil;
 import org.brackit.xquery.util.path.Path;
@@ -211,28 +212,7 @@ public final class IndexExpr implements Expr {
       return null;
     }
 
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          int i;
-
-          @Override
-          public Item next() {
-            if (i < sequence.size()) {
-              final var item = sequence.get(i++);
-
-              return item.evaluateToItem(ctx, tuple);
-            }
-            return null;
-          }
-
-          @Override
-          public void close() {
-          }
-        };
-      }
-    };
+    return new ItemSequence(sequence.toArray(new Item[0]));
   }
 
   private SearchMode getSearchMode(String comparisonType) {
@@ -316,12 +296,12 @@ public final class IndexExpr implements Expr {
                 final int currentIndex = i;
                 int j = i - 1;
                 // nested child arrays
-                while (steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
+                while (j >= 0 && steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
                   j--;
                   i--;
                 }
 
-                final Deque<Integer> tempIndexes = arrayIndexes.get(steps.get(j).getValue().getLocalName());
+                final Deque<Integer> tempIndexes = j >= 0 ? arrayIndexes.get(steps.get(j).getValue().getLocalName()) : null;
                 final Deque<Integer> indexes = tempIndexes == null ? null : new ArrayDeque<>(tempIndexes);
 
                 if (indexes == null) {
@@ -341,13 +321,15 @@ public final class IndexExpr implements Expr {
                   for (int l = currentIndex, length = j + y; l > length; l--) {
                     // remaining with array indexes specified
                     final Integer index = indexes.pop();
-                    boolean hasMoved = true;
-                    for (int k = 0; k < index && hasMoved; k++) {
-                      hasMoved = rtx.moveToLeftSibling().hasMoved();
-                    }
-                    if (!hasMoved || rtx.hasLeftSibling()) {
-                      currNodeKeys.remove(nodeKey);
-                      break outer;
+                    if (index != Integer.MIN_VALUE) {
+                      boolean hasMoved = true;
+                      for (int k = 0; k < index && hasMoved; k++) {
+                        hasMoved = rtx.moveToLeftSibling().hasMoved();
+                      }
+                      if (!hasMoved || rtx.hasLeftSibling()) {
+                        currNodeKeys.remove(nodeKey);
+                        break outer;
+                      }
                     }
                     rtx.moveToParent();
                   }

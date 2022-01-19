@@ -1,14 +1,13 @@
 package org.sirix.xquery.json;
 
-import org.brackit.xquery.atomic.AbstractAtomic;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.xdm.Type;
+import com.google.common.base.Preconditions;
+import org.brackit.xquery.atomic.Bool;
+import org.brackit.xquery.atomic.Str;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.xquery.StructuredDBItem;
-import com.google.common.base.Preconditions;
 
-public final class AtomicJsonDBItem extends AbstractAtomic
+public final class AtomicStrJsonDBItem extends Str
     implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** Sirix {@link JsonNodeReadOnlyTrx}. */
@@ -20,22 +19,19 @@ public final class AtomicJsonDBItem extends AbstractAtomic
   /** Collection this node is part of. */
   private final JsonDBCollection collection;
 
-  /** The atomic value delegate. */
-  private final AbstractAtomic atomic;
-
   /**
    * Constructor.
    *
    * @param rtx {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
    * @param collection {@link JsonDBCollection} reference
-   * @param atomic the atomic value delegate
+   * @param string the atomic string value delegate
    */
-  public AtomicJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
-      final AbstractAtomic atomic) {
+  public AtomicStrJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
+      final String string) {
+    super(string);
     this.collection = Preconditions.checkNotNull(collection);
     this.rtx = Preconditions.checkNotNull(rtx);
     nodeKey = this.rtx.getNodeKey();
-    this.atomic = Preconditions.checkNotNull(atomic);
   }
 
   private void moveRtx() {
@@ -57,46 +53,6 @@ public final class AtomicJsonDBItem extends AbstractAtomic
   @Override
   public JsonDBCollection getCollection() {
     return collection;
-  }
-
-  @Override
-  public boolean booleanValue() {
-    return atomic.booleanValue();
-  }
-
-  @Override
-  public Type type() {
-    return atomic.type();
-  }
-
-  @Override
-  public int cmp(Atomic atomic) {
-    return this.atomic.cmp(atomic);
-  }
-
-  @Override
-  public int atomicCode() {
-    return atomic.atomicCode();
-  }
-
-  @Override
-  public String stringValue() {
-    return atomic.stringValue();
-  }
-
-  @Override
-  public Atomic asType(Type type) {
-    return atomic.asType(type);
-  }
-
-  @Override
-  public int hashCode() {
-    return atomic.hashCode();
-  }
-
-  @Override
-  public int atomicCmpInternal(Atomic atomic) {
-    return this.atomic.atomicCmp(atomic);
   }
 
   @Override

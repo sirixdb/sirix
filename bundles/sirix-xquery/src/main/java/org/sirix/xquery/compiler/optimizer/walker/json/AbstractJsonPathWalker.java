@@ -82,6 +82,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
       var pathNodeKeysToRemove = pathNodeKeys.stream()
                                              .filter(pathNodeKey -> pathNodeKeyToRemove(pathSegmentNames,
+                                                                                        arrayIndexes,
                                                                                         pathSummary,
                                                                                         pathNodeKey))
                                              .collect(Collectors.toList());
@@ -92,7 +93,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       if (pathNodeKeys.isEmpty()) {
         // no path node keys found: replace with empty sequence node
         final var parentASTNode = astNode.getParent();
-        final var emptySequence = new AST(XQ.SequenceExpr);
+        final var emptySequence = new AST(XQ.EmptySequenceType);
         parentASTNode.replaceChild(astNode.getChildIndex(), emptySequence);
         return emptySequence;
       }
@@ -202,8 +203,13 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return notFound;
   }
 
-  private boolean pathNodeKeyToRemove(Deque<String> pathSegmentNames, PathSummaryReader pathSummary, int pathNodeKey) {
+  private boolean pathNodeKeyToRemove(final Deque<String> pathSegmentNames, final Map<String, Deque<Integer>> indexes,
+      final PathSummaryReader pathSummary, final int pathNodeKey) {
     final var currentPathSegmentNames = new ArrayDeque<>(pathSegmentNames);
+    final var currentIndexes = indexes.entrySet()
+                                      .stream()
+                                      .collect(Collectors.toMap(entry -> entry.getKey(),
+                                                                e -> new ArrayDeque(e.getValue())));
     pathSummary.moveTo(pathNodeKey);
     var candidatePath = pathSummary.getPath();
     String pathSegment = currentPathSegmentNames.removeFirst();
@@ -214,18 +220,34 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     for (int i = pathSteps.size() - 1; i >= 0; i--) {
       final var step = pathSteps.get(i);
 
-      if (found && currentPathSegmentNames.isEmpty() && !Path.Axis.CHILD_ARRAY.equals(step.getAxis())) {
-        break;
+      if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
+        final Deque<Integer> indexesDeque = currentIndexes.get(pathSegment);
+
+        if (indexesDeque == null) {
+          found = false;
+          break;
+        } else if (indexesDeque.isEmpty()) {
+          found = false;
+          break;
+        } else {
+          indexesDeque.removeLast();
+
+          if (indexesDeque.isEmpty()) {
+            currentIndexes.remove(pathSegment);
+          }
+        }
       } else if (step.getAxis() == Path.Axis.CHILD && step.getValue().equals(new QNm(pathSegment))) {
         found = true;
 
-        if (!currentPathSegmentNames.isEmpty()) {
+        if (currentPathSegmentNames.isEmpty()) {
+          pathSegment = null;
+        } else {
           pathSegment = currentPathSegmentNames.removeFirst();
         }
       }
     }
 
-    return !currentPathSegmentNames.isEmpty() || !found;
+    return !currentPathSegmentNames.isEmpty() || !currentIndexes.isEmpty() || !found;
   }
 
   private RevisionData getRevisionData(final AST node) {
@@ -282,13 +304,33 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
           final var derefAstNode = arrayAstNode.getChild(0);
           final var indexAstNode = arrayAstNode.getChild(1);
 
-          final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
-          pathNames.add(pathSegmentName);
+          if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
+            if (derefAstNode.getType() == XQ.FunctionCall) {
+              arrayIndexes.computeIfAbsent(null, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
 
-          arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>())
-                      .add(((Int32) indexAstNode.getValue()).intValue());
+              return Optional.of(derefAstNode);
+            }
 
-          return getPathStep(derefAstNode, pathNames, arrayIndexes);
+            final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
+            pathNames.add(pathSegmentName);
+
+            arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+
+            return getPathStep(derefAstNode, pathNames, arrayIndexes);
+          }
+
+          if (derefAstNode.getType() == XQ.FunctionCall) {
+            arrayIndexes.computeIfAbsent(null, (unused) -> new ArrayDeque<>()).add(((Int32) indexAstNode.getValue()).intValue());
+
+            return Optional.of(derefAstNode);
+          } else {
+            final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
+            pathNames.add(pathSegmentName);
+
+            arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(((Int32) indexAstNode.getValue()).intValue());
+
+            return getPathStep(derefAstNode, pathNames, arrayIndexes);
+          }
         }
       }
 
@@ -312,6 +354,10 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         }).findFirst();
 
         return optionalLetBindNode.map(returnFunctionCallOrIndexExprNodeIfPresent(pathNames, arrayIndexes));
+      }
+
+      if (step.getType() == XQ.ContextItemExpr) {
+        return Optional.of(step);
       }
     }
 
@@ -381,19 +427,52 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
       if (firstChildAstNode.getType() == XQ.ArrayAccess) {
         if (pathNameForIndexes == null) {
-          var clonedAstNode = firstChildAstNode.copyTree();
+          var clonedAstNode = firstChildAstNode;
           while (clonedAstNode.getChild(0).getType() == XQ.ArrayAccess) {
             clonedAstNode = clonedAstNode.getChild(0);
           }
-          final var derefAstNode = clonedAstNode.getChild(0);
-          pathNameForIndexes = derefAstNode.getChild(1).getStringValue();
+          var possiblyDerefAstNode = clonedAstNode.getChild(0);
+
+          if (possiblyDerefAstNode.getType() == XQ.DerefExpr) {
+            pathNameForIndexes = possiblyDerefAstNode.getChild(1).getStringValue();
+          } else if (possiblyDerefAstNode.getType() == XQ.ContextItemExpr) {
+            pathNameForIndexes = getPathNameFromContextItem(possiblyDerefAstNode);
+
+            if (pathNameForIndexes == null) {
+              return null;
+            }
+          }
         }
 
+        if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
+          arrayIndexes.computeIfAbsent(pathNameForIndexes, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+          return processArrayAccess(pathNameForIndexes, arrayIndexes, firstChildAstNode);
+        }
         arrayIndexes.computeIfAbsent(pathNameForIndexes, (unused) -> new ArrayDeque<>())
                     .add(((Int32) indexAstNode.getValue()).intValue());
         return processArrayAccess(pathNameForIndexes, arrayIndexes, firstChildAstNode);
       }
     }
     return astNode;
+  }
+
+  protected String getPathNameFromContextItem(AST possiblyDerefAstNode) {
+    String pathNameForIndexes = null;
+    while (possiblyDerefAstNode.getParent() != null && possiblyDerefAstNode.getParent().getType() != XQ.FilterExpr) {
+      possiblyDerefAstNode = possiblyDerefAstNode.getParent();
+    }
+
+    if (possiblyDerefAstNode.getParent() != null && possiblyDerefAstNode.getParent().getType() == XQ.FilterExpr) {
+      possiblyDerefAstNode = possiblyDerefAstNode.getParent();
+      while (possiblyDerefAstNode.getType() != XQ.DerefExpr) {
+        possiblyDerefAstNode = possiblyDerefAstNode.getChild(0);
+      }
+    }
+
+    if (possiblyDerefAstNode.getType() == XQ.DerefExpr) {
+      pathNameForIndexes = possiblyDerefAstNode.getChild(1).getStringValue();
+    }
+
+    return pathNameForIndexes;
   }
 }
