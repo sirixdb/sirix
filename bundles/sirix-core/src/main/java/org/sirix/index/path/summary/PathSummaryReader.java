@@ -352,12 +352,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         continue;
       }
 
-      try {
-        if (path.matches(node.getPath(this))) {
-          pcrSet.add(node.getNodeKey());
-        }
-      } catch (Exception e) {
-        System.out.println();
+      if (path.matches(node.getPath(this))) {
+        pcrSet.add(node.getNodeKey());
       }
     }
     moveTo(nodeKey);

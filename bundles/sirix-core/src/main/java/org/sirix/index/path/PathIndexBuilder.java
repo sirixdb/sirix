@@ -25,20 +25,20 @@ public final class PathIndexBuilder {
 
   private final PathSummaryReader pathSummaryReader;
 
-  private final RBTreeWriter<Long, NodeReferences> avlTreeWriter;
+  private final RBTreeWriter<Long, NodeReferences> indexWriter;
 
-  public PathIndexBuilder(final RBTreeWriter<Long, NodeReferences> avlTreeWriter,
+  public PathIndexBuilder(final RBTreeWriter<Long, NodeReferences> indexWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
-    this.avlTreeWriter = avlTreeWriter;
+    this.indexWriter = indexWriter;
   }
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       final long PCR = pathNodeKey;
       if (pathSummaryReader.getPCRsForPaths(paths, true).contains(PCR) || paths.isEmpty()) {
-        final Optional<NodeReferences> textReferences = avlTreeWriter.get(PCR, SearchMode.EQUAL);
+        final Optional<NodeReferences> textReferences = indexWriter.get(PCR, SearchMode.EQUAL);
         if (textReferences.isPresent()) {
           setNodeReferences(node, textReferences.get(), PCR);
         } else {
@@ -53,7 +53,7 @@ public final class PathIndexBuilder {
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final long pathNodeKey)
       throws SirixIOException {
-    avlTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    indexWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 
 }

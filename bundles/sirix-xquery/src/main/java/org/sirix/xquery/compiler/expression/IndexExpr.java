@@ -5,14 +5,13 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.Tuple;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.sequence.BaseIter;
+import org.brackit.xquery.compiler.AST;
+import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.sequence.ItemSequence;
-import org.brackit.xquery.sequence.LazySequence;
 import org.brackit.xquery.util.ExprUtil;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Expr;
 import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -25,6 +24,8 @@ import org.sirix.index.name.NameFilter;
 import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.xquery.SirixQueryContext;
+import org.sirix.xquery.compiler.optimizer.walker.json.Paths;
+import org.sirix.xquery.compiler.optimizer.walker.json.QueryPathSegment;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonItemFactory;
@@ -73,8 +74,8 @@ public final class IndexExpr implements Expr {
 
     final var indexType = (IndexType) properties.get("indexType");
     final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
-    final var arrayIndexes = (Map<String, Deque<Integer>>) properties.get("arrayIndexes");
-    final var pathSegmentNames = (Deque) properties.get("pathSegmentNames");
+    final var pathSegmentNamesToArrayIndexes =
+        (Deque<QueryPathSegment>) properties.get("pathSegmentNamesToArrayIndexes");
 
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
       final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
@@ -89,11 +90,10 @@ public final class IndexExpr implements Expr {
 
           checkIfIndexNodeIsApplicable(manager,
                                        rtx,
-                                       arrayIndexes,
+                                       pathSegmentNamesToArrayIndexes,
                                        nodeReferencesIterator,
                                        nodeKeys,
-                                       false,
-                                       pathSegmentNames);
+                                       false);
         }
         case CAS -> {
           final var atomic = (Atomic) properties.get("atomic");
@@ -122,11 +122,10 @@ public final class IndexExpr implements Expr {
 
             checkIfIndexNodeIsApplicable(manager,
                                          rtx,
-                                         arrayIndexes,
+                                         pathSegmentNamesToArrayIndexes,
                                          nodeReferencesIterator,
                                          nodeKeys,
-                                         false,
-                                         pathSegmentNames);
+                                         false);
 
             indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
 
@@ -142,11 +141,10 @@ public final class IndexExpr implements Expr {
 
             checkIfIndexNodeIsApplicable(manager,
                                          rtx,
-                                         arrayIndexes,
+                                         pathSegmentNamesToArrayIndexes,
                                          nodeReferencesIterator,
                                          nodeKeys,
-                                         false,
-                                         pathSegmentNames);
+                                         false);
 
             indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
 
@@ -167,11 +165,10 @@ public final class IndexExpr implements Expr {
 
           checkIfIndexNodeIsApplicable(manager,
                                        rtx,
-                                       arrayIndexes,
+                                       pathSegmentNamesToArrayIndexes,
                                        nodeReferencesIterator,
                                        nodeKeys,
-                                       true,
-                                       pathSegmentNames);
+                                       true);
 
         }
         default -> throw new IllegalStateException("Index type " + indexType + " not known");
@@ -183,10 +180,31 @@ public final class IndexExpr implements Expr {
 
     switch (indexType) {
       case PATH, NAME -> nodeKeys.forEach(nodeKey -> {
-        rtx.moveTo(nodeKey).trx().moveToFirstChild();
-        sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+        rtx.moveTo(nodeKey);
+        final Deque<Integer> arrayIndexes = pathSegmentNamesToArrayIndexes.getLast().arrayIndexes();
+        if (arrayIndexes.isEmpty()) {
+          rtx.moveToFirstChild();
+          sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+        } else if (arrayIndexes.getFirst() == Integer.MIN_VALUE) {
+          if (rtx.moveToFirstChild().hasMoved()) {
+            do {
+              sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+            } while (rtx.moveToRightSibling().hasMoved());
+          }
+        } else {
+          final var index = arrayIndexes.getFirst();
+          boolean hasMoved = rtx.moveToFirstChild().hasMoved();
+          assert hasMoved;
+          int k = 1;
+          for (; k <= index; k++) {
+            hasMoved = rtx.moveToRightSibling().hasMoved();
+            assert hasMoved;
+          }
+          sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+        }
       });
       case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
+        final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
         final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
         final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
         final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
@@ -195,12 +213,15 @@ public final class IndexExpr implements Expr {
           // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
           rtx.moveTo(nodeKey);
           rtx.moveToParent();
-          for (int i = 0; i < predicateLevel; i++) {
+          for (int i = 1; i < predicateLevel; i++) {
             rtx.moveToParent();
 
             if (rtx.isObject() && i + 1 < predicateLevel) {
               rtx.moveToParent();
             }
+          }
+          if (predicateLeafNode != null && predicateLeafNode.getParent().getType() != XQ.ArrayAccess) {
+            rtx.moveToParent();
           }
           sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
         });
@@ -236,54 +257,35 @@ public final class IndexExpr implements Expr {
   }
 
   private void checkIfIndexNodeIsApplicable(JsonResourceManager manager, JsonNodeReadOnlyTrx rtx,
-      Map<String, Deque<Integer>> arrayIndexes, Iterator<NodeReferences> nodeReferencesIterator, List<Long> nodeKeys,
-      boolean checkPath, Deque<String> pathSegments) {
+      Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
+      List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
+    final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
     try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
         final var currNodeKeys = new HashSet<>(currentNodeReferences.getNodeKeys());
-        // if array indexes are given (only some might be specified we have to drop false positive nodes
-        if ((arrayIndexes != null && !arrayIndexes.isEmpty()) || checkPath) {
+        // if array numberOfArrayIndexes are given (only some might be specified we have to drop false positive nodes
+        if (numberOfArrayIndexes != 0 || checkPathBecauseOfFieldNameChecks) {
           for (final long nodeKey : currentNodeReferences.getNodeKeys()) {
+            final var currentPathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
+            pathSegmentNamesToArrayIndexes.forEach(pathSegmentNameToArrayIndex -> {
+              final var currentIndexes = new ArrayDeque<>(pathSegmentNameToArrayIndex.arrayIndexes());
+              currentPathSegmentNamesToArrayIndexes.addLast(new QueryPathSegment(pathSegmentNameToArrayIndex.pathSegmentName(), currentIndexes));
+            });
+
             rtx.moveTo(nodeKey);
             if (rtx.isStringValue() || rtx.isNumberValue() || rtx.isBooleanValue() || rtx.isNullValue()) {
               rtx.moveToParent();
             }
 
-            pathSummary.moveTo(rtx.getPathNodeKey());
+            final var pathNodeKey = rtx.getPathNodeKey();
+            pathSummary.moveTo(pathNodeKey);
             final var path = pathSummary.getPath();
 
-            boolean falsePositive = false;
-
-            if (checkPath) {
-              final var allPathSegments = new ArrayDeque<>(pathSegments);
-              int derefSteps = 0;
-              for (final Path.Step<QNm> step : path.steps()) {
-                if (step.getAxis() == Path.Axis.CHILD) {
-                  final var pathSegmentName = allPathSegments.pollLast();
-
-                  if (pathSegmentName == null) {
-                    falsePositive = true;
-                    continue;
-                  }
-
-                  if (!step.getValue().toString().equals(pathSegmentName)) {
-                    currNodeKeys.remove(nodeKey);
-                    falsePositive = true;
-                    continue;
-                  }
-
-                  derefSteps++;
-                }
-              }
-
-              if (!falsePositive && derefSteps != pathSegments.size()) {
+            if (checkPathBecauseOfFieldNameChecks) {
+              if (Paths.isPathNodeNotAQueryResult(pathSegmentNamesToArrayIndexes, pathSummary, pathNodeKey)) {
                 currNodeKeys.remove(nodeKey);
-                falsePositive = true;
+                continue;
               }
-            }
-
-            if (falsePositive) {
-              continue;
             }
 
             final var steps = path.steps();
@@ -292,8 +294,10 @@ public final class IndexExpr implements Expr {
             for (int i = steps.size() - 1; i >= 0; i--) {
               final var step = steps.get(i);
 
+              boolean moveToParent = true;
+              final int currentIndex = i;
+
               if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
-                final int currentIndex = i;
                 int j = i - 1;
                 // nested child arrays
                 while (j >= 0 && steps.get(j).getAxis() == Path.Axis.CHILD_ARRAY) {
@@ -301,17 +305,19 @@ public final class IndexExpr implements Expr {
                   i--;
                 }
 
-                final Deque<Integer> tempIndexes = j >= 0 ? arrayIndexes.get(steps.get(j).getValue().getLocalName()) : null;
+                final Deque<Integer> tempIndexes;
+
+                tempIndexes = currentPathSegmentNamesToArrayIndexes.peekLast().arrayIndexes();
                 final Deque<Integer> indexes = tempIndexes == null ? null : new ArrayDeque<>(tempIndexes);
 
                 if (indexes == null) {
-                  // no array indexes given
+                  // no array numberOfArrayIndexes given
                   while (j < currentIndex) {
                     j++;
                     rtx.moveToParent();
                   }
                 } else {
-                  // at least some array indexes are given for the specific object key node
+                  // at least some array numberOfArrayIndexes are given for the specific object key node
                   int y = 0;
                   for (int m = 0, length = currentIndex - j - indexes.size(); m < length; m++) {
                     // for instance =>foo[[0]]=>bar   in a path /foo/[]/[]/[]/bar meaning at least one index is not specified
@@ -319,24 +325,45 @@ public final class IndexExpr implements Expr {
                     rtx.moveToParent();
                   }
                   for (int l = currentIndex, length = j + y; l > length; l--) {
-                    // remaining with array indexes specified
+                    // remaining with array numberOfArrayIndexes specified
                     final Integer index = indexes.pop();
+
                     if (index != Integer.MIN_VALUE) {
-                      boolean hasMoved = true;
-                      for (int k = 0; k < index && hasMoved; k++) {
-                        hasMoved = rtx.moveToLeftSibling().hasMoved();
+                      if (currentIndex == steps.size() - 1) {
+                        boolean hasMoved = rtx.moveToFirstChild().hasMoved();
+                        int k = 0;
+                        for (; k <= index && hasMoved; k++) {
+                          hasMoved = rtx.moveToRightSibling().hasMoved();
+                        }
+                        if (k - 1 != index) {
+                          currNodeKeys.remove(nodeKey);
+                          break outer;
+                        }
+                      } else {
+                        boolean hasMoved = true;
+                        for (int k = 0; k < index && hasMoved; k++) {
+                          hasMoved = rtx.moveToLeftSibling().hasMoved();
+                        }
+                        if (!hasMoved || rtx.hasLeftSibling()) {
+                          currNodeKeys.remove(nodeKey);
+                          break outer;
+                        }
                       }
-                      if (!hasMoved || rtx.hasLeftSibling()) {
-                        currNodeKeys.remove(nodeKey);
-                        break outer;
-                      }
+                    } else if (l == steps.size() - 1) {
+                      moveToParent = false;
                     }
                     rtx.moveToParent();
                   }
                 }
+              } else {
+                currentPathSegmentNamesToArrayIndexes.removeLast();
               }
 
-              rtx.moveToParent();
+              // if not the last step is an array unboxing
+              if (moveToParent) {
+                rtx.moveToParent();
+              }
+
               if (rtx.isObject() && i - 1 > 0 && steps.get(i - 1).getAxis() == Path.Axis.CHILD) {
                 rtx.moveToParent();
               }
@@ -346,6 +373,13 @@ public final class IndexExpr implements Expr {
         nodeKeys.addAll(currNodeKeys);
       });
     }
+  }
+
+  private long getNumberOfArrayIndexes(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
+    return pathSegmentNamesToArrayIndexes.stream()
+                                         .map(pathSegmentNameToArrayIndexes -> pathSegmentNameToArrayIndexes.arrayIndexes())
+                                         .filter(arrayIndexes -> !arrayIndexes.isEmpty())
+                                         .count();
   }
 
   @Override

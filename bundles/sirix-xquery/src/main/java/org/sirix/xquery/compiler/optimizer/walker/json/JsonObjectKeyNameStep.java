@@ -51,22 +51,15 @@ public class JsonObjectKeyNameStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames,
-      Map<String, Deque<Integer>> predicateArrayIndexes) {
-    return Optional.empty();
-  }
-
-  @Override
   AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
-      Map<IndexDef, Integer> predicateLevels, Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames) {
+      Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST predicateLeafNode) {
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", IndexType.NAME);
     indexExpr.setProperty("indexDefs", foundIndexDefs);
     indexExpr.setProperty("databaseName", revisionData.databaseName());
     indexExpr.setProperty("resourceName", revisionData.resourceName());
     indexExpr.setProperty("revision", revisionData.revision());
-    indexExpr.setProperty("arrayIndexes", arrayIndexes);
-    indexExpr.setProperty("pathSegmentNames", pathSegmentNames);
+    indexExpr.setProperty("pathSegmentNamesToArrayIndexes", pathSegmentNamesToArrayIndexes);
 
     final var parentASTNode = astNode.getParent();
     parentASTNode.replaceChild(astNode.getChildIndex(), indexExpr);
