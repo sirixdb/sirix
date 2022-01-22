@@ -717,4 +717,40 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting25").resolve("expectedOutput")));
   }
+
+  @Test
+  public void testNesting26() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting26").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[][]=>foo[] return $result";
+    test(storeQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting26").resolve("expectedOutput")).trim());
+  }
+
+  @Test
+  public void testNesting27() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting27").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[][]=>foo[][] return $result";
+    test(storeQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting27").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testNesting28() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting28").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[][]=>foo[]=>baz[] return $result";
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting28").resolve("expectedOutput")));
+  }
 }
