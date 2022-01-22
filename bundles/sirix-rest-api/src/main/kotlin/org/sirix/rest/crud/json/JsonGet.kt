@@ -166,7 +166,6 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                         if (jsonItem != null) {
                             queryCtx.contextItem = jsonItem
 
-                            // TODO: able to collapse into one is branch?
                             when (jsonItem) {
                                 is AbstractJsonDBArray<*> -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)

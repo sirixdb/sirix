@@ -16,13 +16,13 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 public final class PathIndexListener {
 
-  private final RBTreeWriter<Long, NodeReferences> avlTreeWriter;
+  private final RBTreeWriter<Long, NodeReferences> indexWriter;
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
 
   public PathIndexListener(final Set<Path<QNm>> paths, final PathSummaryReader pathSummaryReader,
-      final RBTreeWriter<Long, NodeReferences> avlTreeWriter) {
-    this.avlTreeWriter = avlTreeWriter;
+      final RBTreeWriter<Long, NodeReferences> indexWriter) {
+    this.indexWriter = indexWriter;
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
   }
@@ -33,7 +33,7 @@ public final class PathIndexListener {
       switch (type) {
         case INSERT:
           if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
-            final Optional<NodeReferences> textReferences = avlTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
+            final Optional<NodeReferences> textReferences = indexWriter.get(pathNodeKey, SearchMode.EQUAL);
             if (textReferences.isPresent()) {
               setNodeReferences(node, textReferences.get(), pathNodeKey);
             } else {
@@ -43,7 +43,7 @@ public final class PathIndexListener {
           break;
         case DELETE:
           if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
-            avlTreeWriter.remove(pathNodeKey, node.getNodeKey());
+            indexWriter.remove(pathNodeKey, node.getNodeKey());
           }
           break;
         default:
@@ -55,6 +55,6 @@ public final class PathIndexListener {
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final long pathNodeKey)
       throws SirixIOException {
-    avlTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    indexWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 }

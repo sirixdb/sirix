@@ -21,6 +21,7 @@ import org.sirix.xquery.json.JsonDBStore;
 
 import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 abstract class AbstractJsonPathWalker extends ScopeWalker {
@@ -48,11 +49,11 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
 
     final var node = pathData.node();
-    final var pathSegmentNames = pathData.pathSegmentNames();
-    final var arrayIndexes = pathData.arrayIndexes();
-    final var predicateSegmentNames = pathData.predicateNames();
+    final var pathSegmentNamesToArrayIndexes = pathData.pathSegmentNamesToArrayIndexes();
+    final var predicateSegmentNamesToArrayIndexes = pathData.predicatePathSegmentNamesToArrayIndexes();
+    final var predicateLeafNode = pathData.predicateLeafNode();
 
-    if (node == null || pathSegmentNames.size() <= 1) {
+    if (node == null || pathSegmentNamesToArrayIndexes.size() <= 1) {
       return astNode;
     }
 
@@ -74,17 +75,22 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         return astNode;
       }
 
-      final var pathSegmentNameToCheck = pathSegmentNames.removeFirst();
-      var pathNodeKeys = findFurthestFromRootPathNodes(astNode, pathSegmentNameToCheck, pathSummary);
-
-      // re-add path segment
-      pathSegmentNames.addFirst(pathSegmentNameToCheck);
+      // path node keys of all paths, which have the right most field of the query in its path
+      var queryPathSegment = pathSegmentNamesToArrayIndexes.getLast();
+      var pathNodeKeys = findFurthestFromRootPathNodes(astNode,
+                                                       !queryPathSegment.arrayIndexes().isEmpty()
+                                                           ? "__array__"
+                                                           : queryPathSegment.pathSegmentName(),
+                                                       pathSummary,
+                                                       !queryPathSegment.arrayIndexes().isEmpty()
+                                                           ? NodeKind.ARRAY
+                                                           : NodeKind.OBJECT_KEY);
 
       var pathNodeKeysToRemove = pathNodeKeys.stream()
-                                             .filter(pathNodeKey -> pathNodeKeyToRemove(pathSegmentNames,
-                                                                                        arrayIndexes,
-                                                                                        pathSummary,
-                                                                                        pathNodeKey))
+                                             .filter(pathNodeKey -> Paths.isPathNodeNotAQueryResult(
+                                                 pathSegmentNamesToArrayIndexes,
+                                                 pathSummary,
+                                                 pathNodeKey))
                                              .collect(Collectors.toList());
 
       // remove path node keys which do not belong to the query result
@@ -101,6 +107,12 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       final var foundIndexDefsToPaths = new HashMap<IndexDef, List<Path<QNm>>>();
       final var foundIndexDefsToPredicateLevels = new HashMap<IndexDef, Integer>();
 
+      final var predicateSegmentNames = toPredicateSegmentNames(predicateSegmentNamesToArrayIndexes);
+
+      removeFirstPredicateSegmentNameIfPredicateLeafNodeIsContextItemAndParentOfCtxItemIsAnArrayAccessExpr(
+          predicateLeafNode,
+          predicateSegmentNames);
+
       boolean notFound = findIndexDefsForPathNodeKeys(predicateNode,
                                                       type,
                                                       predicateSegmentNames,
@@ -116,43 +128,91 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
                                revisionData,
                                foundIndexDefsToPaths,
                                foundIndexDefsToPredicateLevels,
-                               arrayIndexes,
-                               pathSegmentNames);
+                               pathSegmentNamesToArrayIndexes,
+                               predicateLeafNode);
       }
     }
 
     return null;
   }
 
+  private void removeFirstPredicateSegmentNameIfPredicateLeafNodeIsContextItemAndParentOfCtxItemIsAnArrayAccessExpr(
+      AST predicateLeafNode, Deque<String> predicateSegmentNames) {
+    if (predicateLeafNode != null && predicateLeafNode.getType() == XQ.ContextItemExpr
+        && predicateLeafNode.getParent().getType() == XQ.ArrayAccess && !predicateSegmentNames.isEmpty()) {
+      predicateSegmentNames.removeFirst();
+    }
+  }
+
+  private Deque<String> toPredicateSegmentNames(final Deque<QueryPathSegment> predicateSegmentNamesToArrayIndexes) {
+    return predicateSegmentNamesToArrayIndexes.stream()
+                                              .map(predicateSegmentNameToArrayIndexes -> predicateSegmentNameToArrayIndexes.pathSegmentName())
+                                              .collect(Collector.of(ArrayDeque::new, ArrayDeque::addFirst, (d1, d2) -> {
+                                                d2.addAll(d1);
+                                                return d2;
+                                              }));
+  }
+
   protected PathData traversePath(final AST node, final AST predicateNode) {
-    final var pathSegmentNames = new ArrayDeque<String>();
-    final var arrayIndexes = new HashMap<String, Deque<Integer>>();
+    final var pathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
+
+    final Optional<AST> predicateLeafNode;
 
     if (predicateNode != null) {
       final var pathSegmentName = predicateNode.getChild(1).getStringValue();
-      pathSegmentNames.add(pathSegmentName);
-      final var predicateLeafNode = getPredicatePathStep(predicateNode, pathSegmentNames, arrayIndexes);
+      pathSegmentNamesToArrayIndexes.push(new QueryPathSegment(pathSegmentName, new ArrayDeque<>()));
+      predicateLeafNode = getPredicatePathStep(predicateNode, pathSegmentNamesToArrayIndexes);
       if (predicateLeafNode.isEmpty()) {
+        return null;
+      }
+    } else {
+      predicateLeafNode = Optional.empty();
+    }
+
+    final var predicatePathSegmentNamesToArrayIndexes = new ArrayDeque<>(pathSegmentNamesToArrayIndexes);
+
+    final Optional<AST> newNode;
+
+    if (node.getType() == XQ.DerefExpr) {
+      // otherwise the pathSegmentName has been added in the getPredicatePathStep method already (only if context item _plus_ array index access expr)
+      if (!(predicateLeafNode.isPresent() && predicateLeafNode.get().getType() == XQ.ContextItemExpr
+          && predicateLeafNode.get().getParent().getType() == XQ.ArrayAccess)) {
+        final var pathSegmentName = node.getChild(1).getStringValue();
+        pathSegmentNamesToArrayIndexes.push(new QueryPathSegment(pathSegmentName, new ArrayDeque<>()));
+      }
+
+      newNode = getPathStep(node, pathSegmentNamesToArrayIndexes);
+    } else {
+      assert node.getType() == XQ.ArrayAccess;
+
+      if (node.getChildCount() == 2) {
+        final var arrayAstNode = processArrayAccess(null, pathSegmentNamesToArrayIndexes, node);
+
+        final Optional<AST> derefNode =
+            processLastArrayAccess(pathSegmentNamesToArrayIndexes, node, arrayAstNode, false);
+
+        if (derefNode.isPresent()) {
+          final AST currDerefNode = derefNode.get();
+          newNode = getPathStep(currDerefNode, pathSegmentNamesToArrayIndexes);
+        } else {
+          newNode = Optional.of(derefNode.get());
+        }
+      } else {
         return null;
       }
     }
 
-    final var predicateSegmentNames = new ArrayDeque<>(pathSegmentNames);
-
-    final var pathSegmentName = node.getChild(1).getStringValue();
-    pathSegmentNames.add(pathSegmentName);
-    final var newNode = getPathStep(node, pathSegmentNames, arrayIndexes);
-
-    return newNode.map(unwrappedNode -> new PathData(pathSegmentNames,
-                                                     arrayIndexes,
-                                                     predicateSegmentNames,
-                                                     unwrappedNode)).orElse(null);
+    return newNode.map(unwrappedNode -> new PathData(pathSegmentNamesToArrayIndexes,
+                                                     predicatePathSegmentNamesToArrayIndexes,
+                                                     unwrappedNode,
+                                                     predicateLeafNode.isPresent() ? predicateLeafNode.get() : null))
+                  .orElse(null);
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,
-      PathSummaryReader pathSummary) {
+      PathSummaryReader pathSummary, NodeKind nodeKind) {
     var pathNodeKeys = new ArrayList<Integer>();
-    var pathNodeKeyBitmap = pathSummary.match(new QNm(pathSegmentNameToCheck), 0, NodeKind.OBJECT_KEY);
+    var pathNodeKeyBitmap = pathSummary.match(new QNm(pathSegmentNameToCheck), 0, nodeKind);
 
     if (pathNodeKeyBitmap.isEmpty()) {
       final var parentASTNode = astNode.getParent();
@@ -203,53 +263,6 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return notFound;
   }
 
-  private boolean pathNodeKeyToRemove(final Deque<String> pathSegmentNames, final Map<String, Deque<Integer>> indexes,
-      final PathSummaryReader pathSummary, final int pathNodeKey) {
-    final var currentPathSegmentNames = new ArrayDeque<>(pathSegmentNames);
-    final var currentIndexes = indexes.entrySet()
-                                      .stream()
-                                      .collect(Collectors.toMap(entry -> entry.getKey(),
-                                                                e -> new ArrayDeque(e.getValue())));
-    pathSummary.moveTo(pathNodeKey);
-    var candidatePath = pathSummary.getPath();
-    String pathSegment = currentPathSegmentNames.removeFirst();
-    assert candidatePath != null;
-    final var pathSteps = candidatePath.steps();
-    boolean found = false;
-
-    for (int i = pathSteps.size() - 1; i >= 0; i--) {
-      final var step = pathSteps.get(i);
-
-      if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
-        final Deque<Integer> indexesDeque = currentIndexes.get(pathSegment);
-
-        if (indexesDeque == null) {
-          found = false;
-          break;
-        } else if (indexesDeque.isEmpty()) {
-          found = false;
-          break;
-        } else {
-          indexesDeque.removeLast();
-
-          if (indexesDeque.isEmpty()) {
-            currentIndexes.remove(pathSegment);
-          }
-        }
-      } else if (step.getAxis() == Path.Axis.CHILD && step.getValue().equals(new QNm(pathSegment))) {
-        found = true;
-
-        if (currentPathSegmentNames.isEmpty()) {
-          pathSegment = null;
-        } else {
-          pathSegment = currentPathSegmentNames.removeFirst();
-        }
-      }
-    }
-
-    return !currentPathSegmentNames.isEmpty() || !currentIndexes.isEmpty() || !found;
-  }
-
   private RevisionData getRevisionData(final AST node) {
     final String databaseName;
     final String resourceName;
@@ -280,7 +293,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   abstract int getPredicateLevel(Path<QNm> pathToFoundNode, Deque<String> predicateSegmentNames);
 
   abstract AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
-      Map<IndexDef, Integer> predicateLevel, Map<String, Deque<Integer>> arrayIndexes, Deque<String> pathSegmentNames);
+      Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes,
+      AST predicateLeafNode);
 
   abstract Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
       IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, Type type);
@@ -290,54 +304,28 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         || new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open").equals(newChildNode.getValue());
   }
 
-  abstract Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames,
-      Map<String, Deque<Integer>> arrayIndexes);
+  protected Optional<AST> getPredicatePathStep(AST node, Deque<QueryPathSegment> predicatePathSegmentNames) {
+    return Optional.empty();
+  }
 
-  Optional<AST> getPathStep(AST node, Deque<String> pathNames, Map<String, Deque<Integer>> arrayIndexes) {
+  Optional<AST> getPathStep(AST node, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
     for (int i = 0, length = node.getChildCount(); i < length; i++) {
       final var step = node.getChild(i);
 
       if (step.getType() == XQ.ArrayAccess) {
         if (step.getChildCount() == 2) {
-          final var arrayAstNode = processArrayAccess(null, arrayIndexes, step);
+          final var arrayAstNode = processArrayAccess(null, pathSegmentNamesToArrayIndexes, step);
 
-          final var derefAstNode = arrayAstNode.getChild(0);
-          final var indexAstNode = arrayAstNode.getChild(1);
-
-          if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
-            if (derefAstNode.getType() == XQ.FunctionCall) {
-              arrayIndexes.computeIfAbsent(null, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
-
-              return Optional.of(derefAstNode);
-            }
-
-            final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
-            pathNames.add(pathSegmentName);
-
-            arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
-
-            return getPathStep(derefAstNode, pathNames, arrayIndexes);
-          }
-
-          if (derefAstNode.getType() == XQ.FunctionCall) {
-            arrayIndexes.computeIfAbsent(null, (unused) -> new ArrayDeque<>()).add(((Int32) indexAstNode.getValue()).intValue());
-
-            return Optional.of(derefAstNode);
-          } else {
-            final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
-            pathNames.add(pathSegmentName);
-
-            arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(((Int32) indexAstNode.getValue()).intValue());
-
-            return getPathStep(derefAstNode, pathNames, arrayIndexes);
-          }
+          return processLastArrayAccess(pathSegmentNamesToArrayIndexes, step, arrayAstNode, true);
         }
       }
 
       if (step.getType() == XQ.DerefExpr) {
         final var pathSegmentName = step.getChild(step.getChildCount() - 1).getStringValue();
-        pathNames.add(pathSegmentName);
-        return getPathStep(step, pathNames, arrayIndexes);
+
+        pathSegmentNamesToArrayIndexes.push(new QueryPathSegment(pathSegmentName, new ArrayDeque<>()));
+
+        return getPathStep(step, pathSegmentNamesToArrayIndexes);
       }
 
       if (step.getType() == XQ.FunctionCall) {
@@ -353,7 +341,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
           return false;
         }).findFirst();
 
-        return optionalLetBindNode.map(returnFunctionCallOrIndexExprNodeIfPresent(pathNames, arrayIndexes));
+        return optionalLetBindNode.map(returnFunctionCallOrIndexExprNodeIfPresent(pathSegmentNamesToArrayIndexes));
       }
 
       if (step.getType() == XQ.ContextItemExpr) {
@@ -364,63 +352,121 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return Optional.empty();
   }
 
-  private Function<AST, AST> returnFunctionCallOrIndexExprNodeIfPresent(Deque<String> pathNames,
-      Map<String, Deque<Integer>> arrayIndexes) {
+  protected Optional<AST> processLastArrayAccess(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST step,
+      AST arrayAstNode, boolean doPathRecursion) {
+    final var possiblyDerefAstNode = arrayAstNode.getChild(0);
+    final var indexAstNode = arrayAstNode.getChild(1);
+
+    if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
+      if (possiblyDerefAstNode.getType() == XQ.FunctionCall) {
+        adaptPathNamesToArrayIndexesWithNewArrayIndex(null, pathSegmentNamesToArrayIndexes, Integer.MIN_VALUE);
+
+        return Optional.of(possiblyDerefAstNode);
+      }
+
+      final String pathSegmentName;
+
+      if (possiblyDerefAstNode.getType() == XQ.DerefExpr) {
+        pathSegmentName = possiblyDerefAstNode.getChild(step.getChildCount() - 1).getStringValue();
+      } else {
+        pathSegmentName = pathSegmentNamesToArrayIndexes.peek().pathSegmentName();
+      }
+
+      adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, pathSegmentNamesToArrayIndexes, Integer.MIN_VALUE);
+
+      //      if (possiblyDerefAstNode.getType() == XQ.ContextItemExpr) {
+      //        return Optional.of(possiblyDerefAstNode);
+      //      }
+
+      if (doPathRecursion) {
+        return getPathStep(possiblyDerefAstNode, pathSegmentNamesToArrayIndexes);
+      } else {
+        return Optional.of(possiblyDerefAstNode);
+      }
+    }
+
+    if (possiblyDerefAstNode.getType() == XQ.FunctionCall) {
+      adaptPathNamesToArrayIndexesWithNewArrayIndex(null,
+                                                    pathSegmentNamesToArrayIndexes,
+                                                    ((Int32) indexAstNode.getValue()).intValue());
+
+      return Optional.of(possiblyDerefAstNode);
+    } else {
+      final var pathSegmentName = possiblyDerefAstNode.getChild(step.getChildCount() - 1).getStringValue();
+
+      adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
+                                                    pathSegmentNamesToArrayIndexes,
+                                                    ((Int32) indexAstNode.getValue()).intValue());
+
+      if (doPathRecursion) {
+        return getPathStep(possiblyDerefAstNode, pathSegmentNamesToArrayIndexes);
+      } else {
+        return Optional.of(possiblyDerefAstNode);
+      }
+    }
+  }
+
+  private Function<AST, AST> returnFunctionCallOrIndexExprNodeIfPresent(
+      Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
     return node -> {
       if (node.getType() == XQ.LetBind) {
-        return processLetBind(pathNames, arrayIndexes, node);
+        return processLetBind(pathSegmentNamesToArrayIndexes, node);
       } else if (node.getType() == XQ.ForBind) {
-        return processForBind(pathNames, arrayIndexes, node);
+        return processForBind(pathSegmentNamesToArrayIndexes, node);
       }
 
       return null;
     };
   }
 
-  private AST processForBind(Deque<String> pathNames, Map<String, Deque<Integer>> arrayIndexes, AST node) {
+  private AST processForBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST node) {
     final var stepNode = node.getChild(1);
 
     if (stepNode.getType() == XQ.DerefExpr) {
-      final var firstPathNames = new ArrayDeque<String>();
-      final var firstArrayIndexes = new HashMap<String, Deque<Integer>>();
+      final var firstPathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
 
       final var pathSegmentName = stepNode.getChild(stepNode.getChildCount() - 1).getStringValue();
-      firstPathNames.add(pathSegmentName);
 
-      final var astNode = getPathStep(stepNode, firstPathNames, firstArrayIndexes);
+      firstPathSegmentNamesToArrayIndexes.push(new QueryPathSegment(pathSegmentName, new ArrayDeque<>()));
+
+      final var astNode = getPathStep(stepNode, firstPathSegmentNamesToArrayIndexes);
 
       return astNode.map(currAstNode -> {
-        pathNames.addAll(firstPathNames);
-        arrayIndexes.putAll(firstArrayIndexes);
+        var iter = firstPathSegmentNamesToArrayIndexes.descendingIterator();
+        while (iter.hasNext()) {
+          pathSegmentNamesToArrayIndexes.addFirst(iter.next());
+        }
         return currAstNode;
       }).orElse(null);
     } else if (stepNode.getType() == XQExt.IndexExpr) {
-      @SuppressWarnings("unchecked") final Deque<String> indexPathSegmentNames =
-          (Deque<String>) stepNode.getProperty("pathSegmentNames");
-      @SuppressWarnings("unchecked") final Map<String, Deque<Integer>> indexArrayIndexes =
-          (Map<String, Deque<Integer>>) stepNode.getProperty("arrayIndexes");
+      @SuppressWarnings("unchecked") final Deque<QueryPathSegment> currentPathSegmentNamesToArrayIndexes =
+          (Deque<QueryPathSegment>) stepNode.getProperty("pathSegmentNamesToArrayIndexes");
 
-      pathNames.addAll(indexPathSegmentNames);
-      arrayIndexes.putAll(indexArrayIndexes);
+      var iter = currentPathSegmentNamesToArrayIndexes.descendingIterator();
+      while (iter.hasNext()) {
+        pathSegmentNamesToArrayIndexes.addFirst(iter.next());
+      }
+
       return stepNode;
     }
 
     return null;
   }
 
-  private AST processLetBind(Deque<String> pathSegmentNames, Map<String, Deque<Integer>> arrayIndexes, AST astNode) {
+  private AST processLetBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST astNode) {
     final AST varNode = astNode.getChild(1);
 
     if (varNode.getType() == XQ.FunctionCall) {
       return varNode;
     } else if (varNode.getType() == XQ.DerefExpr) {
-      return getPathStep(astNode, pathSegmentNames, arrayIndexes).orElse(null);
+      return getPathStep(astNode, pathSegmentNamesToArrayIndexes).orElse(null);
     }
 
     return null;
   }
 
-  protected AST processArrayAccess(String pathNameForIndexes, Map<String, Deque<Integer>> arrayIndexes, AST astNode) {
+  protected AST processArrayAccess(String pathNameForIndexes, Deque<QueryPathSegment> pathNamesToArrayIndexes,
+      AST astNode) {
     if (astNode.getType() == XQ.ArrayAccess) {
       var firstChildAstNode = astNode.getChild(0);
       final var indexAstNode = astNode.getChild(1);
@@ -445,15 +491,30 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         }
 
         if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
-          arrayIndexes.computeIfAbsent(pathNameForIndexes, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
-          return processArrayAccess(pathNameForIndexes, arrayIndexes, firstChildAstNode);
+          adaptPathNamesToArrayIndexesWithNewArrayIndex(pathNameForIndexes, pathNamesToArrayIndexes, Integer.MIN_VALUE);
+          return processArrayAccess(pathNameForIndexes, pathNamesToArrayIndexes, firstChildAstNode);
         }
-        arrayIndexes.computeIfAbsent(pathNameForIndexes, (unused) -> new ArrayDeque<>())
-                    .add(((Int32) indexAstNode.getValue()).intValue());
-        return processArrayAccess(pathNameForIndexes, arrayIndexes, firstChildAstNode);
+
+        adaptPathNamesToArrayIndexesWithNewArrayIndex(pathNameForIndexes,
+                                                      pathNamesToArrayIndexes,
+                                                      ((Int32) indexAstNode.getValue()).intValue());
+        return processArrayAccess(pathNameForIndexes, pathNamesToArrayIndexes, firstChildAstNode);
       }
     }
     return astNode;
+  }
+
+  protected void adaptPathNamesToArrayIndexesWithNewArrayIndex(String pathNameForIndexes,
+      Deque<QueryPathSegment> pathNamesToArrayIndexes, int index) {
+    if (pathNamesToArrayIndexes.isEmpty()) {
+      pathNamesToArrayIndexes.push(new QueryPathSegment(pathNameForIndexes, new ArrayDeque<>()));
+    } else {
+      if (!Objects.equals(pathNamesToArrayIndexes.peek().pathSegmentName(), pathNameForIndexes)) {
+        pathNamesToArrayIndexes.push(new QueryPathSegment(pathNameForIndexes, new ArrayDeque<>()));
+      }
+    }
+
+    pathNamesToArrayIndexes.peek().arrayIndexes().add(index);
   }
 
   protected String getPathNameFromContextItem(AST possiblyDerefAstNode) {

@@ -21,10 +21,8 @@ import java.util.stream.Collectors;
 public final class JsonCASStep extends AbstractJsonPathWalker {
 
   private final ComparatorData comparatorData;
-  
-  private Deque<String> pathSegmentNames;
 
-  private Map<String, Deque<Integer>> arrayIndexes;
+  private Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes;
 
   public JsonCASStep(final JsonDBStore jsonDBStore) {
     super(jsonDBStore);
@@ -68,12 +66,10 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
   @Override
   AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
-      Map<IndexDef, Integer> predicateLevels, Map<String, Deque<Integer>> arrayIndexes,
-      Deque<String> pathSegmentNames) {
-    if (this.arrayIndexes != null && this.pathSegmentNames != null
-        && checkIfDifferentPathsAreCompared(arrayIndexes, pathSegmentNames)) {
-      return null;
-    }
+      Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST predicateLeafNode) {
+//    if (this.pathSegmentNamesToArrayIndexes != null && checkIfDifferentPathsAreCompared(pathSegmentNamesToArrayIndexes)) {
+//      return null;
+//    }
 
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
@@ -86,9 +82,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     indexExpr.setProperty("comparator", comparatorData.getComparator());
     indexExpr.setProperty("upperBoundAtomic", comparatorData.getUpperBoundAtomic());
     indexExpr.setProperty("upperBoundComparator", comparatorData.getUpperBoundComparator());
-
-    indexExpr.setProperty("arrayIndexes", arrayIndexes);
-    indexExpr.setProperty("pathSegmentNames", pathSegmentNames);
+    indexExpr.setProperty("pathSegmentNamesToArrayIndexes", pathSegmentNamesToArrayIndexes);
+    indexExpr.setProperty("predicateLeafNode", predicateLeafNode);
 
     final var parent = astNode.getParent();
     indexExpr.setProperty("hasBitArrayValuesFunction",
@@ -106,21 +101,12 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     return indexExpr;
   }
 
-  private boolean checkIfDifferentPathsAreCompared(Map<String, Deque<Integer>> arrayIndexes,
-      Deque<String> pathSegmentNames) {
-    if (!(this.arrayIndexes.keySet().equals(arrayIndexes.keySet()))) {
+  private boolean checkIfDifferentPathsAreCompared(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
+    if (!(this.pathSegmentNamesToArrayIndexes.equals(pathSegmentNamesToArrayIndexes))) {
       return true;
     }
 
-    if (!(toList(this.arrayIndexes).equals(toList(arrayIndexes)))) {
-      return true;
-    }
-
-    return !(new ArrayList<>(this.pathSegmentNames).equals(new ArrayList<>(pathSegmentNames)));
-  }
-
-  private List<Integer> toList(Map<String, Deque<Integer>> arrayIndexes) {
-    return arrayIndexes.values().stream().flatMap(Collection::stream).collect(Collectors.toList());
+    return false;
   }
 
   @Override
@@ -130,13 +116,13 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   @Override
-  Optional<AST> getPredicatePathStep(AST node, Deque<String> pathNames, Map<String, Deque<Integer>> arrayIndexes) {
+  public Optional<AST> getPredicatePathStep(AST node, Deque<QueryPathSegment> predicatePathSegmentsToArrayIndexes) {
     for (int i = 0, length = node.getChildCount(); i < length; i++) {
       final var step = node.getChild(i);
 
       if (step.getType() == XQ.ArrayAccess) {
         if (step.getChildCount() == 2) {
-          final var arrayAstNode = processArrayAccess(null, arrayIndexes, step);
+          final var arrayAstNode = processArrayAccess(null, predicatePathSegmentsToArrayIndexes, step);
 
           final var derefAstNode = arrayAstNode.getChild(0);
           final var indexAstNode = arrayAstNode.getChild(1);
@@ -144,40 +130,46 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
           if (indexAstNode.getType() == XQ.SequenceExpr && indexAstNode.getChildCount() == 0) {
             String pathSegmentName;
             if (derefAstNode.getType() == XQ.FunctionCall) {
-              arrayIndexes.computeIfAbsent(null, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+              var indexes = new ArrayDeque<Integer>();
+              indexes.add(Integer.MIN_VALUE);
+              predicatePathSegmentsToArrayIndexes.push(new QueryPathSegment(null, indexes));
 
               return Optional.of(derefAstNode);
             } else if (derefAstNode.getType() == XQ.ContextItemExpr) {
               pathSegmentName = getPathNameFromContextItem(derefAstNode);
 
-//              pathNames.add(pathSegmentName);
-              arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+              adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
+                                                            predicatePathSegmentsToArrayIndexes,
+                                                            Integer.MIN_VALUE);
 
               return Optional.of(derefAstNode);
             } else {
               pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 
-              pathNames.add(pathSegmentName);
-              arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>()).add(Integer.MIN_VALUE);
+              adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
+                                                            predicatePathSegmentsToArrayIndexes,
+                                                            Integer.MIN_VALUE);
 
-              return getPredicatePathStep(derefAstNode, pathNames, arrayIndexes);
+              return getPredicatePathStep(derefAstNode, predicatePathSegmentsToArrayIndexes);
             }
           }
 
           final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
-          pathNames.add(pathSegmentName);
 
-          arrayIndexes.computeIfAbsent(pathSegmentName, (unused) -> new ArrayDeque<>())
-                      .add(((Int32) indexAstNode.getValue()).intValue());
+          adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
+                                                        predicatePathSegmentsToArrayIndexes,
+                                                        ((Int32) indexAstNode.getValue()).intValue());
 
-          return getPredicatePathStep(derefAstNode, pathNames, arrayIndexes);
+          return getPredicatePathStep(derefAstNode, predicatePathSegmentsToArrayIndexes);
         }
       }
 
       if (step.getType() == XQ.DerefExpr) {
         final var pathSegmentName = step.getChild(step.getChildCount() - 1).getStringValue();
-        pathNames.add(pathSegmentName);
-        return getPredicatePathStep(step, pathNames, arrayIndexes);
+
+        predicatePathSegmentsToArrayIndexes.push(new QueryPathSegment(pathSegmentName, new ArrayDeque<>()));
+
+        return getPredicatePathStep(step, predicatePathSegmentsToArrayIndexes);
       }
 
       if (step.getType() == XQ.ContextItemExpr) {
@@ -218,11 +210,12 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
         return null;
       }
 
-      final var node = processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(1), false, false);
+      final var node =
+          processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode.getChild(1), false, false);
 
       final var upperBoundComparator = comparatorData.getUpperBoundComparator();
-      if (!"ValueCompLT".equals(upperBoundComparator) && !"GeneralCompLT".equals(upperBoundComparator) && !"ValueCompLE"
-          .equals(upperBoundComparator) && !"GeneralCompLE".equals(upperBoundComparator)) {
+      if (!"ValueCompLT".equals(upperBoundComparator) && !"GeneralCompLT".equals(upperBoundComparator)
+          && !"ValueCompLE".equals(upperBoundComparator) && !"GeneralCompLE".equals(upperBoundComparator)) {
         return null;
       }
 
@@ -233,7 +226,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     return processPredicateChildAstNode(astNode, leftChild, predicateChildAstNode, false, true);
   }
 
-  private AST processPredicateChildAstNode(AST astNode, AST leftChild, AST predicateChildAstNode, boolean firstInAndComparison, boolean noAndComparison) {
+  private AST processPredicateChildAstNode(AST astNode, AST leftChild, AST predicateChildAstNode,
+      boolean firstInAndComparison, boolean noAndComparison) {
     if (predicateChildAstNode.getChildCount() != 3) {
       return astNode;
     }
@@ -301,8 +295,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   private AST processFirstInAndComparison(AST astNode, AST derefPredicateChild) {
-    if (!(astNode.getChild(0).getType() == XQ.DerefExpr
-        || astNode.getChild(0).getType() == XQ.ArrayAccess || astNode.getChild(0).getType() == XQ.FunctionCall)) {
+    if (!(astNode.getChild(0).getType() == XQ.DerefExpr || astNode.getChild(0).getType() == XQ.ArrayAccess
+        || astNode.getChild(0).getType() == XQ.FunctionCall)) {
       return null;
     }
 
@@ -314,8 +308,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
       return astNode;
     }
 
-    pathSegmentNames = pathData.pathSegmentNames();
-    arrayIndexes = pathData.arrayIndexes();
+    pathSegmentNamesToArrayIndexes = pathData.pathSegmentNamesToArrayIndexes();
 
     return node;
   }
