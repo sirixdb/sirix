@@ -155,9 +155,9 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   public QNm getName() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof NameNode) {
-      final String uri = pageReadOnlyTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = ((NameNode) currentNode).getPrefixKey();
+    if (currentNode instanceof NameNode nameNode) {
+      final String uri = pageReadOnlyTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
+      final int prefixKey = nameNode.getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
           : pageReadOnlyTrx.getName(prefixKey, currentNode.getKind());
@@ -196,8 +196,9 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
     helper.add("Revision number", getRevisionNumber());
 
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.ATTRIBUTE || currentNode.getKind() == NodeKind.ELEMENT) {
-      helper.add("Name of Node", getName().toString());
+    final var name = getName();
+    if (name != null && (currentNode.getKind() == NodeKind.ATTRIBUTE || currentNode.getKind() == NodeKind.ELEMENT)) {
+      helper.add("Name of Node", name.toString());
     }
 
     if (currentNode.getKind() == NodeKind.ATTRIBUTE || currentNode.getKind() == NodeKind.TEXT) {
@@ -278,8 +279,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   public int getPrefixKey() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof NameNode) {
-      return ((NameNode) currentNode).getPrefixKey();
+    if (currentNode instanceof NameNode nameNode) {
+      return nameNode.getPrefixKey();
     }
     return -1;
   }
@@ -288,8 +289,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   public int getLocalNameKey() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof NameNode) {
-      return ((NameNode) currentNode).getLocalNameKey();
+    if (currentNode instanceof NameNode nameNode) {
+      return nameNode.getLocalNameKey();
     }
     return -1;
   }
@@ -326,8 +327,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   public int getURIKey() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof NameNode) {
-      return ((NameNode) currentNode).getURIKey();
+    if (currentNode instanceof NameNode nameNode) {
+      return nameNode.getURIKey();
     }
     return -1;
   }
@@ -356,8 +357,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   public String getNamespaceURI() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof NameNode) {
-      return pageReadOnlyTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
+    if (currentNode instanceof NameNode nameNode) {
+      return pageReadOnlyTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
     }
     return null;
   }
@@ -490,8 +491,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
     final String returnVal;
 
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof ValueNode) {
-      returnVal = new String(((ValueNode) currentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+    if (currentNode instanceof ValueNode valueNode) {
+      returnVal = new String(valueNode.getRawValue(), Constants.DEFAULT_ENCODING);
     } else if (currentNode.getKind() == NodeKind.NAMESPACE) {
       returnVal = pageReadOnlyTrx.getName(((NamespaceNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
     } else {
@@ -521,8 +522,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   public byte[] getRawValue() {
     assertNotClosed();
     final var currentNode = getCurrentNode();
-    if (currentNode instanceof ValueNode) {
-      return ((ValueNode) currentNode).getRawValue();
+    if (currentNode instanceof ValueNode valueNode) {
+      return valueNode.getRawValue();
     }
     return null;
   }

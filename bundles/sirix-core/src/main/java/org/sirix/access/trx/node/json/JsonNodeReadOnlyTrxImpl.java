@@ -135,23 +135,21 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
         diffTupleObject = null;
       }
 
-      if (diffTupleObject != null) {
-        if ("jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
-          final var nodeKey = diffTupleObject.get("nodeKey").getAsLong();
-          final var currentNodeKey = getNodeKey();
-          moveTo(nodeKey);
+      if (diffTupleObject != null && "jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
+        final var nodeKey = diffTupleObject.get("nodeKey").getAsLong();
+        final var currentNodeKey = getNodeKey();
+        moveTo(nodeKey);
 
-          final int revisionNumber;
+        final int revisionNumber;
 
-          if (pageReadOnlyTrx instanceof PageTrx) {
-            revisionNumber = getRevisionNumber() - 1;
-          } else {
-            revisionNumber = getRevisionNumber();
-          }
-
-          JsonDiffSerializer.serialize(revisionNumber, getResourceManager(), this, diffTupleObject);
-          moveTo(currentNodeKey);
+        if (pageReadOnlyTrx instanceof PageTrx) {
+          revisionNumber = getRevisionNumber() - 1;
+        } else {
+          revisionNumber = getRevisionNumber();
         }
+
+        JsonDiffSerializer.serialize(revisionNumber, getResourceManager(), this, diffTupleObject);
+        moveTo(currentNodeKey);
       }
 
       diffTuples.add(diff.getAsJsonObject());
@@ -164,13 +162,10 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
     final var updateOperations = getUpdateOperations();
 
-    final var filteredAndSortedUpdateOperations = updateOperations.stream()
-                                                                  .filter(filterAncestorOperations(rootDeweyId,
-                                                                                                   maxDepth))
-                                                                  .sorted(sortByDeweyID())
-                                                                  .collect(Collectors.toList());
-
-    return filteredAndSortedUpdateOperations;
+    return updateOperations.stream()
+            .filter(filterAncestorOperations(rootDeweyId, maxDepth))
+            .sorted(sortByDeweyID())
+            .collect(Collectors.toList());
   }
 
   private Comparator<JsonObject> sortByDeweyID() {
@@ -380,10 +375,10 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
-
     final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
-      helper.add("Name of Node", getName().toString());
+    final var name = getName();
+    if (currentNode.getKind() == NodeKind.OBJECT_KEY && name != null) {
+      helper.add("Name of Node", name.toString());
     }
 
     if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
