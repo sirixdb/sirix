@@ -771,15 +771,16 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   }
 
   private void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
-    final var level = id.getLevel();
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
-                                        newNodeKey,
-                                        oldNodeKey,
-                                        id == null ? null : new DiffDepth(level, level));
     if (id == null) {
-      updateOperationsUnordered.put(newNodeKey, diffTuple);
+      updateOperationsUnordered.put(newNodeKey, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
+              newNodeKey,
+              oldNodeKey,
+              null));
     } else {
-      updateOperationsOrdered.put(id, diffTuple);
+      updateOperationsOrdered.put(id, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
+              newNodeKey,
+              oldNodeKey,
+              new DiffDepth(id.getLevel(), id.getLevel())));
     }
   }
 
