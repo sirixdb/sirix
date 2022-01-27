@@ -726,7 +726,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[][]=>foo[] return $result";
     test(storeQuery,
          openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting26").resolve("expectedOutput")).trim());
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting26").resolve("expectedOutput")));
   }
 
   @Test
@@ -752,5 +752,33 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          indexQuery,
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting28").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testNesting29() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting29").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision[.=>tada[][]=>foo[[1]]=>baz = 'bar'] return $result";
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting29").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testNesting30() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting30").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[-1]] return { \"result\": $result }";
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting30").resolve("expectedOutput")));
   }
 }

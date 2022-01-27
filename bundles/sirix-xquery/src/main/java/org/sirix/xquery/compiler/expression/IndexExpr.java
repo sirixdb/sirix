@@ -175,7 +175,7 @@ public final class IndexExpr implements Expr {
       }
     }
 
-    final var sequence = new ArrayList<Sequence>();
+    final var sequence = new ArrayList<Item>();
     final var jsonItemFactory = new JsonItemFactory();
 
     switch (indexType) {
@@ -192,7 +192,8 @@ public final class IndexExpr implements Expr {
             } while (rtx.moveToRightSibling().hasMoved());
           }
         } else {
-          final var index = arrayIndexes.getFirst();
+          var index = arrayIndexes.getFirst();
+          index = index < 0 ? (int) (rtx.getChildCount() + index) : index;
           boolean hasMoved = rtx.moveToFirstChild().hasMoved();
           assert hasMoved;
           int k = 1;
@@ -288,6 +289,7 @@ public final class IndexExpr implements Expr {
               }
             }
 
+            assert path != null;
             final var steps = path.steps();
 
             outer:
@@ -307,6 +309,7 @@ public final class IndexExpr implements Expr {
 
                 final Deque<Integer> tempIndexes;
 
+                assert currentPathSegmentNamesToArrayIndexes.peekLast() != null;
                 tempIndexes = currentPathSegmentNamesToArrayIndexes.peekLast().arrayIndexes();
                 final Deque<Integer> indexes = tempIndexes == null ? null : new ArrayDeque<>(tempIndexes);
 
@@ -326,9 +329,10 @@ public final class IndexExpr implements Expr {
                   }
                   for (int l = currentIndex, length = j + y; l > length; l--) {
                     // remaining with array numberOfArrayIndexes specified
-                    final Integer index = indexes.pop();
+                    int index = indexes.pop();
 
                     if (index != Integer.MIN_VALUE) {
+                      index = index < 0 ? (int) (rtx.getChildCount() + index) : index;
                       if (currentIndex == steps.size() - 1) {
                         boolean hasMoved = rtx.moveToFirstChild().hasMoved();
                         int k = 0;
@@ -377,7 +381,7 @@ public final class IndexExpr implements Expr {
 
   private long getNumberOfArrayIndexes(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
     return pathSegmentNamesToArrayIndexes.stream()
-                                         .map(pathSegmentNameToArrayIndexes -> pathSegmentNameToArrayIndexes.arrayIndexes())
+                                         .map(QueryPathSegment::arrayIndexes)
                                          .filter(arrayIndexes -> !arrayIndexes.isEmpty())
                                          .count();
   }
