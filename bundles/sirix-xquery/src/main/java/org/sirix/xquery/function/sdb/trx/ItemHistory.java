@@ -1,9 +1,6 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.array.DArray;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
@@ -12,8 +9,6 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexType;
@@ -74,13 +69,12 @@ public final class ItemHistory extends AbstractFunction {
     final Optional<RevisionReferencesNode> optionalNode =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
-    final RevisionReferencesNode node = optionalNode.orElseThrow(() -> new IllegalStateException());
+    final RevisionReferencesNode node = optionalNode.orElseThrow(IllegalStateException::new);
 
     final int[] revisions = node.getRevisions();
     final List<Item> sequences = new ArrayList<>(revisions.length);
 
-    for (int i = 0, length = revisions.length; i < length; i++) {
-      final var revision = revisions[i];
+    for (final int revision : revisions) {
       final var optionalRtxInRevision = resMgr.getNodeReadTrxByRevisionNumber(revision);
       final NodeReadOnlyTrx rtxInRevision;
       if (optionalRtxInRevision.isEmpty()) {
@@ -91,8 +85,10 @@ public final class ItemHistory extends AbstractFunction {
 
       if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
         if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
+          assert item instanceof XmlDBNode;
           sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
         } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
+          assert item instanceof JsonDBItem;
           final JsonDBItem jsonItem = (JsonDBItem) item;
           sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
                                                           jsonItem.getCollection()));
