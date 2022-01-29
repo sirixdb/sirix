@@ -2,11 +2,11 @@ package org.sirix.xquery.json;
 
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
-import org.brackit.xquery.array.AbstractArray;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.jsonitem.array.AbstractArray;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.type.ArrayType;

@@ -106,7 +106,6 @@ public final class Main {
         final String file = config.getValue("-f");
         final String fileType = config.getValue("-fType");
 
-
         if (file != null) {
           if ("json".equals(fileType)) {
             try (final var reader = JsonShredder.createFileReader(Path.of(file))) {

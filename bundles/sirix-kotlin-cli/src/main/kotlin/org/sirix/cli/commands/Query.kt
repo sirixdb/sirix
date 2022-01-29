@@ -131,9 +131,6 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                             SirixQueryContext.CommitStrategy.AUTO
                         )
 
-
-
-
                         queryCtx.use {
                             val jsonItem = JsonItemFactory().getSequence(trx, dbCollection)
 
