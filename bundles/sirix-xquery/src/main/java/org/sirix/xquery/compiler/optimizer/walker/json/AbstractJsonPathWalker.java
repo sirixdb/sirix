@@ -391,6 +391,16 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
                                                     ((Int32) indexAstNode.getValue()).intValue());
 
       return Optional.of(possiblyDerefAstNode);
+    } else if (possiblyDerefAstNode.getType() == XQ.VariableRef) {
+      final Optional<AST> optionalLetBindNode = getScopes().stream().filter(currentScope -> {
+        if (currentScope.getType() == XQ.LetBind || currentScope.getType() == XQ.ForBind) {
+          final AST varNode = currentScope.getChild(0).getChild(0);
+          return possiblyDerefAstNode.getValue().equals(varNode.getValue());
+        }
+        return false;
+      }).findFirst();
+
+      return optionalLetBindNode.map(returnFunctionCallOrIndexExprNodeIfPresent(pathSegmentNamesToArrayIndexes));
     } else {
       final var pathSegmentName = possiblyDerefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 

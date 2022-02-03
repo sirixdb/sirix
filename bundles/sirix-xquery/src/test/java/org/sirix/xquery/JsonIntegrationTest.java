@@ -13,6 +13,42 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testRenameFieldValue() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return replace json value of $array[[0]]=>test with "bar"
+        """.stripIndent();
+    final String assertion = "";
+    test(storeQuery, query, assertion);
+
+    final String openQuery = """
+          jn:doc('mycol.jn','mydoc.jn')
+        """;
+    test(openQuery, "[{\"test\":\"bar\"}]");
+  }
+
+  @Test
+  public void testRenameField() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return rename json $array[[0]]=>test as "bar"
+        """.stripIndent();
+    final String assertion = "";
+    test(storeQuery, query, assertion);
+
+    final String openQuery = """
+          jn:doc('mycol.jn','mydoc.jn')
+        """;
+    test(openQuery, "[{\"bar\":\"test string\"}]");
+  }
+
+  @Test
   public void testSimpleQuery() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')
