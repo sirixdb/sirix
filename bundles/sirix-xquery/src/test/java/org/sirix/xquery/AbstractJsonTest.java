@@ -1,5 +1,6 @@
 package org.sirix.xquery;
 
+import com.google.gson.stream.JsonWriter;
 import org.brackit.xquery.XQuery;
 import org.sirix.JsonTestHelper;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -7,6 +8,7 @@ import org.sirix.xquery.json.BasicJsonDBStore;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.Writer;
 
 import static org.junit.Assert.assertEquals;
 
@@ -69,6 +71,18 @@ public abstract class AbstractJsonTest {
         new XQuery(chain, query).serialize(ctx, printWriter);
         assertEquals(assertion, out.toString());
       }
+    }
+  }
+
+  public void test(final String query, final String assertionString) throws IOException {
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
+         final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
+      new XQuery(chain, query).serialize(ctx, printWriter);
+      assertEquals(assertionString, out.toString());
     }
   }
 
