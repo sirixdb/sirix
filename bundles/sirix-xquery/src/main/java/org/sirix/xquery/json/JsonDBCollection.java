@@ -223,6 +223,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(true)
                                                    .customCommitTimestamps(commitTimestamp != null)
+                                                   .buildPathSummary(true)
+                                                   .hashKind(HashType.ROLLING)
                                                    .build());
       final JsonResourceManager manager = database.openResourceManager(resName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
