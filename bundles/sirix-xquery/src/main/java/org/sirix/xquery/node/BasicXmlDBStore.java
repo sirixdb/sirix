@@ -6,6 +6,7 @@ import org.brackit.xquery.xdm.Stream;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
@@ -243,6 +244,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                    .buildPathSummary(buildPathSummary)
                                                    .storageType(storageType)
                                                    .customCommitTimestamps(commitTimestamp != null)
+                                                   .hashKind(HashType.ROLLING)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
@@ -280,6 +282,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .useDeweyIDs(true)
                                                            .useTextCompression(true)
                                                            .buildPathSummary(true)
+                                                           .hashKind(HashType.ROLLING)
                                                            .build());
               try (final XmlResourceManager manager = database.openResourceManager(resourceName);
                    final XmlNodeTrx wtx = manager.beginNodeTrx()) {
