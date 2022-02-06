@@ -9,6 +9,7 @@ import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.TemporalJsonCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -307,6 +308,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .useTextCompression(true)
                                                    .buildPathSummary(true)
                                                    .customCommitTimestamps(commitTimestamp != null)
+                                                   .hashKind(HashType.ROLLING)
                                                    .build());
       final JsonResourceManager manager = database.openResourceManager(resourceName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
