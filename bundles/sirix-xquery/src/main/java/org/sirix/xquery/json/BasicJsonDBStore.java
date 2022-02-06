@@ -7,6 +7,7 @@ import org.brackit.xquery.xdm.Stream;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -238,8 +239,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection create(String collName, String optResName, String json, String commitMessage, Instant commitTimestamp) {
-    return createCollection(collName, optResName, JsonShredder.createStringReader(json), commitMessage, commitTimestamp);
+  public JsonDBCollection create(String collName, String optResName, String json, String commitMessage,
+      Instant commitTimestamp) {
+    return createCollection(collName,
+                            optResName,
+                            JsonShredder.createStringReader(json),
+                            commitMessage,
+                            commitTimestamp);
   }
 
   @Override
@@ -248,7 +254,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection create(final String collName, final String optResName, final Path path, String commitMessage, Instant commitTimestamp) {
+  public JsonDBCollection create(final String collName, final String optResName, final Path path, String commitMessage,
+      Instant commitTimestamp) {
     return createCollection(collName, optResName, JsonShredder.createFileReader(path), commitMessage, commitTimestamp);
   }
 
@@ -258,7 +265,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection create(String collName, String resourceName, JsonReader reader, String commitMessage, Instant commitTimestamp) {
+  public JsonDBCollection create(String collName, String resourceName, JsonReader reader, String commitMessage,
+      Instant commitTimestamp) {
     return createCollection(collName, resourceName, reader, commitMessage, commitTimestamp);
   }
 
@@ -298,6 +306,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                    .buildPathSummary(buildPathSummary)
                                                    .customCommitTimestamps(commitTimestamp != null)
                                                    .storageType(storageType)
+                                                   .hashKind(HashType.ROLLING)
                                                    .build());
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
@@ -397,6 +406,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                  .useDeweyIDs(true)
                                                  .useTextCompression(true)
                                                  .buildPathSummary(true)
+                                                 .hashKind(HashType.ROLLING)
                                                  .build());
     try (final JsonResourceManager manager = database.openResourceManager(resourceName);
          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
@@ -433,6 +443,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .useDeweyIDs(true)
                                                          .useTextCompression(true)
                                                          .buildPathSummary(true)
+                                                         .hashKind(HashType.ROLLING)
                                                          .build());
             try (final JsonResourceManager manager = database.openResourceManager(resourceName);
                  final JsonNodeTrx wtx = manager.beginNodeTrx()) {

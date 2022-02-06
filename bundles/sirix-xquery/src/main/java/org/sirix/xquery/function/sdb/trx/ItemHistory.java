@@ -93,6 +93,8 @@ public final class ItemHistory extends AbstractFunction {
           sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
                                                           jsonItem.getCollection()));
         }
+      } else {
+        sequences.add(null);
       }
     }
 
