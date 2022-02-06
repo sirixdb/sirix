@@ -12,6 +12,7 @@ import org.brackit.xquery.xdm.node.AbstractTemporalNode;
 import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -65,12 +66,12 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   /**
    * "Caches" document nodes.
    */
-  private Map<DocumentData, XmlDBNode> documentDataToXmlDBNodes;
+  private final Map<DocumentData, XmlDBNode> documentDataToXmlDBNodes;
 
   /**
    * "Caches" document nodes.
    */
-  private Map<InstantDocumentData, XmlDBNode> instantDocumentDataToXmlDBNodes;
+  private final Map<InstantDocumentData, XmlDBNode> instantDocumentDataToXmlDBNodes;
 
   /**
    * Constructor.
@@ -91,10 +92,9 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     if (this == other)
       return true;
 
-    if (!(other instanceof XmlDBCollection))
+    if (!(other instanceof final XmlDBCollection coll))
       return false;
 
-    final XmlDBCollection coll = (XmlDBCollection) other;
     return database.equals(coll.database);
   }
 
@@ -264,6 +264,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
                                                  .useTextCompression(true)
                                                  .buildPathSummary(true)
                                                  .customCommitTimestamps(commitTimestamp != null)
+                                                 .hashKind(HashType.ROLLING)
                                                  .build());
     final XmlResourceManager resource = database.openResourceManager(resourceName);
     final XmlNodeTrx wtx = resource.beginNodeTrx();

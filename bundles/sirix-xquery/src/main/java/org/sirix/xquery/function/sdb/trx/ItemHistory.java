@@ -96,6 +96,6 @@ public final class ItemHistory extends AbstractFunction {
       }
     }
 
-    return new ItemSequence(sequences.toArray(new Item[] {}));
+    return new ItemSequence(sequences.toArray(new Item[0]));
   }
 }
