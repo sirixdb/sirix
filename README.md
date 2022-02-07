@@ -9,7 +9,6 @@
     <a href="https://www.codefactor.io/repository/github/sirixdb/sirix" alt="Code Factor"><img src="ttps://www.codefactor.io/repository/github/sirixdb/sirix/badge"></img></a>
     <a href="http://makeapullrequest.com" alt="PRs Welcome"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square"></img></a>
     <a href="https://search.maven.org/search?q=g:io.sirix" alt="Maven Central"><img src="https://img.shields.io/maven-central/v/io.sirix/sirix-core.svg"></img></a>
-    <a href="https://coveralls.io/github/sirixdb/sirix?branch=master" alt="Coverage Status"><img src="https://coveralls.io/repos/github/sirixdb/sirix/badge.svg?branch=master"></img></a>
 </p>
 
 [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=SirixDB+-+a+storage+system%2C+which+creates+%28very+small-sized%29+snapshots+of+your+data+on+every+transaction-commit+through+the+implementation+of+a+novel+sliding+snapshot+algorithm.&url=http://sirix.io&via=sirix&hashtags=versioning,diffing,xml,kotlin,coroutines,vertx)
