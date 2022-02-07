@@ -1868,6 +1868,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       // Set new keys for current node.
       node = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
       node.setNameKey(newNameKey);
+      node.setName(key);
 
       // Adapt path summary.
       if (buildPathSummary) {

@@ -61,6 +61,7 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
 
   @Override
   public void setValue(final byte[] value) {
+    hashCode = null;
     valueNodeDelegate.setValue(value);
   }
 

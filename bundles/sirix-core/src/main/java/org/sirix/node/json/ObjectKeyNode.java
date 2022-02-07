@@ -56,7 +56,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   private int nameKey;
 
-  private final String name;
+  private String name;
 
   private long pathNodeKey;
 
@@ -133,6 +133,10 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   public void setNameKey(final int nameKey) {
     this.nameKey = nameKey;
+  }
+
+  public void setName(final String name) {
+    this.name = name;
   }
 
   @Override

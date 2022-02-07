@@ -59,6 +59,7 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
   }
 
   public void setValue(final Number number) {
+    hashCode = null;
     this.number = number;
   }
 
