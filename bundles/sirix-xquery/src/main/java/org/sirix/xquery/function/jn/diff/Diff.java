@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020, SirixDB
+ * Copyright (c) 2022, SirixDB
  * <p>
  * All rights reserved.
  * <p>
@@ -27,6 +27,8 @@
  */
 package org.sirix.xquery.function.jn.diff;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -37,8 +39,10 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.service.json.BasicJsonDiff;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.JsonDiff;
+import org.sirix.api.json.JsonResourceManager;
+import org.sirix.service.json.BasicJsonDiff;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.json.JsonDBCollection;
 
@@ -54,8 +58,8 @@ import org.sirix.xquery.json.JsonDBCollection;
  *
  * @author Johannes Lichtenberger
  */
-@FunctionAnnotation(description = "Diffing of two versions of a resource.", parameters = {
-    "$coll, $res, $rev1, $rev2, $startNodeKey, $maxLevel" })
+@FunctionAnnotation(description = "Diffing of two versions of a resource.",
+    parameters = { "$coll, $res, $rev1, $rev2, $startNodeKey, $maxLevel" })
 public final class Diff extends AbstractFunction {
 
   /**
@@ -79,7 +83,8 @@ public final class Diff extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
+    final var dbName = ((Str) args[0]).stringValue();
+    final var col = (JsonDBCollection) ctx.getJsonItemStore().lookup(dbName);
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -91,9 +96,47 @@ public final class Diff extends AbstractFunction {
     final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
     final var doc = col.getDocument(expResName);
+    final var resourceMgr = doc.getResourceManager();
+
+    if (resourceMgr.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
+      return readDiffFromFileAndCalculateViaDeweyIDs(dbName,
+                                                     expResName,
+                                                     oldRevision,
+                                                     newRevision,
+                                                     startNodeKey,
+                                                     maxLevel == 0 ? Integer.MAX_VALUE : maxLevel,
+                                                     resourceMgr);
+    }
 
     final JsonDiff jsonDiff = new BasicJsonDiff(col.getDatabase().getName());
 
     return new Str(jsonDiff.generateDiff(doc.getResourceManager(), oldRevision, newRevision, startNodeKey, maxLevel));
+  }
+
+  @NotNull
+  private Str readDiffFromFileAndCalculateViaDeweyIDs(String dbName, String expResName, int oldRevision,
+      int newRevision, int startNodeKey, int maxLevel, JsonResourceManager resourceMgr) {
+    // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
+    try (final var rtx = resourceMgr.beginNodeReadOnlyTrx(newRevision)) {
+      rtx.moveTo(startNodeKey);
+
+      final var metaInfo = createMetaInfo(dbName, expResName, oldRevision, newRevision);
+      final var diffs = metaInfo.getAsJsonArray("diffs");
+      final var updateOperations = rtx.getUpdateOperationsInSubtreeOfNode(rtx.getDeweyID(), maxLevel);
+      updateOperations.forEach(diffs::add);
+
+      return new Str(metaInfo.toString());
+    }
+  }
+
+  private JsonObject createMetaInfo(String databaseName, String resourceName, int oldRevision, int newRevision) {
+    final var json = new JsonObject();
+    json.addProperty("database", databaseName);
+    json.addProperty("resource", resourceName);
+    json.addProperty("old-revision", oldRevision);
+    json.addProperty("new-revision", newRevision);
+    final var diffsArray = new JsonArray();
+    json.add("diffs", diffsArray);
+    return json;
   }
 }

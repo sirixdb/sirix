@@ -2140,7 +2140,6 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
                       : updateOperationsUnordered.values());
       final var jsonDiff = diffSerializer.serialize(false);
 
-      // Deserialize index definitions.
       final Path diff = resourceManager.getResourceConfig()
               .getResource()
               .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
