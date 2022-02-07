@@ -1,10 +1,7 @@
 package org.sirix.node.json;
 
-import org.sirix.api.visitor.JsonNodeVisitor;
-import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
@@ -55,6 +52,7 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
   }
 
   public void setValue(final boolean value) {
+    hashCode = null;
     boolValue = value;
   }
 
