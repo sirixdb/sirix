@@ -10,7 +10,6 @@ import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.node.SirixDeweyID;
 import org.sirix.service.json.shredder.JsonShredder;
 
 import java.io.IOException;
@@ -179,7 +178,7 @@ public class JsonNodeTrxUpdateTest {
       wtx.moveToDocumentRoot().trx().moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.moveTo(5);
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.No);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
       wtx.moveTo(5);
       wtx.remove();
       wtx.moveTo(4);
@@ -217,7 +216,7 @@ public class JsonNodeTrxUpdateTest {
       wtx.moveToDocumentRoot().trx().moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.moveTo(5);
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.No);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
       wtx.moveTo(5);
       wtx.remove();
       wtx.moveTo(4);

@@ -228,7 +228,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .build());
       final JsonResourceManager manager = database.openResourceManager(resName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.No);
+        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(commitMessage, commitTimestamp);
       }
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
@@ -314,7 +314,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .build());
       final JsonResourceManager manager = database.openResourceManager(resourceName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.No);
+        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(commitMessage, commitTimestamp);
       }
 

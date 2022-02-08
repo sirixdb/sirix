@@ -72,9 +72,9 @@ final class JsonItemSequence {
       }
     } else {
       if (trx.getNodeKey() == nodeKey) {
-        trx.insertSubtreeAsFirstChild(item, JsonNodeTrx.Commit.No);
+        trx.insertSubtreeAsFirstChild(item, JsonNodeTrx.Commit.NO);
       } else {
-        trx.insertSubtreeAsRightSibling(item, JsonNodeTrx.Commit.No);
+        trx.insertSubtreeAsRightSibling(item, JsonNodeTrx.Commit.NO);
       }
     }
   }
