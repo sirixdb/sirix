@@ -11,6 +11,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Object;
+import org.brackit.xquery.xdm.type.ArrayType;
 import org.brackit.xquery.xdm.type.ItemType;
 import org.brackit.xquery.xdm.type.ObjectType;
 import org.sirix.access.trx.node.json.objectvalue.*;
@@ -377,8 +378,8 @@ public final class JsonDBObject extends AbstractItem
   }
 
   private void insert(QNm field, Sequence value, JsonNodeTrx trx) {
+    final var fieldName = field.getLocalName();
     if (value instanceof Atomic) {
-      final var fieldName = field.getLocalName();
       if (value instanceof Str) {
         trx.insertObjectRecordAsLastChild(fieldName, new StringValue(((Str) value).stringValue()));
       } else if (value instanceof Null) {
@@ -402,7 +403,18 @@ public final class JsonDBObject extends AbstractItem
       }
     } else {
       final Item item = ExprUtil.asItem(value);
-      trx.insertSubtreeAsLastChild(item);
+
+      if (item.itemType() == ArrayType.ARRAY) {
+        trx.insertObjectRecordAsLastChild(fieldName, new ArrayValue());
+      } else if (item.itemType() == ObjectType.OBJECT) {
+        trx.insertObjectRecordAsLastChild(fieldName, new ObjectValue());
+      }
+
+      trx.moveToFirstChild();
+      trx.insertSubtreeAsFirstChild(item,
+                                    JsonNodeTrx.Commit.NO,
+                                    JsonNodeTrx.CheckParentNode.YES,
+                                    JsonNodeTrx.SkipRootToken.YES);
     }
   }
 

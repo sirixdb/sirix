@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.XQuery;
-import org.brackit.xquery.atomic.Bool;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -66,7 +65,7 @@ public final class IsDeletedTest {
 
       try (final var manager = database.openResourceManager("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"), JsonNodeTrx.Commit.No);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"), JsonNodeTrx.Commit.NO);
         wtx.moveTo(2);
         wtx.commit();
       }

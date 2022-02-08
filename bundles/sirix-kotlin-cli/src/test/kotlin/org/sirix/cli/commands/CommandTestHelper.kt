@@ -10,7 +10,6 @@ import org.sirix.service.xml.shredder.XmlShredder
 import org.slf4j.Logger
 import java.io.File
 import java.io.FileInputStream
-import java.math.BigInteger
 import java.nio.file.Paths
 import java.util.*
 import javax.xml.stream.XMLEventReader
@@ -68,7 +67,7 @@ fun setupTestDbJson(sirixQueryTestFileJson: String, jsonReader: JsonReader) {
             wtx.use {
                 val insertSubtreeAsFirstChild =
                     wtx.insertSubtreeAsFirstChild(
-                        jsonReader, JsonNodeTrx.Commit.No
+                        jsonReader, JsonNodeTrx.Commit.NO
                     )
                 wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
                 val nodeKey = insertSubtreeAsFirstChild.node.nodeKey

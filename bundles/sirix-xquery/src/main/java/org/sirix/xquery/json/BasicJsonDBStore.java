@@ -317,7 +317,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
       try (final JsonResourceManager manager = database.openResourceManager(resourceName);
            final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.No);
+        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(commitMessage, commitTimestamp);
       }
       return collection;

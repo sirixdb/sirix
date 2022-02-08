@@ -24,7 +24,7 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
             manager.use {
                 val wtx = manager.beginNodeTrx()
                 wtx.use {
-                    wtx.insertSubtreeAsFirstChild(jsonReader(), JsonNodeTrx.Commit.No)
+                    wtx.insertSubtreeAsFirstChild(jsonReader(), JsonNodeTrx.Commit.NO)
                     if (dataOptions.commitMessage.isNotEmpty()) {
                         wtx.commit(dataOptions.commitMessage)
                     } else {

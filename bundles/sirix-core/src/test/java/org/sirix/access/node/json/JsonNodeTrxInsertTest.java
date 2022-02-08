@@ -7,7 +7,6 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.AfterCommitState;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.io.StorageType;
@@ -20,7 +19,6 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -61,8 +59,8 @@ public final class JsonNodeTrxInsertTest {
             """.strip();
 
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject),
-                                      JsonNodeTrx.Commit.Implicit,
-                                      JsonNodeTrx.CheckParentNode.Yes);
+                                      JsonNodeTrx.Commit.IMPLICIT,
+                                      JsonNodeTrx.CheckParentNode.YES);
 
         for (int i = 0; i < 650_000; i++) {
           System.out.println(i);
@@ -71,8 +69,8 @@ public final class JsonNodeTrxInsertTest {
               """.strip().formatted(i);
 
           wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject),
-                                          JsonNodeTrx.Commit.Implicit,
-                                          JsonNodeTrx.CheckParentNode.No);
+                                          JsonNodeTrx.Commit.IMPLICIT,
+                                          JsonNodeTrx.CheckParentNode.NO);
         }
 
         wtx.commit();

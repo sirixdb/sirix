@@ -94,9 +94,9 @@ import static java.nio.file.StandardOpenOption.CREATE;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory,
-        ImmutableNode, InternalJsonNodeReadOnlyTrx>
-        implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
+final class JsonNodeTrxImpl extends
+    AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode, InternalJsonNodeReadOnlyTrx>
+    implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
 
   /**
    * A factory that creates new {@link PageTrx} instances.
@@ -154,32 +154,26 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   JsonNodeTrxImpl(final String databaseName,
-                  final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-                  final InternalJsonNodeReadOnlyTrx nodeReadTrx,
-                  @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter,
-                  @Nonnegative final int maxNodeCount,
-                  @Nullable final Lock transactionLock,
-                  final Duration afterCommitDelay,
-                  @Nonnull final JsonNodeHashing nodeHashing,
-                  final JsonNodeFactory nodeFactory,
-                  @Nonnull final AfterCommitState afterCommitState,
-                  final RecordToRevisionsIndex nodeToRevisionsIndex,
-                  final boolean isAutoCommitting) {
+      final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+      final InternalJsonNodeReadOnlyTrx nodeReadTrx,
+      @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @Nonnegative final int maxNodeCount,
+      @Nullable final Lock transactionLock, final Duration afterCommitDelay, @Nonnull final JsonNodeHashing nodeHashing,
+      final JsonNodeFactory nodeFactory, @Nonnull final AfterCommitState afterCommitState,
+      final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
 
-    super(
-            new JsonNodeTrxThreadFactory(),
-            resourceManager.getResourceConfig().hashType,
-            nodeReadTrx,
-            nodeReadTrx,
-            resourceManager,
-            afterCommitState,
-            nodeHashing,
-            pathSummaryWriter,
-            nodeFactory,
-            nodeToRevisionsIndex,
-            transactionLock,
-            afterCommitDelay,
-            maxNodeCount);
+    super(new JsonNodeTrxThreadFactory(),
+          resourceManager.getResourceConfig().hashType,
+          nodeReadTrx,
+          nodeReadTrx,
+          resourceManager,
+          afterCommitState,
+          nodeHashing,
+          pathSummaryWriter,
+          nodeFactory,
+          nodeToRevisionsIndex,
+          transactionLock,
+          afterCommitDelay,
+          maxNodeCount);
 
     this.databaseName = checkNotNull(databaseName);
 
@@ -196,69 +190,101 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader, Commit commit) {
-    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.Yes);
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader, Commit commit,
       CheckParentNode checkParentNode) {
-    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode);
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, skipRootToken);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLastChild(final JsonReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLastChild(final JsonReader reader, Commit commit) {
-    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, commit, CheckParentNode.Yes);
+    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLastChild(final JsonReader reader, Commit commit, CheckParentNode checkParentNode) {
-    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, commit, checkParentNode);
+    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(reader, InsertPosition.AS_LAST_CHILD, commit, checkParentNode, skipRootToken);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(reader,
+                         InsertPosition.AS_LEFT_SIBLING,
+                         Commit.IMPLICIT,
+                         CheckParentNode.YES,
+                         SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonReader reader, Commit commit) {
-    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, commit, CheckParentNode.Yes);
+    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonReader reader, Commit commit,
       CheckParentNode checkParentNode) {
-    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode);
+    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode, skipRootToken);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader) {
-    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(reader,
+                         InsertPosition.AS_RIGHT_SIBLING,
+                         Commit.IMPLICIT,
+                         CheckParentNode.YES,
+                         SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader, Commit commit) {
-    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.Yes);
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader, Commit commit,
       CheckParentNode checkParentNode) {
-    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode);
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader, Commit commit,
+      CheckParentNode checkParentNode, SkipRootToken skipRootToken) {
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, skipRootToken);
   }
 
   private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition, Commit commit,
-      CheckParentNode checkParentNode) {
+      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
     nodeReadOnlyTrx.assertNotClosed();
     checkNotNull(reader);
     assert insertionPosition != null;
@@ -271,19 +297,20 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
         if (peekedJsonToken != JsonToken.BEGIN_OBJECT && peekedJsonToken != JsonToken.BEGIN_ARRAY)
           throw new SirixUsageException("JSON to insert must begin with an array or object.");
 
+        var skipRootJsonToken = doSkipRootJsonToken;
         final var nodeKind = getKind();
-        var skipRootJsonToken = false;
 
         // $CASES-OMITTED$
         switch (insertionPosition) {
           case AS_FIRST_CHILD, AS_LAST_CHILD -> {
             if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
-              throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+              throw new IllegalStateException(
+                  "Current node must either be the document root, an array or an object key.");
             }
             switch (peekedJsonToken) {
               case BEGIN_OBJECT:
                 if (nodeKind == NodeKind.OBJECT)
-                  skipRootJsonToken = true;
+                  skipRootJsonToken = SkipRootToken.YES;
                 break;
               case BEGIN_ARRAY:
                 if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
@@ -295,7 +322,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
             }
           }
           case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-            if (checkParentNode == CheckParentNode.Yes) {
+            if (checkParentNode == CheckParentNode.YES) {
               final NodeKind parentKind = getParentKind();
               if (parentKind != NodeKind.ARRAY) {
                 throw new IllegalStateException("Current parent node must be an array node.");
@@ -314,7 +341,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
         var nodeKey = getCurrentNode().getNodeKey();
         final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
 
-        if (skipRootJsonToken) {
+        if (skipRootJsonToken == SkipRootToken.YES) {
           shredderBuilder.skipRootJsonToken();
         }
 
@@ -348,13 +375,13 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
         nodeHashing.setBulkInsert(false);
 
-        if (commit == Commit.Implicit) {
+        if (commit == Commit.IMPLICIT) {
           commit();
         }
 
-//      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-//        System.out.println(nodeReadOnlyTrx.getDeweyID());
-//      }
+        //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
+        //        System.out.println(nodeReadOnlyTrx.getDeweyID());
+        //      }
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -364,69 +391,90 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final Item item) {
-    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final Item item, Commit commit) {
-    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
-  public JsonNodeTrx insertSubtreeAsFirstChild(final Item item, Commit commit,
-      CheckParentNode checkParentNode) {
-    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode);
+  public JsonNodeTrx insertSubtreeAsFirstChild(final Item item, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final Item item, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, skipRootToken);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLastChild(final Item item) {
-    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLastChild(final Item item, Commit commit) {
-    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, commit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLastChild(final Item item, Commit commit, CheckParentNode checkParentNode) {
-    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, commit, checkParentNode);
+    return insertSubtree(item, InsertPosition.AS_LAST_CHILD, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final Item item, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, skipRootToken);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item) {
-    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item, Commit commit) {
-    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, commit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
-  public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item, Commit commit,
-      CheckParentNode checkParentNode) {
-    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode);
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final Item item, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, skipRootToken);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsRightSibling(final Item item) {
-    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, Commit.Implicit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
   public JsonNodeTrx insertSubtreeAsRightSibling(final Item item, Commit commit) {
-    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.Yes);
+    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.YES, SkipRootToken.NO);
   }
 
   @Override
-  public JsonNodeTrx insertSubtreeAsRightSibling(final Item item, Commit commit,
-      CheckParentNode checkParentNode) {
-    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode);
+  public JsonNodeTrx insertSubtreeAsRightSibling(final Item item, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final Item item, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(item, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, skipRootToken);
   }
 
   private JsonNodeTrx insertSubtree(final Item item, final InsertPosition insertionPosition, Commit commit,
-      CheckParentNode checkParentNode) {
+      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken) {
     nodeReadOnlyTrx.assertNotClosed();
     checkNotNull(item);
     assert insertionPosition != null;
@@ -438,7 +486,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
         throw new SirixUsageException("JSON to insert must begin with an array or object.");
 
       final var nodeKind = getKind();
-      var skipRootJsonToken = false;
+      var skipRootJsonToken = doSkipRootToken;
 
       // $CASES-OMITTED$
       switch (insertionPosition) {
@@ -448,16 +496,15 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
           }
           if (item.itemType().isObject()) {
             if (nodeKind == NodeKind.OBJECT)
-              skipRootJsonToken = true;
-          }
-          else if (item.itemType().isArray()) {
+              skipRootJsonToken = SkipRootToken.YES;
+          } else if (item.itemType().isArray()) {
             if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
               throw new IllegalStateException("Current node in storage must be an array node.");
             }
           }
         }
         case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-          if (checkParentNode == CheckParentNode.Yes) {
+          if (checkParentNode == CheckParentNode.YES) {
             final NodeKind parentKind = getParentKind();
             if (parentKind != NodeKind.ARRAY) {
               throw new IllegalStateException("Current parent node must be an array node.");
@@ -476,7 +523,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       var nodeKey = getCurrentNode().getNodeKey();
       final var shredderBuilder = new JsonItemShredder.Builder(this, item, insertionPosition);
 
-      if (skipRootJsonToken) {
+      if (skipRootJsonToken == SkipRootToken.YES) {
         shredderBuilder.skipRootJsonToken();
       }
 
@@ -510,7 +557,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       nodeHashing.setBulkInsert(false);
 
-      if (commit == Commit.Implicit) {
+      if (commit == Commit.IMPLICIT) {
         commit();
       }
 
@@ -528,7 +575,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
         throw new SirixUsageException(
-                "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
+            "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
       checkAccessAndCommit();
 
@@ -537,11 +584,11 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey =
-              kind == NodeKind.OBJECT_KEY ? Fixed.NULL_NODE_KEY.getStandardProperty() : structNode.getFirstChildKey();
+          kind == NodeKind.OBJECT_KEY ? Fixed.NULL_NODE_KEY.getStandardProperty() : structNode.getFirstChildKey();
 
       final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
-              ? deweyIDManager.newRecordValueID()
-              : deweyIDManager.newFirstChildID();
+          ? deweyIDManager.newRecordValueID()
+          : deweyIDManager.newFirstChildID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
 
@@ -564,7 +611,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
         throw new SirixUsageException(
-                "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
+            "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
       checkAccessAndCommit();
 
@@ -572,12 +619,12 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey =
-              kind == NodeKind.OBJECT_KEY ? Fixed.NULL_NODE_KEY.getStandardProperty() : structNode.getLastChildKey();
+          kind == NodeKind.OBJECT_KEY ? Fixed.NULL_NODE_KEY.getStandardProperty() : structNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
       final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
-              ? deweyIDManager.newRecordValueID()
-              : ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+          ? deweyIDManager.newRecordValueID()
+          : ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
 
@@ -681,12 +728,12 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey,
-              leftSibKey,
-              rightSibKey,
-              pathNodeKey,
-              key,
-              Fixed.NULL_NODE_KEY.getStandardProperty(),
-              id);
+                                                                     leftSibKey,
+                                                                     rightSibKey,
+                                                                     pathNodeKey,
+                                                                     key,
+                                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                     id);
 
       adaptNodesAndHashesForInsertAsChild(node);
 
@@ -728,15 +775,15 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final long pathNodeKey = getPathNodeKey(structNode, key, NodeKind.OBJECT_KEY);
 
       final SirixDeweyID id =
-              (structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID();
+          (structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID();
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey,
-              leftSibKey,
-              rightSibKey,
-              pathNodeKey,
-              key,
-              Fixed.NULL_NODE_KEY.getStandardProperty(),
-              id);
+                                                                     leftSibKey,
+                                                                     rightSibKey,
+                                                                     pathNodeKey,
+                                                                     key,
+                                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                     id);
 
       adaptNodesAndHashesForInsertAsChild(node);
 
@@ -772,15 +819,14 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
   private void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
     if (id == null) {
-      updateOperationsUnordered.put(newNodeKey, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
-              newNodeKey,
-              oldNodeKey,
-              null));
+      updateOperationsUnordered.put(newNodeKey,
+                                    new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, null));
     } else {
-      updateOperationsOrdered.put(id, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
-              newNodeKey,
-              oldNodeKey,
-              new DiffDepth(id.getLevel(), id.getLevel())));
+      updateOperationsOrdered.put(id,
+                                  new DiffTuple(DiffFactory.DiffType.REPLACEDNEW,
+                                                newNodeKey,
+                                                oldNodeKey,
+                                                new DiffDepth(id.getLevel(), id.getLevel())));
     }
   }
 
@@ -845,7 +891,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final ObjectKeyNode node =
-              nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
+          nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
 
       insertAsSibling(node);
 
@@ -887,7 +933,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final ObjectKeyNode node =
-              nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
+          nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
 
       insertAsSibling(node);
 
@@ -911,7 +957,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final NodeKind kind = getKind();
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
         throw new SirixUsageException(
-                "Insert is not allowed if current node is not the document node or an object key node!");
+            "Insert is not allowed if current node is not the document node or an object key node!");
 
       checkAccessAndCommit();
 
@@ -924,8 +970,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
 
       final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
-              ? deweyIDManager.newRecordValueID()
-              : deweyIDManager.newFirstChildID();
+          ? deweyIDManager.newRecordValueID()
+          : deweyIDManager.newFirstChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
@@ -950,7 +996,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final NodeKind kind = getKind();
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
         throw new SirixUsageException(
-                "Insert is not allowed if current node is not the document node or an object key node!");
+            "Insert is not allowed if current node is not the document node or an object key node!");
 
       checkAccessAndCommit();
 
@@ -963,8 +1009,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
 
       final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
-              ? deweyIDManager.newRecordValueID()
-              : ((currentNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+          ? deweyIDManager.newRecordValueID()
+          : ((currentNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
@@ -1208,7 +1254,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final StringNode node =
-              nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+          nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
       insertAsSibling(node);
 
@@ -1239,7 +1285,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final StringNode node =
-              nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+          nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
 
       insertAsSibling(node);
 
@@ -1731,9 +1777,9 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final var parentNodeKind = getParentKind();
 
       if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-              && parentNodeKind != NodeKind.ARRAY) && !canRemoveValue) {
+          && parentNodeKind != NodeKind.ARRAY) && !canRemoveValue) {
         throw new SirixUsageException(
-                "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
+            "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
       }
 
       canRemoveValue = false;
@@ -1921,7 +1967,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     return supplyLocked(() -> {
       if (getKind() != NodeKind.STRING_VALUE && getKind() != NodeKind.OBJECT_STRING_VALUE) {
         throw new SirixUsageException(
-                "Not allowed if current node is not a string value and not an object string value node!");
+            "Not allowed if current node is not a string value and not an object string value node!");
       }
 
       checkAccessAndCommit();
@@ -1938,7 +1984,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final byte[] byteVal = getBytes(value);
 
       final AbstractStringNode node =
-              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(byteVal);
 
       nodeReadOnlyTrx.setCurrentNode(node);
@@ -1974,7 +2020,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
 
       final AbstractBooleanNode node =
-              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(value);
 
       nodeReadOnlyTrx.setCurrentNode(node);
@@ -1997,7 +2043,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
     return supplyLocked(() -> {
       if (getKind() != NodeKind.NUMBER_VALUE && getKind() != NodeKind.OBJECT_NUMBER_VALUE) {
         throw new SirixUsageException(
-                "Not allowed if current node is not a number value and not an object number value node!");
+            "Not allowed if current node is not a number value and not an object number value node!");
       }
       checkAccessAndCommit();
 
@@ -2011,7 +2057,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
       final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
 
       final AbstractNumberNode node =
-              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(value);
 
       nodeReadOnlyTrx.setCurrentNode(node);
@@ -2130,21 +2176,22 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
-      final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceManager) resourceManager,
-              beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
-                      ? beforeBulkInsertionRevisionNumber
-                      : revisionNumber - 1,
-              revisionNumber,
-              storeDeweyIDs()
-                      ? updateOperationsOrdered.values()
-                      : updateOperationsUnordered.values());
+      final var diffSerializer = new JsonDiffSerializer(this.databaseName,
+                                                        (JsonResourceManager) resourceManager,
+                                                        beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+                                                            ? beforeBulkInsertionRevisionNumber
+                                                            : revisionNumber - 1,
+                                                        revisionNumber,
+                                                        storeDeweyIDs()
+                                                            ? updateOperationsOrdered.values()
+                                                            : updateOperationsUnordered.values());
       final var jsonDiff = diffSerializer.serialize(false);
 
       final Path diff = resourceManager.getResourceConfig()
-              .getResource()
-              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-              .resolve(
-                      "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+                                       .getResource()
+                                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                       .resolve(
+                                           "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
       try {
         Files.writeString(diff, jsonDiff, CREATE);
       } catch (final IOException e) {

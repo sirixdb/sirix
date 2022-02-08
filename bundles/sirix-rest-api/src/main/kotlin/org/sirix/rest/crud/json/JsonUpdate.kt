@@ -22,10 +22,6 @@ import java.io.StringWriter
 import java.math.BigInteger
 import java.nio.file.Path
 import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.util.*
 
 @Suppress("unused")
@@ -37,7 +33,7 @@ enum class JsonInsertionMode {
             commitMessage: String?,
             commitTimestamp: Instant?
         ) {
-            wtx.insertSubtreeAsFirstChild(jsonReader, JsonNodeTrx.Commit.No)
+            wtx.insertSubtreeAsFirstChild(jsonReader, JsonNodeTrx.Commit.NO)
             wtx.commit(commitMessage, commitTimestamp)
         }
 
@@ -99,7 +95,7 @@ enum class JsonInsertionMode {
             commitMessage: String?,
             commitTimestamp: Instant?
         ) {
-            wtx.insertSubtreeAsRightSibling(jsonReader, JsonNodeTrx.Commit.No)
+            wtx.insertSubtreeAsRightSibling(jsonReader, JsonNodeTrx.Commit.NO)
             wtx.commit(commitMessage, commitTimestamp)
         }
 
@@ -161,7 +157,7 @@ enum class JsonInsertionMode {
             commitMessage: String?,
             commitTimestamp: Instant?
         ) {
-            wtx.insertSubtreeAsLeftSibling(jsonReader, JsonNodeTrx.Commit.No)
+            wtx.insertSubtreeAsLeftSibling(jsonReader, JsonNodeTrx.Commit.NO)
             wtx.commit(commitMessage, commitTimestamp)
         }
 

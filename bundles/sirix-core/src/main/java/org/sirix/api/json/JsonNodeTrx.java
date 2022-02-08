@@ -7,15 +7,21 @@ import com.google.gson.stream.JsonReader;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   enum Commit {
-    Implicit,
+    IMPLICIT,
 
-    No
+    NO
   }
 
   enum CheckParentNode {
-    Yes,
+    YES,
 
-    No
+    NO
+  }
+
+  enum SkipRootToken {
+    YES,
+
+    NO
   }
 
   JsonNodeTrx insertObjectAsFirstChild();
@@ -92,11 +98,17 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
   JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader);
 
   JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsLastChild(JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
 
   JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader);
 
@@ -104,11 +116,17 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
 
   JsonNodeTrx insertSubtreeAsFirstChild(Item item);
 
@@ -116,11 +134,17 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertSubtreeAsFirstChild(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
+  JsonNodeTrx insertSubtreeAsFirstChild(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
   JsonNodeTrx insertSubtreeAsLastChild(Item item);
 
   JsonNodeTrx insertSubtreeAsLastChild(Item item, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsLastChild(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsLastChild(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
 
   JsonNodeTrx insertSubtreeAsLeftSibling(Item item);
 
@@ -128,9 +152,15 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertSubtreeAsLeftSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
+  JsonNodeTrx insertSubtreeAsLeftSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
   JsonNodeTrx insertSubtreeAsRightSibling(Item item);
 
   JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit);
 
   JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
 }
