@@ -342,6 +342,55 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void test() throws IOException {
+    query("""
+      jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')
+      """.strip());
+    query("""
+      let $array := jn:doc('mycol.jn','mydoc.jn')
+      return rename json $array[[0]]=>test as "bar"
+      """.strip());
+    query("""
+      let $array := jn:doc('mycol.jn','mydoc.jn')
+      return replace json value of $array[[0]]=>bar with "foobar"
+      """.strip());
+    query("""
+      let $array := jn:doc('mycol.jn','mydoc.jn')
+      return insert json {"bla":true} into $array at position 0
+      """.strip());
+    query("""
+      let $array := jn:doc('mycol.jn','mydoc.jn')
+      return append json {"bla":null} into $array
+      """.strip());
+    query("""
+      let $array := jn:doc('mycol.jn','mydoc.jn')
+      return insert json {"foo": not(true), "baz": null} into $array[[2]]
+      """.strip());
+    test("jn:doc('mycol.jn','mydoc.jn')", """
+        [{"bla":true},{"bar":"foobar"},{"bla":null,"foo":false,"baz":null}]
+        """.strip());
+//    test("""
+//      let $nodeKey := sdb:nodekey(jn:doc('mycol.jn','mydoc.jn')[[2]])
+//      return jn:diff('mycol.jn','mydoc.jn',5,6,$nodeKey,5000)
+//      """.strip(), "");
+    test("""
+      let $node := jn:doc('mycol.jn','mydoc.jn')[[1]]
+      let $result := for $node-in-rev in jn:all-times($node)
+                     return
+                       if ((not(exists(jn:previous($node-in-rev)))) or (sdb:hash($node-in-rev) ne sdb:hash(jn:previous($node-in-rev)))) then
+                         $node-in-rev
+                       else
+                         ()
+      return [
+        for $node in $result
+        return { "node": $node, "revision": sdb:revision($node) }
+      ]
+      """.strip(), """
+        [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3}]
+        """.strip());
+  }
+
+  @Test
   public void testInsertIntoArrayAsFirst() throws IOException {
     final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",true,false,null]')";
     final String updateQuery = """
