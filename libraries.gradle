@@ -14,7 +14,7 @@ implLibraries = [
         logbackClassic           : 'ch.qos.logback:logback-classic:1.2.3',
         logbackCore              : 'ch.qos.logback:logback-core:1.2.3',
         guice                    : 'com.google.inject:guice:4.2.2',
-        gson                     : 'com.google.code.gson:gson:2.8.6',
+        gson                     : 'com.google.code.gson:gson:2.8.9',
         guava                    : 'com.google.guava:guava:28.2-jre',
         guavaTestlib             : 'com.google.guava:guava-testlib:28.2-jre',
         jsr305                   : 'com.google.code.findbugs:jsr305:3.0.2',
