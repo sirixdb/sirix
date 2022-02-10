@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+eligibleToFormat="$(git --no-pager diff --name-status --cached | awk '$1 != "D" && $2 ~ /\.kts|\.java|\.kt/ { print $NF}')"
+
+echo "Will format the files:"
+echo $eligibleToFormat | tr " " "\n"
+
+for fileToFormatPath in $eligibleToFormat
+do
+  ./gradlew spotlessApply -PspotlessIdeHook="$(pwd)/$fileToFormatPath"
+  git add $fileToFormatPath
+done;

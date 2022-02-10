@@ -116,7 +116,8 @@ subprojects {
     spotless {
         enforceCheck false
         java {
-            licenseHeaderFile "${rootDir}/LICENSE"
+            // licenseHeaderFile "${rootDir}/LICENSE"
+            eclipse().configFile("eclipse/Sirix-formatter.xml")
         }
     }
     
