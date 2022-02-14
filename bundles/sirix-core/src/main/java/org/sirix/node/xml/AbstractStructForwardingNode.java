@@ -5,7 +5,7 @@ import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.StructNode;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.math.BigInteger;
 
 /**
@@ -128,7 +128,7 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   }
 
   @Override
-  public void setDescendantCount(final @Nonnegative long descendantCount) {
+  public void setDescendantCount(final @NonNegative long descendantCount) {
     structDelegate().setDescendantCount(descendantCount);
   }
 

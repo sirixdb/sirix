@@ -27,7 +27,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;

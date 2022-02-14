@@ -37,7 +37,7 @@ import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -325,7 +325,7 @@ public final class ResourceConfiguration {
    * @param id the ID to set
    * @return this instance
    */
-  public ResourceConfiguration setID(final @Nonnegative long id) {
+  public ResourceConfiguration setID(final @NonNegative long id) {
     checkArgument(id >= 0, "The ID must be >= 0!");
     this.id = id;
     return this;
@@ -758,7 +758,7 @@ public final class ResourceConfiguration {
      * @param revisionsToRestore number of versions to restore
      * @return reference to the builder object
      */
-    public Builder maxNumberOfRevisionsToRestore(final @Nonnegative int revisionsToRestore) {
+    public Builder maxNumberOfRevisionsToRestore(final @NonNegative int revisionsToRestore) {
       checkArgument(revisionsToRestore > 0, "revisionsToRestore must be > 0!");
       this.maxNumberOfRevisionsToRestore = revisionsToRestore;
       return this;

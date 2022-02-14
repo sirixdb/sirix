@@ -1,6 +1,6 @@
 package org.sirix.index.name.json;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.ChangeListener;
@@ -17,7 +17,7 @@ final class JsonNameIndexListener implements ChangeListener {
   }
 
   @Override
-  public void listen(ChangeType type, @Nonnull ImmutableNode node, long pathNodeKey) {
+  public void listen(ChangeType type, @NonNull ImmutableNode node, long pathNodeKey) {
     if (node instanceof ObjectKeyNode) {
       final ObjectKeyNode objectKeyNode = (ObjectKeyNode) node;
       final QNm name = objectKeyNode.getName();

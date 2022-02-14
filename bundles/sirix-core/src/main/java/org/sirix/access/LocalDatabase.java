@@ -27,7 +27,7 @@ import org.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -301,7 +301,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized String getResourceName(final @Nonnegative long id) {
+  public synchronized String getResourceName(final @NonNegative long id) {
     assertNotClosed();
     checkArgument(id >= 0, "The ID must be >= 0!");
     return resourceIDsToResourceNames.get(id);

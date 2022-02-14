@@ -27,7 +27,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 
@@ -68,7 +68,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final @Nullable Map.Entry<K, V> eldest) {
+      protected boolean removeEldestEntry(final Map.@Nullable Entry<K, V> eldest) {
         boolean returnVal = false;
         if (size() > CACHE_CAPACITY) {
           if (eldest != null) {

@@ -22,7 +22,7 @@
 package org.sirix.node.json;
 
 import java.math.BigInteger;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
@@ -178,7 +178,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return structNodeDel;
   }
 
-  public ObjectKeyNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public ObjectKeyNode setPathNodeKey(final @NonNegative long pathNodeKey) {
     this.pathNodeKey = pathNodeKey;
     return this;
   }

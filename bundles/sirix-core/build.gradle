@@ -11,7 +11,7 @@ dependencies {
     api implLibraries.gson
     api implLibraries.guava
     api implLibraries.guavaTestlib
-    api implLibraries.jsr305
+    api implLibraries.checkerFramework
     api implLibraries.caffeine
     api implLibraries.tink
     api implLibraries.dagger

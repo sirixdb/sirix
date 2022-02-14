@@ -8,8 +8,8 @@ import org.sirix.node.NodeKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Forwards all methods to the delegate.
@@ -35,25 +35,25 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   }
 
   @Override
-  public <K, V> V createRecord(K key, @Nonnull V record,
-      @Nonnull IndexType indexType, @Nonnegative int index) {
+  public <K, V> V createRecord(K key, @NonNull V record,
+      @NonNull IndexType indexType, @NonNegative int index) {
     return delegate().createRecord(key, record, indexType, index);
   }
 
   @Override
-  public <K, V> V prepareRecordForModification(@Nonnegative K recordKey,
-      @Nonnull IndexType indexType, @Nonnegative int index) {
+  public <K, V> V prepareRecordForModification(@NonNegative K recordKey,
+      @NonNull IndexType indexType, @NonNegative int index) {
     return delegate().prepareRecordForModification(recordKey, indexType, index);
   }
 
   @Override
-  public <K> void removeRecord(@Nonnegative K recordKey, @Nonnull IndexType indexType,
-      @Nonnegative int index) {
+  public <K> void removeRecord(@NonNegative K recordKey, @NonNull IndexType indexType,
+      @NonNegative int index) {
     delegate().removeRecord(recordKey, indexType, index);
   }
 
   @Override
-  public int createNameKey(String name, @Nonnull NodeKind kind) {
+  public int createNameKey(String name, @NonNull NodeKind kind) {
     return delegate().createNameKey(name, kind);
   }
 

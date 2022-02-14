@@ -25,8 +25,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -78,7 +78,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  public SAXSerializer(final XmlResourceManager resMgr, final ContentHandler handler, final @Nonnegative int revision,
+  public SAXSerializer(final XmlResourceManager resMgr, final ContentHandler handler, final @NonNegative int revision,
       final int... revisions) {
     super(resMgr, null, revision, revisions);
     contentHandler = handler;
@@ -120,7 +120,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
-  protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
         ? resMgr.getMostRecentRevisionNumber()
         : revisions.length;
@@ -137,7 +137,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
-  protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
         ? (int) resMgr.getMostRecentRevisionNumber()
         : revisions.length;

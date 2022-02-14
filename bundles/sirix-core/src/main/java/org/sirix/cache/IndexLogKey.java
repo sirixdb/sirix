@@ -1,7 +1,7 @@
 package org.sirix.cache;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import org.sirix.index.IndexType;
 import org.sirix.page.PageKind;
@@ -36,7 +36,7 @@ public final class IndexLogKey {
    * @param revisionNumber the revision number
    */
   public IndexLogKey(final IndexType indexType, final long recordPageKey,
-      final @Nonnegative int index, final @Nonnegative int revisionNumber) {
+      final @NonNegative int index, final @NonNegative int revisionNumber) {
     this.recordPageKey = recordPageKey;
     this.index = index;
     this.indexType = indexType;
