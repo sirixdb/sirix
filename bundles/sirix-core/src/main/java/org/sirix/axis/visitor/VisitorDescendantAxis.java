@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import org.jetbrains.annotations.Nullable;
 import org.sirix.api.NodeCursor;
@@ -250,7 +250,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    * @param nextKey node key of the next node on the following axis (in a preorder traversal)
    * @param currKey node key of current node
    */
-  private long getNextNodeKey(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
+  private long getNextNodeKey(final @NonNegative long nextKey, final @NonNegative long currKey) {
     final NodeCursor cursor = getCursor();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {

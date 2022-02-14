@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Callable;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
@@ -63,7 +63,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XmlResourceManager resMgr, final @Nonnegative int revision, final int... revisions) {
+  public AbstractSerializer(final XmlResourceManager resMgr, final @NonNegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -81,8 +81,8 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XmlResourceManager resMgr, final @Nonnegative long key,
-      final @Nonnegative int revision, final int... revisions) {
+  public AbstractSerializer(final XmlResourceManager resMgr, final @NonNegative long key,
+      final @NonNegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -98,7 +98,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  private void initialize(final @Nonnegative int revision, final int... revisions) {
+  private void initialize(final @NonNegative int revision, final int... revisions) {
     mRevisions[0] = revision;
     if (revisions != null) {
       for (int i = 0; i < revisions.length; i++) {

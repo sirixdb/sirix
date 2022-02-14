@@ -6,7 +6,7 @@ import java.io.PrintStream;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Una;
 import org.brackit.xquery.module.Namespaces;

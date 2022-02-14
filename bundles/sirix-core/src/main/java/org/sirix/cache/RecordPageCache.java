@@ -9,7 +9,7 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 public final class RecordPageCache implements Cache<PageReference, Page> {
 
@@ -40,7 +40,7 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public void put(PageReference key, @Nonnull Page value) {
+  public void put(PageReference key, @NonNull Page value) {
     pageCache.put(key, value);
   }
 

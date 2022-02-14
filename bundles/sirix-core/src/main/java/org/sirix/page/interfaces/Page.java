@@ -26,8 +26,8 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -62,7 +62,7 @@ public interface Page {
    * @param pageWriteTrx {@link PageTrx} implementation
    * @throws SirixIOException if an I/O exception occured
    */
-  void commit(@Nonnull PageTrx pageWriteTrx);
+  void commit(@NonNull PageTrx pageWriteTrx);
 
   /**
    * Get the {@link PageReference} at the specified offset
@@ -70,7 +70,7 @@ public interface Page {
    * @param offset the offset
    * @return the {@link PageReference} at the specified offset
    */
-  PageReference getOrCreateReference(@Nonnegative int offset);
+  PageReference getOrCreateReference(@NonNegative int offset);
 
   /**
    * Set the reference at the specified offset

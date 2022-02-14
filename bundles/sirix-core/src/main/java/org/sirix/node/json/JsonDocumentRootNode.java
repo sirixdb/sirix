@@ -23,8 +23,8 @@ package org.sirix.node.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -61,7 +61,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
    * @param nodeDel {@link NodeDelegate} reference
    * @param structDel {@link StructNodeDelegate} reference
    */
-  public JsonDocumentRootNode(@Nonnull final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structDel) {
+  public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structDel) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structDel);
   }

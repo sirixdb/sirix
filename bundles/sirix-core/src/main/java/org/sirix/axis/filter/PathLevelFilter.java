@@ -1,7 +1,7 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.index.path.summary.PathSummaryReader;
 
 /**
@@ -24,7 +24,7 @@ public final class PathLevelFilter extends AbstractFilter<PathSummaryReader> {
    * @param rtx transaction this filter is bound to
    * @param level level of node
    */
-  public PathLevelFilter(final PathSummaryReader rtx, final @Nonnegative int level) {
+  public PathLevelFilter(final PathSummaryReader rtx, final @NonNegative int level) {
     super(rtx);
     checkArgument(level >= 0);
     mPathSummary = rtx;

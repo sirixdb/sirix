@@ -27,7 +27,7 @@
  */
 package org.sirix.access.trx.page;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
@@ -54,7 +54,7 @@ public interface TreeModifier {
    * @throws SirixIOException if an I/O error occurs
    */
   RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
-      TransactionIntentLog log, @Nonnegative int baseRevision, @Nonnegative int representRevision);
+      TransactionIntentLog log, @NonNegative int baseRevision, @NonNegative int representRevision);
 
   /**
    * Prepare the leaf of a tree, namely the reference to a {@link UnorderedKeyValuePage} and put the
@@ -74,7 +74,7 @@ public interface TreeModifier {
    * @throws SirixIOException if an I/O error occured
    */
   PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
-      PageReference startReference, @Nonnegative long pageKey, int indexNumber, IndexType indexType,
+      PageReference startReference, @NonNegative long pageKey, int indexNumber, IndexType indexType,
       RevisionRootPage revisionRootPage);
 
   /**

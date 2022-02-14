@@ -5,7 +5,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,9 +33,9 @@ public class ResourceStoreImpl<R extends ResourceManager<? extends NodeReadOnlyT
   }
 
   @Override
-  public R openResource(final @Nonnull ResourceConfiguration resourceConfig,
-                        final @Nonnull BufferManager bufferManager,
-                        final @Nonnull Path resourceFile) {
+  public R openResource(final @NonNull ResourceConfiguration resourceConfig,
+                        final @NonNull BufferManager bufferManager,
+                        final @NonNull Path resourceFile) {
     return this.resourceManagers.computeIfAbsent(resourceFile, k -> {
       final var resourceManager = this.resourceManagerFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceManagers.putObject(resourceFile, resourceManager);

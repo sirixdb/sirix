@@ -56,9 +56,9 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import java.math.BigInteger;
@@ -122,12 +122,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   XmlNodeTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
                  final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
                  final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
-                 final @Nonnegative int maxNodeCount,
+                 final @NonNegative int maxNodeCount,
                  @Nullable final Lock transactionLock,
                  final Duration afterCommitDelay,
-                 final @Nonnull XmlNodeHashing nodeHashing,
+                 final @NonNull XmlNodeHashing nodeHashing,
                  final XmlNodeFactory nodeFactory,
-                 final @Nonnull AfterCommitState afterCommitState,
+                 final @NonNull AfterCommitState afterCommitState,
                  final RecordToRevisionsIndex nodeToRevisionsIndex) {
 
     super(
@@ -160,7 +160,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  public XmlNodeTrx moveSubtreeToFirstChild(final @Nonnegative long fromKey) {
+  public XmlNodeTrx moveSubtreeToFirstChild(final @NonNegative long fromKey) {
     return supplyLocked(() -> {
       checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(), "Argument must be a valid node key!");
 
@@ -262,7 +262,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  public XmlNodeTrx moveSubtreeToLeftSibling(final @Nonnegative long fromKey) {
+  public XmlNodeTrx moveSubtreeToLeftSibling(final @NonNegative long fromKey) {
     return supplyLocked(() -> {
       if (nodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
         moveToLeftSibling();
@@ -275,7 +275,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  public XmlNodeTrx moveSubtreeToRightSibling(final @Nonnegative long fromKey) {
+  public XmlNodeTrx moveSubtreeToRightSibling(final @NonNegative long fromKey) {
     return supplyLocked(() -> {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
         throw new IllegalArgumentException("Argument must be a valid node key!");
@@ -649,17 +649,17 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  public XmlNodeTrx insertPIAsLeftSibling(final String target, @Nonnull final String content) {
+  public XmlNodeTrx insertPIAsLeftSibling(final String target, @NonNull final String content) {
     return pi(target, content, InsertPosition.AS_LEFT_SIBLING);
   }
 
   @Override
-  public XmlNodeTrx insertPIAsRightSibling(final String target, @Nonnull final String content) {
+  public XmlNodeTrx insertPIAsRightSibling(final String target, @NonNull final String content) {
     return pi(target, content, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
-  public XmlNodeTrx insertPIAsFirstChild(final String target, @Nonnull final String content) {
+  public XmlNodeTrx insertPIAsFirstChild(final String target, @NonNull final String content) {
     return pi(target, content, InsertPosition.AS_FIRST_CHILD);
   }
 
@@ -1003,12 +1003,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  public XmlNodeTrx insertAttribute(final QNm name, @Nonnull final String value) {
+  public XmlNodeTrx insertAttribute(final QNm name, @NonNull final String value) {
     return insertAttribute(name, value, Movement.NONE);
   }
 
   @Override
-  public XmlNodeTrx insertAttribute(final QNm name, @Nonnull final String value, @Nonnull final Movement move) {
+  public XmlNodeTrx insertAttribute(final QNm name, @NonNull final String value, @NonNull final Movement move) {
     checkNotNull(value);
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
@@ -1068,12 +1068,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  public XmlNodeTrx insertNamespace(@Nonnull final QNm name) {
+  public XmlNodeTrx insertNamespace(@NonNull final QNm name) {
     return insertNamespace(name, Movement.NONE);
   }
 
   @Override
-  public XmlNodeTrx insertNamespace(@Nonnull final QNm name, @Nonnull final Movement move) {
+  public XmlNodeTrx insertNamespace(@NonNull final QNm name, @NonNull final Movement move) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -1767,7 +1767,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     removeOldNode(currentNode, key);
   }
 
-  private void removeOldNode(final StructNode node, final @Nonnegative long key) {
+  private void removeOldNode(final StructNode node, final @NonNegative long key) {
     assert node != null;
     assert key >= 0;
     moveTo(node.getNodeKey());

@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
@@ -40,7 +40,7 @@ public class VarRefExpr extends AbstractExpression implements IObserver {
    * @param pRtx exclusive (immutable) trx to iterate with
    * @param pVariable reference the variable expression that computes the items the variable holds
    */
-  public VarRefExpr(final XmlNodeReadOnlyTrx pRtx, @Nonnull final VariableAxis pVariable) {
+  public VarRefExpr(final XmlNodeReadOnlyTrx pRtx, @NonNull final VariableAxis pVariable) {
     super(pRtx);
     pVariable.addObserver(this);
     mVarKey = -1;
