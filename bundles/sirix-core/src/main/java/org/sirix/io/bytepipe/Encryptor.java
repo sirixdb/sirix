@@ -1,5 +1,13 @@
 package org.sirix.io.bytepipe;
 
+import com.google.crypto.tink.CleartextKeysetHandle;
+import com.google.crypto.tink.JsonKeysetReader;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.StreamingAead;
+import com.google.crypto.tink.config.TinkConfig;
+import com.google.crypto.tink.streamingaead.StreamingAeadFactory;
+import org.sirix.access.ResourceConfiguration;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -7,13 +15,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.Objects;
-import org.sirix.access.ResourceConfiguration;
-import com.google.crypto.tink.CleartextKeysetHandle;
-import com.google.crypto.tink.JsonKeysetReader;
-import com.google.crypto.tink.KeysetHandle;
-import com.google.crypto.tink.StreamingAead;
-import com.google.crypto.tink.config.TinkConfig;
-import com.google.crypto.tink.streamingaead.StreamingAeadFactory;
 
 /**
  * Decorator for encrypting any content.

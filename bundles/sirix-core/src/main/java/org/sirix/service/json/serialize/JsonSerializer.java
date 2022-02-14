@@ -22,6 +22,8 @@
 package org.sirix.service.json.serialize;
 
 import org.brackit.xquery.util.serialize.Serializer;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -40,8 +42,6 @@ import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -464,7 +464,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   @Override
-  protected void emitRevisionStartNode(final @Nonnull JsonNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @NonNull JsonNodeReadOnlyTrx rtx) {
     try {
       final int length =
           (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
@@ -492,7 +492,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   @Override
-  protected void emitRevisionEndNode(final @Nonnull JsonNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @NonNull JsonNodeReadOnlyTrx rtx) {
     try {
       final int length =
           (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
@@ -663,7 +663,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions  revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceManager resMgr, final @Nonnegative long nodeKey,
+  public static Builder newBuilder(final JsonResourceManager resMgr, final @NonNegative long nodeKey,
       final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
     return new Builder(resMgr, nodeKey, stream, properties, revisions);
   }
@@ -784,7 +784,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param properties  {@link JsonSerializerProperties} to use
      * @param revisions   revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
+    public Builder(final JsonResourceManager resourceMgr, final @NonNegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       serializeStartNodeWithBrackets = true;

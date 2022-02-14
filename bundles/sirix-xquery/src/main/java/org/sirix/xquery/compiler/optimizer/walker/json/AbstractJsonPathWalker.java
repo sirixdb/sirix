@@ -19,7 +19,14 @@ import org.sirix.node.NodeKind;
 import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.json.JsonDBStore;
 
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;

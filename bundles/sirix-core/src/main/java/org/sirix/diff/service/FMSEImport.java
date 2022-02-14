@@ -20,15 +20,8 @@
  */
 package org.sirix.diff.service;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -41,6 +34,15 @@ import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Import using the FMSE algorithm.
@@ -61,7 +63,7 @@ public final class FMSEImport {
    * @throws SirixIOException if sirix fails to shredder the file
    * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
    */
-  public void shredder(final Path resNewRev, @Nonnull final Path newRev) {
+  public void shredder(final Path resNewRev, @NonNull final Path newRev) {
     assert resNewRev != null;
     assert newRev != null;
     final var conf = new DatabaseConfiguration(newRev);
@@ -90,7 +92,7 @@ public final class FMSEImport {
    * @param resNewRev {@link File} for new revision (XML resource)
    * @param idName the QName of the ID to use for matching elements
    */
-  public void xmlDataImport(final Path resOldRev, @Nonnull final Path resNewRev, final QNm idName) {
+  public void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev, final QNm idName) {
     importData(resOldRev, resNewRev, idName);
   }
 
@@ -100,7 +102,7 @@ public final class FMSEImport {
    * @param resOldRev {@link File} for old revision (sirix resource)
    * @param resNewRev {@link File} for new revision (XML resource)
    */
-  private void xmlDataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
+  private void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev) {
     importData(resOldRev, resNewRev, null);
   }
 

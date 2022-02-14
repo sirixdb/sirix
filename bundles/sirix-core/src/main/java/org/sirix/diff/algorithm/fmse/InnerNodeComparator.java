@@ -1,8 +1,9 @@
 package org.sirix.diff.algorithm.fmse;
 
-import java.util.Map;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+
+import java.util.Map;
 
 /**
  * This functional class is used to compare inner nodes. FMES uses different comparison criteria for

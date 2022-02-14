@@ -25,20 +25,22 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ResourceScope;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.*;
+import org.sirix.page.PagePersister;
+import org.sirix.page.PageReference;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.SerializationType;
+import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.nio.file.Path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -94,7 +96,7 @@ public final class MMFileReader implements Reader {
   }
 
   @Override
-  public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       long offset;
 

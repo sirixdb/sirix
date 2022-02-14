@@ -1,13 +1,12 @@
 package org.sirix.api;
 
-import javax.annotation.Nonnegative;
-
+import com.google.common.collect.PeekingIterator;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
-import com.google.common.collect.PeekingIterator;
 
 /**
  * Interface for all axis, excluding temporal XPath axis.
@@ -49,7 +48,7 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    *
    * @param nodeKey the nodekey where the reset should occur to
    */
-  void reset(@Nonnegative long nodeKey);
+  void reset(@NonNegative long nodeKey);
 
   /**
    * Is self included?

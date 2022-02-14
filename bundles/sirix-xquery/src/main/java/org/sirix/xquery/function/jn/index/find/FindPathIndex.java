@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.jn.index.find;
 
-import java.util.Optional;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int32;
@@ -15,8 +14,9 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.json.JsonIndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
+
+import java.util.Optional;
 
 /**
  * <p>

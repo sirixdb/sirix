@@ -1,12 +1,21 @@
 package org.sirix.access.trx.node.json;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.node.DeweyIDNode;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.json.*;
-
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectBooleanNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectNullNode;
+import org.sirix.node.json.ObjectNumberNode;
+import org.sirix.node.json.ObjectStringNode;
+import org.sirix.node.json.StringNode;
 
 /**
  * Node factory for creating nodes.
@@ -23,7 +32,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param pathNodeKey the path node key
    */
-  ArrayNode createJsonArrayNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey, SirixDeweyID id);
+  ArrayNode createJsonArrayNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNode}.
@@ -32,7 +41,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  ObjectNode createJsonObjectNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id);
+  ObjectNode createJsonObjectNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectKeyNode}.
@@ -44,7 +53,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param name the name of the key
    * @param objectValueKey the value of the object key value
    */
-  ObjectKeyNode createJsonObjectKeyNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey,
+  ObjectKeyNode createJsonObjectKeyNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey,
       long pathNodeKey, String name, long objectValueKey, SirixDeweyID id);
 
   /**
@@ -56,7 +65,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
-  StringNode createJsonStringNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, byte[] value,
+  StringNode createJsonStringNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean isCompressed, SirixDeweyID id);
 
   /**
@@ -67,7 +76,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param boolValue the boolean value
    */
-  BooleanNode createJsonBooleanNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, boolean boolValue, SirixDeweyID id);
+  BooleanNode createJsonBooleanNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, boolean boolValue, SirixDeweyID id);
 
   /**
    * Create a {@link NumberNode}.
@@ -77,7 +86,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param value the number value
    */
-  NumberNode createJsonNumberNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, Number value, SirixDeweyID id);
+  NumberNode createJsonNumberNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, Number value, SirixDeweyID id);
 
   /**
    * Create a {@link NullNode}.
@@ -86,7 +95,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  NullNode createJsonNullNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id);
+  NullNode createJsonNullNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id);
 
   /**
    * Create a {@link StringNode}.
@@ -95,7 +104,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
-  ObjectStringNode createJsonObjectStringNode(@Nonnegative long parentKey, byte[] value,
+  ObjectStringNode createJsonObjectStringNode(@NonNegative long parentKey, byte[] value,
       boolean isCompressed, SirixDeweyID id);
 
   /**
@@ -104,7 +113,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    * @param boolValue the boolean value
    */
-  ObjectBooleanNode createJsonObjectBooleanNode(@Nonnegative long parentKey, boolean boolValue, SirixDeweyID id);
+  ObjectBooleanNode createJsonObjectBooleanNode(@NonNegative long parentKey, boolean boolValue, SirixDeweyID id);
 
   /**
    * Create a {@link NumberNode}.
@@ -112,19 +121,19 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    * @param value the number value
    */
-  ObjectNumberNode createJsonObjectNumberNode(@Nonnegative long parentKey, Number value, SirixDeweyID id);
+  ObjectNumberNode createJsonObjectNumberNode(@NonNegative long parentKey, Number value, SirixDeweyID id);
 
   /**
    * Create a {@link NullNode}.
    *
    * @param parentKey parent node key
    */
-  ObjectNullNode createJsonObjectNullNode(@Nonnegative long parentKey, SirixDeweyID id);
+  ObjectNullNode createJsonObjectNullNode(@NonNegative long parentKey, SirixDeweyID id);
 
   /**
    * Create a {@link DeweyIDNode}.
    *
    * @param nodeKey node key
    */
-  DeweyIDNode createDeweyIdNode(@Nonnegative long nodeKey, @Nonnull SirixDeweyID id);
+  DeweyIDNode createDeweyIdNode(@NonNegative long nodeKey, @NonNull SirixDeweyID id);
 }

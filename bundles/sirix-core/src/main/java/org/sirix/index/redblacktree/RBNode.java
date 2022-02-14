@@ -3,6 +3,7 @@ package org.sirix.index.redblacktree;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.index.redblacktree.interfaces.MutableRBNode;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
@@ -10,8 +11,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
-
-import javax.annotation.Nullable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 

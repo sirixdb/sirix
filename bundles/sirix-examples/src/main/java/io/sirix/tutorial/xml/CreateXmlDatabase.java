@@ -1,18 +1,17 @@
 package io.sirix.tutorial.xml;
 
+import io.sirix.tutorial.Constants;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.service.xml.shredder.XmlShredder;
+
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.service.xml.shredder.XmlShredder;
-
-import io.sirix.tutorial.Constants;
 
 public final class CreateXmlDatabase {
 

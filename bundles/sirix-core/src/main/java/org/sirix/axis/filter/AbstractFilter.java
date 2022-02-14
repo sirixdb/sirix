@@ -21,12 +21,13 @@
 
 package org.sirix.axis.filter;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nullable;
+import com.google.common.base.Predicate;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
-import com.google.common.base.Predicate;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>

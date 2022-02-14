@@ -10,7 +10,6 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;

@@ -4,7 +4,7 @@ import org.brackit.xquery.atomic.Bool;
 import org.brackit.xquery.xdm.Type;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class AtomicUtilTest {
   @Test

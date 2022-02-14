@@ -1,12 +1,16 @@
 package org.sirix.service;
 
-import org.sirix.api.*;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Callable;
@@ -56,7 +60,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revisions revisions to serialize
    */
   public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor,
-      final @Nonnegative int revision, final int... revisions) {
+      final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new ArrayDeque<>();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
@@ -73,8 +77,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revision  first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor, final @Nonnegative long key,
-      final @Nonnegative int revision, final int... revisions) {
+  public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor, final @NonNegative long key,
+      final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new ArrayDeque<>();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
@@ -89,7 +93,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revision  first revision to serialize
    * @param revisions revisions to serialize
    */
-  private void initialize(final @Nonnegative int revision, final int... revisions) {
+  private void initialize(final @NonNegative int revision, final int... revisions) {
     this.revisions[0] = revision;
     if (revisions != null) {
       System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);

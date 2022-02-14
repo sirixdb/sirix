@@ -1,16 +1,5 @@
 package org.sirix.examples;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.Optional;
-import java.util.Random;
 import org.brackit.xquery.BrackitQueryContext;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -29,6 +18,18 @@ import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.SirixQueryContext.CommitStrategy;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.Optional;
+import java.util.Random;
 
 /**
  * A few examples (some taken from the official brackit examples). Usually you would use a logger

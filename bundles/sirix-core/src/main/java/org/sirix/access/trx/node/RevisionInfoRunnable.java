@@ -1,9 +1,10 @@
 package org.sirix.access.trx.node;
 
-import java.util.concurrent.Callable;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.RevisionInfo;
+
+import java.util.concurrent.Callable;
 
 class RevisionInfoRunnable implements Callable<RevisionInfo> {
 

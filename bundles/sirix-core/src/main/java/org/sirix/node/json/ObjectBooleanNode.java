@@ -25,13 +25,8 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import org.sirix.node.interfaces.StructNode;
-
-import java.math.BigInteger;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  *

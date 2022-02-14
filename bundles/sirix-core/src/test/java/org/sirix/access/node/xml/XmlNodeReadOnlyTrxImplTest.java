@@ -21,9 +21,6 @@
 
 package org.sirix.access.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import java.nio.file.Files;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,9 +29,14 @@ import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.node.NodeKind;
+
+import java.nio.file.Files;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 public final class XmlNodeReadOnlyTrxImplTest {
 

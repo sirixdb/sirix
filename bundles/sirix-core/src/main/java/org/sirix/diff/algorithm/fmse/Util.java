@@ -20,11 +20,13 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.sirix.utils.Pair;
+
 import java.util.ArrayList;
 import java.util.List;
-import javax.annotation.Nonnull;
-import org.sirix.utils.Pair;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Useful functions.
@@ -48,8 +50,8 @@ public final class Util {
    * @param cmp function to compare the items in both lists (equality)
    * @return lcs, the items in the pairs are equal and taken from list x and list y.
    */
-  public static <T> List<Pair<T, T>> longestCommonSubsequence(@Nonnull final List<T> first,
-      @Nonnull final List<T> second, @Nonnull final NodeComparator<T> cmp) {
+  public static <T> List<Pair<T, T>> longestCommonSubsequence(@NonNull final List<T> first,
+      @NonNull final List<T> second, @NonNull final NodeComparator<T> cmp) {
 
     if (first == null || second == null) {
       return new ArrayList<>();

@@ -7,7 +7,6 @@ import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.TemporalJsonDBItem;
 
 /**

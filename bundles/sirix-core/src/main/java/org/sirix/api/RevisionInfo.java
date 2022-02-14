@@ -1,12 +1,14 @@
 package org.sirix.api;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import org.sirix.access.User;
+
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
-import org.sirix.access.User;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class RevisionInfo {
   private final User user;

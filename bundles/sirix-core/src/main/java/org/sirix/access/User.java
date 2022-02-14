@@ -1,10 +1,12 @@
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static java.util.Objects.hash;
+import com.google.common.base.MoreObjects;
+
 import java.util.Objects;
 import java.util.UUID;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.hash;
 
 public final class User {
   private final String userName;

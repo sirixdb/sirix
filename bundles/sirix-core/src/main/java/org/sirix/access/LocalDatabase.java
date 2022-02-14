@@ -8,7 +8,7 @@ import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
-import java.time.Instant;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -27,11 +27,11 @@ import org.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnegative;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -301,7 +301,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized String getResourceName(final @Nonnegative long id) {
+  public synchronized String getResourceName(final @NonNegative long id) {
     assertNotClosed();
     checkArgument(id >= 0, "The ID must be >= 0!");
     return resourceIDsToResourceNames.get(id);

@@ -21,8 +21,6 @@
 
 package org.sirix.service.xml.xpath;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,6 +36,9 @@ import org.sirix.axis.SelfAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.service.xml.xpath.filter.DupFilterAxis;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class ExpressionSingleTest {
 

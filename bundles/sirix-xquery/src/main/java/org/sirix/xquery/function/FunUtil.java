@@ -21,13 +21,14 @@
  */
 package org.sirix.xquery.function;
 
-import java.util.Arrays;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.Bool;
 import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.xquery.function.sdb.SDBFun;
+
+import java.util.Arrays;
 
 /**
  * 

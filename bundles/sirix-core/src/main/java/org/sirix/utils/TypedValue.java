@@ -21,8 +21,8 @@
 
 package org.sirix.utils;
 
-import org.sirix.settings.Constants;
 import org.sirix.exception.SirixRuntimeException;
+import org.sirix.settings.Constants;
 
 /**
  * 

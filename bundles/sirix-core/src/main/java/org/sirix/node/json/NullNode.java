@@ -27,17 +27,13 @@
  */
 package org.sirix.node.json;
 
-import java.math.BigInteger;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
-import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.interfaces.Node;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

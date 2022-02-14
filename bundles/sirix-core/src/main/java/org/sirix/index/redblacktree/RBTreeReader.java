@@ -1,6 +1,8 @@
 package org.sirix.index.redblacktree;
 
 import com.google.common.collect.AbstractIterator;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadOnlyTrx;
@@ -22,8 +24,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.io.PrintStream;
 import java.util.ArrayDeque;
 import java.util.Comparator;
@@ -111,7 +111,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeReader<K, V> getInstance(
       final Cache<RBIndexKey, RBNode<?, ?>> cache, final PageReadOnlyTrx pageReadTrx, final IndexType type,
-      @Nonnegative final int index) {
+      @NonNegative final int index) {
     return new RBTreeReader<>(cache, pageReadTrx, type, index);
   }
 
@@ -230,7 +230,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     return getNode(key, mode, node);
   }
 
-  @Nonnull
+  @NonNull
   private Optional<V> getNode(K key, SearchMode mode, RBNode<K, V> node) {
     while (true) {
       final int c = mode.compare(key, node.getKey());
@@ -339,7 +339,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     return getTheSearchedNode(key, mode, node);
   }
 
-  @Nonnull
+  @NonNull
   private Optional<RBNode<K, V>> getTheSearchedNode(K key, SearchMode mode, RBNode<K, V> node) {
     while (true) {
       final int c = key.compareTo(node.getKey());

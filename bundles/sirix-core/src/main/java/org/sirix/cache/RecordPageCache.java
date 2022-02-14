@@ -1,15 +1,14 @@
 package org.sirix.cache;
 
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
-import org.sirix.page.PageReference;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnull;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public final class RecordPageCache implements Cache<PageReference, Page> {
 
@@ -40,7 +39,7 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public void put(PageReference key, @Nonnull Page value) {
+  public void put(PageReference key, @NonNull Page value) {
     pageCache.put(key, value);
   }
 

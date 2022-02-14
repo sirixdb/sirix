@@ -25,11 +25,8 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import org.sirix.node.interfaces.StructNode;
-
-import java.math.BigInteger;
 
 
 /**

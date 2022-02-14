@@ -22,9 +22,8 @@
 package org.sirix.io.file;
 
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;

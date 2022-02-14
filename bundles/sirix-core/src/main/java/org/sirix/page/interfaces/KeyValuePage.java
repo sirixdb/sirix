@@ -1,16 +1,14 @@
 package org.sirix.page.interfaces;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Set;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.IndexType;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+
+import java.util.Collection;
+import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * Key/Value page.
@@ -56,7 +54,7 @@ public interface KeyValuePage<K, V> extends Page {
    * @param key key to store
    * @param value value to store
    */
-  void setRecord(K key, @Nonnull V value);
+  void setRecord(K key, @NonNull V value);
 
   Set<Entry<K, PageReference>> referenceEntrySet();
 
@@ -68,7 +66,7 @@ public interface KeyValuePage<K, V> extends Page {
    * @param key key to store
    * @param reference reference to store
    */
-  void setPageReference(K key, @Nonnull PageReference reference);
+  void setPageReference(K key, @NonNull PageReference reference);
 
   PageReference getPageReference(K key);
 
@@ -80,8 +78,8 @@ public interface KeyValuePage<K, V> extends Page {
    * @param pageReadTrx transaction to read pages
    * @return a new {@link KeyValuePage} instance
    */
-  <C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-      @Nonnull IndexType indexType, @Nonnull PageReadOnlyTrx pageReadTrx);
+  <C extends KeyValuePage<K, V>> C newInstance(@NonNegative long recordPageKey,
+      @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
 
   /**
    * Get the {@link PageReadOnlyTrx}.

@@ -1,5 +1,6 @@
 package io.sirix.tutorial.xml;
 
+import io.sirix.tutorial.Constants;
 import org.sirix.access.Databases;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
@@ -11,8 +12,6 @@ import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.immutable.xml.ImmutableText;
-
-import io.sirix.tutorial.Constants;
 
 public final class CreateVersionedXmlResourceAndQuery {
 

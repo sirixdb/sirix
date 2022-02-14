@@ -21,17 +21,15 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sirix.page.interfaces.Page;
+import org.sirix.page.interfaces.PageFragmentKey;
+import org.sirix.settings.Constants;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import javax.annotation.Nullable;
-
-import org.sirix.page.interfaces.Page;
-import org.sirix.page.interfaces.PageFragmentKey;
-import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
 
 /**
  * <p>

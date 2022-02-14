@@ -21,13 +21,14 @@
 
 package org.sirix.io;
 
-import static org.junit.Assert.assertEquals;
 import org.sirix.XmlTestHelper;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Helper class for testing the I/O interfaces.

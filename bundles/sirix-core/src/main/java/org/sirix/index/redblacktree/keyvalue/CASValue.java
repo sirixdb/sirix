@@ -6,13 +6,12 @@ import com.google.common.collect.ComparisonChain;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.xdm.Type;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.exception.SirixException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 
 /**
  * Value representing a text value, attribute value, element QName or any other byte encoded value.
@@ -41,7 +40,7 @@ public final class CASValue implements Comparable<CASValue> {
    * @param type the type of the value
    * @param pathNodeKey the path node-key
    */
-  public CASValue(final Atomic value, final Type type, final @Nonnegative long pathNodeKey) {
+  public CASValue(final Atomic value, final Type type, final @NonNegative long pathNodeKey) {
     this.value = value;
     this.type = type;
     this.pathNodeKey = pathNodeKey;

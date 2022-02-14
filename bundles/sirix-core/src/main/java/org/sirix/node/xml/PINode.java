@@ -1,9 +1,10 @@
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -19,8 +20,8 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import java.math.BigInteger;
 
 /**
  * <p>
@@ -183,7 +184,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
     mHash = null;
     mNameDel.setPathNodeKey(pathNodeKey);
   }

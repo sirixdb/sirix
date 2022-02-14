@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://sirix.io/ns" xmlns:r="http://sirix.io/rels">
+<worksheet xmlns="http://sirix.io/ns">
 <revision date="2.03.2019" user="Gunter von Bechalare" location="Burgund"/>
 <data>
 <row User="MUELLER" Customer="Customer1" Year="2018" Value ="11" Quantity = "2500,00"></row>

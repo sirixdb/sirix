@@ -21,8 +21,6 @@
 
 package org.sirix.service.xml.xpath.xmark;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.perfidix.AbstractConfig;
 import org.perfidix.element.KindOfArrangement;
 import org.perfidix.meter.AbstractMeter;
@@ -31,6 +29,9 @@ import org.perfidix.meter.Memory;
 import org.perfidix.meter.Time;
 import org.perfidix.meter.TimeMeter;
 import org.perfidix.ouput.AbstractOutput;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class BenchConfigClass extends AbstractConfig {
 

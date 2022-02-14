@@ -22,6 +22,8 @@
 package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
 import org.sirix.page.DeserializedReferencesPage4Tuple;
 import org.sirix.page.PageReference;
@@ -29,8 +31,6 @@ import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.util.ArrayList;
@@ -110,7 +110,7 @@ public final class ReferencesPage4 implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getOrCreateReference(final @Nonnegative int offset) {
+  public PageReference getOrCreateReference(final @NonNegative int offset) {
     for (final var currOffset : offsets) {
       if (currOffset == offset) {
         return references.get(offset);
@@ -151,7 +151,7 @@ public final class ReferencesPage4 implements Page {
    * @param pageWriteTrx the page write transaction
    */
   @Override
-  public void commit(@Nonnull final PageTrx pageWriteTrx) {
+  public void commit(@NonNull final PageTrx pageWriteTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageWriteTrx.commit(reference);

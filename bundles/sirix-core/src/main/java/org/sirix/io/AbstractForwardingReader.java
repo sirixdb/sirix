@@ -1,12 +1,11 @@
 package org.sirix.io;
 
 import com.google.common.collect.ForwardingObject;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
-
-import javax.annotation.Nullable;
 
 /**
  * Forwards all methods to the delegate.

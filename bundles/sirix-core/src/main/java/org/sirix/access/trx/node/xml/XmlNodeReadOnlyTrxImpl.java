@@ -23,6 +23,8 @@ package org.sirix.access.trx.node.xml;
 
 import com.google.common.base.MoreObjects;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.ItemList;
@@ -61,8 +63,6 @@ import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -83,7 +83,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
    * @param documentNode the document node
    */
   XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
-                         final @Nonnegative long trxId,
+                         final @NonNegative long trxId,
                          final PageReadOnlyTrx pageReadTransaction,
                          final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
@@ -308,7 +308,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  public long getAttributeKey(final @Nonnegative int index) {
+  public long getAttributeKey(final @NonNegative int index) {
     assertNotClosed();
     final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.ELEMENT) {
@@ -503,7 +503,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  public int getNameCount(String name, @Nonnull NodeKind kind) {
+  public int getNameCount(String name, @NonNull NodeKind kind) {
     assertNotClosed();
     final var currentNode = getCurrentNode();
     if (currentNode instanceof NameNode) {

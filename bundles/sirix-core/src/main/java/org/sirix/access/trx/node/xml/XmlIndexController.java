@@ -16,8 +16,6 @@ import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.xml.XmlPCRCollector;
 import org.sirix.index.path.xml.XmlPathIndexImpl;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import java.util.HashSet;
 import java.util.Set;

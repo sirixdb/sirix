@@ -3,10 +3,10 @@ package org.sirix.rest
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
-import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.AuthorizationProvider
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.json.json

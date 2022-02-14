@@ -21,6 +21,15 @@
 
 package org.sirix.service.xml.serialize;
 
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.XmlTestHelper;
+import org.sirix.exception.SirixException;
+
+import java.util.Enumeration;
+import java.util.concurrent.ConcurrentHashMap;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
@@ -29,13 +38,6 @@ import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_REST;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_XMLDECL;
-import java.util.Enumeration;
-import java.util.concurrent.ConcurrentHashMap;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.sirix.XmlTestHelper;
-import org.sirix.exception.SirixException;
 
 public class XmlSerializerPropertiesTest {
 

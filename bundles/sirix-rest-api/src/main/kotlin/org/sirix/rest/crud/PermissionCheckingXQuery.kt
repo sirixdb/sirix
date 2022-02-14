@@ -18,10 +18,8 @@ import org.brackit.xquery.util.serialize.StringSerializer
 import org.brackit.xquery.xdm.Item
 import org.brackit.xquery.xdm.Sequence
 import org.sirix.rest.AuthRole
-import org.sirix.xquery.SirixQueryContext
 import java.io.PrintStream
 import java.io.PrintWriter
-import java.time.Instant
 
 /**
  * @author Johannes Lichtenberger

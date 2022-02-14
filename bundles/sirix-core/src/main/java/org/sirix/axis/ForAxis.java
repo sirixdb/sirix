@@ -21,7 +21,7 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
 
 /**
@@ -60,7 +60,7 @@ public final class ForAxis extends AbstractAxis {
    * @param range the range variable that holds the binding sequence
    * @param returnExpr the return expression of the for expression
    */
-  public ForAxis(final Axis range, @Nonnull final Axis returnExpr) {
+  public ForAxis(final Axis range, @NonNull final Axis returnExpr) {
     super(range.asXdmNodeReadTrx());
     mRange = range;
     mReturn = returnExpr;

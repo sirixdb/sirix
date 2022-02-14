@@ -6,7 +6,8 @@ import org.sirix.page.interfaces.PageFragmentKey;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 /**
  * Test the {@link ReferencesPage4}.

@@ -1,18 +1,12 @@
 package org.sirix.rest.crud.json
 
-import io.netty.handler.codec.http.HttpResponseStatus
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.HttpException
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
-import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.exception.SirixUsageException
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId

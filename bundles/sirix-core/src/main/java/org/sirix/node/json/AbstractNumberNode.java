@@ -1,11 +1,8 @@
 package org.sirix.node.json;
 
 import com.google.common.hash.HashCode;
-import org.sirix.api.visitor.JsonNodeVisitor;
-import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;

@@ -1,7 +1,5 @@
 package org.sirix.xquery.compiler.optimizer;
 
-import java.util.Map;
-
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
@@ -14,6 +12,8 @@ import org.sirix.xquery.compiler.optimizer.walker.json.JsonObjectKeyNameStep;
 import org.sirix.xquery.compiler.optimizer.walker.json.JsonPathStep;
 import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.XmlDBStore;
+
+import java.util.Map;
 
 public final class SirixOptimizer extends TopDownOptimizer {
 

@@ -1,16 +1,14 @@
 package org.sirix.utils;
 
-import org.sirix.settings.Constants;
-
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.sirix.settings.Constants;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.zip.Deflater;
+
+import static org.junit.Assert.assertTrue;
 
 public class CompressionTest {
 

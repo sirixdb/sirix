@@ -2,6 +2,8 @@ package org.sirix.access.trx.node.json;
 
 import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathNode;
@@ -12,14 +14,22 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.json.*;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectBooleanNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectNullNode;
+import org.sirix.node.json.ObjectNumberNode;
+import org.sirix.node.json.ObjectStringNode;
+import org.sirix.node.json.StringNode;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.util.zip.Deflater;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -53,8 +63,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public PathNode createPathNode(final @Nonnegative long parentKey, final long leftSibKey, final long rightSibKey,
-      @Nonnull final QNm name, @Nonnull final NodeKind kind, final @Nonnegative int level) {
+  public PathNode createPathNode(final @NonNegative long parentKey, final long leftSibKey, final long rightSibKey,
+      @NonNull final QNm name, @NonNull final NodeKind kind, final @NonNegative int level) {
     final int uriKey = -1;
     final int prefixKey = -1;
     final int localName = name.getLocalName() != null && !name.getLocalName().isEmpty()
@@ -309,7 +319,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public DeweyIDNode createDeweyIdNode(long nodeKey, @Nonnull SirixDeweyID id) {
+  public DeweyIDNode createDeweyIdNode(long nodeKey, @NonNull SirixDeweyID id) {
     return pageTrx.createRecord(nodeKey, new DeweyIDNode(nodeKey, id), IndexType.DEWEYID_TO_RECORDID, 0);
   }
 }

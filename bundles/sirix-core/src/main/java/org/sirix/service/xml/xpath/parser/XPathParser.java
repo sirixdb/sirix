@@ -21,9 +21,6 @@
 
 package org.sirix.service.xml.xpath.parser;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.NoSuchElementException;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -51,8 +48,8 @@ import org.sirix.axis.filter.xml.PIFilter;
 import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.axis.filter.xml.TypeFilter;
 import org.sirix.axis.filter.xml.WildcardFilter;
-import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.axis.filter.xml.WildcardFilter.EType;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -64,6 +61,10 @@ import org.sirix.service.xml.xpath.filter.DocumentNodeAxis;
 import org.sirix.service.xml.xpath.filter.SchemaAttributeFilter;
 import org.sirix.service.xml.xpath.filter.SchemaElementFilter;
 import org.sirix.utils.TypedValue;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * <p>

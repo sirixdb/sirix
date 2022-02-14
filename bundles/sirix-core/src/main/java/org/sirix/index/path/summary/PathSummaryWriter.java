@@ -1,13 +1,23 @@
 package org.sirix.index.path.summary;
 
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.access.trx.node.xml.InsertPos;
-import org.sirix.api.*;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.PageTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.axis.*;
+import org.sirix.axis.ChildAxis;
+import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.IncludeSelf;
+import org.sirix.axis.LevelOrderAxis;
+import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathKindFilter;
 import org.sirix.axis.filter.PathNameFilter;
@@ -26,7 +36,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.NamePage;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnegative;
 import javax.xml.namespace.QName;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -419,8 +428,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param localNameKey   key of local name
    * @throws SirixException if Sirix fails to do so
    */
-  private void processFoundPathNode(final @Nonnegative long oldPathNodeKey, final @Nonnegative long newPathNodeKey,
-      final @Nonnegative long oldNodeKey, final int uriKey, final int prefixKey, final int localNameKey) {
+  private void processFoundPathNode(final @NonNegative long oldPathNodeKey, final @NonNegative long newPathNodeKey,
+      final @NonNegative long oldNodeKey, final int uriKey, final int prefixKey, final int localNameKey) {
     nodeRtx.moveTo(oldNodeKey);
 
     // Set new reference count of the root.
@@ -593,7 +602,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param nodeKey the nodeKey of the node to adapt
    * @throws SirixException if anything fails
    */
-  private void resetPathNodeKey(final @Nonnegative long nodeKey) {
+  private void resetPathNodeKey(final @NonNegative long nodeKey) {
     final NameNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
   }

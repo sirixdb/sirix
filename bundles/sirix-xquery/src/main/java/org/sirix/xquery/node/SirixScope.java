@@ -1,10 +1,10 @@
 package org.sirix.xquery.node;
 
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Scope;
 import org.brackit.xquery.xdm.Stream;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;

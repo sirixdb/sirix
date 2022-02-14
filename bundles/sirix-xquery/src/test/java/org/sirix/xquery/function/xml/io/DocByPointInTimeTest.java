@@ -27,7 +27,7 @@
  */
 package org.sirix.xquery.function.xml.io;
 
-import java.nio.file.Path;
+import junit.framework.TestCase;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
@@ -43,7 +43,8 @@ import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
-import junit.framework.TestCase;
+
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

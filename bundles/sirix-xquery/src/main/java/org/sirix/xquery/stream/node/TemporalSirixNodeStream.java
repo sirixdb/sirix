@@ -1,6 +1,6 @@
 package org.sirix.xquery.stream.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.AbstractTemporalNode;
@@ -10,7 +10,8 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * {@link Stream}, wrapping a temporal axis.

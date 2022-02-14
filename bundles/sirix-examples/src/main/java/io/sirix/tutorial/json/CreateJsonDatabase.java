@@ -1,15 +1,14 @@
 package io.sirix.tutorial.json;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.service.json.shredder.JsonShredder;
 
-import io.sirix.tutorial.Constants;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public final class CreateJsonDatabase {
 

@@ -10,7 +10,9 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.NodeKind;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 public class PathSummaryTest {
   @Before

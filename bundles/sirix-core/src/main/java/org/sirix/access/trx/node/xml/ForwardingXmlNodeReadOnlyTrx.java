@@ -1,6 +1,8 @@
 package org.sirix.access.trx.node.xml;
 
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.ItemList;
@@ -17,8 +19,6 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
@@ -125,7 +125,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final @Nonnegative int index) {
+  default Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final @NonNegative int index) {
     return nodeReadOnlyTrxDelegate().moveToAttribute(index);
   }
 
@@ -150,7 +150,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@Nonnegative final int index) {
+  default Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@NonNegative final int index) {
     return nodeReadOnlyTrxDelegate().moveToNamespace(index);
   }
 
@@ -195,7 +195,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default int getNameCount(final String name, @Nonnull final NodeKind kind) {
+  default int getNameCount(final String name, @NonNull final NodeKind kind) {
     return nodeReadOnlyTrxDelegate().getNameCount(name, kind);
   }
 
@@ -260,7 +260,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default long getAttributeKey(@Nonnegative final int index) {
+  default long getAttributeKey(@NonNegative final int index) {
     return nodeReadOnlyTrxDelegate().getAttributeKey(index);
   }
 

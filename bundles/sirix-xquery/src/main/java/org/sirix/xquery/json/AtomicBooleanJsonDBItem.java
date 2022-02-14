@@ -1,9 +1,7 @@
 package org.sirix.xquery.json;
 
 import com.google.common.base.Preconditions;
-import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.xdm.Type;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.xquery.StructuredDBItem;

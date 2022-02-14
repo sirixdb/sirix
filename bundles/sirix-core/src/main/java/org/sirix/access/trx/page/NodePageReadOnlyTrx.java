@@ -22,6 +22,9 @@
 package org.sirix.access.trx.page;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -29,14 +32,28 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.cache.*;
+import org.sirix.cache.BufferManager;
+import org.sirix.cache.BufferManagerImpl;
+import org.sirix.cache.Cache;
+import org.sirix.cache.IndexLogKey;
+import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.*;
+import org.sirix.page.CASPage;
+import org.sirix.page.DeweyIDPage;
+import org.sirix.page.IndirectPage;
+import org.sirix.page.NamePage;
+import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
+import org.sirix.page.PathSummaryPage;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.page.interfaces.PageFragmentKey;
@@ -44,10 +61,11 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -139,9 +157,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   public NodePageReadOnlyTrx(final long trxId,
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
-      final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
+      final UberPage uberPage, final @NonNegative int revision, final Reader reader,
       final @Nullable TransactionIntentLog trxIntentLog, final BufferManager resourceBufferManager,
-      final @Nonnull RevisionRootPageReader revisionRootPageReader) {
+      final @NonNull RevisionRootPageReader revisionRootPageReader) {
     checkArgument(revision >= 0, "Revision must be >= 0.");
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     this.trxId = trxId;
@@ -216,8 +234,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K, V> Optional<V> getRecord(@Nonnull final K key, @Nonnull final IndexType indexType,
-      @Nonnegative final int index) {
+  public <K, V> Optional<V> getRecord(@NonNull final K key, @NonNull final IndexType indexType,
+      @NonNegative final int index) {
     checkNotNull(key);
     checkNotNull(indexType);
     assertNotClosed();
@@ -262,13 +280,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public String getName(final int nameKey, @Nonnull final NodeKind nodeKind) {
+  public String getName(final int nameKey, @NonNull final NodeKind nodeKind) {
     assertNotClosed();
     return namePage.getName(nameKey, nodeKind, this);
   }
 
   @Override
-  public byte[] getRawName(final int nameKey, @Nonnull final NodeKind nodeKind) {
+  public byte[] getRawName(final int nameKey, @NonNull final NodeKind nodeKind) {
     assertNotClosed();
     return namePage.getRawName(nameKey, nodeKind, this);
   }
@@ -281,7 +299,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @throws SirixIOException if something odd happens within the creation process
    */
   @Override
-  public RevisionRootPage loadRevRoot(@Nonnegative final int revisionKey) {
+  public RevisionRootPage loadRevRoot(@NonNegative final int revisionKey) {
     checkArgument(revisionKey >= 0 && revisionKey <= resourceManager.getMostRecentRevisionNumber(),
                   "%s must be >= 0 and <= last stored revision (%s)!",
                   revisionKey,
@@ -314,31 +332,31 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public NamePage getNamePage(@Nonnull final RevisionRootPage revisionRoot) {
+  public NamePage getNamePage(@NonNull final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (NamePage) getPage(revisionRoot.getNamePageReference());
   }
 
   @Override
-  public PathSummaryPage getPathSummaryPage(@Nonnull final RevisionRootPage revisionRoot) {
+  public PathSummaryPage getPathSummaryPage(@NonNull final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference());
   }
 
   @Override
-  public PathPage getPathPage(@Nonnull final RevisionRootPage revisionRoot) {
+  public PathPage getPathPage(@NonNull final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (PathPage) getPage(revisionRoot.getPathPageReference());
   }
 
   @Override
-  public CASPage getCASPage(@Nonnull final RevisionRootPage revisionRoot) {
+  public CASPage getCASPage(@NonNull final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (CASPage) getPage(revisionRoot.getCASPageReference());
   }
 
   @Override
-  public DeweyIDPage getDeweyIDPage(@Nonnull final RevisionRootPage revisionRoot) {
+  public DeweyIDPage getDeweyIDPage(@NonNull final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (DeweyIDPage) getPage(revisionRoot.getDeweyIdPageReference());
   }
@@ -367,7 +385,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(@Nonnull final IndexLogKey indexLogKey) {
+  public <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(@NonNull final IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
@@ -439,7 +457,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         && mostRecentlyReadRecordPage.indexType() == indexLogKey.getIndexType();
   }
 
-  Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
+  Optional<PageReference> getLeafPageReference(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
     return Optional.ofNullable(getReferenceToLeafOfSubtree(pageReferenceToSubtree,
@@ -574,8 +592,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   @Nullable
   @Override
-  public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final @Nonnegative long pageKey,
-      final int indexNumber, final @Nonnull IndexType indexType) {
+  public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final @NonNegative long pageKey,
+      final int indexNumber, final @NonNull IndexType indexType) {
     assertNotClosed();
 
     // Initial state pointing to the indirect page of level 0.
@@ -610,7 +628,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public long pageKey(@Nonnegative final long recordKey, @Nonnull final IndexType indexType) {
+  public long pageKey(@NonNegative final long recordKey, @NonNull final IndexType indexType) {
     assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must not be negative!");
 
@@ -687,7 +705,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public int getNameCount(final int key, @Nonnull final NodeKind kind) {
+  public int getNameCount(final int key, @NonNull final NodeKind kind) {
     assertNotClosed();
     return namePage.getCount(key, kind, this);
   }

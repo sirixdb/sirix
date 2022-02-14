@@ -2,9 +2,7 @@ package org.sirix.cli.commands
 
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
-import org.sirix.access.Databases.openJsonDatabase
 import org.sirix.cli.CliOptions
 import org.sirix.cli.MetaDataEnum
 import org.slf4j.Logger

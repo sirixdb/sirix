@@ -1,8 +1,6 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
+import junit.framework.TestCase;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
@@ -10,7 +8,10 @@ import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
-import junit.framework.TestCase;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
 
 public final class DocIntegrationTest extends TestCase {
 

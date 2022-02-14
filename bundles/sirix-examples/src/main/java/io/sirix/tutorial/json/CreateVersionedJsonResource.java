@@ -1,13 +1,12 @@
 package io.sirix.tutorial.json;
 
-import java.nio.file.Files;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
 
-import io.sirix.tutorial.Constants;
+import java.nio.file.Files;
 
 public final class CreateVersionedJsonResource {
 

@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.jn.temporal;
 
 import org.brackit.xquery.XQuery;
-import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.JsonDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;

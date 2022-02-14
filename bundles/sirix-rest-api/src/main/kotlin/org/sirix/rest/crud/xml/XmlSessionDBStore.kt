@@ -6,11 +6,11 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
 import org.brackit.xquery.node.parser.SubtreeParser
 import org.brackit.xquery.xdm.Stream
-import java.time.Instant
 import org.sirix.rest.Auth
 import org.sirix.rest.AuthRole
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBStore
+import java.time.Instant
 
 class XmlSessionDBStore(
     private val ctx: RoutingContext,

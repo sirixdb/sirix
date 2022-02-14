@@ -1,12 +1,13 @@
 package org.sirix.xquery.node;
 
-import java.util.ArrayList;
-import java.util.List;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.node.Node;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * SubtreeProcessor which notifies a list of listeners.

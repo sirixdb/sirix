@@ -21,8 +21,6 @@
 
 package org.sirix.service.xml.xpath;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,6 +30,9 @@ import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Performes the XMark benchmark.

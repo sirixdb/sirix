@@ -1,10 +1,6 @@
 package org.sirix.axis.visitor;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.List;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -20,6 +16,12 @@ import org.sirix.node.immutable.xml.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to delete unmatched nodes
@@ -51,7 +53,7 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
    * @param startKey start key
    */
   public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching,
-      @Nonnegative final long startKey) {
+      @NonNegative final long startKey) {
     this.wtx = checkNotNull(wtx);
     this.matching = checkNotNull(matching);
     checkArgument(startKey >= 0, "start key must be >= 0!");

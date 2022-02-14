@@ -1,10 +1,10 @@
 package org.sirix.access.trx.node;
 
+import com.google.common.collect.ForwardingObject;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import com.google.common.collect.ForwardingObject;
 
 /**
  * Forwards all methods to the delegate.

@@ -1,8 +1,6 @@
 package org.sirix.access.node.xml;
 
-import java.io.ByteArrayOutputStream;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
@@ -10,6 +8,8 @@ import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.io.ByteArrayOutputStream;
 
 import static org.junit.Assert.assertEquals;
 

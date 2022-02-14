@@ -21,10 +21,7 @@
 
 package org.sirix.service.xml.xpath;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -34,6 +31,11 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
+
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  *
@@ -192,7 +194,7 @@ public abstract class AbstractAxis implements Axis {
    * @param pNodeKey the nodekey where the reset should occur to
    */
   @Override
-  public void reset(@Nonnegative final long pNodeKey) {
+  public void reset(@NonNegative final long pNodeKey) {
     mStartKey = pNodeKey;
     mKey = pNodeKey;
     mNext = false;

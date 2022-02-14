@@ -3,13 +3,8 @@
 package org.sirix.cli
 
 
-import kotlinx.cli.ArgParser
-import kotlinx.cli.ArgType
-import kotlinx.cli.ExperimentalCli
-import kotlinx.cli.Subcommand
-import kotlinx.cli.required
+import kotlinx.cli.*
 import org.sirix.cli.commands.CliCommand
-import org.sirix.cli.commands.Update
 import org.sirix.cli.parser.*
 
 

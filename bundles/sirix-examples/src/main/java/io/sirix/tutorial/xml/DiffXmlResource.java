@@ -1,13 +1,11 @@
 package io.sirix.tutorial.xml;
 
+import com.google.common.collect.ImmutableSet;
+import io.sirix.tutorial.Constants;
 import org.sirix.access.Databases;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.diff.DiffFactory;
 import org.sirix.diff.DiffFactory.DiffOptimized;
-
-import com.google.common.collect.ImmutableSet;
-
-import io.sirix.tutorial.Constants;
 
 public class DiffXmlResource {
     public static void main(String[] args) {

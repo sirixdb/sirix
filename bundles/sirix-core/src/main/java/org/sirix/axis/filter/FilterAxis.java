@@ -21,13 +21,14 @@
 
 package org.sirix.axis.filter;
 
-import java.util.ArrayList;
-import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * //todo Does the name need to change

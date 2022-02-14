@@ -1,6 +1,5 @@
 package org.sirix.xquery;
 
-import java.util.Map;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.compiler.CompileChain;
@@ -16,6 +15,8 @@ import org.sirix.xquery.json.BasicJsonDBStore;
 import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBStore;
+
+import java.util.Map;
 
 /**
  * Compile chain.

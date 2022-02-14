@@ -3,7 +3,6 @@ package org.sirix.access.trx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
-import org.sirix.api.xml.XmlNodeTrx;
 
 import java.util.ArrayList;
 import java.util.List;

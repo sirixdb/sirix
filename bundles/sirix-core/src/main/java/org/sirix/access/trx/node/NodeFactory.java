@@ -1,10 +1,11 @@
 package org.sirix.access.trx.node;
 
-import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathNode;
 import org.sirix.node.NodeKind;
+
+import javax.xml.namespace.QName;
 
 public interface NodeFactory {
 

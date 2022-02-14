@@ -15,8 +15,11 @@ import org.sirix.index.IndexDef;
 import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.json.JsonDBStore;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 public final class JsonCASStep extends AbstractJsonPathWalker {
 

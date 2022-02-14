@@ -27,12 +27,6 @@
  */
 package org.sirix.xquery;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.util.HashSet;
-import java.util.Set;
-
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -44,6 +38,13 @@ import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.util.HashSet;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

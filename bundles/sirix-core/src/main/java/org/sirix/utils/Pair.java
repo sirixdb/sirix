@@ -20,8 +20,9 @@
  */
 package org.sirix.utils;
 
+import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.util.Objects;
-import javax.annotation.Nullable;
 
 /**
  * A Pair of objects.

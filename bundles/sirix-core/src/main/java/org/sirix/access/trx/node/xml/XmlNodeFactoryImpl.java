@@ -3,6 +3,8 @@ package org.sirix.access.trx.node.xml;
 import com.google.common.collect.HashBiMap;
 import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathNode;
@@ -12,15 +14,17 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.xml.*;
-import org.sirix.page.PageKind;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.node.xml.CommentNode;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.node.xml.NamespaceNode;
+import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.zip.Deflater;
 
@@ -59,8 +63,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public PathNode createPathNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final long rightSibKey, @Nonnull final QNm name, @Nonnull final NodeKind kind, final @Nonnegative int level) {
+  public PathNode createPathNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
+      final long rightSibKey, @NonNull final QNm name, @NonNull final NodeKind kind, final @NonNegative int level) {
     final int uriKey = NamePageHash.generateHashForString(name.getNamespaceURI());
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
         ? NamePageHash.generateHashForString(name.getPrefix())
@@ -84,8 +88,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public ElementNode createElementNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final @Nonnegative long rightSibKey, @Nonnull final QNm name, final @Nonnegative long pathNodeKey,
+  public ElementNode createElementNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
+      final @NonNegative long rightSibKey, @NonNull final QNm name, final @NonNegative long pathNodeKey,
       final SirixDeweyID id) {
     final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
         ? pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
@@ -118,8 +122,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public TextNode createTextNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final @Nonnegative long rightSibKey, @Nonnull final byte[] value, final boolean isCompressed,
+  public TextNode createTextNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
+      final @NonNegative long rightSibKey, @NonNull final byte[] value, final boolean isCompressed,
       final SirixDeweyID id) {
     final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
@@ -137,8 +141,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public AttributeNode createAttributeNode(final @Nonnegative long parentKey, @Nonnull final QNm name,
-      @Nonnull final byte[] value, final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
+  public AttributeNode createAttributeNode(final @NonNegative long parentKey, @NonNull final QNm name,
+      @NonNull final byte[] value, final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final long revision = pageTrx.getRevisionNumber();
     final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey =
@@ -162,8 +166,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public NamespaceNode createNamespaceNode(final @Nonnegative long parentKey, final QNm name,
-      final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
+  public NamespaceNode createNamespaceNode(final @NonNegative long parentKey, final QNm name,
+      final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                                                   parentKey,
@@ -186,9 +190,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public PINode createPINode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final @Nonnegative long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
-      final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
+  public PINode createPINode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
+      final @NonNegative long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
+      final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final long revision = pageTrx.getRevisionNumber();
 
     final int prefixKey =
@@ -216,8 +220,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public CommentNode createCommentNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final @Nonnegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
+  public CommentNode createCommentNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
+      final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                                                   parentKey,

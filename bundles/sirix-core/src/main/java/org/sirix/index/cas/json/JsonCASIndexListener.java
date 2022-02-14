@@ -4,7 +4,6 @@ import org.brackit.xquery.atomic.Str;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.cas.CASIndexListener;
-import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.BooleanNode;

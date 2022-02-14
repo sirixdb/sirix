@@ -5,11 +5,11 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.Filter;
+import org.sirix.index.path.PCRCollector;
+import org.sirix.index.path.PathFilter;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.PCRCollector;
-import org.sirix.index.path.PathFilter;
 
 import java.util.Set;
 

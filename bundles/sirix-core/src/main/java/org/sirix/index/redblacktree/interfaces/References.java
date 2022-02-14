@@ -1,7 +1,8 @@
 package org.sirix.index.redblacktree.interfaces;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+
 import java.util.Set;
-import javax.annotation.Nonnegative;
 
 public interface References {
 
@@ -19,7 +20,7 @@ public interface References {
    * @return {@code true}, if the node key is removed, {@code false} if it isn't present
    * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
-  boolean removeNodeKey(@Nonnegative long nodeKey);
+  boolean removeNodeKey(@NonNegative long nodeKey);
 
   /**
    * Add a new nodeKey.
@@ -27,7 +28,7 @@ public interface References {
    * @param nodeKey node key to add
    * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
-  References addNodeKey(@Nonnegative long nodeKey);
+  References addNodeKey(@NonNegative long nodeKey);
 
   /**
    * Determines if the node key is indexed or not.
@@ -35,7 +36,7 @@ public interface References {
    * @param nodeKey node key to lookup
    * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
-  boolean contains(@Nonnegative long nodeKey);
+  boolean contains(@NonNegative long nodeKey);
 
   /**
    * Retrieve if a node-ID is present with the given key.
@@ -44,7 +45,7 @@ public interface References {
    * @return {@code true} if it is indexed, {@code false} otherwise
    * @throws IllegalArgumentException if {@code nodeKey} &lt; {@code 0}
    */
-  boolean isPresent(@Nonnegative long nodeKey);
+  boolean isPresent(@NonNegative long nodeKey);
 
   /**
    * Determines if nodeKeys are stored or not.

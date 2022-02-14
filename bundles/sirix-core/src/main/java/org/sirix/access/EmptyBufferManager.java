@@ -1,8 +1,8 @@
 package org.sirix.access;
 
-import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.Cache;
 import org.sirix.cache.EmptyCache;
+import org.sirix.cache.RBIndexKey;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;

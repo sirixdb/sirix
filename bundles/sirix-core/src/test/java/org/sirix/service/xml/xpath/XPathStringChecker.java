@@ -21,15 +21,16 @@
 
 package org.sirix.service.xml.xpath;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 import org.junit.After;
 import org.junit.Before;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 public class XPathStringChecker {
 

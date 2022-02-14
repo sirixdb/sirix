@@ -1,6 +1,7 @@
 package org.sirix.axis.concurrent
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import org.sirix.api.Axis
 import org.sirix.settings.Fixed

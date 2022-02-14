@@ -21,12 +21,13 @@
 
 package org.sirix.page;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.page.interfaces.Page;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import javax.annotation.Nonnull;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.page.interfaces.Page;
 
 /**
  * Persists pages on secondary storage.
@@ -44,7 +45,7 @@ public final class PagePersister {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @Nonnull Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
+  public @NonNull Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
       final SerializationType type) throws IOException {
     return PageKind.getKind(source.readByte()).deserializePage(source, pageReadTrx, type);
   }

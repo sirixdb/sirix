@@ -1,15 +1,5 @@
 package org.sirix.service.json.serialize;
 
-import static org.junit.Assert.assertEquals;
-
-import java.io.IOException;
-import java.io.StringWriter;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -20,10 +10,20 @@ import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
-import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.JsonDocumentCreator;
 import org.skyscreamer.jsonassert.JSONAssert;
+
+import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.assertEquals;
 
 public final class JsonSerializerTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");

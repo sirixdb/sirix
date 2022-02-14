@@ -21,6 +21,8 @@
 
 package org.sirix.service.xml.xpath;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -34,8 +36,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -100,7 +100,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @param pValue the value of the Item
    * @param pType the item's type
    */
-  public AtomicValue(final String pValue, @Nonnull final Type pType) {
+  public AtomicValue(final String pValue, @NonNull final Type pType) {
     mValue = TypedValue.getBytes(pValue);
     mType = NamePageHash.generateHashForString(pType.getStringRepr());
   }

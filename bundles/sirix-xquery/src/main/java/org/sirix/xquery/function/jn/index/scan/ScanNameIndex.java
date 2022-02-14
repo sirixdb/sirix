@@ -19,7 +19,6 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.name.NameFilter;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
 

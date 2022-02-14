@@ -1,11 +1,5 @@
 package org.sirix.index;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
-import javax.annotation.Nonnegative;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.FragmentHelper;
 import org.brackit.xquery.util.path.Path;
@@ -14,6 +8,14 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.node.Node;
+import org.checkerframework.checker.index.qual.NonNegative;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Karsten Schmidt
@@ -33,7 +35,7 @@ public final class Indexes implements Materializable {
     return new HashSet<>(indexes);
   }
 
-  public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo, final IndexType type) {
+  public synchronized IndexDef getIndexDef(final @NonNegative int indexNo, final IndexType type) {
     checkArgument(indexNo >= 0, "indexNo must be >= 0!");
     for (final IndexDef sid : indexes) {
       if (sid.getID() == indexNo && sid.getType() == type) {
@@ -88,7 +90,7 @@ public final class Indexes implements Materializable {
     indexes.add(indexDefinition);
   }
 
-  public synchronized void removeIndex(final @Nonnegative int indexID) {
+  public synchronized void removeIndex(final @NonNegative int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
     for (final IndexDef indexDef : indexes) {
       if (indexDef.getID() == indexID) {

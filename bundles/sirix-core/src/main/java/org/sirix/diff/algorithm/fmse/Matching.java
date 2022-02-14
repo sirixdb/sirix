@@ -20,15 +20,17 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Map;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.NodeKind;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Keeps track of nodes in a matching.
@@ -89,7 +91,7 @@ public final class Matching {
    * @param nodeX source node (in old revision)
    * @param nodeY partner of nodeX (in new revision)
    */
-  public void add(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
+  public void add(final @NonNegative long nodeX, final @NonNegative long nodeY) {
     mRtxOld.moveTo(nodeX);
     mRtxNew.moveTo(nodeY);
     if (mRtxOld.getKind() != mRtxNew.getKind()) {
@@ -106,7 +108,7 @@ public final class Matching {
    *
    * @param nodeX source node for which to remove the connection
    */
-  public boolean remove(final @Nonnegative long nodeX) {
+  public boolean remove(final @NonNegative long nodeX) {
     mReverseMapping.remove(mMapping.get(nodeX));
     return mMapping.remove(nodeX) == null
         ? false
@@ -119,7 +121,7 @@ public final class Matching {
    * @param key key of node in subtree
    * @param rtx {@link XmlNodeReadOnlyTrx} reference
    */
-  private void updateSubtreeMap(final @Nonnegative long key, final XmlNodeReadOnlyTrx rtx) {
+  private void updateSubtreeMap(final @NonNegative long key, final XmlNodeReadOnlyTrx rtx) {
     assert key >= 0;
     assert rtx != null;
 
@@ -141,7 +143,7 @@ public final class Matching {
    * @param nodeY partner of x
    * @return true iff add(x, y) was invoked first
    */
-  public boolean contains(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
+  public boolean contains(final @NonNegative long nodeX, final @NonNegative long nodeY) {
     return mMapping.get(nodeX) == null
         ? false
         : mMapping.get(nodeX).equals(nodeY);
@@ -154,7 +156,7 @@ public final class Matching {
    * @param nodeY second subtree root node
    * @return number of descendant which have been matched
    */
-  public long containedDescendants(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
+  public long containedDescendants(final @NonNegative long nodeX, final @NonNegative long nodeY) {
     long retVal = 0;
 
     mRtxOld.moveTo(nodeX);
@@ -190,7 +192,7 @@ public final class Matching {
    * @param node node for which a partner has to be found
    * @return the {@code nodeKey} of the other node or {@code null}
    */
-  public Long partner(final @Nonnegative long node) {
+  public Long partner(final @NonNegative long node) {
     return mMapping.get(node);
   }
 
@@ -201,7 +203,7 @@ public final class Matching {
    * @param node node for which a reverse partner has to be found
    * @return x iff add(x, node) was called before
    */
-  public Long reversePartner(final @Nonnegative long node) {
+  public Long reversePartner(final @NonNegative long node) {
     return mReverseMapping.get(node);
   }
 

@@ -30,8 +30,8 @@ package org.sirix.gui.view.model.interfaces;
 import java.beans.PropertyChangeListener;
 import java.util.Iterator;
 import java.util.List;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.update.Insert;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.VisualItem;
@@ -59,7 +59,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @return the {@link SunburstItem} at the specified index
    * @throws IndexOutOfBoundsException if {@code index > mItems.size() - 1 or < 0}
    */
-  T getItem(@Nonnegative int index) throws IndexOutOfBoundsException;
+  T getItem(@NonNegative int index) throws IndexOutOfBoundsException;
 
   /**
    * Traverse the tree and create a {@link List} of {@link SunburstItem}s.
@@ -98,7 +98,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param databaseReader used to read from a Sirix database
    * @param container {@link Container} instance
    */
-  void updateDb(ReadDB databaseReader, @Nonnull Container<S> container);
+  void updateDb(ReadDB databaseReader, @NonNull Container<S> container);
 
   /**
    * Add a {@link PropertyChangeListener}.
@@ -125,8 +125,8 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
   // * @param pNewValue
   // * new value
   // */
-  // void firePropertyChange(String pPropertyName, @Nonnull Object pOldValue,
-  // @Nonnull Object pNewValue);
+  // void firePropertyChange(String pPropertyName, @NonNull Object pOldValue,
+  // @NonNull Object pNewValue);
 
   /**
    * Get the database handle.
@@ -164,14 +164,14 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    *
    * @param depthMax the new maximum depth
    */
-  void setNewDepthMax(@Nonnegative int depthMax);
+  void setNewDepthMax(@NonNegative int depthMax);
 
   /**
    * Set the depth max of the inner ring.
    *
    * @param pDepthMax the new maximum depth
    */
-  void setOldDepthMax(@Nonnegative int oldDepthMax);
+  void setOldDepthMax(@NonNegative int oldDepthMax);
 
   /**
    * Get a sublist of items.
@@ -180,5 +180,5 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param toIndex the index to end (exlusive)
    * @return sublist of items
    */
-  List<T> subList(@Nonnegative int fromIndex, @Nonnegative int toIndex);
+  List<T> subList(@NonNegative int fromIndex, @NonNegative int toIndex);
 }

@@ -23,15 +23,19 @@ package org.sirix.io.filechannel;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.*;
+import org.sirix.page.PagePersister;
+import org.sirix.page.PageReference;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.SerializationType;
+import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -107,7 +111,7 @@ public final class FileChannelReader implements Reader {
   }
 
   @Override
-  public Page read(final @Nonnull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocate(4);

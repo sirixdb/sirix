@@ -21,15 +21,16 @@
 
 package org.sirix.diff;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Full diff including attributes and namespaces. Note that this class is thread safe.

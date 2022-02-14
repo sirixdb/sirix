@@ -1,11 +1,11 @@
 package org.sirix.node;
 
 import com.google.common.collect.ForwardingObject;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -32,7 +32,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
    *
    * @return new {@link NodeDelegate} instance (snapshot of the current one)
    */
-  @Nonnull
+  @NonNull
   public NodeDelegate getNodeDelegate() {
     return delegate();
   }

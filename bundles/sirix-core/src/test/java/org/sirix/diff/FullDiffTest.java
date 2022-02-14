@@ -21,8 +21,6 @@
 
 package org.sirix.diff;
 
-import java.io.IOException;
-import javax.xml.stream.XMLStreamException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -30,6 +28,9 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.exception.SirixException;
+
+import javax.xml.stream.XMLStreamException;
+import java.io.IOException;
 
 /**
  * FullDiff test.

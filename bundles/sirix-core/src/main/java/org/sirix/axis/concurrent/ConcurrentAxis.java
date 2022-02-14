@@ -21,16 +21,7 @@
 
 package org.sirix.axis.concurrent;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-
-import javax.annotation.Nonnegative;
-
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -38,6 +29,14 @@ import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -105,7 +104,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   @Override
-  public synchronized void reset(final @Nonnegative long nodeKey) {
+  public synchronized void reset(final @NonNegative long nodeKey) {
     super.reset(nodeKey);
     first = true;
     finished = false;

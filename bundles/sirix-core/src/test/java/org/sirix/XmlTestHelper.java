@@ -21,17 +21,7 @@
 
 package org.sirix;
 
-import static org.junit.Assert.fail;
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Hashtable;
-import java.util.Map;
-import java.util.Random;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
@@ -50,6 +40,18 @@ import org.sirix.node.NodeKind.DumbNode;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Random;
+
+import static org.junit.Assert.fail;
 
 /**
  *
@@ -313,7 +315,7 @@ public final class XmlTestHelper {
    *
    * @return the random bytes
    */
-  public static final @Nonnull byte[] generateRandomBytes(final int size) {
+  public static final @NonNull byte[] generateRandomBytes(final int size) {
     final byte[] returnVal = new byte[size];
     random.nextBytes(returnVal);
     return returnVal;

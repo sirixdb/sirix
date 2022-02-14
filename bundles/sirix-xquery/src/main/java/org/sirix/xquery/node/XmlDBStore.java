@@ -30,6 +30,7 @@ package org.sirix.xquery.node;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.NodeStore;
+
 import java.time.Instant;
 
 /**

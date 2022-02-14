@@ -1,6 +1,10 @@
 package org.sirix.access;
 
-import org.sirix.api.*;
+import org.sirix.api.Database;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;

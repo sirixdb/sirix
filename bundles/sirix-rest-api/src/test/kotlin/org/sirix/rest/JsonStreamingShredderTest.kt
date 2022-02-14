@@ -2,8 +2,10 @@ package org.sirix.rest
 
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
-import org.junit.jupiter.api.*
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
@@ -11,8 +13,6 @@ import org.sirix.service.json.serialize.JsonSerializer
 import java.io.StringWriter
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Test the JSON streamin shredder (indirectly also the JSON serializer).

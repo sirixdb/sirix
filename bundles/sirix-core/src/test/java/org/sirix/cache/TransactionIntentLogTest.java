@@ -8,7 +8,6 @@ import org.sirix.index.IndexType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.io.file.FileWriter;
-import org.sirix.page.PageKind;
 import org.sirix.page.PagePersister;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
@@ -16,7 +15,6 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
-import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 

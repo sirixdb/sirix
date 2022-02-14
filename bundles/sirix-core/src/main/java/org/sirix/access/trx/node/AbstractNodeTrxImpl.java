@@ -1,10 +1,17 @@
 package org.sirix.access.trx.node;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
-import org.sirix.api.*;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.PageTrx;
+import org.sirix.api.PostCommitHook;
+import org.sirix.api.PreCommitHook;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffTuple;
@@ -19,12 +26,17 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UberPage;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -175,7 +187,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                                   final RecordToRevisionsIndex nodeToRevisionsIndex,
                                   @Nullable final Lock transactionLock,
                                   final Duration afterCommitDelay,
-                                  @Nonnegative final int maxNodeCount) {
+                                  @NonNegative final int maxNodeCount) {
 
         // Do not accept negative values.
         checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
@@ -380,7 +392,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
      * @param trxID     transaction ID
      * @param revNumber revision number
      */
-    private void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
+    private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
         // Reset page transaction to new uber page.
         resourceManager.closeNodePageWriteTransaction(getId());
         pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);

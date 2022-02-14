@@ -1,5 +1,7 @@
 package org.sirix.index.redblacktree;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import org.sirix.api.NodeCursor;
@@ -12,13 +14,15 @@ import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
 import org.sirix.index.redblacktree.interfaces.References;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.page.*;
+import org.sirix.page.CASPage;
+import org.sirix.page.NamePage;
+import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
+import org.sirix.page.RevisionRootPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -58,7 +62,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   private RBTreeWriter(final DatabaseType databaseType,
                        final PageTrx pageTrx,
                        final IndexType type,
-                       final @Nonnegative int index) {
+                       final @NonNegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
       final PageReference reference;
@@ -223,7 +227,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param nodeKey the nodeKey to remove from the value
    * @throws SirixIOException if an I/O error occured
    */
-  public boolean remove(final K key, final @Nonnegative long nodeKey) {
+  public boolean remove(final K key, final @NonNegative long nodeKey) {
     checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
     final Optional<V> searchedValue = rbTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
     boolean removed = false;

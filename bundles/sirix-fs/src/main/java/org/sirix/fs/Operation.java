@@ -2,7 +2,7 @@ package org.sirix.fs;
 
 import java.nio.file.Path;
 import java.util.Map;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
@@ -14,7 +14,7 @@ import org.sirix.exception.SirixException;
  * @param <S> first argument for the operation, the sirix transaction which is also a generic
  *        parameter for the visitor
  */
-@Nonnull
+@NonNull
 public interface Operation<S extends NodeReadOnlyTrx> {
 
   /**

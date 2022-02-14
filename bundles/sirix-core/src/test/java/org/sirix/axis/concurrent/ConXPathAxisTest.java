@@ -21,7 +21,6 @@
 
 package org.sirix.axis.concurrent;
 
-import java.io.IOException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,6 +31,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathStringChecker;
+
+import java.io.IOException;
 
 /**
  * JUnit-test class to test the functionality of the XPathAxis.

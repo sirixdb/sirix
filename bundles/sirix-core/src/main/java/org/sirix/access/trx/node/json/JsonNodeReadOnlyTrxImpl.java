@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -50,7 +51,6 @@ import org.sirix.node.json.StringNode;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -75,7 +75,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-                          final @Nonnegative long trxId,
+                          final @NonNegative long trxId,
                           final PageReadOnlyTrx pageReadTransaction,
                           final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());

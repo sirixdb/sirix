@@ -4,7 +4,14 @@ import org.sirix.access.trx.node.json.AbstractJsonNodeVisitor;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.cas.CASIndexBuilder;
-import org.sirix.node.immutable.json.*;
+import org.sirix.node.immutable.json.ImmutableArrayNode;
+import org.sirix.node.immutable.json.ImmutableBooleanNode;
+import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectStringNode;
+import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**

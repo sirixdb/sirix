@@ -1,14 +1,24 @@
 package org.sirix.cache;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.IndexType;
-import org.sirix.page.*;
+import org.sirix.page.CASPage;
+import org.sirix.page.NamePage;
+import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
+import org.sirix.page.PathSummaryPage;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nullable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * The transaction intent log, used for logging everything a write transaction changes.
@@ -54,7 +64,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
+      protected boolean removeEldestEntry(final Map.@Nullable Entry<PageReference, PageContainer> eldest) {
         if (size() > maxInMemoryCapacity) {
           int i = 0;
           final var iter = map.entrySet().iterator();

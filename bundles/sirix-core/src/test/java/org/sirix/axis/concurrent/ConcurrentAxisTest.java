@@ -21,12 +21,8 @@
 
 package org.sirix.axis.concurrent;
 
-import static org.junit.Assert.assertEquals;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -38,10 +34,13 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.XmlNameFilter;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.assertEquals;
 
 /** Test {@link ConcurrentAxis}. */
 public final class ConcurrentAxisTest {

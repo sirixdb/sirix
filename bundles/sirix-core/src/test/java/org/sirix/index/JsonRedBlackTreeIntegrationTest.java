@@ -8,21 +8,27 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
+import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.node.NodeKind;
-import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.json.shredder.JsonShredder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.stream.StreamSupport;
 
 import static org.brackit.xquery.util.path.Path.parse;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public final class JsonRedBlackTreeIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");

@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.OutputStream;
 import java.util.concurrent.Callable;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable; 
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;

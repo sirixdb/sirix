@@ -24,6 +24,8 @@ package org.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
@@ -36,8 +38,6 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -176,7 +176,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
     mNameDel.setPathNodeKey(pathNodeKey);
   }
 

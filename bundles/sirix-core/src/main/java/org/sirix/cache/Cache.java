@@ -21,8 +21,9 @@
 
 package org.sirix.cache;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.util.Map;
-import javax.annotation.Nonnull;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
@@ -55,7 +56,7 @@ public interface Cache<K, V> {
    * @param key for putting the page in the cache
    * @param value should be putted in the cache as well
    */
-  void put(K key, @Nonnull V value);
+  void put(K key, @NonNull V value);
 
   /**
    * Put all entries from a map into the cache.

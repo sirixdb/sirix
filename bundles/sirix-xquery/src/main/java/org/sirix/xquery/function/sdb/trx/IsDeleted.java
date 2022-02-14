@@ -5,24 +5,14 @@ import org.brackit.xquery.atomic.Bool;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.sequence.ItemSequence;
-import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexType;
 import org.sirix.node.RevisionReferencesNode;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.json.JsonItemFactory;
-import org.sirix.xquery.node.XmlDBNode;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 
 /**

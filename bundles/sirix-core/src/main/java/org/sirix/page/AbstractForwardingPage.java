@@ -21,12 +21,10 @@
 package org.sirix.page;
 
 import com.google.common.collect.ForwardingObject;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.PageTrx;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnegative;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -60,7 +58,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
-  public PageReference getOrCreateReference(final @Nonnegative int offset) {
+  public PageReference getOrCreateReference(final @NonNegative int offset) {
     return delegate().getOrCreateReference(offset);
   }
 

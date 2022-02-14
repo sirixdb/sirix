@@ -1,13 +1,13 @@
 package org.sirix.api;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.User;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -53,7 +53,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    * @param revision revert to the revision
    * @return NodeTrx return current instance
    */
-  NodeTrx revertTo(@Nonnegative int revision);
+  NodeTrx revertTo(@NonNegative int revision);
 
   /**
    * Add pre commit hook.

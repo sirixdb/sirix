@@ -3,9 +3,9 @@ package org.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.index.redblacktree.RBNode;
 
-import javax.annotation.Nonnull;
 import java.util.Map;
 
 public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, ?>> {
@@ -42,7 +42,7 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, 
   }
 
   @Override
-  public void put(RBIndexKey key, @Nonnull RBNode<?, ?> value) {
+  public void put(RBIndexKey key, @NonNull RBNode<?, ?> value) {
     pageCache.put(key, value);
   }
 

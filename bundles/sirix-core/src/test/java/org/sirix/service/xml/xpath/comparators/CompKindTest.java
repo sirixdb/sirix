@@ -21,13 +21,14 @@
 
 package org.sirix.service.xml.xpath.comparators;
 
+import org.junit.Test;
+import org.sirix.exception.SirixXPathException;
+import org.sirix.service.xml.xpath.types.Type;
+
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
-import org.junit.Test;
-import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.types.Type;
 
 public class CompKindTest {
 

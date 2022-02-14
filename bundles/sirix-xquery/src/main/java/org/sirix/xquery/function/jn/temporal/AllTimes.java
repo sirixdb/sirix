@@ -12,7 +12,6 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.TemporalJsonDBItem;
 
 /**

@@ -27,6 +27,10 @@
  */
 package org.sirix.io.bytepipe;
 
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -34,9 +38,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
-import javax.annotation.Nonnull;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -145,7 +146,7 @@ public enum ByteHandlerKind {
    * @param clazz the class for the page
    * @return the related page
    */
-  public static @Nonnull ByteHandlerKind getKind(final Class<? extends ByteHandler> clazz) {
+  public static @NonNull ByteHandlerKind getKind(final Class<? extends ByteHandler> clazz) {
     final ByteHandlerKind byteHandler = INSTANCEFORCLASS.get(clazz);
     if (byteHandler == null) {
       throw new IllegalStateException();

@@ -1,7 +1,8 @@
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.delegates.NodeDelegate;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.

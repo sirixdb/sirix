@@ -7,6 +7,7 @@ import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.TemporalJsonCollection;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
@@ -21,7 +22,6 @@ import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;

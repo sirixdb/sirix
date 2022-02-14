@@ -28,7 +28,6 @@ import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.xml.TextNode;
-import org.sirix.page.PageKind;
 import org.sirix.settings.Fixed;
 
 /**

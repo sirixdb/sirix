@@ -1,12 +1,11 @@
 package io.sirix.tutorial.xml;
 
-import java.io.ByteArrayOutputStream;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.Databases;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.service.xml.serialize.XmlSerializer;
 
-import io.sirix.tutorial.Constants;
+import java.io.ByteArrayOutputStream;
 
 public class SerializeVersionedXmlResource {
 

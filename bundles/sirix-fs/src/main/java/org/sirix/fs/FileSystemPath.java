@@ -1,9 +1,9 @@
 package org.sirix.fs;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /** Determins if a {@link FileSystemPath} denotes a directory or file. */
-@Nonnull
+@NonNull
 public enum FileSystemPath {
   /** It is a directory. */
   ISDIRECTORY {

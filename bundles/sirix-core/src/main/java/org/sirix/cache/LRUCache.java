@@ -21,15 +21,17 @@
 
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import com.google.common.collect.ImmutableMap;
+import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import javax.annotation.Nullable;
-import com.google.common.base.MoreObjects;
-import com.google.common.collect.ImmutableMap;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible second cache as a
@@ -68,7 +70,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final @Nullable Map.Entry<K, V> eldest) {
+      protected boolean removeEldestEntry(final Map.@Nullable Entry<K, V> eldest) {
         boolean returnVal = false;
         if (size() > CACHE_CAPACITY) {
           if (eldest != null) {

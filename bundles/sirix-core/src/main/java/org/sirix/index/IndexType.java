@@ -1,8 +1,5 @@
 package org.sirix.index;
 
-import org.sirix.page.PageKind;
-import org.sirix.page.interfaces.Page;
-
 import java.util.HashMap;
 import java.util.Map;
 

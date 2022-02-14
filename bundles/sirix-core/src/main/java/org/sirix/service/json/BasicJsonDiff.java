@@ -1,12 +1,16 @@
 package org.sirix.service.json;
 
 import com.google.common.collect.ImmutableSet;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.JsonDiff;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.diff.*;
+import org.sirix.diff.DiffDepth;
+import org.sirix.diff.DiffFactory;
+import org.sirix.diff.DiffObserver;
+import org.sirix.diff.DiffTuple;
+import org.sirix.diff.JsonDiffSerializer;
 
-import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -70,8 +74,8 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   }
 
   @Override
-  public void diffListener(@Nonnull final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
-      @Nonnull final DiffDepth depth) {
+  public void diffListener(final DiffFactory.@NonNull DiffType diffType, final long newNodeKey, final long oldNodeKey,
+                           @NonNull final DiffDepth depth) {
     diffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
   }
 

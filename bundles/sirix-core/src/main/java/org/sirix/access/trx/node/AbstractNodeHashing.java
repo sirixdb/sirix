@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node;
 
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
@@ -10,7 +11,6 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.xml.ElementNode;
 
-import javax.annotation.Nonnegative;
 import java.math.BigInteger;
 
 public abstract class AbstractNodeHashing<N extends ImmutableNode> {
@@ -388,7 +388,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    * @param descendantCount the descendantCount to add
    */
   private static void setAddDescendants(final ImmutableNode startNode, final Node nodeToModify,
-      final @Nonnegative long descendantCount) {
+      final @NonNegative long descendantCount) {
     assert startNode != null;
     assert descendantCount >= 0;
     assert nodeToModify != null;

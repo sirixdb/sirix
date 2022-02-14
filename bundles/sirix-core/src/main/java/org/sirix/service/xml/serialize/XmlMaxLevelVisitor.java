@@ -6,11 +6,11 @@ import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.immutable.xml.ImmutableComment;
-import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
 import org.sirix.node.immutable.xml.ImmutablePI;
 import org.sirix.node.immutable.xml.ImmutableText;
+import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
 public final class XmlMaxLevelVisitor implements XmlNodeVisitor {

@@ -21,11 +21,12 @@
 
 package org.sirix.node.json;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -37,9 +38,8 @@ import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.HashCode;
+
+import java.math.BigInteger;
 
 /**
  *
@@ -178,7 +178,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return structNodeDel;
   }
 
-  public ObjectKeyNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public ObjectKeyNode setPathNodeKey(final @NonNegative long pathNodeKey) {
     this.pathNodeKey = pathNodeKey;
     return this;
   }

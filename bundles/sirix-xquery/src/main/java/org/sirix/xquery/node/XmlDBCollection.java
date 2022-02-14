@@ -10,6 +10,8 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.AbstractTemporalNode;
 import org.brackit.xquery.xdm.node.TemporalNodeCollection;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
@@ -23,8 +25,6 @@ import org.sirix.service.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -220,7 +220,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
   }
 
-  private XmlDBNode createXmlDBNode(int revision, @Nonnull String resourceName) {
+  private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
     final XmlResourceManager manager = database.openResourceManager(resourceName);
     final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
     final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
@@ -286,20 +286,6 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     instantDocumentDataToXmlDBNodes.put(new InstantDocumentData(resourceName, wtx.getRevisionTimestamp()), xmlDBNode);
     return xmlDBNode;
   }
-
-  //  public XmlDBNode add(final String resourceName, final XMLEventReader reader) {
-  //    try {
-  //      database.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
-  //      final XmlResourceManager resource = database.openResourceManager(resourceName);
-  //      final XmlNodeTrx wtx = resource.beginNodeTrx();
-  //      wtx.insertSubtreeAsFirstChild(reader);
-  //      wtx.moveToDocumentRoot();
-  //      return new XmlDBNode(wtx, this);
-  //    } catch (final SirixException e) {
-  //      LOGGER.error(e.getMessage(), e);
-  //      return null;
-  //    }
-  //  }
 
   @Override
   public void close() {

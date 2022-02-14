@@ -1,9 +1,10 @@
 package org.sirix.diff.algorithm.fmse;
 
-import java.util.Map;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
+
+import java.util.Map;
 
 public interface NodeComparisonFactory {
   NodeComparator<Long> createLeafNodeEqualityChecker(QNm id, XmlNodeReadOnlyTrx oldRtx, XmlNodeReadOnlyTrx newRtx,

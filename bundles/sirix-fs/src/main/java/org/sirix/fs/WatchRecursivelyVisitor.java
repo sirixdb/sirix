@@ -34,11 +34,11 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import com.google.common.collect.Maps;
 
 /** Watches a directory recursively. */
-@Nonnull
+@NonNull
 public final class WatchRecursivelyVisitor extends SimpleFileVisitor<Path> {
 
   /** {@link WatchService} reference. */

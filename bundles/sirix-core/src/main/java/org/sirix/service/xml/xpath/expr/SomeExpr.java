@@ -21,13 +21,15 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.List;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
+
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -54,8 +56,8 @@ public class SomeExpr extends AbstractExpression {
    * @param pSatisfy condition that must be satisfied by at least one item of the variable results
    *        in order to evaluate expression to true
    */
-  public SomeExpr(final XmlNodeReadOnlyTrx pRtx, @Nonnull final List<Axis> pVars,
-      @Nonnull final Axis pSatisfy) {
+  public SomeExpr(final XmlNodeReadOnlyTrx pRtx, @NonNull final List<Axis> pVars,
+      @NonNull final Axis pSatisfy) {
     super(pRtx);
     mVars = checkNotNull(pVars);
     mSatisfy = checkNotNull(pSatisfy);

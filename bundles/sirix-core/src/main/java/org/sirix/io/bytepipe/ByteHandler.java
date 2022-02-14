@@ -1,6 +1,5 @@
 package org.sirix.io.bytepipe;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 

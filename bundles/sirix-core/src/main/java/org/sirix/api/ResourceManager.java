@@ -21,6 +21,8 @@
 
 package org.sirix.api;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.AfterCommitState;
@@ -36,8 +38,6 @@ import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBNode;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -112,7 +112,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return new {@link PageReadOnlyTrx} instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageReadOnlyTrx beginPageReadOnlyTrx(@Nonnegative int revision);
+  PageReadOnlyTrx beginPageReadOnlyTrx(@NonNegative int revision);
 
   /**
    * Begin a new {@link PageTrx}.
@@ -132,7 +132,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixException           if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageTrx beginPageTrx(@Nonnegative int revision);
+  PageTrx beginPageTrx(@NonNegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.
@@ -153,7 +153,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixThreadedException   if the thread is interrupted
    * @throws SirixUsageException      if the number of read-transactions is exceeded for a defined time
    */
-  R beginNodeReadOnlyTrx(@Nonnegative int revision);
+  R beginNodeReadOnlyTrx(@NonNegative int revision);
 
   /**
    * Begin a read-only transaction with the revision, which is closest to the given point in time.
@@ -164,7 +164,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixThreadedException   if the thread is interrupted
    * @throws SirixUsageException      if the number of read-transactions is exceeded for a defined time
    */
-  R beginNodeReadOnlyTrx(@Nonnull Instant pointInTime);
+  R beginNodeReadOnlyTrx(@NonNull Instant pointInTime);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -174,7 +174,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException    if the number of write-transactions is exceeded for a defined time
    */
-  W beginNodeTrx(@Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -186,7 +186,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    */
-  W beginNodeTrx(@Nonnegative int maxNodes, @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@NonNegative int maxNodes, @NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -200,7 +200,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@Nonnegative int maxTime, @Nonnull TimeUnit timeUnit, @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@NonNegative int maxTime, @NonNull TimeUnit timeUnit, @NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -215,7 +215,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@Nonnegative int maxNodes, @Nonnegative int maxTime, @Nonnull TimeUnit timeUnit, @Nonnull AfterCommitState afterCommitState);
+  W beginNodeTrx(@NonNegative int maxNodes, @NonNegative int maxTime, @NonNull TimeUnit timeUnit, @NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -235,7 +235,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    */
-  W beginNodeTrx(@Nonnegative int maxNodes);
+  W beginNodeTrx(@NonNegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -248,7 +248,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@Nonnegative int maxTime, @Nonnull TimeUnit timeUnit);
+  W beginNodeTrx(@NonNegative int maxTime, @NonNull TimeUnit timeUnit);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -262,7 +262,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@Nonnegative int maxNodeCount, @Nonnegative int maxTime, @Nonnull TimeUnit timeUnit);
+  W beginNodeTrx(@NonNegative int maxNodeCount, @NonNegative int maxTime, @NonNull TimeUnit timeUnit);
 
   /**
    * Open the path summary to allow iteration (basically implementation of {@link XmlNodeReadOnlyTrx}.
@@ -271,7 +271,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return {@link PathSummaryReader} instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PathSummaryReader openPathSummary(@Nonnegative int revision);
+  PathSummaryReader openPathSummary(@NonNegative int revision);
 
   /**
    * Open the path summary to allow iteration (basically implementation of {@link XmlNodeReadOnlyTrx}.
@@ -289,7 +289,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param pointInTime the point in time
    * @return the revision number, which was committed at the closest time to the given point in time.
    */
-  int getRevisionNumber(@Nonnull Instant pointInTime);
+  int getRevisionNumber(@NonNull Instant pointInTime);
 
   /**
    * Safely close resource manager and immediately release all resources. If there are running

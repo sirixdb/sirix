@@ -37,7 +37,11 @@ import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 
 import static org.junit.Assert.assertEquals;
 

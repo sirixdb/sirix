@@ -21,8 +21,9 @@
 
 package org.sirix.utils;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.slf4j.Logger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Provides some logging helper methods.

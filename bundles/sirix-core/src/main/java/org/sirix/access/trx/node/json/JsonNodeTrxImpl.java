@@ -26,8 +26,16 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Item;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.*;
+import org.sirix.access.trx.node.AbstractNodeHashing;
+import org.sirix.access.trx.node.AbstractNodeTrxImpl;
+import org.sirix.access.trx.node.AfterCommitState;
+import org.sirix.access.trx.node.HashType;
+import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.RecordToRevisionsIndex;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.PageTrx;
@@ -53,7 +61,17 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.*;
+import org.sirix.node.json.AbstractBooleanNode;
+import org.sirix.node.json.AbstractNullNode;
+import org.sirix.node.json.AbstractNumberNode;
+import org.sirix.node.json.AbstractStringNode;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.StringNode;
 import org.sirix.page.NamePage;
 import org.sirix.service.InsertPosition;
 import org.sirix.service.json.shredder.JsonItemShredder;
@@ -61,9 +79,6 @@ import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
@@ -156,9 +171,9 @@ final class JsonNodeTrxImpl extends
   JsonNodeTrxImpl(final String databaseName,
       final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx,
-      @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @Nonnegative final int maxNodeCount,
-      @Nullable final Lock transactionLock, final Duration afterCommitDelay, @Nonnull final JsonNodeHashing nodeHashing,
-      final JsonNodeFactory nodeFactory, @Nonnull final AfterCommitState afterCommitState,
+      @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @NonNegative final int maxNodeCount,
+      @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
+      final JsonNodeFactory nodeFactory, @NonNull final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
 
     super(new JsonNodeTrxThreadFactory(),
@@ -2217,7 +2232,7 @@ final class JsonNodeTrxImpl extends
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
     @Override
-    public Thread newThread(@Nonnull final Runnable runnable) {
+    public Thread newThread(@NonNull final Runnable runnable) {
       final var thread = new Thread(runnable, "JsonNodeTrxCommitThread");
 
       thread.setPriority(Thread.NORM_PRIORITY);

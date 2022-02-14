@@ -1,7 +1,8 @@
 package org.sirix.access;
 
-import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
+
+import javax.xml.namespace.QName;
 
 /**
  * Encapsulates generic stuff.

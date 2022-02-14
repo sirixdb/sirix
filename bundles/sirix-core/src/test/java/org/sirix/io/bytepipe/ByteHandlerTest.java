@@ -1,7 +1,11 @@
 package org.sirix.io.bytepipe;
 
-import static org.testng.AssertJUnit.assertFalse;
-import static org.testng.AssertJUnit.assertTrue;
+import com.google.common.io.ByteStreams;
+import org.sirix.XmlTestHelper;
+import org.sirix.exception.SirixIOException;
+import org.testng.annotations.DataProvider;
+import org.testng.annotations.Test;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -10,11 +14,9 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import org.sirix.XmlTestHelper;
-import org.sirix.exception.SirixIOException;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
-import com.google.common.io.ByteStreams;
+
+import static org.testng.AssertJUnit.assertFalse;
+import static org.testng.AssertJUnit.assertTrue;
 
 /**
  * Byte handler test.

@@ -1,6 +1,12 @@
 package org.sirix.index.art;
 
-import java.util.*;
+import java.util.AbstractSet;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.NavigableSet;
+import java.util.SortedSet;
 
 // implementation simply relays/delegates calls to backing map's methods
 final class KeySet<E> extends AbstractSet<E> implements NavigableSet<E> {

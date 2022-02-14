@@ -2,8 +2,8 @@ package org.sirix.gui.view.model.interfaces;
 
 import java.beans.PropertyChangeListener;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable; 
 
 public interface Observable {
 	void addPropertyChangeListener(final PropertyChangeListener listener);
@@ -11,5 +11,5 @@ public interface Observable {
 	void removePropertyChangeListener(final PropertyChangeListener listener);
 
 	void firePropertyChange(final String propertyName,
-			@Nullable final Object oldValue, @Nonnull final Object newValue);
+			@Nullable final Object oldValue, @NonNull final Object newValue);
 }

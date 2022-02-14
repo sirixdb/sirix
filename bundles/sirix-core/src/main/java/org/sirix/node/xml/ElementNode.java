@@ -25,6 +25,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.BiMap;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -39,8 +41,6 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
@@ -141,7 +141,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param index index of the attribute
    * @return the attribute key
    */
-  public long getAttributeKey(final @Nonnegative int index) {
+  public long getAttributeKey(final @NonNegative int index) {
     if (mAttributeKeys.size() <= index) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -168,7 +168,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param key node key
    * @return optional name key
    */
-  public Optional<Long> getAttributeNameKey(final @Nonnegative long key) {
+  public Optional<Long> getAttributeNameKey(final @NonNegative long key) {
     return Optional.ofNullable(mAttributes.inverse().get(key));
   }
 
@@ -178,7 +178,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param attrKey the new attribute key
    * @param nameIndex index mapping to name string
    */
-  public void insertAttribute(final @Nonnegative long attrKey, final long nameIndex) {
+  public void insertAttribute(final @NonNegative long attrKey, final long nameIndex) {
     mAttributeKeys.add(attrKey);
     mAttributes.put(nameIndex, attrKey);
   }
@@ -186,9 +186,9 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Removing an attribute.
    *
-   * @param attrKey the key of the attribute to be removed@Nonnegative@Nonnegative
+   * @param attrKey the key of the attribute to be removed@NonNegative@NonNegative
    */
-  public void removeAttribute(final @Nonnegative long attrKey) {
+  public void removeAttribute(final @NonNegative long attrKey) {
     mAttributeKeys.remove(attrKey);
     mAttributes.inverse().remove(attrKey);
   }
@@ -208,7 +208,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param namespaceKey index of the namespace
    * @return the namespace key
    */
-  public long getNamespaceKey(final @Nonnegative int namespaceKey) {
+  public long getNamespaceKey(final @NonNegative int namespaceKey) {
     if (mNamespaceKeys.size() <= namespaceKey) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -353,13 +353,13 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    *
    * @return snapshot of the name node delegate (new instance)
    */
-  @Nonnull
+  @NonNull
   public NameNodeDelegate getNameNodeDelegate() {
     return new NameNodeDelegate(mNameDel);
   }
 
   @Override
-  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
     mNameDel.setPathNodeKey(pathNodeKey);
   }
 

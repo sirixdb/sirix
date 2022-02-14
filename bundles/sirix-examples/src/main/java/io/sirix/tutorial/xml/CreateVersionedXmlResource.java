@@ -1,12 +1,11 @@
 package io.sirix.tutorial.xml;
 
-import java.nio.file.Files;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 
-import io.sirix.tutorial.Constants;
+import java.nio.file.Files;
 
 public final class CreateVersionedXmlResource {
 

@@ -6,9 +6,9 @@ import dagger.Provides;
 import org.sirix.access.json.JsonLocalDatabaseComponent;
 import org.sirix.access.json.LocalJsonDatabaseFactory;
 import org.sirix.access.xml.LocalXmlDatabaseFactory;
+import org.sirix.access.xml.XmlLocalDatabaseComponent;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.access.xml.XmlLocalDatabaseComponent;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 

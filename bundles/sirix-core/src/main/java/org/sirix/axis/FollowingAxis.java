@@ -21,9 +21,10 @@
 
 package org.sirix.axis;
 
+import org.sirix.api.NodeCursor;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
-import org.sirix.api.NodeCursor;
 
 /**
  * <p>

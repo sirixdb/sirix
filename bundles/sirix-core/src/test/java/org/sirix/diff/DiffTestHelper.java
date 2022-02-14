@@ -20,16 +20,7 @@
  */
 package org.sirix.diff;
 
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isA;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import javax.xml.stream.XMLStreamException;
+import com.google.common.collect.ImmutableSet;
 import org.mockito.InOrder;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -38,12 +29,23 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
-import org.sirix.service.ShredderCommit;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XmlDocumentCreator;
-import com.google.common.collect.ImmutableSet;
+
+import javax.xml.stream.XMLStreamException;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 
 public final class DiffTestHelper {
 

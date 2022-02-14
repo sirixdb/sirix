@@ -1,12 +1,11 @@
 package io.sirix.tutorial.json;
 
-import java.io.StringWriter;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.Databases;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.service.json.serialize.JsonSerializer;
 
-import io.sirix.tutorial.Constants;
+import java.io.StringWriter;
 
 public class SerializeVersionedJsonResource {
 

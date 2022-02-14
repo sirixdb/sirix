@@ -21,8 +21,9 @@
 
 package org.sirix.axis;
 
-import java.util.Collections;
-import java.util.Iterator;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.testing.IteratorFeature;
+import com.google.common.collect.testing.IteratorTester;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,9 +32,9 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.testing.IteratorFeature;
-import com.google.common.collect.testing.IteratorTester;
+
+import java.util.Collections;
+import java.util.Iterator;
 
 public class DescendantAxisTest {
 

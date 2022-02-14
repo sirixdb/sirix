@@ -21,13 +21,14 @@
 
 package org.sirix.service.xml.xpath.types;
 
+import org.sirix.exception.SirixXPathException;
+import org.sirix.service.xml.xpath.EXPathError;
+import org.sirix.utils.NamePageHash;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.EXPathError;
-import org.sirix.utils.NamePageHash;
 
 /**
  * Enum that represents the built-in-types of XPath 2.0.

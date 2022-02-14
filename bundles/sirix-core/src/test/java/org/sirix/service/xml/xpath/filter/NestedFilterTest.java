@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import java.util.List;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,6 +35,8 @@ import org.sirix.axis.filter.xml.NodeFilter;
 import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
+
+import java.util.List;
 
 public class NestedFilterTest {
 

@@ -1,6 +1,11 @@
 package org.sirix.xquery.json;
 
-import org.brackit.xquery.atomic.*;
+import org.brackit.xquery.atomic.Bool;
+import org.brackit.xquery.atomic.Dbl;
+import org.brackit.xquery.atomic.Dec;
+import org.brackit.xquery.atomic.Flt;
+import org.brackit.xquery.atomic.Int32;
+import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.xdm.json.JsonItem;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 

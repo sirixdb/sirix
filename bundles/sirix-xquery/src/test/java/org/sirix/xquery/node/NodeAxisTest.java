@@ -1,7 +1,6 @@
 package org.sirix.xquery.node;
 
 import org.brackit.xquery.node.AxisTest;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.node.NodeStore;
 import org.junit.After;
 

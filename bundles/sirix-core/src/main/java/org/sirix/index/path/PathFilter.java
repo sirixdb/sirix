@@ -3,10 +3,10 @@ package org.sirix.index.path;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.index.Filter;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.summary.PathSummaryReader;
 
 import java.util.Collections;
 import java.util.Set;

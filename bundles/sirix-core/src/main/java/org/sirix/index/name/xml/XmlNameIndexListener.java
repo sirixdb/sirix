@@ -1,7 +1,7 @@
 package org.sirix.index.name.xml;
 
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.name.NameIndexListener;
@@ -17,7 +17,7 @@ final class XmlNameIndexListener implements ChangeListener {
   }
 
   @Override
-  public void listen(ChangeType type, @Nonnull ImmutableNode node, long pathNodeKey) {
+  public void listen(ChangeType type, @NonNull ImmutableNode node, long pathNodeKey) {
     if (node instanceof NameNode) {
       final NameNode nameNode = (NameNode) node;
       final QNm name = nameNode.getName();

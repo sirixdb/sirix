@@ -25,9 +25,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.exception.SirixIOException;
 
-import javax.annotation.Nullable;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;

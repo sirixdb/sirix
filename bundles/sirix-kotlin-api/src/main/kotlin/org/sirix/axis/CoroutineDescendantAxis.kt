@@ -23,6 +23,7 @@ package org.sirix.axis
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import org.checkerframework.checker.index.qual.NonNegative
 import org.sirix.api.NodeCursor
 import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.api.NodeTrx
@@ -31,7 +32,6 @@ import org.sirix.settings.Fixed
 import org.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
 import java.util.*
-import javax.annotation.Nonnegative
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -43,7 +43,8 @@ import kotlin.coroutines.CoroutineContext
  * NULL_NODE_KEY), the CoroutineDescendantAxis returns <code>false</code>.
  * </p>
  */
-class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: NodeCursor, W: NodeTrx, W: NodeCursor {
+class CoroutineDescendantAxis<R, W> :
+    AbstractAxis where R : NodeReadOnlyTrx, R : NodeCursor, W : NodeTrx, W : NodeCursor {
     /** Logger  */
     private val LOGGER = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
 
@@ -71,16 +72,21 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
         this.resourceManager = resourceManager
         producer = Producer()
     }
+
     /**
      * Constructor initializing internal state.
      *
      * @param resourceManager to retrieve cursors for pages
      * @param includeSelf determines if current node is included or not
      */
-    constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf) : super(resourceManager.beginNodeReadOnlyTrx(), includeSelf) {
+    constructor(
+        resourceManager: ResourceManager<R, W>,
+        includeSelf: IncludeSelf
+    ) : super(resourceManager.beginNodeReadOnlyTrx(), includeSelf) {
         this.resourceManager = resourceManager
         producer = Producer()
     }
+
     /**
      * Constructor initializing internal state.
      *
@@ -88,7 +94,10 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param includeSelf determines if current node is included or not
      * @param cursor to iterate through left page
      */
-    constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf, cursor: NodeCursor) : super(cursor, includeSelf) {
+    constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf, cursor: NodeCursor) : super(
+        cursor,
+        includeSelf
+    ) {
         this.resourceManager = resourceManager
         producer = Producer()
     }
@@ -172,7 +181,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param currKey current node key
      * @return `false` if finished, `true` if not
      */
-    private fun hasNextNode(cursor: NodeCursor, @Nonnegative key: Long, @Nonnegative currKey: Long): Long {
+    private fun hasNextNode(cursor: NodeCursor, key: @NonNegative Long, currKey: @NonNegative Long): Long {
         cursor.moveTo(key)
         return if (cursor.leftSiblingKey == startKey) {
             done()
@@ -201,20 +210,24 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
         return Fixed.NULL_NODE_KEY.standardProperty
     }
 
-     private inner class Producer: CoroutineScope {
+    private inner class Producer : CoroutineScope {
         /** Stack for remembering next nodeKey of right siblings.  */
         private val rightSiblingKeyStack: Deque<Long> = ArrayDeque()
+
         /**
          * Channel that stores result keys already computed by the producer. End of the result sequence is
          * marked by the NULL_NODE_KEY.
          */
         private var results: Channel<Long> = Channel(M_CAPACITY)
-         /**
+
+        /**
          * Actual coroutine job
          */
         private var producingTask: Job? = null
+
         /** Determines if right page coroutine is running.  */
         var running = false
+
         /** Right page cursor  */
         private val cursor: NodeCursor = resourceManager.beginNodeReadOnlyTrx()
 
@@ -228,6 +241,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
             results = Channel(M_CAPACITY)
             cursor.close()
         }
+
         suspend fun receive(): Long {
             return results.receive()
         }
@@ -240,59 +254,59 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
             running = true
         }
 
-         @InternalCoroutinesApi
-         suspend fun produce(key: Long) {
-             produceAll(key)
-             produceFinishSign()
-         }
+        @InternalCoroutinesApi
+        suspend fun produce(key: Long) {
+            produceAll(key)
+            produceFinishSign()
+        }
 
-         @InternalCoroutinesApi
-         private suspend fun produceAll(startKey: Long) {
-             var key = startKey
-             results.send(key)
-             // Compute all results from given start key
-             while (NonCancellable.isActive) {
-                 cursor.moveTo(key)
+        @InternalCoroutinesApi
+        private suspend fun produceAll(startKey: Long) {
+            var key = startKey
+            results.send(key)
+            // Compute all results from given start key
+            while (NonCancellable.isActive) {
+                cursor.moveTo(key)
 
-                 // Always follow first child if there is one.
-                 if (cursor.hasFirstChild()) {
-                     key = cursor.firstChildKey
-                     if (cursor.hasRightSibling()) {
-                         rightSiblingKeyStack.push(cursor.rightSiblingKey)
-                     }
-                     results.send(key)
-                     continue
-                 }
+                // Always follow first child if there is one.
+                if (cursor.hasFirstChild()) {
+                    key = cursor.firstChildKey
+                    if (cursor.hasRightSibling()) {
+                        rightSiblingKeyStack.push(cursor.rightSiblingKey)
+                    }
+                    results.send(key)
+                    continue
+                }
 
-                 // Then follow right sibling if there is one.
-                 if (cursor.hasRightSibling()) {
-                     val currKey: Long = cursor.node.nodeKey
-                     key = hasNextNode(cursor, cursor.rightSiblingKey, currKey)
-                     results.send(key)
-                     continue
-                 }
+                // Then follow right sibling if there is one.
+                if (cursor.hasRightSibling()) {
+                    val currKey: Long = cursor.node.nodeKey
+                    key = hasNextNode(cursor, cursor.rightSiblingKey, currKey)
+                    results.send(key)
+                    continue
+                }
 
-                 // Then follow right sibling on stack.
-                 if (rightSiblingKeyStack.size > 0) {
-                     val currKey: Long = cursor.node.nodeKey
-                     key = hasNextNode(cursor, rightSiblingKeyStack.pop(), currKey)
-                     results.send(key)
-                     continue
-                 }
-                 break
-             }
-         }
+                // Then follow right sibling on stack.
+                if (rightSiblingKeyStack.size > 0) {
+                    val currKey: Long = cursor.node.nodeKey
+                    key = hasNextNode(cursor, rightSiblingKeyStack.pop(), currKey)
+                    results.send(key)
+                    continue
+                }
+                break
+            }
+        }
 
-         @InternalCoroutinesApi
-         private suspend fun produceFinishSign() {
-             try {
-                 // Mark end of result sequence by the NULL_NODE_KEY only if channel is not already closed
-                 if (NonCancellable.isActive) {
-                     results.send(Fixed.NULL_NODE_KEY.standardProperty)
-                 }
-             } catch (e: InterruptedException) {
-                 LOGGER.error(e.message, e)
-             }
-         }
-     }
+        @InternalCoroutinesApi
+        private suspend fun produceFinishSign() {
+            try {
+                // Mark end of result sequence by the NULL_NODE_KEY only if channel is not already closed
+                if (NonCancellable.isActive) {
+                    results.send(Fixed.NULL_NODE_KEY.standardProperty)
+                }
+            } catch (e: InterruptedException) {
+                LOGGER.error(e.message, e)
+            }
+        }
+    }
 }

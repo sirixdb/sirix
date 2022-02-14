@@ -22,6 +22,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -34,7 +35,6 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -184,7 +184,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int key, @Nonnull final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
+  public String getName(final int key, @NonNull final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
@@ -237,7 +237,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int key, @Nonnull final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
+  public int getCount(final int key, @NonNull final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {

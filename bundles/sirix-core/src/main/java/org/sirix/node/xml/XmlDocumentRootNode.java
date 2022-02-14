@@ -22,6 +22,8 @@
 package org.sirix.node.xml;
 
 import com.google.common.base.Objects;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -33,8 +35,6 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -61,7 +61,7 @@ public final class XmlDocumentRootNode extends AbstractStructForwardingNode impl
    * @param nodeDel {@link NodeDelegate} reference
    * @param structDel {@link StructNodeDelegate} reference
    */
-  public XmlDocumentRootNode(final @Nonnull NodeDelegate nodeDel, final @Nonnull StructNodeDelegate structDel) {
+  public XmlDocumentRootNode(final @NonNull NodeDelegate nodeDel, final @NonNull StructNodeDelegate structDel) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structDel);
   }

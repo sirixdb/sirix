@@ -20,14 +20,14 @@
  */
 package org.sirix.io;
 
-import java.io.RandomAccessFile;
-
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.filechannel.FileChannelStorage;
 import org.sirix.io.file.FileStorage;
+import org.sirix.io.filechannel.FileChannelStorage;
 import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
+
+import java.io.RandomAccessFile;
 
 /**
  * Specific backend types are specified in this enum.

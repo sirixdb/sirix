@@ -5,17 +5,19 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.axis.*;
+import org.sirix.axis.ChildAxis;
+import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.IncludeSelf;
+import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.XmlNameFilter;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /** Test {@link CoroutineAxis}. */
 public class CoroutineAxisTest {

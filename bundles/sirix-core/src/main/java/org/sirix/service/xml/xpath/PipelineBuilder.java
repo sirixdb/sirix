@@ -21,13 +21,6 @@
 
 package org.sirix.service.xml.xpath;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Stack;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -63,6 +56,14 @@ import org.sirix.service.xml.xpath.operators.IDivOpAxis;
 import org.sirix.service.xml.xpath.operators.ModOpAxis;
 import org.sirix.service.xml.xpath.operators.MulOpAxis;
 import org.sirix.service.xml.xpath.operators.SubOpAxis;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Stack;
 
 /**
  * <p>
