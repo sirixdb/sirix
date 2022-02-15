@@ -31,7 +31,7 @@ import java.nio.file.Paths;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Random;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
@@ -313,7 +313,7 @@ public final class XmlTestHelper {
    *
    * @return the random bytes
    */
-  public static final @Nonnull byte[] generateRandomBytes(final int size) {
+  public static final @NonNull byte[] generateRandomBytes(final int size) {
     final byte[] returnVal = new byte[size];
     random.nextBytes(returnVal);
     return returnVal;

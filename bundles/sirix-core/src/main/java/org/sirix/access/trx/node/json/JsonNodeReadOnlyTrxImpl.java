@@ -50,7 +50,7 @@ import org.sirix.node.json.StringNode;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -75,7 +75,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-                          final @Nonnegative long trxId,
+                          final @NonNegative long trxId,
                           final PageReadOnlyTrx pageReadTransaction,
                           final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());

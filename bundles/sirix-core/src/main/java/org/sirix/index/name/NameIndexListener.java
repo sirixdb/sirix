@@ -2,7 +2,7 @@ package org.sirix.index.name;
 
 import java.util.Optional;
 import java.util.Set;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.SearchMode;
@@ -24,7 +24,7 @@ public final class NameIndexListener {
     mAVLTreeWriter = avlTreeWriter;
   }
 
-  public void listen(ChangeType type, @Nonnull ImmutableNode node, QNm name) {
+  public void listen(ChangeType type, @NonNull ImmutableNode node, QNm name) {
     final boolean included = (mIncludes.isEmpty() || mIncludes.contains(name));
     final boolean excluded = (!mExcludes.isEmpty() && mExcludes.contains(name));
 

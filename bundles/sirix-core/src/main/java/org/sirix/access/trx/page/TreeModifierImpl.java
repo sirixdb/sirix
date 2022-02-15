@@ -34,7 +34,7 @@ import org.sirix.index.IndexType;
 import org.sirix.page.*;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -49,7 +49,7 @@ public final class TreeModifierImpl implements TreeModifier {
 
   @Override
   public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodePageReadOnlyTrx pageRtx,
-      final TransactionIntentLog log, final @Nonnegative int baseRevision, final @Nonnegative int representRevision) {
+      final TransactionIntentLog log, final @NonNegative int baseRevision, final @NonNegative int representRevision) {
     final RevisionRootPage revisionRootPage;
 
     if (uberPage.isBootstrap()) {
@@ -78,7 +78,7 @@ public final class TreeModifierImpl implements TreeModifier {
 
   @Override
   public PageReference prepareLeafOfTree(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
-      final int[] inpLevelPageCountExp, final PageReference startReference, @Nonnegative final long pageKey,
+      final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
       final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;

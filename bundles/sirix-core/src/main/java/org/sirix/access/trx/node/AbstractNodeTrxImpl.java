@@ -19,8 +19,8 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UberPage;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -175,7 +175,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                                   final RecordToRevisionsIndex nodeToRevisionsIndex,
                                   @Nullable final Lock transactionLock,
                                   final Duration afterCommitDelay,
-                                  @Nonnegative final int maxNodeCount) {
+                                  @NonNegative final int maxNodeCount) {
 
         // Do not accept negative values.
         checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
@@ -380,7 +380,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
      * @param trxID     transaction ID
      * @param revNumber revision number
      */
-    private void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
+    private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
         // Reset page transaction to new uber page.
         resourceManager.closeNodePageWriteTransaction(getId());
         pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);

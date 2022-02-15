@@ -24,7 +24,7 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
@@ -128,7 +128,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      * @param filterLevel maximum level to filter nodes
      * @return this builder instance
      */
-    public Builder filterLevel(final @Nonnegative int filterLevel) {
+    public Builder filterLevel(final @NonNegative int filterLevel) {
       checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
       mFilterLevel = filterLevel;
       return this;

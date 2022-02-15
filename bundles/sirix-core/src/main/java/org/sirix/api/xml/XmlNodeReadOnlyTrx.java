@@ -35,8 +35,8 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.*;
 import org.sirix.service.xml.xpath.AtomicValue;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.math.BigInteger;
 import java.util.List;
 
@@ -140,7 +140,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(@Nonnegative int index);
+  Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(@NonNegative int index);
 
   /**
    * Move cursor to attribute by its name key.
@@ -158,7 +158,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return {@link Moved} instance if the namespace node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@Nonnegative int index);
+  Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@NonNegative int index);
 
   // --- Node Getters
   // ----------------------------------------------------------
@@ -310,7 +310,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param kind node kind
    * @return number of nodes with the same name and node kind
    */
-  int getNameCount(String name, @Nonnull NodeKind kind);
+  int getNameCount(String name, @NonNull NodeKind kind);
 
   /**
    * Get the type key of the node.
@@ -325,7 +325,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param index the index to get key for
    * @return attribute key for index or {@code -1} if no attribute with the given index is available
    */
-  long getAttributeKey(@Nonnegative int index);
+  long getAttributeKey(@NonNegative int index);
 
   /**
    * Determines if current node has children.

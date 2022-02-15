@@ -14,7 +14,7 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataInput;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -71,7 +71,7 @@ public final class PageUtils {
    * @param indexType    the index type
    */
   public static void createTree(final DatabaseType databaseType,
-                                @Nonnull PageReference reference, final IndexType indexType,
+                                @NonNull PageReference reference, final IndexType indexType,
                                 final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));

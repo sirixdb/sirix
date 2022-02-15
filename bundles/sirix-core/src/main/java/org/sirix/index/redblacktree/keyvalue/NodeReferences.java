@@ -3,8 +3,8 @@ package org.sirix.index.redblacktree.keyvalue;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.index.redblacktree.interfaces.References;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -37,7 +37,7 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public boolean isPresent(final @Nonnegative long nodeKey) {
+  public boolean isPresent(final @NonNegative long nodeKey) {
     return nodeKeys.contains(nodeKey);
   }
 
@@ -47,13 +47,13 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public NodeReferences addNodeKey(final @Nonnegative long nodeKey) {
+  public NodeReferences addNodeKey(final @NonNegative long nodeKey) {
     nodeKeys.add(nodeKey);
     return this;
   }
 
   @Override
-  public boolean removeNodeKey(@Nonnegative long nodeKey) {
+  public boolean removeNodeKey(@NonNegative long nodeKey) {
     return nodeKeys.remove(nodeKey);
   }
 
@@ -86,7 +86,7 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public boolean contains(@Nonnegative long nodeKey) {
+  public boolean contains(@NonNegative long nodeKey) {
     return nodeKeys.contains(nodeKey);
   }
 }

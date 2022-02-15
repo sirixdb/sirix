@@ -5,7 +5,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -19,7 +19,7 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements NodePersistenter {
   @Override
-  public DataRecord deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+  public DataRecord deserialize(final DataInput source, final @NonNegative long recordID, final SirixDeweyID deweyID,
       final PageReadOnlyTrx pageReadTrx) throws IOException {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
@@ -88,7 +88,7 @@ public final class NodeSerializerImpl implements NodePersistenter {
     }
   }
 
-  private static void writeDeweyID(final DataOutput sink, final byte[] deweyID, @Nonnegative final int i)
+  private static void writeDeweyID(final DataOutput sink, final byte[] deweyID, @NonNegative final int i)
       throws IOException {
     sink.writeByte(i);
     sink.writeByte(deweyID.length - i);

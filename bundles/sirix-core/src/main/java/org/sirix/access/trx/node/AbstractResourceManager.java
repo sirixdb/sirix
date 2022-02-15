@@ -30,9 +30,9 @@ import org.sirix.settings.Fixed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -147,9 +147,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    * @throws SirixException if Sirix encounters an exception
    */
-  protected AbstractResourceManager(final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
-      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-      final @Nonnull IOStorage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore writeLock,
+  protected AbstractResourceManager(final @NonNull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
+      final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
+      final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
       final @Nullable User user, final PageTrxFactory pageTrxFactory) {
     this.resourceStore = checkNotNull(resourceStore);
     resourceConfig = checkNotNull(resourceConf);
@@ -206,8 +206,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link PageTrx} instance
    */
   @Override
-  public PageTrx createPageTransaction(final @Nonnegative long id, final @Nonnegative int representRevision,
-      final @Nonnegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+  public PageTrx createPageTransaction(final @NonNegative long id, final @NonNegative int representRevision,
+      final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
@@ -288,7 +288,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized R beginNodeReadOnlyTrx(@Nonnegative final int revision) {
+  public synchronized R beginNodeReadOnlyTrx(@NonNegative final int revision) {
     assertAccess(revision);
 
     final PageReadOnlyTrx pageReadTrx = beginPageReadOnlyTrx(revision);
@@ -341,41 +341,41 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnegative int maxNodeCount) {
+  public W beginNodeTrx(final @NonNegative int maxNodeCount) {
     return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KeepOpen);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit) {
+  public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit) {
     return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KeepOpen);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnegative int maxTime,
-      final @Nonnull TimeUnit timeUnit) {
+  public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
+      final @NonNull TimeUnit timeUnit) {
     return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KeepOpen);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnull AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final @NonNull AfterCommitState afterCommitState) {
     return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, afterCommitState);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnull AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNull AfterCommitState afterCommitState) {
     return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS);
   }
 
   @Override
-  public W beginNodeTrx(final @Nonnegative int maxTime, final @Nonnull TimeUnit timeUnit,
-      final @Nonnull AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit,
+      final @NonNull AfterCommitState afterCommitState) {
     return beginNodeTrx(0, maxTime, timeUnit, afterCommitState);
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnegative int maxTime,
-      final @Nonnull TimeUnit timeUnit, final @Nonnull AfterCommitState afterCommitState) {
+  public synchronized W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
+      final @NonNull TimeUnit timeUnit, final @NonNull AfterCommitState afterCommitState) {
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
@@ -462,7 +462,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @throws IllegalArgumentException if revision isn't valid
    */
   @Override
-  public void assertAccess(final @Nonnegative int revision) {
+  public void assertAccess(final @NonNegative int revision) {
     assertNotClosed();
     if (revision > getMostRecentRevisionNumber()) {
       throw new IllegalArgumentException(
@@ -499,7 +499,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param pageTrx       page write trx
    */
   @Override
-  public void setNodePageWriteTransaction(final @Nonnegative long transactionID, @Nonnull final PageTrx pageTrx) {
+  public void setNodePageWriteTransaction(final @NonNegative long transactionID, @NonNull final PageTrx pageTrx) {
     assertNotClosed();
     nodePageTrxMap.put(transactionID, pageTrx);
   }
@@ -511,7 +511,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
-  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) {
+  public void closeNodePageWriteTransaction(final @NonNegative long transactionID) {
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
@@ -525,7 +525,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closeWriteTransaction(final @Nonnegative long transactionID) {
+  public void closeWriteTransaction(final @NonNegative long transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -542,7 +542,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closeReadTransaction(final @Nonnegative long transactionID) {
+  public void closeReadTransaction(final @NonNegative long transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -555,7 +555,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closePageWriteTransaction(final @Nonnegative Long transactionID) {
+  public void closePageWriteTransaction(final @NonNegative Long transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -572,7 +572,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closePageReadTransaction(final @Nonnegative Long transactionID) {
+  public void closePageReadTransaction(final @NonNegative Long transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -584,7 +584,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    *
    * @param transactionID transaction ID to remove
    */
-  private void removeFromPageMapping(final @Nonnegative Long transactionID) {
+  private void removeFromPageMapping(final @NonNegative Long transactionID) {
     assertNotClosed();
 
     // Purge transaction from internal state.
@@ -626,7 +626,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PathSummaryReader openPathSummary(final @Nonnegative int revision) {
+  public synchronized PathSummaryReader openPathSummary(final @NonNegative int revision) {
     assertAccess(revision);
 
     final PageReadOnlyTrx pageReadTrx = beginPageReadOnlyTrx(revision);
@@ -634,7 +634,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageReadOnlyTrx beginPageReadOnlyTrx(final @Nonnegative int revision) {
+  public PageReadOnlyTrx beginPageReadOnlyTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
@@ -651,7 +651,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PageTrx beginPageTrx(final @Nonnegative int revision) {
+  public synchronized PageTrx beginPageTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -700,7 +700,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public R beginNodeReadOnlyTrx(final @Nonnull Instant pointInTime) {
+  public R beginNodeReadOnlyTrx(final @NonNull Instant pointInTime) {
     checkNotNull(pointInTime);
     assertNotClosed();
 
@@ -754,7 +754,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public int getRevisionNumber(final @Nonnull Instant pointInTime) {
+  public int getRevisionNumber(final @NonNull Instant pointInTime) {
     checkNotNull(pointInTime);
     assertNotClosed();
 

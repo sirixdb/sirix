@@ -28,7 +28,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Interface for reading the stored pages in every backend.
