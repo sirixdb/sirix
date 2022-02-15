@@ -30,8 +30,8 @@ import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.util.ArrayList;
@@ -81,7 +81,7 @@ public final class BitmapReferencesPage implements Page {
    *
    * @param referenceCount number of references of page
    */
-  public BitmapReferencesPage(final @Nonnegative int referenceCount) {
+  public BitmapReferencesPage(final @NonNegative int referenceCount) {
     checkArgument(referenceCount >= 0);
 
     final int initialSize;
@@ -109,7 +109,7 @@ public final class BitmapReferencesPage implements Page {
    * @param in             input stream to read from
    * @param type           the serialization type
    */
-  public BitmapReferencesPage(final @Nonnegative int referenceCount, final DataInput in, final SerializationType type) {
+  public BitmapReferencesPage(final @NonNegative int referenceCount, final DataInput in, final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
     bitmap = tuple.getBitmap();
@@ -154,7 +154,7 @@ public final class BitmapReferencesPage implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getOrCreateReference(final @Nonnegative int offset) {
+  public PageReference getOrCreateReference(final @NonNegative int offset) {
     if (bitmap.get(offset)) {
       final int index = index(offset);
       return references.get(index);
@@ -208,7 +208,7 @@ public final class BitmapReferencesPage implements Page {
    * @param pageTrx the page read-write transaction
    */
   @Override
-  public void commit(@Nonnull final PageTrx pageTrx) {
+  public void commit(@NonNull final PageTrx pageTrx) {
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageTrx.commit(reference);

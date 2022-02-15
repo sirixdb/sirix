@@ -10,7 +10,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xml.TextNode;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;

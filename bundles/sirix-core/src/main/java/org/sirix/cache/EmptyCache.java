@@ -1,7 +1,7 @@
 package org.sirix.cache;
 
 import java.util.Map;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import com.google.common.collect.ImmutableMap;
 
 public final class EmptyCache<K, V> implements Cache<K, V> {
@@ -16,7 +16,7 @@ public final class EmptyCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public void put(K key, @Nonnull V value) {}
+  public void put(K key, @NonNull V value) {}
 
   @Override
   public ImmutableMap<K, V> getAll(Iterable<? extends K> keys) {

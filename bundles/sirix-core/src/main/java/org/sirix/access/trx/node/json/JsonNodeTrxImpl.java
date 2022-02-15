@@ -61,9 +61,9 @@ import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
@@ -156,9 +156,9 @@ final class JsonNodeTrxImpl extends
   JsonNodeTrxImpl(final String databaseName,
       final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx,
-      @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @Nonnegative final int maxNodeCount,
-      @Nullable final Lock transactionLock, final Duration afterCommitDelay, @Nonnull final JsonNodeHashing nodeHashing,
-      final JsonNodeFactory nodeFactory, @Nonnull final AfterCommitState afterCommitState,
+      @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @NonNegative final int maxNodeCount,
+      @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
+      final JsonNodeFactory nodeFactory, @NonNull final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
 
     super(new JsonNodeTrxThreadFactory(),
@@ -2217,7 +2217,7 @@ final class JsonNodeTrxImpl extends
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
     @Override
-    public Thread newThread(@Nonnull final Runnable runnable) {
+    public Thread newThread(@NonNull final Runnable runnable) {
       final var thread = new Thread(runnable, "JsonNodeTrxCommitThread");
 
       thread.setPriority(Thread.NORM_PRIORITY);

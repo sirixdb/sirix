@@ -41,8 +41,8 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -200,7 +200,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
     mNameDel.setPathNodeKey(pathNodeKey);
   }
 

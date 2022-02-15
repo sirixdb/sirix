@@ -31,7 +31,7 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.*;
@@ -147,12 +147,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void putMapping(final @Nonnegative long pathNodeKey, final StructNode node) {
+  void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
     pathNodeMapping.put(pathNodeKey, node);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  StructNode removeMapping(final @Nonnegative long pathNodeKey) {
+  StructNode removeMapping(final @NonNegative long pathNodeKey) {
     return pathNodeMapping.remove(pathNodeKey);
   }
 
@@ -164,7 +164,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void removeQNameMapping(final @Nonnegative PathNode node, final QNm name) {
+  void removeQNameMapping(final @NonNegative PathNode node, final QNm name) {
     final Set<PathNode> pathNodes = qnmMapping.get(name) == null ? new HashSet<>() : qnmMapping.get(name);
     if (pathNodes.size() == 1) {
       qnmMapping.remove(name);
@@ -181,7 +181,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param includeSelf if current node should be included or not
    * @return a set with bits set for each matching path node (its {@code pathNodeKey})
    */
-  public BitSet matchDescendants(final QNm name, final @Nonnegative long pathNodeKey, final IncludeSelf includeSelf) {
+  public BitSet matchDescendants(final QNm name, final @NonNegative long pathNodeKey, final IncludeSelf includeSelf) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -203,7 +203,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
-  public BitSet match(final QNm name, final @Nonnegative int minLevel) {
+  public BitSet match(final QNm name, final @NonNegative int minLevel) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -225,7 +225,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
-  public BitSet match(final QNm name, final @Nonnegative int minLevel, NodeKind nodeKind) {
+  public BitSet match(final QNm name, final @NonNegative int minLevel, NodeKind nodeKind) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -248,7 +248,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param nodeKind the node type
    * @return a set with bits set for each matching path node
    */
-  public Optional<PathNode> matchLevel(final QNm name, final @Nonnegative int level, NodeKind nodeKind) {
+  public Optional<PathNode> matchLevel(final QNm name, final @NonNegative int level, NodeKind nodeKind) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -288,7 +288,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param pathNodeKey path node key
    * @return path node corresponding to the provided key
    */
-  public PathNode getPathNodeForPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public PathNode getPathNodeForPathNodeKey(final @NonNegative long pathNodeKey) {
     assertNotClosed();
 
     if (pathNodeKey < 0) {
@@ -654,7 +654,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public boolean hasNode(final @Nonnegative long key) {
+  public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
     final long currNodeKey = currentNode.getNodeKey();
     final boolean retVal = moveTo(key).hasMoved();

@@ -7,7 +7,7 @@ import org.sirix.index.IndexType;
 import org.sirix.page.*;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.*;
 
 /**
@@ -54,7 +54,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
+      protected boolean removeEldestEntry(final Map.@Nullable Entry<PageReference, PageContainer> eldest) {
         if (size() > maxInMemoryCapacity) {
           int i = 0;
           final var iter = map.entrySet().iterator();

@@ -26,7 +26,7 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -60,7 +60,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
-  public PageReference getOrCreateReference(final @Nonnegative int offset) {
+  public PageReference getOrCreateReference(final @NonNegative int offset) {
     return delegate().getOrCreateReference(offset);
   }
 

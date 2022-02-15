@@ -26,8 +26,8 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -98,7 +98,7 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public Page read(final @Nonnull PageReference reference,
+  public Page read(final @NonNull PageReference reference,
       final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.

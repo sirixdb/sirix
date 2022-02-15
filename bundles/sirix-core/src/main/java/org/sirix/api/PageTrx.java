@@ -11,9 +11,9 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.time.Instant;
 
 /**
@@ -39,7 +39,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @param page      the page to put into the cache
    * @return this page write transaction instance
    */
-  PageTrx appendLogRecord(@Nonnull PageReference reference, @Nonnull PageContainer page);
+  PageTrx appendLogRecord(@NonNull PageReference reference, @NonNull PageContainer page);
 
   /**
    * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
@@ -53,7 +53,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws SirixIOException     if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  <K, V> V createRecord(K key, @Nonnull V value, @Nonnull IndexType indexType, int index);
+  <K, V> V createRecord(K key, @NonNull V value, @NonNull IndexType indexType, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
@@ -68,7 +68,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code page} is {@code null}
    */
-  <K, V> V prepareRecordForModification(@Nonnegative K key, @Nonnull IndexType indexType, int index);
+  <K, V> V prepareRecordForModification(@NonNegative K key, @NonNull IndexType indexType, int index);
 
   /**
    * Remove an entry from the storage.
@@ -80,7 +80,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code indexType} is {@code null}
    */
-  <K> void removeRecord(K key, @Nonnull IndexType indexType, int index);
+  <K> void removeRecord(K key, @NonNull IndexType indexType, int index);
 
   /**
    * Creating a namekey for a given name.
@@ -91,7 +91,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws SirixIOException     if something odd happens while storing the new key
    * @throws NullPointerException if {@code name} or {@code kind} is {@code null}
    */
-  int createNameKey(String name, @Nonnull NodeKind kind);
+  int createNameKey(String name, @NonNull NodeKind kind);
 
   /**
    * Commit the transaction, that is persist changes if any and create a new revision.

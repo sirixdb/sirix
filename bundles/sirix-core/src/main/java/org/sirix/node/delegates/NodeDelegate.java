@@ -31,8 +31,8 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -82,8 +82,8 @@ public class NodeDelegate implements Node {
    * @param revision revision this node was added
    * @param deweyID optional DeweyID
    */
-  public NodeDelegate(final @Nonnegative long nodeKey, final long parentKey, final HashFunction hashFunction,
-      final BigInteger hashCode, final @Nonnegative long revision, final SirixDeweyID deweyID) {
+  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final HashFunction hashFunction,
+      final BigInteger hashCode, final @NonNegative long revision, final SirixDeweyID deweyID) {
     assert nodeKey >= 0 : "nodeKey must be >= 0!";
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;

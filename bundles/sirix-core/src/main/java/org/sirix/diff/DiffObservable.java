@@ -21,7 +21,7 @@
 
 package org.sirix.diff;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 
@@ -42,8 +42,8 @@ interface DiffObservable {
    * @param oldNodeKey node key of current node in old revision
    * @param depth current {@link DiffDepth} instance
    */
-  void fireDiff(DiffType diff, @Nonnull long newNodeKey, @Nonnull long oldNodeKey,
-      @Nonnull DiffDepth depth);
+  void fireDiff(DiffType diff, @NonNull long newNodeKey, @NonNull long oldNodeKey,
+      @NonNull DiffDepth depth);
 
   /**
    * Diff computation done, thus inform listeners.

@@ -13,8 +13,8 @@ import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.page.interfaces.KeyValuePage;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.*;
 import java.util.*;
 
@@ -53,7 +53,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
    * @param indexType       the index type
    * @param pageReadOnlyTrx the page reading transaction
    */
-  public HashedKeyValuePage(@Nonnegative final long recordPageKey, final IndexType indexType,
+  public HashedKeyValuePage(@NonNegative final long recordPageKey, final IndexType indexType,
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
@@ -131,7 +131,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   }
 
   @Override
-  public void setRecord(K key, @Nonnull DataRecord value) {
+  public void setRecord(K key, @NonNull DataRecord value) {
     records.put(key, value);
   }
 
@@ -141,7 +141,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   }
 
   @Override
-  public void setPageReference(K key, @Nonnull PageReference reference) {
+  public void setPageReference(K key, @NonNull PageReference reference) {
   }
 
   @Override
@@ -150,8 +150,8 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   }
 
   @Override
-  public <C extends KeyValuePage<K, DataRecord>> C newInstance(long recordPageKey, @Nonnull IndexType indexType,
-      @Nonnull PageReadOnlyTrx pageReadOnlyTrx) {
+  public <C extends KeyValuePage<K, DataRecord>> C newInstance(long recordPageKey, @NonNull IndexType indexType,
+      @NonNull PageReadOnlyTrx pageReadOnlyTrx) {
     return (C) new HashedKeyValuePage<K>(recordPageKey, indexType, pageReadOnlyTrx);
   }
 
@@ -220,7 +220,7 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
   }
 
   @Override
-  public void commit(@Nonnull PageTrx pageTrx) {
+  public void commit(@NonNull PageTrx pageTrx) {
   }
 
   @Override

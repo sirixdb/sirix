@@ -17,8 +17,8 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -58,7 +58,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   private RBTreeWriter(final DatabaseType databaseType,
                        final PageTrx pageTrx,
                        final IndexType type,
-                       final @Nonnegative int index) {
+                       final @NonNegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
       final PageReference reference;
@@ -223,7 +223,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param nodeKey the nodeKey to remove from the value
    * @throws SirixIOException if an I/O error occured
    */
-  public boolean remove(final K key, final @Nonnegative long nodeKey) {
+  public boolean remove(final K key, final @NonNegative long nodeKey) {
     checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
     final Optional<V> searchedValue = rbTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
     boolean removed = false;

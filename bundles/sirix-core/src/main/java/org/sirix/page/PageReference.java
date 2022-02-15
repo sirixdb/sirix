@@ -26,7 +26,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import org.sirix.page.interfaces.Page;
 import org.sirix.page.interfaces.PageFragmentKey;
