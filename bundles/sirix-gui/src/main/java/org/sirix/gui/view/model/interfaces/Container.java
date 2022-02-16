@@ -26,7 +26,7 @@
  */
 package org.sirix.gui.view.model.interfaces;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import org.sirix.gui.view.sunburst.Pruning;
 
@@ -47,7 +47,7 @@ public interface Container<T> {
 	 *          node key to start from
 	 * @return instance
 	 */
-	T setOldStartKey(@Nonnegative long key);
+	T setOldStartKey(@NonNegative long key);
 
 	/**
 	 * Set start key in new revision.
@@ -56,7 +56,7 @@ public interface Container<T> {
 	 *          node key to start from
 	 * @return instance
 	 */
-	T setNewStartKey(@Nonnegative long key);
+	T setNewStartKey(@NonNegative long key);
 
 	/**
 	 * Determines if tree should be pruned or not.

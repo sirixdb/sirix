@@ -33,7 +33,7 @@ import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.Collections;
 import java.util.Objects;
 

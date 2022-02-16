@@ -10,7 +10,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -35,7 +35,7 @@ import com.google.common.collect.Maps;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-@Nonnull
+@NonNull
 public class HierarchyFileVisitor extends AbstractShredder
     implements AutoCloseable, FileVisitor<Path> {
 

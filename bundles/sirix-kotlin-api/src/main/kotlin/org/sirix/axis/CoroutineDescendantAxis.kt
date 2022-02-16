@@ -172,7 +172,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param currKey current node key
      * @return `false` if finished, `true` if not
      */
-    private fun hasNextNode(cursor: NodeCursor, @Nonnegative key: Long, @Nonnegative currKey: Long): Long {
+    private fun hasNextNode(cursor: NodeCursor, @NonNegative key: Long, @NonNegative currKey: Long): Long {
         cursor.moveTo(key)
         return if (cursor.leftSiblingKey == startKey) {
             done()

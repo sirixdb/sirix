@@ -78,7 +78,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
         get() = CoroutineName("CoroutineAxis") + Dispatchers.Default
 
     @Synchronized
-    override fun reset(@Nonnegative nodeKey: Long) {
+    override fun reset(@NonNegative nodeKey: Long) {
         super.reset(nodeKey)
         first = true
         finished = false

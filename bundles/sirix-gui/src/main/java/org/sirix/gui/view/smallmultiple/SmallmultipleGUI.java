@@ -33,8 +33,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
@@ -408,8 +408,8 @@ public class SmallmultipleGUI extends AbstractSunburstGUI implements
 		 * @param pRevision
 		 *          current revision
 		 */
-		ImageStore(final PImage pBuffer, @Nonnegative final long pRevision,
-				@Nonnegative final int pMaxDepth, @Nonnegative final int pOldMaxDepth) {
+		ImageStore(final PImage pBuffer, @NonNegative final long pRevision,
+				@NonNegative final int pMaxDepth, @NonNegative final int pOldMaxDepth) {
 			assert pBuffer != null;
 			assert pRevision >= 0;
 			assert pMaxDepth >= 0;
