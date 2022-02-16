@@ -22,7 +22,7 @@ import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.node.XmlDBStore;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;

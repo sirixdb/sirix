@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Objects;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.Databases;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -100,7 +100,7 @@ public final class ReadDB implements AutoCloseable {
    * @param nodekeyToStart the key of the node where the transaction initially has to move to.
    * @throws SirixException if anything went wrong while opening a file
    */
-  public ReadDB(final Path file, final @Nonnegative int revision, final long nodekeyToStart) {
+  public ReadDB(final Path file, final @NonNegative int revision, final long nodekeyToStart) {
     checkNotNull(file);
     checkArgument(revision >= -1, "revision must be >= -1!");
     checkArgument(nodekeyToStart >= 0, "nodekeyToStart must be >= 0!");

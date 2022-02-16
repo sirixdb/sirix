@@ -22,7 +22,7 @@ package org.sirix.fs;
 
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.NodeReadOnlyTrx;
 import com.google.common.base.Optional;
 
@@ -36,7 +36,7 @@ import com.google.common.base.Optional;
  *        {@link WriteTransaction}
  * 
  */
-@Nonnull
+@NonNull
 public interface Visitor<T extends NodeReadOnlyTrx> {
   /**
    * Process a directory.
