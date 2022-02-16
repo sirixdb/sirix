@@ -23,6 +23,7 @@ package org.sirix.axis
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import org.checkerframework.checker.index.qual.NonNegative
 import org.sirix.api.NodeCursor
 import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.api.NodeTrx
@@ -31,7 +32,6 @@ import org.sirix.settings.Fixed
 import org.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
 import java.util.*
-import javax.annotation.Nonnegative
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -172,7 +172,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
      * @param currKey current node key
      * @return `false` if finished, `true` if not
      */
-    private fun hasNextNode(cursor: NodeCursor, @NonNegative key: Long, @NonNegative currKey: Long): Long {
+    private fun hasNextNode(cursor: NodeCursor, key: @NonNegative Long, currKey: @NonNegative Long): Long {
         cursor.moveTo(key)
         return if (cursor.leftSiblingKey == startKey) {
             done()
