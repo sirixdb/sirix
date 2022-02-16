@@ -8,7 +8,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -23,7 +23,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-@Nonnull
+@NonNull
 public class FileHierarchyWalker {
 
   /**

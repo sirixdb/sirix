@@ -33,8 +33,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.view.model.interfaces.Container;
@@ -158,7 +158,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 
 	/** {@inheritDoc} */
 	@Override
-	public SunburstContainer setOldStartKey(@Nonnegative final long paramKey) {
+	public SunburstContainer setOldStartKey(@NonNegative final long paramKey) {
 		checkArgument(paramKey >= 0, "paramKey must be >= 0!");
 		mOldStartKey = paramKey;
 		return this;
@@ -166,7 +166,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 
 	/** {@inheritDoc} */
 	@Override
-	public SunburstContainer setNewStartKey(@Nonnegative final long paramKey) {
+	public SunburstContainer setNewStartKey(@NonNegative final long paramKey) {
 		checkArgument(paramKey >= 0, "paramKey must be >= 0!");
 		mNewStartKey = paramKey;
 		return this;
@@ -206,7 +206,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          the Revision to set
 	 * @return instance of this class
 	 */
-	public SunburstContainer setRevision(@Nonnegative final int paramRevision) {
+	public SunburstContainer setRevision(@NonNegative final int paramRevision) {
 		assert paramRevision > 0;
 		mRevision = paramRevision;
 		return this;
@@ -219,7 +219,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          the old revision to set
 	 * @return instance of this class
 	 */
-	public SunburstContainer setOldRevision(final @Nonnegative int paramRevision) {
+	public SunburstContainer setOldRevision(final @NonNegative int paramRevision) {
 		checkArgument(paramRevision >= 0, "paramRevision must be >= 0!");
 		mOldRevision = paramRevision;
 		return this;
@@ -241,7 +241,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          the modWeight to set
 	 * @return instance of this class
 	 */
-	public SunburstContainer setModWeight(@Nonnegative final float paramModWeight) {
+	public SunburstContainer setModWeight(@NonNegative final float paramModWeight) {
 		checkArgument(paramModWeight >= 0, "paramModWeight must be >= 0!");
 		mModWeight = paramModWeight;
 		return this;
@@ -258,8 +258,8 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          weighting of modifications
 	 * @return instance of this class
 	 */
-	public SunburstContainer setAll(@Nonnegative final int paramRevision,
-			@Nonnegative final int paramDepth, final float paramModificationWeight) {
+	public SunburstContainer setAll(@NonNegative final int paramRevision,
+			@NonNegative final int paramDepth, final float paramModificationWeight) {
 		setRevision(paramRevision);
 		setDepth(paramDepth);
 		setModWeight(paramModificationWeight);
@@ -273,7 +273,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          the depth to set
 	 * @return instance of this class
 	 */
-	public SunburstContainer setDepth(@Nonnegative final int paramDepth) {
+	public SunburstContainer setDepth(@NonNegative final int paramDepth) {
 		checkArgument(paramDepth >= 0, "paramDepth must be >= 0!");
 		mDepth = paramDepth;
 		return this;
@@ -290,7 +290,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 * 
 	 * @return pruning method
 	 */
-	public @Nonnull Pruning getPruning() {
+	public @NonNull Pruning getPruning() {
 		return mPruning;
 	}
 
@@ -329,7 +329,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 * @return instance of this class
 	 */
 	public SunburstContainer setHitTestIndex(
-			@Nonnegative final int paramHitTestIndex) {
+			@NonNegative final int paramHitTestIndex) {
 		assert paramHitTestIndex > -1;
 		mHitTestIndex = paramHitTestIndex;
 		return this;

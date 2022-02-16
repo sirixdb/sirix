@@ -47,7 +47,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.Semaphore;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import javax.xml.stream.events.Attribute;
 
 import org.gicentre.utils.move.ZoomPan;
@@ -365,7 +365,7 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 	 */
 	@SuppressWarnings("unchecked")
 	protected AbstractSunburstGUI(final PApplet pApplet,
-			@Nonnull final SunburstControl pControl, @Nonnull final ReadDB pDb) {
+			@NonNull final SunburstControl pControl, @NonNull final ReadDB pDb) {
 		mParent = checkNotNull(pApplet);
 		mControl = checkNotNull(pControl);
 		mDb = checkNotNull(pDb);

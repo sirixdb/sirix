@@ -29,7 +29,7 @@ package org.sirix.gui.view.sunburst;
 
 import java.util.Deque;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import org.sirix.api.NodeReadTrx;
 
@@ -44,21 +44,21 @@ public enum Moved {
 	/** Start of traversal or cursor moved to a right sibling of a node. */
 	STARTRIGHTSIBL {
 		@Override
-		public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem,
-				@Nonnull final Deque<Float> pAngleStack,
-				@Nonnull final Deque<Float> pExtensionStack,
-				@Nonnull final Deque<Integer> pParentStack,
-				@Nonnull final Deque<Integer> pDescendantsStack) {
+		public void processMove(final NodeReadTrx pRtx, @NonNull final Item pItem,
+				@NonNull final Deque<Float> pAngleStack,
+				@NonNull final Deque<Float> pExtensionStack,
+				@NonNull final Deque<Integer> pParentStack,
+				@NonNull final Deque<Integer> pDescendantsStack) {
 			// Do nothing.
 		}
 
 		@Override
 		public void processCompareMove(final NodeReadTrx pRtx,
-				@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-				@Nonnull final Deque<Float> pExtensionStack,
-				@Nonnull final Deque<Integer> pDescendants,
-				@Nonnull final Deque<Integer> pParentStack,
-				@Nonnull final Deque<Integer> pModificationStack) {
+				@NonNull final Item pItem, @NonNull final Deque<Float> pAngleStack,
+				@NonNull final Deque<Float> pExtensionStack,
+				@NonNull final Deque<Integer> pDescendants,
+				@NonNull final Deque<Integer> pParentStack,
+				@NonNull final Deque<Integer> pModificationStack) {
 			// Do nothing.
 		}
 	},
@@ -66,11 +66,11 @@ public enum Moved {
 	/** Next node is a child of the current node. */
 	CHILD {
 		@Override
-		public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem,
-				@Nonnull final Deque<Float> pAngleStack,
-				@Nonnull final Deque<Float> pExtensionStack,
-				@Nonnull final Deque<Integer> pParentStack,
-				@Nonnull final Deque<Integer> pDescendantsStack) {
+		public void processMove(final NodeReadTrx pRtx, @NonNull final Item pItem,
+				@NonNull final Deque<Float> pAngleStack,
+				@NonNull final Deque<Float> pExtensionStack,
+				@NonNull final Deque<Integer> pParentStack,
+				@NonNull final Deque<Integer> pDescendantsStack) {
 			assert !pAngleStack.isEmpty();
 			pItem.mAngle = pAngleStack.peek();
 			assert !pExtensionStack.isEmpty();
@@ -83,11 +83,11 @@ public enum Moved {
 
 		@Override
 		public void processCompareMove(final NodeReadTrx pRtx,
-				@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-				@Nonnull final Deque<Float> pExtensionStack,
-				@Nonnull final Deque<Integer> pDescendantsStack,
-				@Nonnull final Deque<Integer> pParentStack,
-				@Nonnull final Deque<Integer> pModificationStack) {
+				@NonNull final Item pItem, @NonNull final Deque<Float> pAngleStack,
+				@NonNull final Deque<Float> pExtensionStack,
+				@NonNull final Deque<Integer> pDescendantsStack,
+				@NonNull final Deque<Integer> pParentStack,
+				@NonNull final Deque<Integer> pModificationStack) {
 			assert !pAngleStack.isEmpty();
 			pItem.mAngle = pAngleStack.peek();
 			assert !pExtensionStack.isEmpty();
@@ -104,11 +104,11 @@ public enum Moved {
 	/** Next node is the rightsibling of the first anchestor node which has one. */
 	ANCHESTSIBL {
 		@Override
-		public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem,
-				@Nonnull final Deque<Float> pAngleStack,
-				@Nonnull final Deque<Float> pExtensionStack,
-				@Nonnull final Deque<Integer> pParentStack,
-				@Nonnull final Deque<Integer> pDescendantsStack) {
+		public void processMove(final NodeReadTrx pRtx, @NonNull final Item pItem,
+				@NonNull final Deque<Float> pAngleStack,
+				@NonNull final Deque<Float> pExtensionStack,
+				@NonNull final Deque<Integer> pParentStack,
+				@NonNull final Deque<Integer> pDescendantsStack) {
 			assert !pAngleStack.isEmpty();
 			pItem.mAngle = pAngleStack.pop();
 			assert !pExtensionStack.isEmpty();
@@ -127,11 +127,11 @@ public enum Moved {
 
 		@Override
 		public void processCompareMove(final NodeReadTrx pRtx,
-				@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-				@Nonnull final Deque<Float> pExtensionStack,
-				@Nonnull final Deque<Integer> pDescendantsStack,
-				@Nonnull final Deque<Integer> pParentStack,
-				@Nonnull final Deque<Integer> pModificationStack) {
+				@NonNull final Item pItem, @NonNull final Deque<Float> pAngleStack,
+				@NonNull final Deque<Float> pExtensionStack,
+				@NonNull final Deque<Integer> pDescendantsStack,
+				@NonNull final Deque<Integer> pParentStack,
+				@NonNull final Deque<Integer> pModificationStack) {
 			assert !pAngleStack.isEmpty();
 			pItem.mAngle = pAngleStack.pop();
 			assert !pExtensionStack.isEmpty();
@@ -170,10 +170,10 @@ public enum Moved {
 	 *          Deque for descendants
 	 */
 	public abstract void processMove(final NodeReadTrx pRtx,
-			@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-			@Nonnull final Deque<Float> pExtensionStack,
-			@Nonnull final Deque<Integer> pParentStack,
-			@Nonnull final Deque<Integer> pDescendantsStack);
+			@NonNull final Item pItem, @NonNull final Deque<Float> pAngleStack,
+			@NonNull final Deque<Float> pExtensionStack,
+			@NonNull final Deque<Integer> pParentStack,
+			@NonNull final Deque<Integer> pDescendantsStack);
 
 	/**
 	 * Process movement of sirix {@link NodeReadTrx}, while comparing revisions.
@@ -194,9 +194,9 @@ public enum Moved {
 	 *          Deque for modifications
 	 */
 	public abstract void processCompareMove(final NodeReadTrx pRtx,
-			@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-			@Nonnull final Deque<Float> pExtensionStack,
-			@Nonnull final Deque<Integer> pDescendantsStack,
-			@Nonnull final Deque<Integer> pParentStack,
-			@Nonnull final Deque<Integer> pModificationStack);
+			@NonNull final Item pItem, @NonNull final Deque<Float> pAngleStack,
+			@NonNull final Deque<Float> pExtensionStack,
+			@NonNull final Deque<Integer> pDescendantsStack,
+			@NonNull final Deque<Integer> pParentStack,
+			@NonNull final Deque<Integer> pModificationStack);
 }

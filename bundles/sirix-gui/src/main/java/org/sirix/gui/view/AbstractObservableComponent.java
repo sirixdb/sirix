@@ -30,8 +30,8 @@ package org.sirix.gui.view;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Provides methods to add and remove {@link PropertyChangeListener}s as well as
@@ -85,7 +85,7 @@ public abstract class AbstractObservableComponent {
 	 *          new value
 	 */
 	public final synchronized void firePropertyChange(final String pPropertyName,
-			@Nullable final Object pOldValue, @Nonnull final Object pNewValue) {
+			@Nullable final Object pOldValue, @NonNull final Object pNewValue) {
 		mPropertyChangeSupport.firePropertyChange(pPropertyName, pOldValue,
 				pNewValue);
 	}

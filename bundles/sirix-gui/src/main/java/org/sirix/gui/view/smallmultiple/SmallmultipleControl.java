@@ -35,7 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import javax.swing.JOptionPane;
 
 import org.sirix.gui.ReadDB;
@@ -99,8 +99,8 @@ public class SmallmultipleControl extends AbstractSunburstControl {
 	 *          {@link ReadDB} reference
 	 */
 	private SmallmultipleControl(final Embedded pParent,
-			@Nonnull final Model<SunburstContainer, SunburstItem> pModel,
-			@Nonnull final ReadDB pDB) {
+			@NonNull final Model<SunburstContainer, SunburstItem> pModel,
+			@NonNull final ReadDB pDB) {
 		super(pParent, pModel, pDB);
 		mSmallMultiplesGUI = (SmallmultipleGUI) mGUI;
 	}
