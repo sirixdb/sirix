@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.awt.Dimension;
 import java.awt.event.MouseEvent;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import javax.swing.JComponent;
 
 import org.sirix.gui.GUIProp;

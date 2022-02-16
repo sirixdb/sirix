@@ -35,7 +35,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
@@ -316,8 +316,8 @@ public final class DiffSunburstAxis extends AbstractSunburstAxis {
 	 *          depth of next diff
 	 * @return {@code true} if axis has more nodes, {@code false} otherwise
 	 */
-	private boolean processFirstChild(@Nonnegative final int pDepth,
-			@Nonnegative final int pNextDepth) {
+	private boolean processFirstChild(@NonNegative final int pDepth,
+			@NonNegative final int pNextDepth) {
 		assert pDepth >= 0;
 		assert pNextDepth >= 0;
 		processLastItem(pNextDepth);
@@ -377,7 +377,7 @@ public final class DiffSunburstAxis extends AbstractSunburstAxis {
 	 *          depth of next diff
 	 * @return {@code true} if axis has more nodes, {@code false} otherwise
 	 */
-	private boolean processRightSibling(@Nonnegative final int pNextDepth) {
+	private boolean processRightSibling(@NonNegative final int pNextDepth) {
 		processLastItem(pNextDepth);
 
 		mAngle += mExtension;
@@ -396,8 +396,8 @@ public final class DiffSunburstAxis extends AbstractSunburstAxis {
 	 *          next depth
 	 * @return {@code true} if axis has more nodes, {@code false} otherwise
 	 */
-	private boolean processNextFollowing(@Nonnegative final int pDepth,
-			@Nonnegative final int pNextDepth) {
+	private boolean processNextFollowing(@NonNegative final int pDepth,
+			@NonNegative final int pNextDepth) {
 		assert pDepth >= 0;
 		assert pNextDepth >= 0;
 
@@ -416,8 +416,8 @@ public final class DiffSunburstAxis extends AbstractSunburstAxis {
 	 * @param pNextDepth
 	 *          the next depth
 	 */
-	private void processStacks(@Nonnegative final int pDepth,
-			@Nonnegative final int pNextDepth) {
+	private void processStacks(@NonNegative final int pDepth,
+			@NonNegative final int pNextDepth) {
 		assert pDepth >= 0;
 		assert pNextDepth >= 0;
 		int depth = pDepth;
@@ -446,7 +446,7 @@ public final class DiffSunburstAxis extends AbstractSunburstAxis {
 	 * @param pNextDepth
 	 *          depth of next diff
 	 */
-	private void processLastItem(@Nonnegative final int pNextDepth) {
+	private void processLastItem(@NonNegative final int pNextDepth) {
 		assert pNextDepth >= 0;
 		processMove(pNextDepth);
 		calculateDepth();

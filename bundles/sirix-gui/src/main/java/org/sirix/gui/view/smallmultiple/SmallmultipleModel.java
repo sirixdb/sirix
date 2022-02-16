@@ -38,8 +38,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.model.AbstractModel;
@@ -104,7 +104,7 @@ public class SmallmultipleModel extends
 	 * @param pControl
 	 *          {@link SunburstControl} implementation
 	 */
-	public SmallmultipleModel(final PApplet pApplet, @Nonnull final ReadDB pDb) {
+	public SmallmultipleModel(final PApplet pApplet, @NonNull final ReadDB pDb) {
 		super(pApplet, pDb);
 		mModel = new SunburstCompareModel(pApplet, pDb);
 		mModel.addPropertyChangeListener(this);
@@ -117,7 +117,7 @@ public class SmallmultipleModel extends
 	 * @param pIndex
 	 *          index which points in the datastructure
 	 */
-	public void setItems(@Nonnegative final int pIndex) {
+	public void setItems(@NonNegative final int pIndex) {
 		checkArgument(pIndex >= 0 && pIndex < mCompItems.size());
 		final SunburstListContainer container = mCompItems.get(pIndex);
 		firePropertyChange("oldMaxDepth", null, container.mOldMaxDepth);

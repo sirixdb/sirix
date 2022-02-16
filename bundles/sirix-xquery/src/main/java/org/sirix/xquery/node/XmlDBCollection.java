@@ -23,8 +23,8 @@ import org.sirix.service.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -220,7 +220,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
   }
 
-  private XmlDBNode createXmlDBNode(int revision, @Nonnull String resourceName) {
+  private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
     final XmlResourceManager manager = database.openResourceManager(resourceName);
     final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
     final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);

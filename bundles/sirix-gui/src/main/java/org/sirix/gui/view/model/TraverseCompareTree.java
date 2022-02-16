@@ -48,8 +48,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
@@ -462,8 +462,8 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 
 	@Override
 	public void diffListener(final DiffType diffType,
-			@Nonnull final long newNodeKey, @Nonnull final long oldNodeKey,
-			@Nonnull final DiffDepth depth) {
+			@NonNull final long newNodeKey, @NonNull final long oldNodeKey,
+			@NonNull final DiffDepth depth) {
 		LOGWRAPPER.debug("kind of diff: " + diffType);
 
 		if (mPrune != Pruning.DIFF_WITHOUT_SAMEHASHES
@@ -576,7 +576,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 		 *          size of the database map
 		 */
 		public PopulateDatabase(final DiffDatabase pDatabase,
-				@Nonnull final Map<Integer, DiffTuple> pValue, final int pOldSize) {
+				@NonNull final Map<Integer, DiffTuple> pValue, final int pOldSize) {
 			checkNotNull(pDatabase);
 			checkNotNull(pValue);
 			checkArgument(pOldSize >= 0, "pOldSize must be >= 0!");
@@ -626,7 +626,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 
 	@Override
 	public float createSunburstItem(final Item pItem,
-			@Nonnegative final int pDepth, @Nonnegative final int pIndex) {
+			@NonNegative final int pDepth, @NonNegative final int pIndex) {
 		checkNotNull(pItem);
 		checkArgument(pDepth >= 0, "pDepth must be positive!");
 		checkArgument(pIndex >= 0, "pIndex must be >= 0!");
@@ -816,7 +816,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	 *          {@link SunburstItem.Builder} reference
 	 */
 	private void updated(final DiffType pDiff,
-			@Nonnull final SunburstItem.Builder pBuilder) {
+			@NonNull final SunburstItem.Builder pBuilder) {
 		assert pBuilder != null;
 		if (pDiff == DiffType.UPDATED) {
 			if (mOldRtx.getKind() == Kind.TEXT) {

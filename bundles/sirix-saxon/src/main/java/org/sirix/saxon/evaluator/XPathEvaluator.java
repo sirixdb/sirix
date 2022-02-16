@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.concurrent.Callable;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;
@@ -100,7 +100,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
 		 *          the revision to open
 		 * @return this builder instance
 		 */
-		public Builder setRevision(final @Nonnegative int revision) {
+		public Builder setRevision(final @NonNegative int revision) {
 			checkArgument(revision >= 0, "pRevision must be >= 0!");
 			mRevision = revision;
 			return this;

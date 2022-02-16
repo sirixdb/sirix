@@ -16,8 +16,8 @@ import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.json.shredder.JsonShredder;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -358,7 +358,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBStore removeDatabase(final @Nonnull Database<JsonResourceManager> database) {
+  public JsonDBStore removeDatabase(final @NonNull Database<JsonResourceManager> database) {
     databases.remove(database);
     collections.remove(database);
     return this;

@@ -33,7 +33,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Collections;
 import java.util.Iterator;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
@@ -108,7 +108,7 @@ public final class DocumentWrapper implements DocumentInfo {
 	 *           if sirix encounters an error
 	 */
 	public DocumentWrapper(final Session session,
-			@Nonnegative final int revision, final Configuration config)
+			@NonNegative final int revision, final Configuration config)
 			throws SirixException {
 		checkArgument(revision >= 0, "revision must be >= 0!");
 		mSession = checkNotNull(session);
