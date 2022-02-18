@@ -33,7 +33,7 @@ import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.util.*;
 
 /**
@@ -787,7 +787,7 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     // Get all names on the path up to level.
-    private static Deque<QNm> getNames(final @Nonnegative int matchLevel, final @Nonnegative int level,
+    private static Deque<QNm> getNames(final @NonNegative int matchLevel, final @NonNegative int level,
         final PathSummaryReader reader) {
       // Match at a level below this level which is not a direct child.
       final Deque<QNm> names = new ArrayDeque<>(matchLevel - level);

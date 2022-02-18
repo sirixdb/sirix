@@ -24,7 +24,7 @@ package org.sirix.diff;
 import com.google.common.base.MoreObjects;
 import org.sirix.diff.DiffFactory.DiffType;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.Serializable;
 import java.util.Map;
 
@@ -101,7 +101,7 @@ public final class DiffTuple implements Serializable {
    *
    * @param index index to set
    */
-  public DiffTuple setIndex(final @Nonnegative int index) {
+  public DiffTuple setIndex(final @NonNegative int index) {
     checkArgument(index >= 0);
     this.index = index;
     return this;

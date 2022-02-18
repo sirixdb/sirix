@@ -30,8 +30,8 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -78,7 +78,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long rightSibling, final long leftSibling,
-      final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
+      final @NonNegative long childCount, final @NonNegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     assert nodeDelegate != null : "del must not be null!";
@@ -103,7 +103,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild, final long rightSibling,
-      final long leftSibling, final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
+      final long leftSibling, final @NonNegative long childCount, final @NonNegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     assert nodeDelegate != null : "del must not be null!";
@@ -276,7 +276,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public void setDescendantCount(final @Nonnegative long descendantCount) {
+  public void setDescendantCount(final @NonNegative long descendantCount) {
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     this.descendantCount = descendantCount;
   }

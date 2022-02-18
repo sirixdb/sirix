@@ -36,8 +36,8 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -176,7 +176,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
     mNameDel.setPathNodeKey(pathNodeKey);
   }
 

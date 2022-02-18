@@ -15,7 +15,7 @@ import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.InsertPosition;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

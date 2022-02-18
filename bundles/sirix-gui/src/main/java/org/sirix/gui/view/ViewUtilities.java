@@ -33,8 +33,8 @@ import java.util.Calendar;
 import java.util.Iterator;
 import java.util.Map;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
@@ -298,7 +298,7 @@ public final class ViewUtilities {
 	 *           if the progress peter is invalid
 	 */
 	public static void processGlassPaneEvents(final GlassPaneListener pListener,
-			@Nonnull final ProcessingView pView, @Nonnegative final int progress) {
+			@NonNull final ProcessingView pView, @NonNegative final int progress) {
 		assert pView instanceof PApplet;
 		if (pView == null || pListener == null) {
 			throw new NullPointerException("Reference parameters may not be null!");

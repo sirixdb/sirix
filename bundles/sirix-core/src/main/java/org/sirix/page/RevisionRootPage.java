@@ -33,8 +33,8 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -199,7 +199,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param committedRevisionRootPage page to clone
    * @param representRev              revision number to use
    */
-  public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
+  public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @NonNegative int representRev) {
     final Page pageDelegate = committedRevisionRootPage.delegate();
     delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
     revision = representRev;
@@ -317,7 +317,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param maxNodeKeyInDocumentIndex new maximum node key
    */
-  public void setMaxNodeKeyInDocumentIndex(final @Nonnegative long maxNodeKeyInDocumentIndex) {
+  public void setMaxNodeKeyInDocumentIndex(final @NonNegative long maxNodeKeyInDocumentIndex) {
     this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
   }
 
@@ -342,7 +342,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param maxNodeKeyInChangedNodesIndex new maximum node key
    */
-  public void setMaxNodeKeyInInChangedNodesIndex(final @Nonnegative long maxNodeKeyInChangedNodesIndex) {
+  public void setMaxNodeKeyInInChangedNodesIndex(final @NonNegative long maxNodeKeyInChangedNodesIndex) {
     this.maxNodeKeyInChangedNodesIndex = maxNodeKeyInChangedNodesIndex;
   }
 
@@ -367,7 +367,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param maxNodeKeyInRecordToRevisionsIndex new maximum node key
    */
-  public void setMaxNodeKeyInRecordToRevisionsIndex(final @Nonnegative long maxNodeKeyInRecordToRevisionsIndex) {
+  public void setMaxNodeKeyInRecordToRevisionsIndex(final @NonNegative long maxNodeKeyInRecordToRevisionsIndex) {
     this.maxNodeKeyInRecordToRevisionsIndex = maxNodeKeyInRecordToRevisionsIndex;
   }
 
@@ -377,7 +377,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * {@inheritDoc}
    */
   @Override
-  public void commit(@Nonnull final PageTrx pageWriteTrx) {
+  public void commit(@NonNull final PageTrx pageWriteTrx) {
     if (revision == pageWriteTrx.getUberPage().getRevisionNumber()) {
       super.commit(pageWriteTrx);
     }

@@ -1,6 +1,6 @@
 package org.sirix.xquery.node;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Scope;

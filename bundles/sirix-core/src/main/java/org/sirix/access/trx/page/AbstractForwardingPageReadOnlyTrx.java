@@ -12,8 +12,8 @@ import org.sirix.node.NodeKind;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.Optional;
 
 /**
@@ -46,8 +46,8 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public PageReference getReferenceToLeafOfSubtree(@Nonnull PageReference startReference, @Nonnegative long pageKey,
-      int indexNumber, @Nonnull IndexType indexType) {
+  public PageReference getReferenceToLeafOfSubtree(@NonNull PageReference startReference, @NonNegative long pageKey,
+      int indexNumber, @NonNull IndexType indexType) {
     return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType);
   }
 
@@ -57,8 +57,8 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public <K, V> Optional<V> getRecord(@Nonnull K key,
-      @Nonnull IndexType indexType, int index) {
+  public <K, V> Optional<V> getRecord(@NonNull K key,
+      @NonNull IndexType indexType, int index) {
     return delegate().getRecord(key, indexType, index);
   }
 
@@ -78,27 +78,27 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
+  public CASPage getCASPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getCASPage(revisionRoot);
   }
 
   @Override
-  public NamePage getNamePage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
+  public NamePage getNamePage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getNamePage(revisionRoot);
   }
 
   @Override
-  public PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
+  public PathSummaryPage getPathSummaryPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getPathSummaryPage(revisionRoot);
   }
 
   @Override
-  public PathPage getPathPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
+  public PathPage getPathPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getPathPage(revisionRoot);
   }
 
   @Override
-  public long pageKey(@Nonnegative long recordKey, @Nonnull IndexType indexType) {
+  public long pageKey(@NonNegative long recordKey, @NonNull IndexType indexType) {
     return delegate().pageKey(recordKey, indexType);
   }
 
@@ -108,17 +108,17 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public String getName(int nameKey, @Nonnull NodeKind kind) {
+  public String getName(int nameKey, @NonNull NodeKind kind) {
     return delegate().getName(nameKey, kind);
   }
 
   @Override
-  public int getNameCount(int nameKey, @Nonnull NodeKind kind) {
+  public int getNameCount(int nameKey, @NonNull NodeKind kind) {
     return delegate().getNameCount(nameKey, kind);
   }
 
   @Override
-  public byte[] getRawName(int nameKey, @Nonnull NodeKind kind) {
+  public byte[] getRawName(int nameKey, @NonNull NodeKind kind) {
     return delegate().getRawName(nameKey, kind);
   }
 
@@ -128,7 +128,7 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public Optional<Page> getRecordPage(@Nonnull IndexLogKey indexLogKey) {
+  public Optional<Page> getRecordPage(@NonNull IndexLogKey indexLogKey) {
     return delegate().getRecordPage(indexLogKey);
   }
 

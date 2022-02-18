@@ -23,7 +23,7 @@ package org.sirix.axis;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.settings.Fixed;
 
@@ -119,7 +119,7 @@ public final class DescendantAxis extends AbstractAxis {
    * @param currKey current node key
    * @return {@code false} if finished, {@code true} if not
    */
-  private long hasNextNode(@Nonnegative final long key, final @Nonnegative long currKey) {
+  private long hasNextNode(@NonNegative final long key, final @NonNegative long currKey) {
     final NodeCursor cursor = getCursor();
     cursor.moveTo(key);
     if (cursor.getLeftSiblingKey() == getStartKey()) {

@@ -21,7 +21,7 @@
 
 package org.sirix.cache;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;

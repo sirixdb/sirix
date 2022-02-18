@@ -18,9 +18,9 @@ import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -71,9 +71,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param resourceManager     The resource manager for the current transaction
    * @param itemList            Read-transaction-exclusive item list.
    */
-  protected AbstractNodeReadOnlyTrx(final @Nonnegative long trxId,
-                                    final @Nonnull PageReadOnlyTrx pageReadTransaction,
-                                    final @Nonnull N documentNode,
+  protected AbstractNodeReadOnlyTrx(final @NonNegative long trxId,
+                                    final @NonNull PageReadOnlyTrx pageReadTransaction,
+                                    final @NonNull N documentNode,
                                     final InternalResourceManager<T, W> resourceManager,
                                     final ItemList<AtomicValue> itemList) {
     checkArgument(trxId >= 0);
@@ -354,7 +354,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public boolean hasNode(final @Nonnegative long key) {
+  public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
     final long nodeKey = currentNode.getNodeKey();
     final boolean retVal = !moveTo(key).equals(Move.notMoved());

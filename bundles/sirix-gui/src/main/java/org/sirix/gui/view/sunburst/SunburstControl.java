@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.awt.event.MouseEvent;
 import java.util.List;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.xml.stream.FactoryConfigurationError;
@@ -406,7 +406,7 @@ public final class SunburstControl extends AbstractSunburstControl {
 	 *          index of the new root item
 	 */
 	private void refreshed(final SunburstContainer pContainer,
-			@Nonnegative final int pIndex) {
+			@NonNegative final int pIndex) {
 		assert pContainer != null;
 		assert pIndex >= 0;
 		if (mRefresh || pContainer.getPruning() == Pruning.ITEMSIZE
@@ -507,7 +507,7 @@ public final class SunburstControl extends AbstractSunburstControl {
 	 *           if the XML fragment isn't well formed
 	 */
 	@Override
-	public void commit(@Nonnegative final int pValue) throws XMLStreamException {
+	public void commit(@NonNegative final int pValue) throws XMLStreamException {
 		try {
 			assert mModel instanceof SunburstModel;
 			mSunburstGUI.mCtrl.setVisible(false);

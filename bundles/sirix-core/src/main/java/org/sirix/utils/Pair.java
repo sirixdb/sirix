@@ -21,7 +21,7 @@
 package org.sirix.utils;
 
 import java.util.Objects;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * A Pair of objects.

@@ -8,7 +8,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**

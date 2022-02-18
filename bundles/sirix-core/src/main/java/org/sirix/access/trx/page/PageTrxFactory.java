@@ -47,7 +47,7 @@ import org.sirix.io.Writer;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import javax.inject.Inject;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -83,9 +83,9 @@ public final class PageTrxFactory {
    */
   public PageTrx createPageTrx(
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
-      final UberPage uberPage, final Writer writer, final @Nonnegative long trxId,
-      final @Nonnegative int representRevision, final @Nonnegative int lastStoredRevision,
-      final @Nonnegative int lastCommitedRevision, final boolean isBoundToNodeTrx) {
+      final UberPage uberPage, final Writer writer, final @NonNegative long trxId,
+      final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
+      final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx) {
     final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
     final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
 

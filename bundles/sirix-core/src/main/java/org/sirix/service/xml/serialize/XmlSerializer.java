@@ -39,8 +39,8 @@ import java.nio.file.Paths;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -118,8 +118,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XmlSerializer(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final XmlSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
+  private XmlSerializer(final XmlResourceManager resourceMgr, final @NonNegative long nodeKey,
+      final XmlSerializerBuilder builder, final boolean initialIndent, final @NonNegative int revision,
       final int... revsions) {
     super(resourceMgr, builder.maxLevel == -1
         ? null
@@ -338,7 +338,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
-  protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? resMgr.getMostRecentRevisionNumber()
@@ -390,7 +390,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
-  protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? resMgr.getMostRecentRevisionNumber()
@@ -541,7 +541,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XmlSerializerBuilder newBuilder(final XmlResourceManager resMgr, final @Nonnegative long nodeKey,
+  public static XmlSerializerBuilder newBuilder(final XmlResourceManager resMgr, final @NonNegative long nodeKey,
       final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
     return new XmlSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
@@ -633,7 +633,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
+    public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @NonNegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       maxLevel = -1;

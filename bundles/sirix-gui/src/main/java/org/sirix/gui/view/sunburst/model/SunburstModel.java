@@ -44,8 +44,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import javax.annotation.Syntax;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
@@ -114,7 +114,7 @@ public final class SunburstModel extends
 	 * @param pDb
 	 *          {@link ReadDB} reference
 	 */
-	public SunburstModel(final PApplet pApplet, @Nonnull final ReadDB pDb) {
+	public SunburstModel(final PApplet pApplet, @NonNull final ReadDB pDb) {
 		super(pApplet, pDb);
 	}
 
@@ -127,7 +127,7 @@ public final class SunburstModel extends
 
 	@Override
 	public void traverseTree(
-			@Nonnull final Container<SunburstContainer> pContainer) {
+			@NonNull final Container<SunburstContainer> pContainer) {
 		final SunburstContainer container = (SunburstContainer) checkNotNull(pContainer);
 		checkArgument(container.getNewStartKey() >= 0);
 		checkArgument(container.getOldStartKey() >= 0);
@@ -199,10 +199,10 @@ public final class SunburstModel extends
 		 * @param pGUI
 		 *          GUI which extends the {@link SunburstGUI}
 		 */
-		private TraverseTree(@Nonnegative final long pKey,
-				@Nonnull final Pruning pPruning,
-				@Nonnull final AbstractSunburstGUI pGUI,
-				@Nonnull final SunburstModel pModel) throws SirixException {
+		private TraverseTree(@NonNegative final long pKey,
+				@NonNull final Pruning pPruning,
+				@NonNull final AbstractSunburstGUI pGUI,
+				@NonNull final SunburstModel pModel) throws SirixException {
 			assert pKey >= 0;
 			assert pModel != null;
 			assert pGUI != null;
@@ -267,7 +267,7 @@ public final class SunburstModel extends
 
 		@Override
 		public float createSunburstItem(final Item pItem,
-				@Nonnegative final int pDepth, @Nonnegative final int pIndex) {
+				@NonNegative final int pDepth, @NonNegative final int pIndex) {
 			checkArgument(pDepth >= 0, "must be positive: %s", pDepth);
 			checkArgument(pIndex >= 0, "must be >= 0: %s", pIndex);
 

@@ -1,7 +1,7 @@
 package org.sirix.node.interfaces.immutable;
 
 import java.math.BigInteger;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;

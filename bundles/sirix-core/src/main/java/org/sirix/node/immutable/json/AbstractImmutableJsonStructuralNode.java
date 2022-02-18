@@ -6,7 +6,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 public abstract class AbstractImmutableJsonStructuralNode implements ImmutableStructNode, ImmutableJsonNode {

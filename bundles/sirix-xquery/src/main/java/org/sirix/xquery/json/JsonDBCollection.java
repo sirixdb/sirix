@@ -21,7 +21,7 @@ import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;

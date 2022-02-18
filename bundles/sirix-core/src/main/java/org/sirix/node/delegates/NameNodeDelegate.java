@@ -33,8 +33,8 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -73,7 +73,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    * @param pathNodeKey path node key associated with node
    */
   public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey, final int localNameKey,
-      final @Nonnegative long pathNodeKey) {
+      final @NonNegative long pathNodeKey) {
     assert delegate != null : "delegate must not be null!";
     mDelegate = delegate;
     mPrefixKey = prefixKey;
@@ -150,7 +150,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    * @param pathNodeKey the path class record to set
    */
   @Override
-  public void setPathNodeKey(@Nonnegative final long pathNodeKey) {
+  public void setPathNodeKey(@NonNegative final long pathNodeKey) {
     assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
     mPathNodeKey = pathNodeKey;
   }

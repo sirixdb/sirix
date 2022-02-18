@@ -29,7 +29,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.PageFragmentKey;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -50,14 +50,14 @@ public enum VersioningType {
   FULL {
     @Override
     public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
-        final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
       return pages.get(0);
     }
 
     @Override
     public <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(final List<T> pages,
-        final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.get(0);
@@ -75,7 +75,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(@Nonnegative int previousRevision, @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(@NonNegative int previousRevision, @NonNegative int revsToRestore) {
       return new int[] { previousRevision };
     }
   },
@@ -87,7 +87,7 @@ public enum VersioningType {
   DIFFERENTIAL {
     @Override
     public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
-        final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
@@ -130,7 +130,7 @@ public enum VersioningType {
 
     @Override
     public <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(final List<T> pages,
-        final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
@@ -201,7 +201,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(@Nonnegative int previousRevision, @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(@NonNegative int previousRevision, @NonNegative int revsToRestore) {
       final int revisionsToRestore = previousRevision % revsToRestore;
       final int lastFullDump = previousRevision - revisionsToRestore;
       if (lastFullDump == previousRevision) {
@@ -219,7 +219,7 @@ public enum VersioningType {
   INCREMENTAL {
     @Override
     public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
-        final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
@@ -330,7 +330,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(final @Nonnegative int previousRevision, final @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore) {
       final List<Integer> retVal = new ArrayList<>(revsToRestore);
       for (int i = previousRevision, until = previousRevision - revsToRestore; i > until && i >= 0; i--) {
         retVal.add(i);
@@ -356,7 +356,7 @@ public enum VersioningType {
   SLIDING_SNAPSHOT {
     @Override
     public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
-        final @Nonnegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
@@ -477,7 +477,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(final @Nonnegative int previousRevision, final @Nonnegative int revsToRestore) {
+    public int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore) {
       final List<Integer> retVal = new ArrayList<>(revsToRestore);
       for (int i = previousRevision, until = previousRevision - revsToRestore; i > until && i >= 0; i--) {
         retVal.add(i);
@@ -506,7 +506,7 @@ public enum VersioningType {
    * @return the complete {@link KeyValuePage}
    */
   public abstract <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
-      final @Nonnegative int revsToRestore, final PageReadOnlyTrx pageReadTrx);
+      final @NonNegative int revsToRestore, final PageReadOnlyTrx pageReadTrx);
 
   /**
    * Method to reconstruct a complete {@link KeyValuePage} for reading as well as a
@@ -518,7 +518,7 @@ public enum VersioningType {
    * writing
    */
   public abstract <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
-      final List<T> pages, final @Nonnegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
+      final List<T> pages, final @NonNegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
       final PageReference reference, final TransactionIntentLog log);
 
   /**
@@ -528,5 +528,5 @@ public enum VersioningType {
    * @param revsToRestore    number of revisions to restore
    * @return revision root page numbers needed to restore a {@link KeyValuePage}
    */
-  public abstract int[] getRevisionRoots(final @Nonnegative int previousRevision, final @Nonnegative int revsToRestore);
+  public abstract int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore);
 }
