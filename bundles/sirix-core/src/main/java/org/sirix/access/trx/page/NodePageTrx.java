@@ -54,9 +54,9 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -183,7 +183,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K, V> V prepareRecordForModification(@Nonnull final K recordKey, @Nonnull final IndexType indexType,
+  public <K, V> V prepareRecordForModification(@NonNull final K recordKey, @NonNull final IndexType indexType,
       final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);
@@ -213,8 +213,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K, V> V createRecord(@Nonnull final K recordKey, @Nonnull final V record, @Nonnull final IndexType indexType,
-      @Nonnegative final int index) {
+  public <K, V> V createRecord(@NonNull final K recordKey, @NonNull final V record, @NonNull final IndexType indexType,
+      @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
     if (recordKey instanceof Long) {
@@ -258,7 +258,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K> void removeRecord(final K recordKey, @Nonnull final IndexType indexType, final int index) {
+  public <K> void removeRecord(final K recordKey, @NonNull final IndexType indexType, final int index) {
     pageRtx.assertNotClosed();
     checkNotNull(recordKey);
 
@@ -285,8 +285,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K, V> Optional<V> getRecord(@Nonnull final K recordKey, @Nonnull final IndexType indexType,
-      @Nonnegative final int index) {
+  public <K, V> Optional<V> getRecord(@NonNull final K recordKey, @NonNull final IndexType indexType,
+      @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
     if (recordKey instanceof Long nodeKey) {
@@ -313,7 +313,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public String getName(final int nameKey, @Nonnull final NodeKind nodeKind) {
+  public String getName(final int nameKey, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
     final NamePage currentNamePage = getNamePage(newRevisionRootPage);
     return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, pageRtx) == null) ? pageRtx.getName(
@@ -322,7 +322,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public int createNameKey(final @Nullable String name, @Nonnull final NodeKind nodeKind) {
+  public int createNameKey(final @Nullable String name, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
     checkNotNull(nodeKind);
     final String string = (name == null ? "" : name);
@@ -464,7 +464,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public DeweyIDPage getDeweyIDPage(@Nonnull RevisionRootPage revisionRoot) {
+  public DeweyIDPage getDeweyIDPage(@NonNull RevisionRootPage revisionRoot) {
     // TODO
     return null;
   }
@@ -478,7 +478,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  private PageContainer prepareRecordPage(final @Nonnegative long recordPageKey, final int indexNumber,
+  private PageContainer prepareRecordPage(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     assert recordPageKey >= 0;
     assert indexType != null;
@@ -562,7 +562,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public PageTrx appendLogRecord(@Nonnull final PageReference reference, @Nonnull final PageContainer pageContainer) {
+  public PageTrx appendLogRecord(@NonNull final PageReference reference, @NonNull final PageContainer pageContainer) {
     checkNotNull(pageContainer);
     log.put(reference, pageContainer);
     return this;

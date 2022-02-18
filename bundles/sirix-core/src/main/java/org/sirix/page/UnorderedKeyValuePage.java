@@ -36,9 +36,9 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.*;
 import java.util.*;
 import java.util.Map.Entry;
@@ -139,7 +139,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
    * @param indexType       the index type
    * @param pageReadOnlyTrx the page reading transaction
    */
-  public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final IndexType indexType,
+  public UnorderedKeyValuePage(final @NonNegative long recordPageKey, final IndexType indexType,
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
@@ -281,7 +281,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   @Override
-  public void setRecord(final Long key, @Nonnull final DataRecord value) {
+  public void setRecord(final Long key, @NonNull final DataRecord value) {
     assert value != null : "record must not be null!";
     addedReferences = false;
     records.put(key, value);
@@ -399,7 +399,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   @Override
-  public void commit(@Nonnull PageTrx pageWriteTrx) {
+  public void commit(@NonNull PageTrx pageWriteTrx) {
     if (!addedReferences) {
       try {
         addReferences();
@@ -504,7 +504,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   @SuppressWarnings("unchecked")
   @Override
   public <C extends KeyValuePage<Long, DataRecord>> C newInstance(final long recordPageKey,
-      @Nonnull final IndexType indexType, @Nonnull final PageReadOnlyTrx pageReadTrx) {
+      @NonNull final IndexType indexType, @NonNull final PageReadOnlyTrx pageReadTrx) {
     return (C) new UnorderedKeyValuePage(recordPageKey, indexType, pageReadTrx);
   }
 
@@ -519,7 +519,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   @Override
-  public void setPageReference(final Long key, @Nonnull final PageReference reference) {
+  public void setPageReference(final Long key, @NonNull final PageReference reference) {
     assert key != null;
     references.put(key, reference);
   }

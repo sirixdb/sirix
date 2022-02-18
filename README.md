@@ -98,7 +98,7 @@ Some of the most important core principles and design goals are:
   <dt>Data integrity</dt>
   <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future, we aim to partition and replicate databases in the future.</dd>
   <dt>Copy-on-write semantics</dt>
-  <dd>Similarly to the file systems Btrfs and ZFS, SirixDB uses CoW semantics, meaning that SirixDB never overwrites data. Instead, database-page fragments are copied/written to a new location.</dd>
+  <dd>Similarly to the file systems Btrfs and ZFS, SirixDB uses CoW semantics, meaning that SirixDB never overwrites data. Instead, database-page fragments are copied/written to a new location. SirixDB does not simply copy whole pages. Instead, it only copies changed records plus records, which fall out of a sliding window.</dd>
   <dt>Per revision and page versioning</dt>
   <dd>SirixDB does not only version on a per revision, but also on a per page-base. Thus, whenever we change a potentially small fraction
 of records in a data-page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning-type we specify is used by SirixDB to version data-pages.</dd>

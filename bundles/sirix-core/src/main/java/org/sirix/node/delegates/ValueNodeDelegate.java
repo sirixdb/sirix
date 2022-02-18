@@ -23,7 +23,7 @@ package org.sirix.node.delegates;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.zip.Deflater;
-import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;

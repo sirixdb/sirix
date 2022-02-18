@@ -22,7 +22,7 @@ import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.Collections;
@@ -102,7 +102,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node, final long pathNodeKey) {
+  public void notifyChange(final ChangeType type, @NonNull final ImmutableNode node, final long pathNodeKey) {
     for (final ChangeListener listener : listeners) {
       listener.listen(type, node, pathNodeKey);
     }

@@ -32,8 +32,8 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.PageFragmentKey;
 import org.sirix.settings.Constants;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -85,7 +85,7 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@Nonnegative int referenceCount,
+    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
         DataInput in) {
       assert in != null;
 
@@ -207,7 +207,7 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@Nonnegative int referenceCount,
+    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
         DataInput in) {
       assert in != null;
 
@@ -337,7 +337,7 @@ public enum SerializationType {
     out.writeLong(pageReference.getKey());
   }
 
-  public static void serializeBitSet(DataOutput out, @Nonnull final BitSet bitmap) throws IOException {
+  public static void serializeBitSet(DataOutput out, @NonNull final BitSet bitmap) throws IOException {
     final var bytes = bitmap.toByteArray();
     final int len = bytes.length;
     out.writeShort(len);
@@ -379,7 +379,7 @@ public enum SerializationType {
    * @param in             the input
    * @return the in-memory instances
    */
-  public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@Nonnegative int referenceCount,
+  public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
       DataInput in);
 
   /**

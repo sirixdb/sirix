@@ -198,7 +198,7 @@ public final class GUI extends JFrame {
    * @param pFile {@link File} to open
    * @param pRevision determines the revision to open
    */
-  public void execute(final File pFile, final @Nonnegative int pRevision) {
+  public void execute(final File pFile, final @NonNegative int pRevision) {
     if (mReadDB == null || !pFile.equals(mReadDB.getDatabase().getDatabaseConfig().getFile())
         || pRevision != mReadDB.getRevisionNumber()) {
       if (mReadDB != null) {

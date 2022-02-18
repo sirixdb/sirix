@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
@@ -19,7 +19,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-@Nonnull
+@NonNull
 enum OperationType implements Operation<XmlNodeTrx> {
   INSERT {
     @Override

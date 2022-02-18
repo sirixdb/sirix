@@ -29,7 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -105,7 +105,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   @Override
-  public synchronized void reset(final @Nonnegative long nodeKey) {
+  public synchronized void reset(final @NonNegative long nodeKey) {
     super.reset(nodeKey);
     first = true;
     finished = false;

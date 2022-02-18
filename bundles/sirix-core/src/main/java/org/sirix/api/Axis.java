@@ -1,7 +1,6 @@
 package org.sirix.api;
 
-import javax.annotation.Nonnegative;
-
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -49,7 +48,7 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    *
    * @param nodeKey the nodekey where the reset should occur to
    */
-  void reset(@Nonnegative long nodeKey);
+  void reset(@NonNegative long nodeKey);
 
   /**
    * Is self included?

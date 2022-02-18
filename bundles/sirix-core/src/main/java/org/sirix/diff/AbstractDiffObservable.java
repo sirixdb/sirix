@@ -23,7 +23,7 @@ package org.sirix.diff;
 
 import java.util.HashSet;
 import java.util.Set;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 
@@ -49,8 +49,8 @@ abstract class AbstractDiffObservable implements DiffObservable {
   }
 
   @Override
-  public final void fireDiff(final DiffType diff, final @Nonnull long newNodeKey,
-      final @Nonnull long oldNodeKey, final @Nonnull DiffDepth depth) {
+  public final void fireDiff(final DiffType diff, final @NonNull long newNodeKey,
+      final @NonNull long oldNodeKey, final @NonNull DiffDepth depth) {
     for (final DiffObserver observer : diffObservers) {
       observer.diffListener(diff, newNodeKey, oldNodeKey, depth);
     }

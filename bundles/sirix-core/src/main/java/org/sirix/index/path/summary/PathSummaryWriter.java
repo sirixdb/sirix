@@ -26,7 +26,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.NamePage;
 import org.sirix.settings.Fixed;
 
-import javax.annotation.Nonnegative;
+import org.checkerframework.checker.index.qual.NonNegative;
 import javax.xml.namespace.QName;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -419,8 +419,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param localNameKey   key of local name
    * @throws SirixException if Sirix fails to do so
    */
-  private void processFoundPathNode(final @Nonnegative long oldPathNodeKey, final @Nonnegative long newPathNodeKey,
-      final @Nonnegative long oldNodeKey, final int uriKey, final int prefixKey, final int localNameKey) {
+  private void processFoundPathNode(final @NonNegative long oldPathNodeKey, final @NonNegative long newPathNodeKey,
+      final @NonNegative long oldNodeKey, final int uriKey, final int prefixKey, final int localNameKey) {
     nodeRtx.moveTo(oldNodeKey);
 
     // Set new reference count of the root.
@@ -593,7 +593,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param nodeKey the nodeKey of the node to adapt
    * @throws SirixException if anything fails
    */
-  private void resetPathNodeKey(final @Nonnegative long nodeKey) {
+  private void resetPathNodeKey(final @NonNegative long nodeKey) {
     final NameNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
   }

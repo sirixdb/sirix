@@ -27,8 +27,8 @@
 
 package org.sirix.gui.view;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.view.sunburst.Draw;
@@ -55,7 +55,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pGraphics
 	 *          the {@link PGraphics} instance to write to
 	 */
-	void update(Draw pDraw, int pMappingMode, @Nonnull PGraphics pGraphics);
+	void update(Draw pDraw, int pMappingMode, @NonNull PGraphics pGraphics);
 
 	/**
 	 * Item hovered.
@@ -116,7 +116,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pRevision
 	 *          the revision to set
 	 */
-	void setRevision(@Nonnegative long pRevision);
+	void setRevision(@NonNegative long pRevision);
 
 	/** Get the revision the item belongs to. */
 	long getRevision();
@@ -130,7 +130,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pMinimum
 	 *          value
 	 */
-	void setMinimum(@Nonnegative float pMinimum);
+	void setMinimum(@NonNegative float pMinimum);
 
 	/**
 	 * Set the maximum value.
@@ -138,7 +138,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pMaximum
 	 *          value
 	 */
-	void setMaximum(@Nonnegative float pMaximum);
+	void setMaximum(@NonNegative float pMaximum);
 
 	/**
 	 * Item depth.

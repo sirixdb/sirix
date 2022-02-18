@@ -5,7 +5,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 
-import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.file.Path;
 
 
@@ -22,8 +22,8 @@ public interface ResourceStore<R extends ResourceManager<? extends NodeReadOnlyT
    * @return A resource manager.
    * @throws NullPointerException if one if the arguments is {@code null}
    */
-  R openResource(@Nonnull ResourceConfiguration resourceConfig,
-                 @Nonnull BufferManager bufferManager, @Nonnull Path resourceFile);
+  R openResource(@NonNull ResourceConfiguration resourceConfig,
+                 @NonNull BufferManager bufferManager, @NonNull Path resourceFile);
 
   boolean hasOpenResourceManager(Path resourceFile);
 
