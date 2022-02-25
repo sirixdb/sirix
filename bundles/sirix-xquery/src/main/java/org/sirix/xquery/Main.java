@@ -41,9 +41,11 @@ import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.node.BasicXmlDBStore;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -55,7 +57,7 @@ import java.util.*;
 public final class Main {
 
   private static class Config {
-    final Map<String, String> options = new HashMap<String, String>();
+    final Map<String, String> options = new HashMap<>();
 
     boolean isSet(final String option) {
       return options.containsKey(option);
@@ -82,11 +84,13 @@ public final class Main {
     }
   }
 
-  private static List<Option> options = new ArrayList<>();
+  private static final List<Option> options = new ArrayList<>();
 
   static {
     options.add(new Option("-qf", "query file [use '-' for stdin (default)]", true));
     options.add(new Option("-q", "query string", true));
+    options.add(new Option("-iqf", "query files [use '-' for stdin (default)]", true));
+    options.add(new Option("-iq", "query strings", true));
     options.add(new Option("-fType", "default document type", true));
     options.add(new Option("-f", "default document", true));
     options.add(new Option("-p", "pretty print", false));
@@ -113,35 +117,41 @@ public final class Main {
             }
           } else {
             final URI uri = new URI(file);
-            final InputStream in = URIHandler.getInputStream(uri);
-            try {
+            try (InputStream in = URIHandler.getInputStream(uri)) {
               final SubtreeParser parser = new DocumentParser(in);
               final String name = uri.toURL().getFile();
 
               final TemporalNodeCollection<?> coll = nodeStore.create(name, parser);
               final Node<?> doc = coll.getDocument();
               ctx.setContextItem(doc);
-            } finally {
-              in.close();
             }
           }
         }
 
-        final String query;
+        final var compileChain = SirixCompileChain.createWithNodeAndJsonStore(nodeStore, jsonStore);
 
-        if (((config.isSet("-qf")) && (!"-".equals(config.getValue("-qf"))))) {
+        String query;
+
+        if (config.isSet("-qf") && !"-".equals(config.getValue("-qf"))) {
           query = readFile(config.getValue("-qf"));
+          executeQuery(config, compileChain, ctx, query);
         } else if (config.isSet("-q")) {
           query = config.getValue("-q");
+          executeQuery(config, compileChain, ctx, query);
+        } else if (config.isSet("-iq")) {
+          while (true) {
+            query = readStringFromScannerWithEndMark();
+            executeQuery(config, compileChain, ctx, query);
+          }
+        } else if (config.isSet("-iqf")) {
+          while (true) {
+            query = readFile(config.getValue("-iqf"));
+            executeQuery(config, compileChain, ctx, query);
+          }
         } else {
-          query = readStringFromScanner(System.in);
+          query = readString();
+          executeQuery(config, compileChain, ctx, query);
         }
-
-        final XQuery xq = new XQuery(SirixCompileChain.createWithNodeAndJsonStore(nodeStore, jsonStore), query);
-        if (config.isSet("-p")) {
-          xq.prettyPrint();
-        }
-        xq.serialize(ctx, System.out);
       }
     } catch (final QueryException e) {
       System.out.println("Error: " + e.getMessage());
@@ -155,14 +165,22 @@ public final class Main {
     }
   }
 
-  private static String readStringFromScanner(final InputStream in) {
-    try (final Scanner scanner = new Scanner(in)) {
+  private static void executeQuery(Config config, SirixCompileChain compileChain, QueryContext ctx, String query) {
+    final XQuery xq = new XQuery(compileChain, query);
+    if (config.isSet("-p")) {
+      xq.prettyPrint();
+    }
+    xq.serialize(ctx, System.out);
+  }
+
+  private static String readStringFromScannerWithEndMark() {
+    try (final Scanner scanner = new Scanner(System.in)) {
       final StringBuilder strbuf = new StringBuilder();
 
       while (scanner.hasNextLine()) {
         final String line = scanner.nextLine();
 
-        if (line.trim().isEmpty())
+        if (line.trim().equals("END"))
           break;
 
         strbuf.append(line);
@@ -170,6 +188,15 @@ public final class Main {
 
       return strbuf.toString();
     }
+  }
+
+  private static String readString() throws IOException {
+    int r;
+    ByteArrayOutputStream payload = new ByteArrayOutputStream();
+    while ((r = System.in.read()) != -1) {
+      payload.write(r);
+    }
+    return payload.toString(StandardCharsets.UTF_8);
   }
 
   private static Config parseParams(final String[] args) throws Exception {
@@ -199,7 +226,7 @@ public final class Main {
 
   private static void printUsage() {
     System.out.println("No query provided");
-    System.out.println(String.format("Usage: java %s [options]", Main.class.getName()));
+    System.out.printf("Usage: java %s [options]%n", Main.class.getName());
     System.out.println("Options:");
     for (final Option o : options) {
       System.out.print(" ");
