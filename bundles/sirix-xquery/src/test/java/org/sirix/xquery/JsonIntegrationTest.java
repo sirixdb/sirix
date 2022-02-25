@@ -369,6 +369,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     test("jn:doc('mycol.jn','mydoc.jn')", """
         [{"bla":true},{"bar":"foobar"},{"bla":null,"foo":false,"baz":null}]
         """.strip());
+    test("sdb:revision(jn:doc('mycol.jn','mydoc.jn'))", "6");
 //    test("""
 //      let $nodeKey := sdb:nodekey(jn:doc('mycol.jn','mydoc.jn')[[2]])
 //      return jn:diff('mycol.jn','mydoc.jn',5,6,$nodeKey,5000)
@@ -388,6 +389,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
       """.strip(), """
         [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3}]
         """.strip());
+    query("jn:diff('mycol.jn','mydoc.jn',1,2)");
   }
 
   @Test

@@ -7,7 +7,6 @@ dependencies {
     api implLibraries.xmlunit
     api implLibraries.logbackClassic
     api implLibraries.logbackCore
-    api implLibraries.guice
     api implLibraries.gson
     api implLibraries.guava
     api implLibraries.guavaTestlib
