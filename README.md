@@ -15,13 +15,13 @@
 
 [![Follow](https://img.shields.io/twitter/follow/sirixdb.svg?style=social)](https://twitter.com/sirixdb)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Discord](https://discord.gg/AstddxGxjP) | [Community Forum](https://sirix.discourse.group/)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Discord](https://discord.gg/yC33wVpv7t) | [Community Forum](https://sirix.discourse.group/)
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page.
+SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments during a copy-on-write out-of-place operation instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page (thus, a fast, random access storage device as a PCIe SSD is best suited or even byte addressable storage as Intel DC optane memory in the near future -- as we store fine granular not page aligned modifications in a single file (page fragments are currently word-aligned)).
 
 SirixDB currently supports the storage and (time travel) querying of both XML - and JSON-data in our binary encoding, tailored to support versioning. The index-structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement the storage and querying of other data formats as relational data.
 
@@ -135,6 +135,11 @@ Articles published on Medium:
 - [Pushing Database Versioning to Its Limits by Means of a Novel Sliding Snapshot Algorithm and Efficient Time Travel Queries](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/why-and-how-we-built-a-temporal-database-system-called-sirixdb-open-source-from-scratch-a7446f56f201)
 - [How we built an asynchronous, temporal RESTful API based on Vert.x, Keycloak and Kotlin/Coroutines for Sirix.io (Open Source)](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/how-we-built-an-asynchronous-temporal-restful-api-based-on-vert-x-4570f681a3)
 - [Why Copy-on-Write Semantics and Node-Level-Versioning are Key to Efficient Snapshots](https://hackernoon.com/sirix-io-why-copy-on-write-semantics-and-node-level-versioning-are-key-to-efficient-snapshots-754ba834d3bb)
+
+## Status
+SirixDB as of now has not been tested in production. It is recommended for experiments, testing, benchmarking, etc., but is not recommended for production usage. Let us know if you'd like to use SirixDB in production and get in touch. We'd like to test real-world datasets and fix issues we encounter along the way.
+
+Please also get in touch if you like our vision and you want to sponsor us or help with man-power or if you want to use SirixDB as a research system. We'd be glad to get input from the database and scientific community.
 
 ## Getting started
 
@@ -289,8 +294,8 @@ Please also have a look at and play with our sirix-example bundle which is avail
 ### Community Forum
 If you have any questions or are considering to contribute or use Sirix, please use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be an API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
-### Join us on Slack
-You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
+### Join us on Discord
+You may find us on [Discord](https://discord.gg/yC33wVpv7t) for quick questions.
 
 ## Contributors ✨
 
