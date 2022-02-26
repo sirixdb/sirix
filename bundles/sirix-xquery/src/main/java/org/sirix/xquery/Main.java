@@ -30,6 +30,7 @@ package org.sirix.xquery;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.compiler.CompileChain;
 import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.io.URIHandler;
@@ -89,8 +90,8 @@ public final class Main {
   static {
     options.add(new Option("-qf", "query file [use '-' for stdin (default)]", true));
     options.add(new Option("-q", "query string", true));
-    options.add(new Option("-iqf", "query files [use '-' for stdin (default)]", true));
-    options.add(new Option("-iq", "query strings", true));
+    options.add(new Option("-iqf", "query files [use '-' for stdin (default)]", false));
+    options.add(new Option("-iq", "query strings", false));
     options.add(new Option("-fType", "default document type", true));
     options.add(new Option("-f", "default document", true));
     options.add(new Option("-p", "pretty print", false));
@@ -140,11 +141,13 @@ public final class Main {
           executeQuery(config, compileChain, ctx, query);
         } else if (config.isSet("-iq")) {
           while (true) {
+            System.out.println("Enter query string (terminate with END on the last line):");
             query = readStringFromScannerWithEndMark();
             executeQuery(config, compileChain, ctx, query);
           }
         } else if (config.isSet("-iqf")) {
           while (true) {
+            System.out.println("Enter query string (terminate with END on the last line):");
             query = readFile(config.getValue("-iqf"));
             executeQuery(config, compileChain, ctx, query);
           }
@@ -165,29 +168,32 @@ public final class Main {
     }
   }
 
-  private static void executeQuery(Config config, SirixCompileChain compileChain, QueryContext ctx, String query) {
-    final XQuery xq = new XQuery(compileChain, query);
+  private static void executeQuery(Config config, CompileChain compileChain, QueryContext ctx, String query) {
+    XQuery xq = new XQuery(compileChain, query);
     if (config.isSet("-p")) {
       xq.prettyPrint();
     }
+    System.out.println();
+    System.out.println("Query result");
     xq.serialize(ctx, System.out);
+    System.out.println();
+    System.out.println();
   }
 
   private static String readStringFromScannerWithEndMark() {
-    try (final Scanner scanner = new Scanner(System.in)) {
-      final StringBuilder strbuf = new StringBuilder();
+    final Scanner scanner = new Scanner(System.in);
+    final StringBuilder strbuf = new StringBuilder();
 
-      while (scanner.hasNextLine()) {
-        final String line = scanner.nextLine();
+    while (scanner.hasNextLine()) {
+      final String line = scanner.nextLine();
 
-        if (line.trim().equals("END"))
-          break;
+      if (line.trim().equals("END"))
+        break;
 
-        strbuf.append(line);
-      }
-
-      return strbuf.toString();
+      strbuf.append(line);
     }
+
+    return strbuf.toString();
   }
 
   private static String readString() throws IOException {
