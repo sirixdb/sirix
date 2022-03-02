@@ -51,7 +51,7 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
     -   [Documentation](#documentation)
 -   [Getting Help](#getting-help)
     -   [Community Forum](#community-forum)
-    -   [Join us on Slack](#join-us-on-slack)
+    -   [Join us on Discord](#join-us-on-discord)
 -   [Contributors](#contributors-)
 -   [License](#license)
 
@@ -286,7 +286,7 @@ We ship a (very) simple command-line tool for the sirix-xquery bundle:
 Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Slack channel.
+We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Discord channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
 ## Getting Help
