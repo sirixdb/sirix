@@ -28,7 +28,7 @@ import org.sirix.xquery.json.JsonDBItem;
  * Supported signatures are:
  * </p>
  * <ul>
- * <li><code>jn:find-name-index($doc as json-item(), $name as xs:QName) as xs:int</code></li>
+ * <li><code>jn:find-name-index($doc as json-item(), $name as xs:string) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -59,7 +59,7 @@ public final class FindNameIndex extends AbstractFunction {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
     }
 
-    final QNm qnm = (QNm) Cast.cast(sctx, (Atomic) args[1], Type.QNM, false);
+    final QNm qnm = new QNm(((Str) args[1]).stringValue());
     final Optional<IndexDef> indexDef = controller.getIndexes().findNameIndex(qnm);
 
     return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));

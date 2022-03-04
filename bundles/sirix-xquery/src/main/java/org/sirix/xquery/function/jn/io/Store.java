@@ -101,18 +101,18 @@ public final class Store extends AbstractFunction {
       final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
 
       final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
-      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
+      final Instant commitTimestamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       if (createNew) {
-        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+        create(store, collName, resName, nodes, commitMessage, commitTimestamp);
       } else {
         try {
           final JsonDBCollection coll = store.lookup(collName);
-          add(coll, resName, nodes, commitMessage, commitTimesstamp);
+          add(coll, resName, nodes, commitMessage, commitTimestamp);
         } catch (final DocumentException e) {
           // collection does not exist
-          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+          create(store, collName, resName, nodes, commitMessage, commitTimestamp);
         }
       }
 
@@ -134,6 +134,7 @@ public final class Store extends AbstractFunction {
       try (final Iter iter = seq.iterate()) {
         int size = coll.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null; ) {
+          // TODO: use item shredder
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
             coll.add("resource" + size++, reader);
           } catch (final Exception e) {
