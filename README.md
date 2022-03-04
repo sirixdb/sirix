@@ -64,7 +64,7 @@ The DBS must store data in a way that storage space is used as effectively as po
 
 SirixDB not only supports snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
-Executing the following time-travel query to on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of the possibilities:
+Executing the following time-travel query on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of the possibilities:
 
 ```xquery
 let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z'))=>statuses
@@ -75,8 +75,253 @@ let $foundStatus := for $status in $statuses
   return $status
 return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
-
 The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown with the function bit:array-values or through specifying an index, starting with zero: array[[0]] for instance specifies the first value of the array.
+
+In order to verify changes in a node or its subtree, first select the node in the revision and then
+query for changes using our stored merkle hash tree, which builds and updates hashes for each node and it's subtree and check the hashes with `sdb:hash($item)`. The function `jn:all-times` delivers the node in all revisions in which it exists. `jn:previous` delivers
+the node in the previous revision or an empty sequence if there's none.
+
+```xquery
+let $node := jn:doc('mycol.jn','mydoc.jn')=>fieldName[[1]]
+let $result := for $node-in-rev in jn:all-times($node)
+               return
+                 if ((not(exists(jn:previous($node-in-rev))))
+                      or (sdb:hash($node-in-rev) ne sdb:hash(jn:previous($node-in-rev)))) then
+                   $node-in-rev
+                 else
+                   ()
+return [
+  for $node in $result
+  return { "node": $node, "revision": sdb:revision($node) }
+]
+```
+
+Emit all diffs between the revisions in a JSON format:
+
+```xquery
+let $maxRevision := sdb:revision(jn:doc('mycol.jn','mydoc.jn'))
+let $result := for $i in (1 to $maxRevision)
+               return
+                 if ($i > 1) then
+                   jn:diff('mycol.jn','mydoc.jn',$i - 1, $i)
+                 else
+                   ()
+return [
+  for $diff at $pos in $result
+  return {"diffRev" || $pos || "toRev" || $pos + 1: jn:parse($diff)=>diffs}
+]
+```
+
+We support easy updates as in
+
+```xquery
+let $array := jn:doc('mycol.jn','mydoc.jn')
+return insert json {"bla":true} into $array at position 0
+```
+
+to insert a JSON object into a resource, whereas the root node is an array at the first position (0). The transaction is implicitly committed, thus a new revision is created and the specific revision can be queried using a single third argument, either a simple integer ID or a timestamp. The following query issues a query on the first revision (thus without the changes). 
+```xquery
+jn:doc('mycol.jn','mydoc.jn',1)
+```
+
+Omitting the third argument simply opens the resource in the most recent revision, but you could in this case also specify revision number 2. You can also use a timestamp as in:
+
+```xquery
+jn:open('mycol.jn','mydoc.jn',xs:dateTime('2022-03-01T00:00:00Z'))
+```
+
+A simple join (whereas joins are optimized in our query processor called Brackit):
+
+```xquery
+(* first: store stores in a stores resource *)
+sdb:store('mycol.jn','stores','
+[
+  { "store number" : 1, "state" : "MA" },
+  { "store number" : 2, "state" : "MA" },
+  { "store number" : 3, "state" : "CA" },
+  { "store number" : 4, "state" : "CA" }
+]')
+
+
+(* second: store sales in a sales resource *)
+sdb:store('mycol.jn','sales','
+[
+  { "product" : "broiler", "store number" : 1, "quantity" : 20  },
+  { "product" : "toaster", "store number" : 2, "quantity" : 100 },
+  { "product" : "toaster", "store number" : 2, "quantity" : 50 },
+  { "product" : "toaster", "store number" : 3, "quantity" : 50 },
+  { "product" : "blender", "store number" : 3, "quantity" : 100 },
+  { "product" : "blender", "store number" : 3, "quantity" : 150 },
+  { "product" : "socks", "store number" : 1, "quantity" : 500 },
+  { "product" : "socks", "store number" : 2, "quantity" : 10 },
+  { "product" : "shirt", "store number" : 3, "quantity" : 10 }
+]')
+
+let $stores := jn:doc('mycol.jn','stores')
+let $sales := jn:doc('mycol.jn','sales')
+let $join :=
+  for $store in $stores, $sale in $sales
+  where $store=>"store number" = $sale=>"store number"
+  return {
+    "nb" : $store=>"store number",
+    "state" : $store=>state,
+    "sold" : $sale=>product
+  }
+return [$join]
+```
+
+SirixDB through Brackit also supports array slices
+
+```xquery
+let $array := [{"foo": 0}, "bar", {"baz": true()}]
+return $array[[0:1:1]]
+```
+
+which returns the first object `{"foo":0}`.
+
+With the function `sdb:nodekey` you can find out the internal unique node key of a node, which will never change. You for instance might be interested in which revision it has been removed. The following query uses the function `sdb:select-item` which as the first argument needs a context node and as the second argument the key of the item or node to select. `jn:last-existing` finds the most recent version and `sdb:revision` retrieves the revision number.
+
+```xquery
+sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',1), 26)))
+```
+
+SirixDB has three types of indexes along with a path summary tree, which is basically a tree of all distinct paths. First of all there are name indexes, indexing object fields.
+
+We base the indexes on the following serialization of three revisions of a very small SirixDB ressource.
+
+```json
+{
+  "sirix": [
+    {
+      "revisionNumber": 1,
+      "revision": {
+        "foo": [
+          "bar",
+          null,
+          2.33
+        ],
+        "bar": {
+          "hello": "world",
+          "helloo": true
+        },
+        "baz": "hello",
+        "tada": [
+          {
+            "foo": "bar"
+          },
+          {
+            "baz": false
+          },
+          "boo",
+          {},
+          []
+        ]
+      }
+    },
+    {
+      "revisionNumber": 2,
+      "revision": {
+        "tadaaa": "todooo",
+        "foo": [
+          "bar",
+          null,
+          2.33
+        ],
+        "bar": {
+          "hello": "world",
+          "helloo": true
+        },
+        "baz": "hello",
+        "tada": [
+          {
+            "foo": "bar"
+          },
+          {
+            "baz": false
+          },
+          "boo",
+          {},
+          []
+        ]
+      }
+    },
+    {
+      "revisionNumber": 3,
+      "revision": {
+        "tadaaa": "todooo",
+        "foo": [
+          "bar",
+          null,
+          2.33
+        ],
+        "bar": {
+          "hello": "world",
+          "helloo": true
+        },
+        "baz": "hello",
+        "tada": [
+          {
+            "foo": "bar"
+          },
+          {
+            "baz": false
+          },
+          "boo",
+          {},
+          [
+            {
+              "foo": "bar"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}
+```
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $stats := jn:create-name-index($doc, ('foo','bar'))
+return {"revision": sdb:commit($doc)}
+```
+The index is created for "foo" and "bar" object fields. You can query for "foo" fields as for instance:
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $nameIndexNumber := jn:find-name-index($doc, 'foo')
+for $node in jn:scan-name-index($doc, $nameIndexNumber, 'foo')
+order by sdb:revision($node), sdb:nodekey($node)
+return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:revision($node)}
+```
+
+Second, whole paths are indexable.
+
+Thus, the following path index is applicable to both queries: `=>sirix[]=>revision=>tada[]=>foo` and `=>sirix[]=>revision=>tada[][[4]]=>foo`. Thus, essentially both foo nodes are indexed and the first child has to be fetched afterwards. For the second query also the array index 4 has to be checked if the indexed node is really on index 4.
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo')
+return {"revision": sdb:commit($doc)}
+```
+
+The index might be scanned as follows:
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $pathIndexNumber := jn:find-path-index($doc, '/sirix/[]/revision/tada/[]/foo')
+return jn:scan-path-index($doc, $pathIndexNumber, '/sirix/[]/revision/tada/[]/foo')
+```
+
+CAS indexes index a path plus the value. The value itself might be typed.
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo')
+return {"revision": sdb:commit($doc)}
+```
+
+With this index we basically index both "bar" items.
 
 ## SirixDB Features
 SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
