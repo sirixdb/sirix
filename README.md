@@ -182,13 +182,12 @@ which returns the first object `{"foo":0}`.
 With the function `sdb:nodekey` you can find out the internal unique node key of a node, which will never change. You for instance might be interested in which revision it has been removed. The following query uses the function `sdb:select-item` which as the first argument needs a context node and as the second argument the key of the item or node to select. `jn:last-existing` finds the most recent version and `sdb:revision` retrieves the revision number.
 
 ```xquery
-sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn'), 26)))
+sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',1), 26)))
 ```
 
-SirixDB has three types of indexes along with path summary tree, which covers all paths. First of all there are name indexes, indexing object fields.
+SirixDB has three types of indexes along with a path summary tree, which is basically a tree of all distinct paths. First of all there are name indexes, indexing object fields.
 
 We base the indexes on the following serialization of three revisions of a very small SirixDB ressource.
-
 
 ```json
 {
