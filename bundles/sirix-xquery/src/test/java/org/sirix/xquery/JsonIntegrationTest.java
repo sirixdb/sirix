@@ -903,4 +903,23 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          findAndScanPathIndexQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting31").resolve("expectedOutput")));
   }
+
+  @Test
+  public void testNesting32() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting32").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-name-index($doc, ('foo','bar')) return {\"revision\": sdb:commit($doc)}";
+    final String findAndScanNameIndexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $nameIndexNumber := jn:find-name-index($doc, 'foo')
+        for $node in jn:scan-name-index($doc, $nameIndexNumber, 'foo')
+        order by sdb:revision($node), sdb:nodekey($node)
+        return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:revision($node)}
+        """.strip();
+    test(storeQuery,
+         indexQuery,
+         findAndScanNameIndexQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting32").resolve("expectedOutput")));
+  }
 }
