@@ -282,8 +282,17 @@ We base the indexes on the following serialization of three revisions of a very 
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
-let $stats := jn:create-name-index($doc, 'foo')
+let $stats := jn:create-name-index($doc, ('foo','bar'))
 return {"revision": sdb:commit($doc)}
+```
+The index is created for "foo" and "bar" object fields. You can query for "foo" fields as for instance:
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $nameIndexNumber := jn:find-name-index($doc, 'foo')
+for $node in jn:scan-name-index($doc, $nameIndexNumber, 'foo')
+order by sdb:revision($node), sdb:nodekey($node)
+return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:revision($node)}
 ```
 
 Second, whole paths are indexable.
