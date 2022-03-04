@@ -886,4 +886,21 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          openQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting30").resolve("expectedOutput")));
   }
+
+  @Test
+  public void testNesting31() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting31").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]') return {\"revision\": sdb:commit($doc)}";
+    final String findAndScanPathIndexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $pathIndexNumber := jn:find-path-index($doc, '/sirix/[]/revision/tada/[]')
+        return jn:scan-path-index($doc, $pathIndexNumber, '/sirix/[]/revision/tada/[]')
+        """.strip();
+    test(storeQuery,
+         indexQuery,
+         findAndScanPathIndexQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting31").resolve("expectedOutput")));
+  }
 }
