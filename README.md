@@ -333,6 +333,26 @@ order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node}
 ```
 
+You can also create a CAS index on all string values on all paths (all object fields: `//*`; all arrays: `//[]`):
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
+return {"revision": sdb:commit($doc)}
+```
+
+To query for a string values with a certain name (`bar`) on all paths (empty sequence `()`):
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
+for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+order by sdb:revision($node), sdb:nodekey($node)
+return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+```
+
+The argument 0 means check for equality of the string. Other values which might make more sense for integers, decimals... are -2 for `<`, -1 for `<=`, 1 for `>=` and 2 for `>`.
+
 ## SirixDB Features
 SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
 
