@@ -966,4 +966,26 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          findAndScanPathIndexQuery,
          Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("expectedOutput")));
   }
+
+  @Test
+  public void testCreateAndScanCASIndex2() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
+        return {"revision": sdb:commit($doc)}
+        """.strip();
+    final String findAndScanPathIndexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
+        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+        order by sdb:revision($node), sdb:nodekey($node)
+        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+        """.strip();
+    test(storeQuery,
+         indexQuery,
+         findAndScanPathIndexQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("expectedOutput")));
+  }
 }
