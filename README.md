@@ -309,8 +309,10 @@ The index might be scanned as follows:
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
-let $pathIndexNumber := jn:find-path-index($doc, '/sirix/[]/revision/tada/[]/foo')
-return jn:scan-path-index($doc, $pathIndexNumber, '/sirix/[]/revision/tada/[]/foo')
+let $pathIndexNumber := jn:find-path-index($doc, '/sirix/[]/revision/tada//[]/foo')
+for $node in jn:scan-path-index($doc, $pathIndexNumber, '/sirix/[]/revision/tada//[]/foo')
+order by sdb:revision($node), sdb:nodekey($node)
+return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node)}
 ```
 
 CAS indexes index a path plus the value. The value itself might be typed.
