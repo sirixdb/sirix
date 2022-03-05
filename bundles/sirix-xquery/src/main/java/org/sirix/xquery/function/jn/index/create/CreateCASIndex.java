@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.jn.index.create;
 
-import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -97,7 +96,7 @@ public final class CreateCASIndex extends AbstractFunction {
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
     try {
-      controller.createIndexes(ImmutableSet.of(idxDef), wtx);
+      controller.createIndexes(Set.of(idxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }
