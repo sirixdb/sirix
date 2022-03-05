@@ -31,7 +31,7 @@ import java.util.Set;
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
 
-  private final RBTreeWriter<CASValue, NodeReferences> avlTreeWriter;
+  private final RBTreeWriter<CASValue, NodeReferences> rbTreeWriter;
 
   private final PathSummaryReader pathSummaryReader;
 
@@ -39,11 +39,11 @@ public final class CASIndexBuilder {
 
   private final Type type;
 
-  public CASIndexBuilder(final RBTreeWriter<CASValue, NodeReferences> avlTreeWriter,
+  public CASIndexBuilder(final RBTreeWriter<CASValue, NodeReferences> rbTreeWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
-    this.avlTreeWriter = avlTreeWriter;
+    this.rbTreeWriter = rbTreeWriter;
     this.type = type;
   }
 
@@ -76,7 +76,7 @@ public final class CASIndexBuilder {
 
         if (isOfType) {
           final CASValue value = new CASValue(strValue, type, pathNodeKey);
-          final Optional<NodeReferences> textReferences = avlTreeWriter.get(value, SearchMode.EQUAL);
+          final Optional<NodeReferences> textReferences = rbTreeWriter.get(value, SearchMode.EQUAL);
           if (textReferences.isPresent()) {
             setNodeReferences(node, textReferences.get(), value);
           } else {
@@ -92,6 +92,6 @@ public final class CASIndexBuilder {
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final CASValue value)
       throws SirixIOException {
-    avlTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    rbTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 }
