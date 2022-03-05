@@ -225,7 +225,7 @@ We base the indexes on the following serialization of three revisions of a very 
         "foo": [
           "bar",
           null,
-          2.33
+          103
         ],
         "bar": {
           "hello": "world",
@@ -252,7 +252,7 @@ We base the indexes on the following serialization of three revisions of a very 
         "foo": [
           "bar",
           null,
-          2.33
+          23.76
         ],
         "bar": {
           "hello": "world",
@@ -315,15 +315,23 @@ order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node)}
 ```
 
-CAS indexes index a path plus the value. The value itself might be typed.
+CAS indexes index a path plus the value. The value itself must be typed (so in this case we index only decimals on a path).
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
-let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo')
+let $stats := jn:create-cas-index($doc, 'xs:decimal', '/sirix/[]/revision/foo/[]')
 return {"revision": sdb:commit($doc)}
 ```
 
-With this index we basically index both "bar" items.
+We can do an index range-scan as for instance via the next query (2.33 and 100 are the min and max, the next two arguments are two booleans which denote if the min and max should be retrieved or if it's >min and <max). The last argument is usually a path if we index more paths in the same index (in this case we only index `/sirix/[]/revision/foo/[]`).
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $casIndexNumber := jn:find-cas-index($doc, 'xs:decimal', '/sirix/[]/revision/foo/[]')
+for $node in jn:scan-cas-index-range($doc, $casIndexNumber, 2.33, 100, false(), true(), ())
+order by sdb:revision($node), sdb:nodekey($node)
+return {"nodeKey": sdb:nodekey($node), "node": $node}
+```
 
 ## SirixDB Features
 SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
