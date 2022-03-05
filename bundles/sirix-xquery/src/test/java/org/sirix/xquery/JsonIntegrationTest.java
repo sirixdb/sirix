@@ -905,8 +905,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
-  public void testNesting32() throws IOException {
-    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting32").resolve("multiple-revisions.json").toUri();
+  public void testCreateAndScanNameIndex() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-name-index($doc, ('foo','bar')) return {\"revision\": sdb:commit($doc)}";
@@ -920,6 +920,50 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     test(storeQuery,
          indexQuery,
          findAndScanNameIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting32").resolve("expectedOutput")));
+         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testCreateAndScanPathIndex() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo')
+        return {"revision": sdb:commit($doc)}
+        """.strip();
+    final String findAndScanPathIndexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $pathIndexNumber := jn:find-path-index($doc, '/sirix/[]/revision/tada//[]/foo')
+        for $node in jn:scan-path-index($doc, $pathIndexNumber, '/sirix/[]/revision/tada//[]/foo')
+        order by sdb:revision($node), sdb:nodekey($node)
+        return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node)}
+        """.strip();
+    test(storeQuery,
+         indexQuery,
+         findAndScanPathIndexQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("expectedOutput")));
+  }
+
+  @Test
+  public void testCreateAndScanCASIndex() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $stats := jn:create-cas-index($doc,'xs:decimal','/sirix/[]/revision/foo/[]')
+        return {"revision": sdb:commit($doc)}
+        """.strip();
+    final String findAndScanPathIndexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $casIndexNumber := jn:find-cas-index($doc, 'xs:decimal', '/sirix/[]/revision/foo/[]')
+        for $node in jn:scan-cas-index-range($doc, $casIndexNumber, 2.33, 100, false(), true(), ())
+        order by sdb:revision($node), sdb:nodekey($node)
+        return {"nodeKey": sdb:nodekey($node), "node": $node}
+        """.strip();
+    test(storeQuery,
+         indexQuery,
+         findAndScanPathIndexQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("expectedOutput")));
   }
 }
