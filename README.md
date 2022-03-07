@@ -91,8 +91,8 @@ let $result := for $node-in-rev in jn:all-times($node)
                  else
                    ()
 return [
-  for $node in $result
-  return { "node": $node, "revision": sdb:revision($node) }
+  for $jsonItem in $result
+  return { "node": $jsonItem, "revision": sdb:revision($jsonItem) }
 ]
 ```
 
