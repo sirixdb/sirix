@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
 <h1 align="center">An Evolutionary, Append-Only Database System</h1>
-<p align="center">Stores small-sized, immutable snapshots of your data and facilitates querying the full history</p>
+<p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner and facilitates querying the full history as well as easy audits.</p>
 
 <p align="center">
     <a href="https://github.com/sirixdb/sirix/actions" alt="CI Build Status"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg"/></a>
@@ -33,11 +33,11 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
 <p>&nbsp;</p>
 -->
 
-**Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project**
+**Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project.**
 
 **Note: Work on a frontend built with [SolidJS](https://solidjs.com), [D3.js](https://d3js), and Typescript has just begun.**
 
-**Discuss it in the [Community Forum](https://sirix.discourse.group)**
+**Discuss it in the [Community Forum](https://sirix.discourse.group).**
 
 ## Table of contents
 -   [Keeping All Versions of Your Data By Sharing Structure](#keeping-all-versions-of-your-data-by-sharing-structure)
