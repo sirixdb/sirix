@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
 <h1 align="center">An Evolutionary, Append-Only Database System</h1>
-<p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner. It facilitates querying and reconstructing the full history as well as easy audits.</p>
+<p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner. It facilitates querying and reconstructing the entire history as well as easy audits.</p>
 
 <p align="center">
     <a href="https://github.com/sirixdb/sirix/actions" alt="CI Build Status"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg"/></a>
