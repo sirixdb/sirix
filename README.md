@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
-<h1 align="center">An Evolutionary, Accumulate-Only Database System</h1>
-<p align="center">Stores small-sized, immutable snapshots of your data and facilitates querying the full history</p>
+<h1 align="center">An Evolutionary, Append-Only Database System</h1>
+<p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner. It facilitates querying and reconstructing the entire history as well as easy audits.</p>
 
 <p align="center">
     <a href="https://github.com/sirixdb/sirix/actions" alt="CI Build Status"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg"/></a>
@@ -33,11 +33,11 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
 <p>&nbsp;</p>
 -->
 
-**Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project**
+**Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project.**
 
-**Note: Work on a [Frontend](https://github.com/sirixdb/sirix-svelte-frontend) built with [Svelte](https://svelte.dev), [D3.js](https://d3js), and Typescript has just begun**
+**Note: Work on a frontend built with [SolidJS](https://solidjs.com), [D3.js](https://d3js), and Typescript has just begun.**
 
-**Discuss it in the [Community Forum](https://sirix.discourse.group)**
+**Discuss it in the [Community Forum](https://sirix.discourse.group).**
 
 ## Table of contents
 -   [Keeping All Versions of Your Data By Sharing Structure](#keeping-all-versions-of-your-data-by-sharing-structure)
@@ -75,7 +75,9 @@ let $foundStatus := for $status in $statuses
   return $status
 return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
-The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown with the function bit:array-values or through specifying an index, starting with zero: array[[0]] for instance specifies the first value of the array.
+The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[[0]]` for instance specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor also supports Python-like array slices to simplify tasks.
+
+## JSONiq examples
 
 In order to verify changes in a node or its subtree, first select the node in the revision and then
 query for changes using our stored merkle hash tree, which builds and updates hashes for each node and it's subtree and check the hashes with `sdb:hash($item)`. The function `jn:all-times` delivers the node in all revisions in which it exists. `jn:previous` delivers
@@ -91,8 +93,8 @@ let $result := for $node-in-rev in jn:all-times($node)
                  else
                    ()
 return [
-  for $node in $result
-  return { "node": $node, "revision": sdb:revision($node) }
+  for $jsonItem in $result
+  return { "node": $jsonItem, "revision": sdb:revision($jsonItem) }
 ]
 ```
 
@@ -170,14 +172,14 @@ let $join :=
 return [$join]
 ```
 
-SirixDB through Brackit also supports array slices
+SirixDB through Brackit also supports array slices. Start index is 0, step is 1 and end index is 1 (exclusive) in the next query:
 
 ```xquery
 let $array := [{"foo": 0}, "bar", {"baz": true()}]
 return $array[[0:1:1]]
 ```
 
-which returns the first object `{"foo":0}`.
+The query returns the first object `{"foo":0}`. 
 
 With the function `sdb:nodekey` you can find out the internal unique node key of a node, which will never change. You for instance might be interested in which revision it has been removed. The following query uses the function `sdb:select-item` which as the first argument needs a context node and as the second argument the key of the item or node to select. `jn:last-existing` finds the most recent version and `sdb:revision` retrieves the revision number.
 
@@ -185,7 +187,11 @@ With the function `sdb:nodekey` you can find out the internal unique node key of
 sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',1), 26)))
 ```
 
-SirixDB has three types of indexes along with a path summary tree, which is basically a tree of all distinct paths. First of all there are name indexes, indexing object fields.
+SirixDB has three types of indexes along with a path summary tree, which is basically a tree of all distinct paths:
+
+- name indexes, to index a set of object fields
+- path indexes, to index a set of paths (or all paths in a resource)
+- CAS indexes, so called content-and-structure indexes, which index paths and typed values (for instance all xs:integers). In this case on the paths specified only integer values are indexed on the path, but no other types
 
 We base the indexes on the following serialization of three revisions of a very small SirixDB ressource.
 
@@ -332,6 +338,26 @@ for $node in jn:scan-cas-index-range($doc, $casIndexNumber, 2.33, 100, false(), 
 order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node}
 ```
+
+You can also create a CAS index on all string values on all paths (all object fields: `//*`; all arrays: `//[]`):
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
+return {"revision": sdb:commit($doc)}
+```
+
+To query for a string values with a certain name (`bar`) on all paths (empty sequence `()`):
+
+```xquery
+let $doc := jn:doc('mycol.jn','mydoc.jn')
+let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
+for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+order by sdb:revision($node), sdb:nodekey($node)
+return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+```
+
+The argument 0 means check for equality of the string. Other values which might make more sense for integers, decimals... are -2 for `<`, -1 for `<=`, 1 for `>=` and 2 for `>`.
 
 ## SirixDB Features
 SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
