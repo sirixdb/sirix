@@ -2,17 +2,17 @@ package org.sirix.rest
 
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
-import org.junit.jupiter.api.*
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.sirix.JsonTestHelper
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.JsonTestHelper
-import org.sirix.service.InsertPosition
 import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.service.json.shredder.JsonShredder
 import org.skyscreamer.jsonassert.JSONAssert
 import java.io.IOException
 import java.io.StringWriter
@@ -77,8 +77,8 @@ class JsonStreamingShredderTest {
     }
 
     @Test
-    fun test() {
-        testJsonFile("copperfield-book.json")
+    fun testCopperfieldBook() {
+        testString(Files.readString(JSON.resolve("copperfield-book.json")))
     }
 
     private fun testString(json: String) {
@@ -89,50 +89,27 @@ class JsonStreamingShredderTest {
             val manager = database.openResourceManager("shredded")
             val wtx = manager.beginNodeTrx()
 
-            val parser = JsonParser.newParser()
-            val shredder =
-                KotlinJsonStreamingShredder(wtx, parser)
-            shredder.call()
-            parser.handle(
-                Buffer.buffer(
-                    json
+            wtx.use {
+                val parser = JsonParser.newParser()
+                val shredder =
+                    KotlinJsonStreamingShredder(wtx, parser)
+                shredder.call()
+                parser.handle(
+                    Buffer.buffer(
+                        json
+                    )
                 )
-            )
-            parser.end()
-            wtx.commit()
+                parser.end()
+                wtx.commit()
+            }
 
             val writer = StringWriter()
             writer.use {
                 val serializer = JsonSerializer.Builder(manager, writer).build()
                 serializer.call()
             }
-            assertEquals(json, writer.toString())
-        }
-    }
-
-    @Throws(IOException::class)
-    private fun testJsonFile(jsonFile: String) {
-        val jsonPath: Path = JSON.resolve(jsonFile)
-        val database: Database<JsonResourceManager> =
-            JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())
-        database.openResourceManager(JsonTestHelper.RESOURCE).use { manager ->
-            manager.beginNodeTrx().use { trx ->
-                StringWriter().use { writer ->
-                    val shredder = JsonShredder.Builder(
-                        trx,
-                        JsonShredder.createFileReader(jsonPath),
-                        InsertPosition.AS_FIRST_CHILD
-                    ).commitAfterwards().build()
-                    shredder.call()
-                    val serializer =
-                        JsonSerializer.Builder(manager, writer).build()
-                    serializer.call()
-                    val expected =
-                        Files.readString(jsonPath, StandardCharsets.UTF_8)
-                    val actual = writer.toString()
-                    JSONAssert.assertEquals(expected, actual, true)
-                }
-            }
+            val actual = writer.toString()
+            JSONAssert.assertEquals(json, actual, true)
         }
     }
 }
