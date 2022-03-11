@@ -3,9 +3,9 @@ package org.sirix.index;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
+
+import org.brackit.xquery.util.path.PathParser;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Una;
@@ -19,6 +19,8 @@ import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.node.Node;
 
 public final class IndexDef implements Materializable {
+  private static final QNm DB_TYPE_ATTRIBUTE = new QNm("dbType");
+
   private static final QNm EXCLUDING_TAG = new QNm("excluding");
 
   private static final QNm INCLUDING_TAG = new QNm("including");
@@ -35,6 +37,8 @@ public final class IndexDef implements Materializable {
 
   public static final QNm INDEX_TAG = new QNm("index");
 
+  private DbType dbType;
+
   private IndexType type;
 
   // unique flag (for CAS indexes)
@@ -46,43 +50,60 @@ public final class IndexDef implements Materializable {
   // populated when index is built
   private int id;
 
+  public enum DbType {
+    XML,
+
+    JSON;
+
+    public static Optional<DbType> ofString(String type) {
+      return Arrays.stream(DbType.values())
+                   .filter(env -> env.name().equalsIgnoreCase(type))
+                   .findFirst();
+    }
+  }
+
   private final Set<Path<QNm>> paths = new HashSet<>();
 
   private final Set<QNm> excluded = new HashSet<>();
 
   private final Set<QNm> included = new HashSet<>();
 
-  public IndexDef() {}
+  public IndexDef(DbType dbType) {
+    this.dbType = dbType;
+  }
 
   /**
    * Name index.
    */
-  IndexDef(final Set<QNm> included, final Set<QNm> excluded, final int indexDefNo) {
+  IndexDef(final Set<QNm> included, final Set<QNm> excluded, final int indexDefNo, final DbType dbType) {
     type = IndexType.NAME;
     this.included.addAll(included);
     this.excluded.addAll(excluded);
     id = indexDefNo;
+    this.dbType = dbType;
   }
 
   /**
    * Path index.
    */
-  IndexDef(final Set<Path<QNm>> paths, final int indexDefNo) {
+  IndexDef(final Set<Path<QNm>> paths, final int indexDefNo, final DbType dbType) {
     type = IndexType.PATH;
     this.paths.addAll(paths);
     id = indexDefNo;
+    this.dbType = dbType;
   }
 
   /**
    * CAS index.
    */
   IndexDef(final Type contentType, final Set<Path<QNm>> paths, final boolean unique,
-      final int indexDefNo) {
+      final int indexDefNo, final DbType dbType) {
     type = IndexType.CAS;
     this.contentType = checkNotNull(contentType);
     this.paths.addAll(paths);
     this.unique = unique;
     id = indexDefNo;
+    this.dbType = dbType;
   }
 
   @Override
@@ -91,6 +112,7 @@ public final class IndexDef implements Materializable {
 
     tmp.openElement(INDEX_TAG);
     tmp.attribute(TYPE_ATTRIBUTE, new Una(type.toString()));
+    tmp.attribute(DB_TYPE_ATTRIBUTE, new Una(dbType.toString()));
     tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(id)));
 
     if (contentType != null) {
@@ -101,7 +123,7 @@ public final class IndexDef implements Materializable {
       tmp.attribute(UNIQUE_ATTRIBUTE, new Una(Boolean.toString(unique)));
     }
 
-    if (paths != null && !paths.isEmpty()) {
+    if (!paths.isEmpty()) {
       for (final Path<QNm> path : paths) {
         tmp.openElement(PATH_TAG);
         tmp.content(path.toString()); // TODO
@@ -114,7 +136,7 @@ public final class IndexDef implements Materializable {
 
       final StringBuilder buf = new StringBuilder();
       for (final QNm s : excluded) {
-        buf.append(s + ",");
+        buf.append(s).append(",");
       }
       // remove trailing ","
       buf.deleteCharAt(buf.length() - 1);
@@ -127,7 +149,7 @@ public final class IndexDef implements Materializable {
 
       final StringBuilder buf = new StringBuilder();
       for (final QNm incl : included) {
-        buf.append(incl + ",");
+        buf.append(incl).append(",");
       }
       // remove trailing ","
       buf.deleteCharAt(buf.length() - 1);
@@ -155,27 +177,30 @@ public final class IndexDef implements Materializable {
 
     attribute = root.getAttribute(ID_ATTRIBUTE);
     if (attribute != null) {
-      id = Integer.valueOf(attribute.getValue().stringValue());
+      id = Integer.parseInt(attribute.getValue().stringValue());
     }
 
     attribute = root.getAttribute(TYPE_ATTRIBUTE);
     if (attribute != null) {
-      type = (IndexType.valueOf(attribute.getValue().stringValue()));
+      type = IndexType.valueOf(attribute.getValue().stringValue());
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);
     if (attribute != null) {
-      contentType = (resolveType(attribute.getValue().stringValue()));
+      contentType = resolveType(attribute.getValue().stringValue());
     }
 
     attribute = root.getAttribute(UNIQUE_ATTRIBUTE);
     if (attribute != null) {
-      unique = (Boolean.valueOf(attribute.getValue().stringValue()));
+      unique = Boolean.parseBoolean(attribute.getValue().stringValue());
     }
 
-    final Stream<? extends Node<?>> children = root.getChildren();
+    attribute = root.getAttribute(DB_TYPE_ATTRIBUTE);
+    if (attribute != null) {
+      dbType = DbType.ofString(attribute.getValue().stringValue()).orElseThrow(() -> new DocumentException("Invalid db type"));
+    }
 
-    try {
+    try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {
         // if (child.getName().equals(IndexStatistics.STATISTICS_TAG)) {
@@ -186,8 +211,7 @@ public final class IndexDef implements Materializable {
         final String value = child.getValue().stringValue();
 
         if (childName.equals(PATH_TAG)) {
-          final String path = value;
-          paths.add(Path.parse(path));
+          paths.add(Path.parse(value, dbType == DbType.JSON ? PathParser.Type.JSON : PathParser.Type.XML));
         } else if (childName.equals(INCLUDING_TAG)) {
           for (final String s : value.split(",")) {
             if (s.length() > 0) {
@@ -206,8 +230,6 @@ public final class IndexDef implements Materializable {
         }
         // }
       }
-    } finally {
-      children.close();
     }
   }
 
@@ -288,10 +310,9 @@ public final class IndexDef implements Materializable {
     if (this == obj)
       return true;
 
-    if (!(obj instanceof IndexDef))
+    if (!(obj instanceof final IndexDef other))
       return false;
 
-    final IndexDef other = (IndexDef) obj;
     return id == other.id && type == other.type;
   }
 }

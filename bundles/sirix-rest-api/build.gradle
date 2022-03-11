@@ -22,6 +22,7 @@ apply plugin: 'docker-compose'
 dependencies {
     implementation project(':sirix-core')
     implementation project(':sirix-xquery')
+    testImplementation project(':sirix-core').sourceSets.test.output
 
     implementation implLibraries.kotlinStdlib
     implementation implLibraries.kotlinxCoroutinesCore
@@ -34,7 +35,6 @@ dependencies {
     implementation implLibraries.vertxConfig
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.jsoup
-
     testImplementation testLibraries.kotlinTestJunit
     testImplementation testLibraries.junit
     testImplementation testLibraries.vertxJunit5

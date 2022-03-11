@@ -82,13 +82,13 @@ public final class CreatePathIndex extends AbstractFunction {
       final Iter it = args[1].iterate();
       Item next = it.next();
       while (next != null) {
-        paths.add(Path.parse(((Str) next).stringValue()));
+        paths.add(Path.parse(((Str) next).stringValue(), org.brackit.xquery.util.path.PathParser.Type.JSON));
         next = it.next();
       }
     }
 
     final IndexDef idxDef =
-        IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
+        IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.JSON);
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), wtx);
     } catch (final SirixIOException e) {

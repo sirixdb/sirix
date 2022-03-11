@@ -17,11 +17,11 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
 
   private final CASIndexBuilder indexBuilderDelegate;
 
-  private final JsonNodeReadOnlyTrx mRtx;
+  private final JsonNodeReadOnlyTrx rtx;
 
   JsonCASIndexBuilder(final CASIndexBuilder indexBuilderDelegate, final JsonNodeReadOnlyTrx rtx) {
     this.indexBuilderDelegate = indexBuilderDelegate;
-    mRtx = rtx;
+    this.rtx = rtx;
   }
 
   @Override
@@ -67,14 +67,14 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
   }
 
   private long getPathClassRecord(ImmutableNode node) {
-    mRtx.moveTo(node.getParentKey());
+    rtx.moveTo(node.getParentKey());
 
     final long pcr;
 
-    if (mRtx.isObjectKey()) {
-      pcr = ((ImmutableObjectKeyNode) mRtx.getNode()).getPathNodeKey();
-    } else if (mRtx.isArray()) {
-      pcr = ((ImmutableArrayNode) mRtx.getNode()).getPathNodeKey();
+    if (rtx.isObjectKey()) {
+      pcr = ((ImmutableObjectKeyNode) rtx.getNode()).getPathNodeKey();
+    } else if (rtx.isArray()) {
+      pcr = ((ImmutableArrayNode) rtx.getNode()).getPathNodeKey();
     } else {
       pcr = 0;
     }

@@ -20,7 +20,7 @@ public final class SirixOptimizer extends TopDownOptimizer {
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
     super(options);
     // Perform index matching as last step.
-    getStages().add(new IndexMatching(nodeStore, jsonItemStore));
+//    getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }
 
   private static class IndexMatching implements Stage {

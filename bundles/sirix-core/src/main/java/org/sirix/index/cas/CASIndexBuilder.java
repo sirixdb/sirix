@@ -71,7 +71,7 @@ public final class CASIndexBuilder {
           if (type != Type.STR)
             AtomicUtil.toType(strValue, type);
           isOfType = true;
-        } catch (final SirixRuntimeException e) {
+        } catch (final SirixRuntimeException ignored) {
         }
 
         if (isOfType) {

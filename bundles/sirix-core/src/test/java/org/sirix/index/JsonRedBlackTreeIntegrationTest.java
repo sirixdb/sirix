@@ -3,6 +3,7 @@ package org.sirix.index;
 import org.brackit.xquery.atomic.Dbl;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.util.path.PathParser;
 import org.brackit.xquery.xdm.Type;
 import org.junit.After;
 import org.junit.Before;
@@ -45,10 +46,11 @@ public final class JsonRedBlackTreeIntegrationTest {
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      final var pathToGetSummary = parse("/paths/\\/business_service_providers\\/search/get/summary");
+      final var pathToGetSummary =
+          parse("/paths/\\/business_service_providers\\/search/get/summary", PathParser.Type.JSON);
 
       final var idxDefOfFeatureType =
-          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToGetSummary), 0);
+          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToGetSummary), 0, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
 
@@ -64,7 +66,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var casIndexForGetSummary = indexController.openCASIndex(trx.getPageTrx(),
                                                                      idxDefOfFeatureType,
                                                                      indexController.createCASFilter(Set.of(
-                                                                         "/paths/\\/business_service_providers\\/search/get/summary"),
+                                                                                                         "/paths/\\/business_service_providers\\/search/get/summary"),
                                                                                                      new Str(
                                                                                                          "Business Service Providers API"),
                                                                                                      SearchMode.EQUAL,
@@ -88,7 +90,7 @@ public final class JsonRedBlackTreeIntegrationTest {
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDefs.NameIndexType.JSON);
+      final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
@@ -114,7 +116,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertEquals(53, allTwitterAccountsNodeReferences.getNodeKeys().size());
 
       final var allObjectKeyNamesExceptStreetAddress =
-          IndexDefs.createFilteredNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDefs.NameIndexType.JSON);
+          IndexDefs.createFilteredNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(allObjectKeyNamesExceptStreetAddress), trx);
 
@@ -131,7 +133,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertFalse(allTwitterAccounts.hasNext());
 
       final var allStreetAddresses =
-          IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDefs.NameIndexType.JSON);
+          IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(allStreetAddresses), trx);
 
@@ -197,8 +199,8 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertEquals("id", nodeLess.get().getKey().getLocalName());
 
       final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getCurrentNode(nodeGreaterOrEqual.get().getNodeKey(),
-                                                                                 name,
-                                                                                 SearchMode.LOWER_OR_EQUAL);
+                                                                              name,
+                                                                              SearchMode.LOWER_OR_EQUAL);
 
       assertTrue(nodeLessOrEqual.isPresent());
       assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
@@ -229,10 +231,10 @@ public final class JsonRedBlackTreeIntegrationTest {
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      final var pathToFeatureType = parse("/features/[]/type");
+      final var pathToFeatureType = parse("/features/[]/type", PathParser.Type.JSON);
 
       final var idxDefOfFeatureType =
-          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToFeatureType), 0);
+          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToFeatureType), 0, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
 
@@ -256,8 +258,9 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(references.isPresent());
       assertEquals(53, references.get().getNodeKeys().size());
 
-      final var pathToName = parse("/features/[]/properties/name");
-      final var idxDefOfPathToName = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 1);
+      final var pathToName = parse("/features/[]/properties/name", PathParser.Type.JSON);
+      final var idxDefOfPathToName =
+          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 1, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfPathToName), trx);
 
@@ -266,7 +269,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var index = indexController.openCASIndex(trx.getPageTrx(),
                                                      casIndexDef,
                                                      indexController.createCASFilter(Set.of(
-                                                         "/features/[]/properties/name"),
+                                                                                         "/features/[]/properties/name"),
                                                                                      new Str("ABC Radio Adelaide"),
                                                                                      SearchMode.EQUAL,
                                                                                      new JsonPCRCollector(trx)));
@@ -296,9 +299,9 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertEquals(53, stream.count());
 
-      final var pathToCoordinates = parse("/features/[]/geometry/coordinates/[]");
+      final var pathToCoordinates = parse("/features/[]/geometry/coordinates/[]", PathParser.Type.JSON);
       final var idxDefOfPathToCoordinates =
-          IndexDefs.createCASIdxDef(false, Type.DEC, Collections.singleton(pathToCoordinates), 2);
+          IndexDefs.createCASIdxDef(false, Type.DEC, Collections.singleton(pathToCoordinates), 2, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfPathToCoordinates), trx);
 
@@ -307,7 +310,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var casIndexForCoordinates = indexController.openCASIndex(trx.getPageTrx(),
                                                                       casIndexDefForCoordinates.get(),
                                                                       indexController.createCASFilterRange(Set.of(
-                                                                          "/features/[]/geometry/coordinates/[]"),
+                                                                                                               "/features/[]/geometry/coordinates/[]"),
                                                                                                            new Dbl(0),
                                                                                                            new Dbl(160),
                                                                                                            true,
@@ -326,10 +329,15 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertTrue(casIndex.isPresent());
 
-      final var pathToGeometry = parse("/features/[]/geometry");
+      final var pathToGeometry = parse("/features/[]/geometry", PathParser.Type.JSON);
 
-      final var idxDefOfThreePaths =
-          IndexDefs.createCASIdxDef(false, Type.STR, Set.of(pathToFeatureType, pathToGeometry, pathToCoordinates), 3);
+      final var idxDefOfThreePaths = IndexDefs.createCASIdxDef(false,
+                                                               Type.STR,
+                                                               Set.of(pathToFeatureType,
+                                                                      pathToGeometry,
+                                                                      pathToCoordinates),
+                                                               3,
+                                                               IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfThreePaths), trx);
 
@@ -340,7 +348,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var casIndexForGeometry = indexController.openCASIndex(trx.getPageTrx(),
                                                                    casIndexDefOfGeometryPath.get(),
                                                                    indexController.createCASFilter(Set.of(
-                                                                       "/features/[]/geometry"),
+                                                                                                       "/features/[]/geometry"),
                                                                                                    new Str("bla"),
                                                                                                    SearchMode.EQUAL,
                                                                                                    new JsonPCRCollector(
@@ -351,7 +359,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getPageTrx(),
                                                                               idxDefOfThreePaths,
                                                                               indexController.createCASFilter(Set.of(
-                                                                                  "/features/[]/geometry/coordinates/[]"),
+                                                                                                                  "/features/[]/geometry/coordinates/[]"),
                                                                                                               new Str(
                                                                                                                   "0"),
                                                                                                               SearchMode.GREATER,
@@ -374,9 +382,10 @@ public final class JsonRedBlackTreeIntegrationTest {
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      final var pathToFeatureType = parse("/features/[]/type");
+      final var pathToFeatureType = parse("/features/[]/type", PathParser.Type.JSON);
 
-      final var idxDefOfFeatureType = IndexDefs.createPathIdxDef(Collections.singleton(pathToFeatureType), 0);
+      final var idxDefOfFeatureType =
+          IndexDefs.createPathIdxDef(Collections.singleton(pathToFeatureType), 0, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
 
@@ -399,8 +408,9 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(references.isPresent());
       assertEquals(53, references.get().getNodeKeys().size());
 
-      final var pathToName = parse("/features/[]/properties/name");
-      final var idxDefOfPathToName = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 1);
+      final var pathToName = parse("/features/[]/properties/name", PathParser.Type.JSON);
+      final var idxDefOfPathToName =
+          IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 1, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(idxDefOfPathToName), trx);
 

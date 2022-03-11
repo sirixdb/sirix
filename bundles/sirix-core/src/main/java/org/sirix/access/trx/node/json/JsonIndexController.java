@@ -3,6 +3,7 @@ package org.sirix.access.trx.node.json;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
+import org.brackit.xquery.util.path.PathParser;
 import org.sirix.access.trx.node.AbstractIndexController;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -35,6 +36,11 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    */
   public JsonIndexController() {
     super(new Indexes(), new HashSet<>(), new JsonPathIndexImpl(), new JsonCASIndexImpl(), new JsonNameIndexImpl());
+  }
+
+  @Override
+  protected Path<QNm> parsePath(String path) {
+    return Path.parse(path, PathParser.Type.JSON);
   }
 
   @Override
@@ -84,7 +90,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.size());
     for (final String path : queryString) {
-      paths.add(Path.parse(path));
+      paths.add(Path.parse(path, PathParser.Type.JSON));
     }
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }

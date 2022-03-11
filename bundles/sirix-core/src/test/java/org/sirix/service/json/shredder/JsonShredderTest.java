@@ -100,6 +100,11 @@ public final class JsonShredderTest {
   }
 
   @Test
+  public void testCopperFieldBook() throws IOException {
+    test("copperfield-book.json");
+  }
+
+  @Test
   public void testLaureate() throws IOException {
     test("laureate.json");
   }

@@ -12,21 +12,21 @@ public interface ImmutableRBNode<K extends Comparable<? super K>, V> extends Nod
    * 
    * @return key reference
    */
-  public K getKey();
+  K getKey();
 
   /**
    * Value to be indexed.
    * 
    * @return key reference
    */
-  public V getValue();
+  V getValue();
 
   /**
    * Flag which determines if node is changed.
    * 
    * @return {@code true} if it has been changed in memory, {@code false} otherwise
    */
-  public boolean isChanged();
+  boolean isChanged();
 
   /**
    * Determines node has a left child.
@@ -47,12 +47,12 @@ public interface ImmutableRBNode<K extends Comparable<? super K>, V> extends Nod
    * 
    * @return left child pointer
    */
-  public long getLeftChildKey();
+  long getLeftChildKey();
 
   /**
    * Get right child.
    * 
    * @return right child pointer
    */
-  public long getRightChildKey();
+  long getRightChildKey();
 }

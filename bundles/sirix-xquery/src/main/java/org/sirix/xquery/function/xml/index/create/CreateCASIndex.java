@@ -98,7 +98,7 @@ public final class CreateCASIndex extends AbstractFunction {
     }
 
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
+        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS), IndexDef.DbType.XML);
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), wtx);
     } catch (final SirixIOException e) {

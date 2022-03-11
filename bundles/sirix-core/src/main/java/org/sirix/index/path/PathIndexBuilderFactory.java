@@ -23,9 +23,9 @@ public final class PathIndexBuilderFactory {
     final var pathSummary = checkNotNull(pathSummaryReader);
     final var paths = checkNotNull(indexDef.getPaths());
     assert indexDef.getType() == IndexType.PATH;
-    final var avlTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(
+    final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(
             this.databaseType, pageTrx, indexDef.getType(), indexDef.getID());
 
-    return new PathIndexBuilder(avlTreeWriter, pathSummary, paths);
+    return new PathIndexBuilder(rbTreeWriter, pathSummary, paths);
   }
 }

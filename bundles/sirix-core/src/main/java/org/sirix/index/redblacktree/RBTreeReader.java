@@ -34,7 +34,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * Simple AVLTreeReader (balanced binary search-tree -- based on BaseX(.org) version).
+ * Simple Red-black tree reader (balanced binary search-tree -- based on BaseX(.org) version).
  *
  * @param <K> the key to search for or insert
  * @param <V> the value

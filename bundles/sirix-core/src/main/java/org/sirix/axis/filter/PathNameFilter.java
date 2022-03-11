@@ -32,10 +32,10 @@ import org.sirix.index.path.summary.PathSummaryReader;
 public final class PathNameFilter extends AbstractFilter<PathSummaryReader> {
 
   /** Key of local name to test. */
-  private final int mLocalNameKey;
+  private final int localNameKey;
 
   /** Key of prefix to test. */
-  private final int mPrefixKey;
+  private final int prefixKey;
 
   /**
    * Default constructor.
@@ -45,10 +45,10 @@ public final class PathNameFilter extends AbstractFilter<PathSummaryReader> {
    */
   public PathNameFilter(final PathSummaryReader rtx, final QNm name) {
     super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
+    prefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
         ? -1
         : rtx.keyForName(name.getPrefix());
-    mLocalNameKey = rtx.keyForName(name.getLocalName());
+    localNameKey = rtx.keyForName(name.getLocalName());
   }
 
   /**
@@ -61,19 +61,19 @@ public final class PathNameFilter extends AbstractFilter<PathSummaryReader> {
     super(rtx);
     final int index = name.indexOf(":");
     if (index != -1) {
-      mPrefixKey = rtx.keyForName(name.substring(0, index));
+      prefixKey = rtx.keyForName(name.substring(0, index));
     } else {
-      mPrefixKey = -1;
+      prefixKey = -1;
     }
 
-    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
+    localNameKey = rtx.keyForName(name.substring(index + 1));
   }
 
   @Override
   public boolean filter() {
     boolean returnVal = false;
     if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+      returnVal = (getTrx().getLocalNameKey() == localNameKey && getTrx().getPrefixKey() == prefixKey);
     }
     return returnVal;
   }

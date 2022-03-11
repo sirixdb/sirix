@@ -5,6 +5,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+
+import org.brackit.xquery.atomic.Str;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.FragmentHelper;
@@ -62,7 +64,11 @@ public final class Indexes implements Materializable {
               childName);
         }
 
-        final IndexDef indexDefinition = new IndexDef();
+        final Node<?> dbTypeAttrNode = child.getAttribute(new QNm("dbType"));
+
+        final var dbType = IndexDef.DbType.ofString(dbTypeAttrNode.atomize().asStr().toString());
+
+        final IndexDef indexDefinition = new IndexDef(dbType.orElseThrow(() -> new DocumentException("DB type not found.")));
         indexDefinition.init(child);
         indexes.add(indexDefinition);
       }

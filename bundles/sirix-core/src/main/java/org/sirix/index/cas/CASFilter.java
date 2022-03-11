@@ -76,8 +76,7 @@ public final class CASFilter implements Filter {
   @Override
   public <K extends Comparable<? super K>> boolean filter(final RBNode<K, NodeReferences> node) {
     final K key = node.getKey();
-    if (key instanceof CASValue) {
-      final CASValue casValue = (CASValue) key;
+    if (key instanceof final CASValue casValue) {
       return pathFilter.filter(node) && (this.key == null || mode.compare(this.key, casValue.getAtomicValue()) == 0);
     }
     return true;
