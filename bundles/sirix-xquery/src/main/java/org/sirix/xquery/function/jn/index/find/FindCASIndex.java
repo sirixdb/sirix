@@ -11,6 +11,7 @@ import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.Namespaces;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathParser;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Type;
@@ -63,7 +64,7 @@ public final class FindCASIndex extends AbstractFunction {
 
     final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
     final Type type = sctx.getTypes().resolveAtomicType(name);
-    final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
+    final Path<QNm> path = Path.parse(((Str) args[2]).stringValue(), PathParser.Type.JSON);
     final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
 
     return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));

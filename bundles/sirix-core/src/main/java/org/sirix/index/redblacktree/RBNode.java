@@ -16,7 +16,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * AVLNode which is mutable.
+ * Red-black tree node which is mutable.
  *
  * @author Johannes Lichtenberger
  */

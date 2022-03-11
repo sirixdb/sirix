@@ -88,13 +88,13 @@ public final class CreateCASIndex extends AbstractFunction {
       final Iter it = args[2].iterate();
       Item next = it.next();
       while (next != null) {
-        paths.add(Path.parse(((Str) next).stringValue()));
+        paths.add(Path.parse(((Str) next).stringValue(), org.brackit.xquery.util.path.PathParser.Type.JSON));
         next = it.next();
       }
     }
 
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
+        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS), IndexDef.DbType.JSON);
     try {
       controller.createIndexes(Set.of(idxDef), wtx);
     } catch (final SirixIOException e) {

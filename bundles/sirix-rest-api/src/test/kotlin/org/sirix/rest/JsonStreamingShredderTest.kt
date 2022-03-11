@@ -7,12 +7,19 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
+import org.sirix.api.Database
+import org.sirix.api.json.JsonResourceManager
+import org.sirix.JsonTestHelper
+import org.sirix.service.InsertPosition
 import org.sirix.service.json.serialize.JsonSerializer
+import org.sirix.service.json.shredder.JsonShredder
+import org.skyscreamer.jsonassert.JSONAssert
+import java.io.IOException
 import java.io.StringWriter
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Test the JSON streamin shredder (indirectly also the JSON serializer).
@@ -20,6 +27,8 @@ import java.util.concurrent.TimeUnit
 class JsonStreamingShredderTest {
 
     private val databaseDirectory: Path = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
+
+    private val JSON = Paths.get("src", "test", "resources", "json")
 
     @BeforeEach
     fun setup() {
@@ -33,7 +42,7 @@ class JsonStreamingShredderTest {
 
     @Test
     fun testSimpleObject() {
-        test(
+        testString(
             """
              {"foo":"bar"}
              """.trimIndent()
@@ -42,7 +51,7 @@ class JsonStreamingShredderTest {
 
     @Test
     fun testComplex1() {
-        test(
+        testString(
             """
             {"generic":1,"location":{"state":"NY","ddd":{"sssss":[]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
             """.trimIndent()
@@ -51,7 +60,7 @@ class JsonStreamingShredderTest {
 
     @Test
     fun testComplex2() {
-        test(
+        testString(
             """
             {"generic":1,"location":{"state":"NY","ddd":{"sssss":[[],[],{"tada":true}]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}
             """.trimIndent()
@@ -60,14 +69,19 @@ class JsonStreamingShredderTest {
 
     @Test
     fun testComplex3() {
-        test(
+        testString(
             """
                 {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
             """.trimIndent()
         )
     }
 
-    private fun test(json: String) {
+    @Test
+    fun test() {
+        testJsonFile("copperfield-book.json")
+    }
+
+    private fun testString(json: String) {
         Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
@@ -93,6 +107,32 @@ class JsonStreamingShredderTest {
                 serializer.call()
             }
             assertEquals(json, writer.toString())
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun testJsonFile(jsonFile: String) {
+        val jsonPath: Path = JSON.resolve(jsonFile)
+        val database: Database<JsonResourceManager> =
+            JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())
+        database.openResourceManager(JsonTestHelper.RESOURCE).use { manager ->
+            manager.beginNodeTrx().use { trx ->
+                StringWriter().use { writer ->
+                    val shredder = JsonShredder.Builder(
+                        trx,
+                        JsonShredder.createFileReader(jsonPath),
+                        InsertPosition.AS_FIRST_CHILD
+                    ).commitAfterwards().build()
+                    shredder.call()
+                    val serializer =
+                        JsonSerializer.Builder(manager, writer).build()
+                    serializer.call()
+                    val expected =
+                        Files.readString(jsonPath, StandardCharsets.UTF_8)
+                    val actual = writer.toString()
+                    JSONAssert.assertEquals(expected, actual, true)
+                }
+            }
         }
     }
 }

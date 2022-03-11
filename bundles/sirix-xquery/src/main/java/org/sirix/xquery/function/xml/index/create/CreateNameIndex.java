@@ -1,8 +1,6 @@
 package org.sirix.xquery.function.xml.index.create;
 
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -20,11 +18,13 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
-import org.sirix.index.IndexDefs.NameIndexType;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.XmlDBNode;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Function for creating name indexes on stored documents, optionally restricted to a set of
@@ -89,7 +89,7 @@ public final class CreateNameIndex extends AbstractFunction {
     }
 
     final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), NameIndexType.XML);
+        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), IndexDef.DbType.XML);
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), wtx);
     } catch (final SirixIOException e) {

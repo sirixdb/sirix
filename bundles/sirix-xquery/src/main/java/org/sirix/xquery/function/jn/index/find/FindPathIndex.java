@@ -10,6 +10,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathParser;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.json.JsonIndexController;
@@ -57,7 +58,7 @@ public final class FindPathIndex extends AbstractFunction {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
     }
 
-    final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
+    final Path<QNm> path = Path.parse(((Str) args[1]).stringValue(), PathParser.Type.JSON);
     final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(path);
 
     return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));

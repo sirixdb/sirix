@@ -162,11 +162,13 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
     if (!stringPaths.isEmpty()) {
       for (final String path : stringPaths) {
-        paths.add(Path.parse(path));
+        paths.add(parsePath(path));
       }
     }
     return new CASFilter(paths, key, mode, pcrCollector);
   }
+
+  protected abstract Path<QNm> parsePath(String path);
 
   @Override
   public CASFilterRange createCASFilterRange(final Set<String> thePaths, final Atomic min, final Atomic max,
@@ -174,7 +176,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     final Set<Path<QNm>> paths = new HashSet<>(thePaths.size());
     if (thePaths.size() > 0) {
       for (final String path : thePaths) {
-        paths.add(Path.parse(path));
+        paths.add(parsePath(path));
       }
     }
     return new CASFilterRange(paths, min, max, incMin, incMax, pcrCollector);

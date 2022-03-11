@@ -56,7 +56,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
 
     final IndexDef idxDef =
-        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/@foobar")), 0);
+        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/@foobar")), 0, IndexDef.DbType.XML);
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
 
@@ -144,7 +144,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
 
     final IndexDef idxDef =
-        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/blabla")), 0);
+        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/blabla")), 0, IndexDef.DbType.XML);
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
 

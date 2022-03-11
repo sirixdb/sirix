@@ -13,7 +13,7 @@ import org.sirix.node.NodeKind;
 public final class PathKindFilter extends AbstractFilter<PathSummaryReader> {
 
   /** Type to filter. */
-  private NodeKind mType;
+  private NodeKind type;
 
   /**
    * Constructor. Initializes the internal state.
@@ -24,11 +24,11 @@ public final class PathKindFilter extends AbstractFilter<PathSummaryReader> {
   public PathKindFilter(final PathSummaryReader rtx, final NodeKind type) {
     super(rtx);
     checkArgument(rtx instanceof PathSummaryReader);
-    mType = type;
+    this.type = type;
   }
 
   @Override
   public boolean filter() {
-    return mType == getTrx().getPathKind();
+    return type == getTrx().getPathKind();
   }
 }

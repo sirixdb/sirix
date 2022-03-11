@@ -2,6 +2,7 @@ package org.sirix.access.trx.node.xml;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathParser;
 import org.sirix.access.trx.node.AbstractIndexController;
 import org.sirix.api.PageTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -52,6 +53,11 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   }
 
   @Override
+  protected Path<QNm> parsePath(String path) {
+    return Path.parse(path, PathParser.Type.XML);
+  }
+
+  @Override
   public XmlIndexController createIndexes(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
@@ -98,7 +104,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   public PathFilter createPathFilter(final Set<String> stringPaths, final XmlNodeReadOnlyTrx rtx) {
     final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
     for (final String path : stringPaths) {
-      paths.add(Path.parse(path));
+      paths.add(Path.parse(path, PathParser.Type.XML));
     }
     return new PathFilter(paths, new XmlPCRCollector(rtx));
   }

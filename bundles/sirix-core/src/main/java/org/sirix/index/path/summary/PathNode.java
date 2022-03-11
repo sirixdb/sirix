@@ -108,8 +108,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
       } else {
         final QNm name;
         if (reader.getPathKind() == NodeKind.OBJECT_KEY) {
-          name = new QNm(null, null, reader.getName().getLocalName().replace("/", "\\/"));
-          path.child(name);
+          name = new QNm(null, null, reader.getName().getLocalName());
+          path.childObjectField(name);
         } else if (reader.getPathKind() == NodeKind.ARRAY) {
           path.childArray();
         } else {

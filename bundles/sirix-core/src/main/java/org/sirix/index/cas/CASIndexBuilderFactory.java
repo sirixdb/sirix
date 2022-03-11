@@ -20,12 +20,12 @@ public final class CASIndexBuilderFactory {
 
   public CASIndexBuilder create(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var avlTreeWriter =
+    final var rbTreeWriter =
         RBTreeWriter.<CASValue, NodeReferences>getInstance(this.databaseType, pageTrx, indexDef.getType(), indexDef.getID());
     final var pathSummary = checkNotNull(pathSummaryReader);
     final var paths = checkNotNull(indexDef.getPaths());
     final var type = checkNotNull(indexDef.getContentType());
 
-    return new CASIndexBuilder(avlTreeWriter, pathSummary, paths, type);
+    return new CASIndexBuilder(rbTreeWriter, pathSummary, paths, type);
   }
 }
