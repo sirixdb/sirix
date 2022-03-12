@@ -1004,25 +1004,25 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("expectedOutput")));
   }
 
-//  @Test
-//  public void testCreateAndScanCASIndex3() throws IOException {
-//    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("copperfield-book.json").toUri();
-//    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
-//    final String indexQuery = """
-//        let $doc := jn:doc('mycol.jn','mydoc.jn')
-//        let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
-//        return {"revision": sdb:commit($doc)}
-//        """.strip();
-//    final String findAndScanPathIndexQuery = """
-//        let $doc := jn:doc('mycol.jn','mydoc.jn')
-//        let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//@context')
-//        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'http://iiif.io/api/search/0/context.json', 0, ())
-//        order by sdb:revision($node), sdb:nodekey($node)
-//        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
-//        """.strip();
-//    test(storeQuery,
-//         indexQuery,
-//         findAndScanPathIndexQuery,
-//         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("expectedOutput")));
-//  }
+  @Test
+  public void testCreateAndScanCASIndex3() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("copperfield-book.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
+        return {"revision": sdb:commit($doc)}
+        """.strip();
+    final String findAndScanPathIndexQuery = """
+        let $doc := jn:doc('mycol.jn','mydoc.jn')
+        let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//@context')
+        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'http://iiif.io/api/search/0/context.json', 0, ())
+        order by sdb:revision($node), sdb:nodekey($node)
+        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+        """.strip();
+    test(storeQuery,
+         indexQuery,
+         findAndScanPathIndexQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("expectedOutput")));
+  }
 }
