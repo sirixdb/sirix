@@ -39,7 +39,7 @@ public class Paths {
         } else {
           indexesDeque.removeLast();
         }
-      } else if (step.getAxis() == Path.Axis.CHILD && step.getValue().equals(new QNm(pathSegment))) {
+      } else if (step.getAxis() == Path.Axis.CHILD_OBJECT_FIELD && step.getValue().equals(new QNm(pathSegment))) {
         if (currentPathSegmentNames.isEmpty()) {
           pathSegment = null;
         } else {

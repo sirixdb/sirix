@@ -41,7 +41,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
       if (Path.Axis.CHILD_ARRAY.equals(step.getAxis())) {
         level++;
-      } else if (step.getAxis() == Path.Axis.CHILD && step.getValue().equals(new QNm(pathSegment))) {
+      } else if (step.getAxis() == Path.Axis.CHILD_OBJECT_FIELD && step.getValue().equals(new QNm(pathSegment))) {
         level++;
 
         if (predicateSegmentNames.isEmpty()) {
@@ -50,9 +50,9 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
           pathSegment = predicateSegmentNames.removeFirst();
         }
       } else if (pathSegment == null) {
-        if (pathSteps.get(i + 1).getAxis() == Path.Axis.CHILD_ARRAY) {
-          level--;
-        }
+//        if (pathSteps.get(i + 1).getAxis() == Path.Axis.CHILD_ARRAY) {
+//          level--;
+//        }
         break;
       }
     }

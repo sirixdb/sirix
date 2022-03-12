@@ -616,6 +616,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         path.attribute(getName());
       } else if (pathNode.getPathKind() == NodeKind.ARRAY) {
         path.childArray();
+      } else if (pathNode.getPathKind() == NodeKind.OBJECT_KEY) {
+        path.childObjectField(getName());
       } else {
         path.child(getName());
       }

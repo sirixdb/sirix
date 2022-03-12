@@ -368,7 +368,7 @@ public final class IndexExpr implements Expr {
                 rtx.moveToParent();
               }
 
-              if (rtx.isObject() && i - 1 > 0 && steps.get(i - 1).getAxis() == Path.Axis.CHILD) {
+              if (rtx.isObject() && i - 1 > 0 && steps.get(i - 1).getAxis() == Path.Axis.CHILD_OBJECT_FIELD) {
                 rtx.moveToParent();
               }
             }
