@@ -140,7 +140,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       AST predicateLeafNode, Deque<String> predicateSegmentNames) {
     if (predicateLeafNode != null && predicateLeafNode.getType() == XQ.ContextItemExpr
         && predicateLeafNode.getParent().getType() == XQ.ArrayAccess && !predicateSegmentNames.isEmpty()) {
-      predicateSegmentNames.removeFirst();
+      predicateSegmentNames.removeLast();
     }
   }
 

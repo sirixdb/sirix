@@ -904,6 +904,21 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
          Files.readString(JSON_RESOURCE_PATH.resolve("testNesting31").resolve("expectedOutput")));
   }
 
+  // Doesn't use the index yet, but it should be possible to use it.
+  @Test
+  public void testNesting32() throws IOException {
+    final URI docUri = JSON_RESOURCE_PATH.resolve("testNesting32").resolve("multiple-revisions.json").toUri();
+    final String storeQuery = String.format("jn:load('mycol.jn','mydoc.jn','%s')", docUri);
+    final String indexQuery =
+        "let $doc := jn:doc('mycol.jn','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "let $result := jn:doc('mycol.jn','mydoc.jn')=>sirix[[2]]=>revision=>tada[[4]][.[]=>foo[[1]]=>baz = 'bar'] return $result";
+    test(storeQuery,
+         indexQuery,
+         openQuery,
+         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting32").resolve("expectedOutput")));
+  }
+
   @Test
   public void testCreateAndScanNameIndex() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("multiple-revisions.json").toUri();
