@@ -376,7 +376,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(indexLogKey.getRecordPageKey(),
-                                                                                   indexLogKey.getIndex(),
+                                                                                   indexLogKey.getIndexNumber(),
                                                                                    checkNotNull(indexLogKey.getIndexType()));
 
     return pageReferenceToRecordPage.map(pageReference -> {
@@ -386,14 +386,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (trxIntentLog == null) {
         if (page != null) {
           mostRecentlyReadRecordPage =
-              new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
+              new RecordPage(indexLogKey.getIndexNumber(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
           return page;
         }
 
         final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReference);
 
         if (recordPageFromBuffer != null) {
-          mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
+          mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                                       indexLogKey.getIndexType(),
                                                       indexLogKey.getRecordPageKey(),
                                                       recordPageFromBuffer);
@@ -423,7 +423,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         pageReference.setPage(completePage);
       }
 
-      mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(),
+      mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                                   indexLogKey.getIndexType(),
                                                   indexLogKey.getRecordPageKey(),
                                                   completePage);
@@ -435,7 +435,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private boolean isMostRecentlyReadPage(IndexLogKey indexLogKey) {
     return mostRecentlyReadRecordPage != null
         && mostRecentlyReadRecordPage.recordPageKey() == indexLogKey.getRecordPageKey()
-        && mostRecentlyReadRecordPage.index() == indexLogKey.getIndex()
+        && mostRecentlyReadRecordPage.index() == indexLogKey.getIndexNumber()
         && mostRecentlyReadRecordPage.indexType() == indexLogKey.getIndexType();
   }
 
