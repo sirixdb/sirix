@@ -42,7 +42,7 @@ public final class ElementFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
   }
 
   @Override
-  public final boolean filter() {
+  public boolean filter() {
     return getTrx().getKind() == NodeKind.ELEMENT;
   }
 }

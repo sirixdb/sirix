@@ -95,7 +95,7 @@ public class ExceptAxis extends AbstractAxis {
 
     // first all items of the second operand are stored in the set.
     while (mOp2.hasNext()) {
-      mKey = mOp2.next();
+      key = mOp2.next();
       if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
@@ -104,7 +104,7 @@ public class ExceptAxis extends AbstractAxis {
     }
 
     while (mOp1.hasNext()) {
-      mKey = mOp1.next();
+      key = mOp1.next();
       if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);

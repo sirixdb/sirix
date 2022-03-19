@@ -56,7 +56,7 @@ public class VarRefExpr extends AbstractExpression implements IObserver {
   public void evaluate() {
     // Assure that the transaction is set to the current context item of the
     // variable's binding sequence.
-    mKey = mVarKey;
+    key = mVarKey;
   }
 
 }

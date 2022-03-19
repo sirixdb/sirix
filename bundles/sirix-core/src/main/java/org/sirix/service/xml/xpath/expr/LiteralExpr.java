@@ -46,7 +46,7 @@ public class LiteralExpr extends AbstractExpression {
   @Override
   public void evaluate() {
     // Set transaction to literal.
-    mKey = mLiteralKey;
+    key = mLiteralKey;
   }
 
 }

@@ -39,19 +39,19 @@ import org.sirix.service.xml.xpath.EXPathError;
 public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
 
   /** First operand sequence. */
-  private final ConcurrentAxis<R> mOp1;
+  private final ConcurrentAxis<R> op1;
 
   /** Second operand sequence. */
-  private final ConcurrentAxis<R> mOp2;
+  private final ConcurrentAxis<R> op2;
 
   /** First run. */
-  private boolean mFirst;
+  private boolean first;
 
   /** Result from first axis. */
-  private long mCurrentResult1;
+  private long currentResult1;
 
   /** Result from second axis. */
-  private long mCurrentResult2;
+  private long currentResult2;
 
   /**
    * Constructor. Initializes the internal state.
@@ -63,75 +63,70 @@ public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> e
    */
   public ConcurrentUnionAxis(final R rtx, final Axis operand1, final Axis operand2) {
     super(rtx);
-    mOp1 = new ConcurrentAxis<>(rtx, operand1);
-    mOp2 = new ConcurrentAxis<>(rtx, operand2);
-    mFirst = true;
+    op1 = new ConcurrentAxis<>(rtx, operand1);
+    op2 = new ConcurrentAxis<>(rtx, operand2);
+    first = true;
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
 
-    if (mOp1 != null) {
-      mOp1.reset(nodeKey);
+    if (op1 != null) {
+      op1.reset(nodeKey);
     }
-    if (mOp2 != null) {
-      mOp2.reset(nodeKey);
+    if (op2 != null) {
+      op2.reset(nodeKey);
     }
 
-    mFirst = true;
+    first = true;
   }
 
   @Override
   protected long nextKey() {
-    if (mFirst) {
-      mFirst = false;
-      mCurrentResult1 = Util.getNext(mOp1);
-      mCurrentResult2 = Util.getNext(mOp2);
+    if (first) {
+      first = false;
+      currentResult1 = Util.getNext(op1);
+      currentResult2 = Util.getNext(op2);
     }
 
     final long nodeKey;
 
-    // if both operands have results left return the smallest value (doc
-    // order)
-    if (!mOp1.isFinished()) {
-      if (!mOp2.isFinished()) {
-        if (mCurrentResult1 < mCurrentResult2) {
-          nodeKey = mCurrentResult1;
-          mCurrentResult1 = Util.getNext(mOp1);
-        } else if (mCurrentResult1 > mCurrentResult2) {
-          nodeKey = mCurrentResult2;
-          mCurrentResult2 = Util.getNext(mOp2);
+    // if both operands have results left return the smallest value (doc order)
+    if (!op1.isFinished()) {
+      if (!op2.isFinished()) {
+        if (currentResult1 < currentResult2) {
+          nodeKey = currentResult1;
+          currentResult1 = Util.getNext(op1);
+        } else if (currentResult1 > currentResult2) {
+          nodeKey = currentResult2;
+          currentResult2 = Util.getNext(op2);
         } else {
           // return only one of the values (prevent duplicates)
-          nodeKey = mCurrentResult2;
-          mCurrentResult1 = Util.getNext(mOp1);
-          mCurrentResult2 = Util.getNext(mOp2);
+          nodeKey = currentResult2;
+          currentResult1 = Util.getNext(op1);
+          currentResult2 = Util.getNext(op2);
         }
 
         if (nodeKey < 0) {
-          try {
-            throw EXPathError.XPTY0004.getEncapsulatedException();
-          } catch (final SirixXPathException mExp) {
-            mExp.printStackTrace();
-          }
+          throw EXPathError.XPTY0004.getEncapsulatedException();
         }
         return nodeKey;
       }
 
       // only operand1 has results left, so return all of them
-      nodeKey = mCurrentResult1;
+      nodeKey = currentResult1;
       if (Util.isValid(nodeKey)) {
-        mCurrentResult1 = Util.getNext(mOp1);
+        currentResult1 = Util.getNext(op1);
         return nodeKey;
       }
       // should never come here!
       throw new IllegalStateException(nodeKey + " is not valid!");
-    } else if (!mOp2.isFinished()) {
+    } else if (!op2.isFinished()) {
       // only operand2 has results left, so return all of them
-      nodeKey = mCurrentResult2;
+      nodeKey = currentResult2;
       if (Util.isValid(nodeKey)) {
-        mCurrentResult2 = Util.getNext(mOp2);
+        currentResult2 = Util.getNext(op2);
         return nodeKey;
       }
       // should never come here!

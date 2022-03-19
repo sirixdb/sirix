@@ -27,18 +27,18 @@ public class PathSummaryTest {
   @Test
   public void testInsertTestDocument() {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var pathSummary = manager.openPathSummary()) {
-//       final var pathSummaryAxis = new DescendantAxis(pathSummary);
-//
-//       while (pathSummaryAxis.hasNext()) {
-//         pathSummaryAxis.next();
-//
-//         System.out.println("nodeKey: " + pathSummary.getNodeKey());
-//         System.out.println("path: " + pathSummary.getPath());
-//         System.out.println("references: " + pathSummary.getReferences());
-//         System.out.println("level: " + pathSummary.getLevel());
-//       }
+         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var pathSummary = manager.openPathSummary()) {
+      final var pathSummaryAxis = new DescendantAxis(pathSummary);
+
+      while (pathSummaryAxis.hasNext()) {
+        pathSummaryAxis.next();
+
+        System.out.println("nodeKey: " + pathSummary.getNodeKey());
+        System.out.println("path: " + pathSummary.getPath());
+        System.out.println("references: " + pathSummary.getReferences());
+        System.out.println("level: " + pathSummary.getLevel());
+      }
 
       testInsertHelper(pathSummary);
     }

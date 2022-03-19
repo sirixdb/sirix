@@ -92,7 +92,7 @@ public class IntersectAxis extends AbstractAxis {
 
     // store all item keys of the first sequence to the set.
     while (mOp1.hasNext()) {
-      mKey = mOp1.next();
+      key = mOp1.next();
       if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
@@ -102,7 +102,7 @@ public class IntersectAxis extends AbstractAxis {
     }
 
     while (mOp2.hasNext()) {
-      mKey = mOp2.next();
+      key = mOp2.next();
 
       if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed

@@ -97,7 +97,7 @@ public class DupFilterAxis extends AbstractAxis {
         // mKey = mAxis.next();
         // } else {
         mAxis.next();
-        mKey = mAxis.asXdmNodeReadTrx().getNodeKey();
+        key = mAxis.asXdmNodeReadTrx().getNodeKey();
         // }
 
         // add current item key to the set. If true is returned the item is

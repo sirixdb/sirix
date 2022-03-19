@@ -18,23 +18,21 @@ import org.sirix.xquery.json.JsonItemFactory;
 
 public final class SirixJsonItemKeyStream implements Stream<Item> {
 
+  private static final JsonItemFactory itemFactory = new JsonItemFactory();
+
   private final Iterator<NodeReferences> iter;
 
   private final JsonDBCollection collection;
 
   private final JsonNodeReadOnlyTrx rtx;
 
-  private final JsonItemFactory itemFactory;
-
   private Iterator<Long> nodeKeys;
-
 
   public SirixJsonItemKeyStream(final Iterator<NodeReferences> iter, final JsonDBCollection collection,
       final JsonNodeReadOnlyTrx rtx) {
     this.iter = checkNotNull(iter);
     this.collection = checkNotNull(collection);
     this.rtx = checkNotNull(rtx);
-    itemFactory = new JsonItemFactory();
   }
 
   @Override

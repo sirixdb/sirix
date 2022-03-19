@@ -100,12 +100,12 @@ public abstract class AbstractComparator extends AbstractAxis {
        * them. At the end, the transaction is set to the retrieved result item.
        */
       if (mOperand1.hasNext()) {
-        mKey = mOperand1.next();
+        key = mOperand1.next();
         try {
           // atomize operands
           final AtomicValue[] operandOne = atomize(mOperand1);
           if (mOperand2.hasNext()) {
-            mKey = mOperand2.next();
+            key = mOperand2.next();
             final AtomicValue[] operandTwo = atomize(mOperand2);
 
             hook(operandOne, operandTwo);
@@ -116,7 +116,7 @@ public abstract class AbstractComparator extends AbstractAxis {
 
               // add retrieved AtomicValue to item list
               final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
-              mKey = itemKey;
+              key = itemKey;
             } catch (SirixXPathException e) {
               throw new RuntimeException(e);
             }

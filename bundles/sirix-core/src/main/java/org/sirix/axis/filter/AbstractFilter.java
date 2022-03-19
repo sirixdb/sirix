@@ -36,7 +36,7 @@ import com.google.common.base.Predicate;
 public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> implements Filter<R>, Predicate<Long> {
 
   /** Iterate over transaction exclusive to this step. */
-  private R mRtx;
+  private R rtx;
 
   /**
    * Bind axis step to transaction.
@@ -44,17 +44,17 @@ public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> imp
    * @param rtx transaction to operate with
    */
   protected AbstractFilter(final R rtx) {
-    mRtx = checkNotNull(rtx);
+    this.rtx = checkNotNull(rtx);
   }
 
   @Override
   public final R getTrx() {
-    return mRtx;
+    return rtx;
   }
 
   @Override
   public void setTrx(R rtx) {
-    mRtx = checkNotNull(rtx);
+    this.rtx = checkNotNull(rtx);
   }
 
   @Override
@@ -62,7 +62,7 @@ public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> imp
 
   @Override
   public boolean apply(final @Nullable Long nodeKey) {
-    mRtx.moveTo(checkNotNull(nodeKey));
+    rtx.moveTo(checkNotNull(nodeKey));
     return filter();
   }
 }

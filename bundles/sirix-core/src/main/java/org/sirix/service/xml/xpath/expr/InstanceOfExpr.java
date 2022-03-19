@@ -79,7 +79,7 @@ public class InstanceOfExpr extends AbstractExpression {
     boolean isInstanceOf;
 
     if (mInputExpr.hasNext()) {
-      mKey = mInputExpr.next();
+      key = mInputExpr.next();
       if (mSequenceType.isEmptySequence()) {
         isInstanceOf = false;
       } else {
@@ -93,7 +93,7 @@ public class InstanceOfExpr extends AbstractExpression {
             // intermediate
             // result are no longer used, it might be not that bad
             while (mInputExpr.hasNext() && isInstanceOf) {
-              mKey = mInputExpr.next();
+              key = mInputExpr.next();
               isInstanceOf = isInstanceOf && mSequenceType.getFilter().filter();
             }
             break;
@@ -112,7 +112,7 @@ public class InstanceOfExpr extends AbstractExpression {
     final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)),
             asXdmNodeReadTrx().keyForName("xs:boolean")));
-    mKey = itemKey;
+    key = itemKey;
 
   }
 

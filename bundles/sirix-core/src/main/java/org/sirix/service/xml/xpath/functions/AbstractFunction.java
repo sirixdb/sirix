@@ -139,7 +139,7 @@ public abstract class AbstractFunction extends AbstractExpression {
 
     // create an atomic value, add it to the list and move the cursor to it.
     final int itemKey = asXdmNodeReadTrx().getItemList().addItem(new AtomicValue(value, mReturnType));
-    mKey = itemKey;
+    key = itemKey;
 
   }
 

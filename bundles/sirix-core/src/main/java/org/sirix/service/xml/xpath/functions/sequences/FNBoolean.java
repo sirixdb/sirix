@@ -70,7 +70,7 @@ public class FNBoolean extends AbstractFunction {
     boolean value = false;
 
     if (axis.hasNext()) {
-      mKey = axis.next();
+      key = axis.next();
 
       final XmlNodeReadOnlyTrx rtx = axis.asXdmNodeReadTrx();
 

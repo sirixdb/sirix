@@ -79,7 +79,7 @@ public class SequenceAxis extends AbstractAxis {
 
     if (mCurrent != null) {
       if (mCurrent.hasNext()) {
-        mKey = mCurrent.next();
+        key = mCurrent.next();
         return true;
       } else {
         // // necessary, because previous hasNext() changes state
@@ -95,7 +95,7 @@ public class SequenceAxis extends AbstractAxis {
       mCurrent.reset(asXdmNodeReadTrx().getNodeKey());
       // mCurrent.resetToLastKey();
       if (mCurrent.hasNext()) {
-        mKey = mCurrent.next();
+        key = mCurrent.next();
         return true;
       }
     }
