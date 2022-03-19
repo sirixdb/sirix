@@ -34,7 +34,7 @@ import org.sirix.axis.filter.AbstractFilter;
 public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   /** Key of local name to test. */
-  private final QNm mName;
+  private final QNm name;
 
   /**
    * Default constructor.
@@ -45,7 +45,7 @@ public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
   public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
 
-    mName = name;
+    this.name = name;
   }
 
   /**
@@ -57,7 +57,7 @@ public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
   public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final String name) {
     super(rtx);
 
-    mName = new QNm(name);
+    this.name = new QNm(name);
   }
 
   @Override
@@ -65,7 +65,7 @@ public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
     final JsonNodeReadOnlyTrx rtx = getTrx();
 
     return rtx.isObjectKey()
-        ? mName.equals(rtx.getName())
+        ? name.equals(rtx.getName())
         : false;
   }
 }

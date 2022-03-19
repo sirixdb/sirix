@@ -32,13 +32,13 @@ import org.sirix.api.Axis;
 public final class NestedAxis extends AbstractAxis {
 
   /** Parent axis. */
-  private final Axis mParentAxis;
+  private final Axis parentAxis;
 
   /** Child axis to apply to each node found with parent axis. */
-  private final Axis mChildAxis;
+  private final Axis childAxis;
 
   /** Is it the first run of parent axis? */
-  private boolean mIsFirst;
+  private boolean isFirst;
 
   /**
    * Constructor initializing internal state.
@@ -48,46 +48,46 @@ public final class NestedAxis extends AbstractAxis {
    */
   public NestedAxis(final Axis parentAxis, final Axis childAxis) {
     super(parentAxis.getCursor());
-    mParentAxis = checkNotNull(parentAxis);
-    mChildAxis = checkNotNull(childAxis);
-    mIsFirst = true;
+    this.parentAxis = checkNotNull(parentAxis);
+    this.childAxis = checkNotNull(childAxis);
+    isFirst = true;
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    if (mParentAxis != null) {
-      mParentAxis.reset(nodeKey);
+    if (parentAxis != null) {
+      parentAxis.reset(nodeKey);
     }
-    if (mChildAxis != null) {
-      mChildAxis.reset(nodeKey);
+    if (childAxis != null) {
+      childAxis.reset(nodeKey);
     }
-    mIsFirst = true;
+    isFirst = true;
   }
 
   @Override
   protected long nextKey() {
     // Make sure that parent axis is moved for the first time.
-    if (mIsFirst) {
-      mIsFirst = false;
-      if (mParentAxis.hasNext()) {
-        mChildAxis.reset(mParentAxis.next());
+    if (isFirst) {
+      isFirst = false;
+      if (parentAxis.hasNext()) {
+        childAxis.reset(parentAxis.next());
       } else {
         return done();
       }
     }
 
     // Execute child axis for each node found with parent axis.
-    boolean hasNext = false;
-    while (!(hasNext = mChildAxis.hasNext())) {
-      if (mParentAxis.hasNext()) {
-        mChildAxis.reset(mParentAxis.next());
+    boolean hasNext;
+    while (!(hasNext = childAxis.hasNext())) {
+      if (parentAxis.hasNext()) {
+        childAxis.reset(parentAxis.next());
       } else {
         break;
       }
     }
     if (hasNext) {
-      return mChildAxis.next();
+      return childAxis.next();
     }
 
     return done();

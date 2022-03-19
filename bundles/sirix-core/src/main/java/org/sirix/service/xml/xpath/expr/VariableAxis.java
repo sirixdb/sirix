@@ -72,7 +72,7 @@ public class VariableAxis extends AbstractAxis {
     resetToLastKey();
 
     if (mBindingSeq.hasNext()) {
-      mKey = mBindingSeq.next();
+      key = mBindingSeq.next();
       notifyObs();
       return true;
     }

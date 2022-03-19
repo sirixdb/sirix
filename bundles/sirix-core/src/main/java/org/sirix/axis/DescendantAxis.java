@@ -36,10 +36,10 @@ import org.sirix.settings.Fixed;
 public final class DescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> mRightSiblingKeyStack;
+  private Deque<Long> rightSiblingKeyStack;
 
   /** Determines if it's the first call to hasNext(). */
-  private boolean mFirst;
+  private boolean first;
 
   /**
    * Constructor initializing internal state.
@@ -63,19 +63,19 @@ public final class DescendantAxis extends AbstractAxis {
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<>();
+    first = true;
+    rightSiblingKeyStack = new ArrayDeque<>();
   }
 
   @Override
   protected long nextKey() {
-    long key = Fixed.NULL_NODE_KEY.getStandardProperty();
+    long key;
 
     final NodeCursor cursor = getCursor();
 
     // Determines if first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
+    if (first) {
+      first = false;
 
       if (includeSelf() == IncludeSelf.YES) {
         key = cursor.getNodeKey();
@@ -90,7 +90,7 @@ public final class DescendantAxis extends AbstractAxis {
     if (cursor.hasFirstChild()) {
       key = cursor.getFirstChildKey();
       if (cursor.hasRightSibling()) {
-        mRightSiblingKeyStack.push(cursor.getRightSiblingKey());
+        rightSiblingKeyStack.push(cursor.getRightSiblingKey());
       }
       return key;
     }
@@ -103,9 +103,9 @@ public final class DescendantAxis extends AbstractAxis {
     }
 
     // Then follow right sibling on stack.
-    if (mRightSiblingKeyStack.size() > 0) {
+    if (rightSiblingKeyStack.size() > 0) {
       final long currKey = cursor.getNodeKey();
-      key = mRightSiblingKeyStack.pop();
+      key = rightSiblingKeyStack.pop();
       return hasNextNode(key, currKey);
     }
 

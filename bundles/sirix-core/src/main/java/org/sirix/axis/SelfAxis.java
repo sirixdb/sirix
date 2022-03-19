@@ -21,7 +21,7 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.NodeCursor;
 
 /**
  * <p>
@@ -31,28 +31,28 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 public final class SelfAxis extends AbstractAxis {
 
   /** Track number of calls of next. */
-  private boolean mFirst;
+  private boolean first;
 
   /**
    * Constructor initializing internal state.
    * 
    * @param rtx exclusive (immutable) trx to iterate with
    */
-  public SelfAxis(final XmlNodeReadOnlyTrx rtx) {
+  public SelfAxis(final NodeCursor rtx) {
     super(rtx);
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
+    first = true;
   }
 
   @Override
   protected long nextKey() {
-    if (mFirst) {
-      mFirst = false;
-      return asXdmNodeReadTrx().getNodeKey();
+    if (first) {
+      first = false;
+      return getCursor().getNodeKey();
     }
 
     return done();

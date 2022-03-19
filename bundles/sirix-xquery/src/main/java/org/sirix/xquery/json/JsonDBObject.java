@@ -25,15 +25,19 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.json.JsonNameFilter;
 import org.sirix.axis.temporal.*;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.SirixJsonStream;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectStream;
 
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
 public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Object, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
+
+  private static final long CHILD_THRESHOLD = 1;
 
   /**
    * Sirix transaction.
@@ -55,7 +59,15 @@ public final class JsonDBObject extends AbstractItem
    */
   private final JsonItemFactory jsonItemFactory;
 
+  /**
+   * The field names mapped to sequences.
+   */
   private final Map<QNm, Sequence> fields;
+
+  /**
+   * Map with PCR <=> matching nodes.
+   */
+  private final Map<Long, BitSet> filterMap;
 
   /**
    * Constructor.
@@ -74,6 +86,7 @@ public final class JsonDBObject extends AbstractItem
     nodeKey = this.rtx.getNodeKey();
     jsonItemFactory = new JsonItemFactory();
     fields = new HashMap<>();
+    filterMap = new HashMap<>();
   }
 
   @Override
@@ -331,6 +344,12 @@ public final class JsonDBObject extends AbstractItem
   }
 
   private boolean findField(QNm field, JsonNodeTrx trx) {
+    moveRtx();
+    if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
+        && !hasMatchingPathNode(field)) {
+      return false;
+    }
+
     trx.moveToFirstChild();
 
     boolean isFound = false;
@@ -448,6 +467,12 @@ public final class JsonDBObject extends AbstractItem
     moveRtx();
 
     return fields.computeIfAbsent(field, (unused) -> {
+      if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
+          && !hasMatchingPathNode(field)) {
+        return null;
+      }
+
+      moveRtx();
       final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
 
       if (axis.hasNext()) {
@@ -458,6 +483,25 @@ public final class JsonDBObject extends AbstractItem
 
       return null;
     });
+  }
+
+  private boolean hasMatchingPathNode(QNm field) {
+    rtx.moveToParent();
+    final long pcr = rtx.isDocumentRoot() ? 0 : rtx.getPathNodeKey();
+    rtx.moveTo(nodeKey);
+    BitSet matches = filterMap.get(pcr);
+    if (matches == null) {
+      try (final PathSummaryReader reader = rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber())) {
+        if (pcr != 0) {
+          reader.moveTo(pcr);
+        }
+        final int level = reader.getLevel() + 1;
+        matches = reader.match(field, level);
+        filterMap.put(pcr, matches);
+      }
+    }
+    // No matches.
+    return matches.cardinality() != 0;
   }
 
   @Override
@@ -534,7 +578,7 @@ public final class JsonDBObject extends AbstractItem
       while (i < index && stream.next() != null) {
         i++;
       }
-      final var jsonItem = stream.next();
+      final var jsonItem = (JsonDBItem) stream.next();
 
       if (jsonItem != null) {
         return jsonItem.getTrx().getName();

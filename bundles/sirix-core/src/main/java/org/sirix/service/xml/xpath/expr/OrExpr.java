@@ -124,7 +124,7 @@ public class OrExpr extends AbstractExpression {
     final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(result)),
             asXdmNodeReadTrx().keyForName("xs:boolean")));
-    mKey = itemKey;
+    key = itemKey;
 
   }
 

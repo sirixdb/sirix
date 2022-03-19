@@ -60,11 +60,11 @@ public class NestedAxisTest {
 
     // XPath expression /p:a/b/text()
     // Part: /p:a
-    final Axis childA = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XmlNameFilter(rtx, "p:a"));
+    final Axis childA = new FilterAxis(new ChildAxis(rtx), new XmlNameFilter(rtx, "p:a"));
     // Part: /b
-    final Axis childB = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XmlNameFilter(rtx, "b"));
+    final Axis childB = new FilterAxis(new ChildAxis(rtx), new XmlNameFilter(rtx, "b"));
     // Part: /text()
-    final Axis text = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new TextFilter(rtx));
+    final Axis text = new FilterAxis(new ChildAxis(rtx), new TextFilter(rtx));
     // Part: /p:a/b/text()
     final Axis axis = new NestedAxis(new NestedAxis(childA, childB), text);
 

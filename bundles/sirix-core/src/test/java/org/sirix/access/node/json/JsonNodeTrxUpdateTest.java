@@ -43,7 +43,18 @@ public class JsonNodeTrxUpdateTest {
          final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
       new DescendantAxis(rtx).forEach(
-          nodeKey -> System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID()));
+          nodeKey -> {
+            if (rtx.isObjectKey()) {
+              System.out.print("name:" + rtx.getName() + " ");
+            }
+            else if (rtx.isObject()) {
+              System.out.print("object ");
+            }
+            else if (rtx.isArray()) {
+              System.out.print("array ");
+            }
+            System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID() + " level:" + rtx.getDeweyID().getLevel());
+          });
     }
   }
 

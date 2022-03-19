@@ -24,6 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
@@ -40,34 +41,34 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
 public class UnionAxis extends AbstractAxis {
 
   /** First operand sequence. */
-  private final Axis mOp1;
+  private final Axis op1;
 
   /** Second operand sequence. */
-  private final Axis mOp2;
+  private final Axis op2;
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx exclusive (immutable) trx to iterate with
+   * @param cursor exclusive (immutable) trx to iterate with
    * @param operand1 first operand
    * @param operand2 second operand
    */
-  public UnionAxis(final XmlNodeReadOnlyTrx rtx, @NonNull final Axis operand1,
+  public UnionAxis(final NodeCursor cursor, @NonNull final Axis operand1,
       @NonNull final Axis operand2) {
-    super(rtx);
-    mOp1 = checkNotNull(operand1);
-    mOp2 = checkNotNull(operand2);
+    super(cursor);
+    op1 = checkNotNull(operand1);
+    op2 = checkNotNull(operand2);
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
 
-    if (mOp1 != null) {
-      mOp1.reset(nodeKey);
+    if (op1 != null) {
+      op1.reset(nodeKey);
     }
-    if (mOp2 != null) {
-      mOp2.reset(nodeKey);
+    if (op2 != null) {
+      op2.reset(nodeKey);
     }
   }
 
@@ -75,28 +76,17 @@ public class UnionAxis extends AbstractAxis {
   public boolean hasNext() {
     resetToLastKey();
     // first return all values of the first operand
-    while (mOp1.hasNext()) {
-      mKey = mOp1.next();
-
-      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
-        // allowed
-        throw new XPathError(ErrorType.XPTY0004);
-      }
+    while (op1.hasNext()) {
+      key = op1.next();
       return true;
     }
 
     // then all values of the second operand.
-    while (mOp2.hasNext()) {
-      mKey = mOp2.next();
-
-      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
-        // allowed
-        throw new XPathError(ErrorType.XPTY0004);
-      }
+    while (op2.hasNext()) {
+      key = op2.next();
       return true;
     }
 
     return false;
   }
-
 }

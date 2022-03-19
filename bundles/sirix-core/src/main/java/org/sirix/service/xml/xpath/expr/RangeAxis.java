@@ -108,7 +108,7 @@ public class RangeAxis extends AbstractAxis {
       final int itemKey = asXdmNodeReadTrx().getItemList()
                                   .addItem(new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
                                       asXdmNodeReadTrx().keyForName("xs:integer")));
-      mKey = itemKey;
+      key = itemKey;
       mStart++;
       return true;
     } else {

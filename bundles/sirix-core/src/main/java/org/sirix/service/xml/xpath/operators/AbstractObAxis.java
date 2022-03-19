@@ -92,19 +92,19 @@ public abstract class AbstractObAxis extends AbstractAxis {
       mIsFirst = false;
 
       if (mOperand1.hasNext()) {
-        mKey = mOperand1.next();
+        key = mOperand1.next();
         // atomize operand
         final AtomicValue mItem1 = atomize(mOperand1);
 
         if (mOperand2.hasNext()) {
-          mKey = mOperand2.next();
+          key = mOperand2.next();
           // atomize operand
           final AtomicValue mItem2 = atomize(mOperand2);
           try {
             final AtomicValue result = (AtomicValue) operate(mItem1, mItem2);
             // add retrieved AtomicValue to item list
             final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
-            mKey = itemKey;
+            key = itemKey;
 
             return true;
           } catch (SirixXPathException e) {
@@ -116,7 +116,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
       if (XPATH_10_COMP) { // and empty sequence, return NaN
         final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
         final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
-        mKey = itemKey;
+        key = itemKey;
         return true;
       }
 

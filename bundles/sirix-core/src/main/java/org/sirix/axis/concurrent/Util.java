@@ -21,7 +21,7 @@ public final class Util {
    *         returned.
    */
   public static long getNext(final Axis axis) {
-    return (axis.hasNext()) ? axis.next() : Fixed.NULL_NODE_KEY.getStandardProperty();
+    return axis.hasNext() ? axis.next() : Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   /**

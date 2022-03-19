@@ -13,6 +13,58 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testDescendantDerefExprWithOnePathMatchAndChildMatch() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [{"blabla": "test blabla string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]==>test
+        """.stripIndent();
+    final String assertion = "\"test string\" [{\"blabla\":\"test blabla string\"}]";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "test blabla string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]==>test
+        """.stripIndent();
+    final String assertion = "\"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithDifferentPathsOnSameLevel() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"baz": [{"test": "test string"}]},{"foo": [{"test": "test blabla string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]==>test
+        """.stripIndent();
+    final String assertion = "\"test string\" \"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithDifferentPaths() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]==>test
+        """.stripIndent();
+    final String assertion = "\"test string\" [{\"test\":\"test string\"}] \"test string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testRenameFieldValue() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')

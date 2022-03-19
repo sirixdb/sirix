@@ -107,7 +107,7 @@ public class IfAxis extends AbstractAxis {
     }
 
     if (mResult.hasNext()) {
-      mKey = mResult.next();
+      key = mResult.next();
       return true;
     } else {
       resetToStartKey();

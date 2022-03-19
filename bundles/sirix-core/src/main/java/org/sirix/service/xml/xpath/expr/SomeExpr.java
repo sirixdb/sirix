@@ -81,10 +81,10 @@ public class SomeExpr extends AbstractExpression {
 
     for (final Axis axis : mVars) {
       while (axis.hasNext()) {
-        mKey = axis.next();
-        mSatisfy.reset(mKey);
+        key = axis.next();
+        mSatisfy.reset(key);
         if (mSatisfy.hasNext()) {
-          mKey = mSatisfy.next();
+          key = mSatisfy.next();
           // condition is satisfied for this item -> expression is
           // true
           satisfiesCond = true;
@@ -96,7 +96,7 @@ public class SomeExpr extends AbstractExpression {
     final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
             asXdmNodeReadTrx().keyForName("xs:boolean")));
-    mKey = itemKey;
+    key = itemKey;
 
   }
 
