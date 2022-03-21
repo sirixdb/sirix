@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -25,7 +25,6 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
-import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 
 /**
@@ -63,6 +62,9 @@ public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> e
    */
   public ConcurrentUnionAxis(final R rtx, final Axis operand1, final Axis operand2) {
     super(rtx);
+    if (operand1.getCursor() == operand2.getCursor()) {
+      throw new IllegalStateException("Operand axis trx must be different.");
+    }
     op1 = new ConcurrentAxis<>(rtx, operand1);
     op2 = new ConcurrentAxis<>(rtx, operand2);
     first = true;
