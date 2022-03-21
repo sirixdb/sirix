@@ -1184,11 +1184,12 @@ public final class SirixTranslator extends TopDownTranslator {
                 if (matchLevel == level + 1) {
                   final var newConcurrentRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
                   newConcurrentRtx.moveTo(nodeKey);
+                  final var newConcurrentRtx1 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
                   final var filterAxis = new FilterAxis<>(new ChildAxis(newConcurrentRtx),
                                                           new ObjectKeyFilter(newConcurrentRtx),
                                                           new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
-                  axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(rtx, filterAxis), new ChildAxis(rtx)));
+                  axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis), new ChildAxis(rtx)));
                 }
                 // Match at a level below the child level.
                 else {
@@ -1241,13 +1242,14 @@ public final class SirixTranslator extends TopDownTranslator {
         final long nodeKey) {
       final var concurrentRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
       concurrentRtx.moveTo(nodeKey);
+      final var concurrentRtx1 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
       var pathSegment = pathSegments.pop();
       org.sirix.api.Axis axis;
       if (pathSegments.isEmpty()) {
         axis = new FilterAxis<>(new ChildAxis(concurrentRtx),
                                 new ObjectKeyFilter(concurrentRtx),
                                 new JsonNameFilter(concurrentRtx, pathSegment.name));
-        axis = new NestedAxis(new ConcurrentAxis<>(rtx, axis), new ChildAxis(rtx));
+        axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(rtx));
       } else {
         axis =
             new FilterAxis<>(new ChildAxis(concurrentRtx), new ObjectKeyFilter(concurrentRtx), new JsonNameFilter(concurrentRtx, pathSegment.name));
@@ -1264,7 +1266,7 @@ public final class SirixTranslator extends TopDownTranslator {
         }
 
         if (i == size - 1) {
-          axis = new NestedAxis(new ConcurrentAxis<>(rtx, axis), new ChildAxis(rtx));
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(rtx));
         } else {
           axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
         }
