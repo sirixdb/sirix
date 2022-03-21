@@ -46,13 +46,13 @@ public class ConcurrentAxisHelper implements Runnable {
       new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
 
   /** {@link Axis} that computes the results. */
-  private final Axis mAxis;
+  private final Axis axis;
 
   /**
    * Queue that stores result keys already computed by this axis. End of the result sequence is
    * marked by the NULL_NODE_KEY. This is used for communication with the consumer.
    */
-  private BlockingQueue<Long> mResults;
+  private BlockingQueue<Long> results;
 
   /**
    * Bind axis step to transaction. Make sure to create a new ReadTransaction instead of using the
@@ -62,19 +62,18 @@ public class ConcurrentAxisHelper implements Runnable {
    * @param results queue which has results related to the axis
    */
   public ConcurrentAxisHelper(final Axis axis, @NonNull final BlockingQueue<Long> results) {
-    mAxis = checkNotNull(axis);
-    mResults = checkNotNull(results);
+    this.axis = checkNotNull(axis);
+    this.results = checkNotNull(results);
   }
 
   @Override
   public void run() {
-    // Compute all results of the given axis and store the results in the
-    // queue.
-    while (mAxis.hasNext()) {
-      final long nodeKey = mAxis.next();
+    // Compute all results of the given axis and store the results in the queue.
+    while (axis.hasNext()) {
+      final long nodeKey = axis.next();
       try {
         // Store result in queue as soon as there is space left.
-        mResults.put(nodeKey);
+        results.put(nodeKey);
         // Wait until next thread arrives and exchange blocking queue.
       } catch (final InterruptedException e) {
         LOGWRAPPER.error(e.getMessage(), e);
@@ -83,7 +82,7 @@ public class ConcurrentAxisHelper implements Runnable {
 
     try {
       // Mark end of result sequence by the NULL_NODE_KEY.
-      mResults.put(Fixed.NULL_NODE_KEY.getStandardProperty());
+      results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
     } catch (final InterruptedException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }

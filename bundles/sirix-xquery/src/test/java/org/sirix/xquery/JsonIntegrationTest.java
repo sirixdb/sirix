@@ -54,13 +54,15 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testDescendantDerefExprWithDifferentPaths() throws IOException {
     final String storeQuery = """
-          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"}]}]')
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": "test string"}]}]')
         """;
     final String query = """
           let $array := jn:doc('mycol.jn','mydoc.jn')
           return $array[]==>test
         """.stripIndent();
-    final String assertion = "\"test string\" [{\"test\":\"test string\"}] \"test string\"";
+    final String assertion = """
+        "test string" [{"test":"test string"},{"test":"test string"}] "test string" "test string"
+        """.strip();
     test(storeQuery, query, assertion);
   }
 

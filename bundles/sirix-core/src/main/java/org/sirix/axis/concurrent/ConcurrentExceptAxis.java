@@ -37,19 +37,19 @@ import org.sirix.settings.Fixed;
 public final class ConcurrentExceptAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
 
   /** First operand sequence. */
-  private final ConcurrentAxis<R> mOp1;
+  private final ConcurrentAxis<R> op1;
 
   /** Second operand sequence. */
-  private final ConcurrentAxis<R> mOp2;
+  private final ConcurrentAxis<R> op2;
 
   /** Is axis called for the first time? */
-  private boolean mFirst;
+  private boolean first;
 
   /** Current result of the 1st axis */
-  private long mCurrentResult1;
+  private long currentResult1;
 
   /** Current result of the 2nd axis. */
-  private long mCurrentResult2;
+  private long currentResult2;
 
   /**
    * Constructor. Initializes the internal state.
@@ -61,66 +61,66 @@ public final class ConcurrentExceptAxis<R extends NodeCursor & NodeReadOnlyTrx> 
    */
   public ConcurrentExceptAxis(final R rtx, final Axis operand1, final Axis operand2) {
     super(rtx);
-    mOp1 = new ConcurrentAxis<>(rtx, operand1);
-    mOp2 = new ConcurrentAxis<>(rtx, operand2);
-    mFirst = true;
-    mCurrentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
-    mCurrentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();
+    op1 = new ConcurrentAxis<>(rtx, operand1);
+    op2 = new ConcurrentAxis<>(rtx, operand2);
+    first = true;
+    currentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
+    currentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
 
-    if (mOp1 != null) {
-      mOp1.reset(pNodeKey);
+    if (op1 != null) {
+      op1.reset(pNodeKey);
     }
-    if (mOp2 != null) {
-      mOp2.reset(pNodeKey);
+    if (op2 != null) {
+      op2.reset(pNodeKey);
     }
 
-    mFirst = true;
-    mCurrentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
-    mCurrentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();
+    first = true;
+    currentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
+    currentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   protected long nextKey() {
-    if (mFirst) {
-      mFirst = false;
-      mCurrentResult1 = Util.getNext(mOp1);
-      mCurrentResult2 = Util.getNext(mOp2);
+    if (first) {
+      first = false;
+      currentResult1 = Util.getNext(op1);
+      currentResult2 = Util.getNext(op2);
     }
 
     final long nodeKey;
 
     // if 1st axis has a result left that is not contained in the 2nd it is
     // returned
-    while (!mOp1.isFinished()) {
-      while (!mOp2.isFinished()) {
-        if (mOp1.isFinished())
+    while (!op1.isFinished()) {
+      while (!op2.isFinished()) {
+        if (op1.isFinished())
           break;
 
-        while (mCurrentResult1 >= mCurrentResult2 && !mOp1.isFinished() && !mOp2.isFinished()) {
+        while (currentResult1 >= currentResult2 && !op1.isFinished() && !op2.isFinished()) {
 
           // don't return if equal
-          while (mCurrentResult1 == mCurrentResult2 && !mOp1.isFinished() && !mOp2.isFinished()) {
-            mCurrentResult1 = Util.getNext(mOp1);
-            mCurrentResult2 = Util.getNext(mOp2);
+          while (currentResult1 == currentResult2 && !op1.isFinished() && !op2.isFinished()) {
+            currentResult1 = Util.getNext(op1);
+            currentResult2 = Util.getNext(op2);
           }
 
           // a1 has to be smaller than a2 to check for equality
-          while (mCurrentResult1 > mCurrentResult2 && !mOp1.isFinished() && !mOp2.isFinished()) {
-            mCurrentResult2 = Util.getNext(mOp2);
+          while (currentResult1 > currentResult2 && !op1.isFinished() && !op2.isFinished()) {
+            currentResult2 = Util.getNext(op2);
           }
         }
 
-        if (!mOp1.isFinished() && !mOp2.isFinished()) {
+        if (!op1.isFinished() && !op2.isFinished()) {
           // as long as a1 is smaller than a2 it can be returned
-          assert (mCurrentResult1 < mCurrentResult2);
-          nodeKey = mCurrentResult1;
+          assert (currentResult1 < currentResult2);
+          nodeKey = currentResult1;
           if (Util.isValid(nodeKey)) {
-            mCurrentResult1 = Util.getNext(mOp1);
+            currentResult1 = Util.getNext(op1);
             return nodeKey;
           }
           // should never come here!
@@ -128,11 +128,11 @@ public final class ConcurrentExceptAxis<R extends NodeCursor & NodeReadOnlyTrx> 
         }
       }
 
-      if (!mOp1.isFinished()) {
+      if (!op1.isFinished()) {
         // only operand1 has results left, so return all of them
-        nodeKey = mCurrentResult1;
+        nodeKey = currentResult1;
         if (Util.isValid(nodeKey)) {
-          mCurrentResult1 = Util.getNext(mOp1);
+          currentResult1 = Util.getNext(op1);
           return nodeKey;
         }
         // should never come here!

@@ -19,10 +19,10 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
     extends AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /** Axis to test. */
-  private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> mAxis;
+  private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
 
   /** Test to apply to axis. */
-  private final List<F> mAxisFilter;
+  private final List<F> axisFilter;
 
   /**
    * Constructor initializing internal state.
@@ -35,21 +35,21 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
   public TemporalXmlNodeReadFilterAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
     checkNotNull(firstAxisTest);
-    mAxis = axis;
-    mAxisFilter = new ArrayList<F>();
-    mAxisFilter.add(firstAxisTest);
+    this.axis = axis;
+    axisFilter = new ArrayList<>();
+    axisFilter.add(firstAxisTest);
 
     if (axisTest != null) {
       for (int i = 0, length = axisTest.length; i < length; i++) {
-        mAxisFilter.add(axisTest[i]);
+        axisFilter.add(axisTest[i]);
       }
     }
   }
 
   @Override
   protected XmlNodeReadOnlyTrx computeNext() {
-    while (mAxis.hasNext()) {
-      final XmlNodeReadOnlyTrx rtx = mAxis.next();
+    while (axis.hasNext()) {
+      final XmlNodeReadOnlyTrx rtx = axis.next();
       final boolean filterResult = doFilter(rtx);
       if (filterResult) {
         return rtx;
@@ -62,7 +62,7 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
 
   private boolean doFilter(final XmlNodeReadOnlyTrx rtx) {
     boolean filterResult = true;
-    for (final F filter : mAxisFilter) {
+    for (final F filter : axisFilter) {
       filter.setTrx(rtx);
       filterResult = filterResult && filter.filter();
       if (!filterResult) {
@@ -78,11 +78,11 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
    * @return the axis
    */
   public AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getAxis() {
-    return mAxis;
+    return axis;
   }
 
   @Override
   public ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> getResourceManager() {
-    return mAxis.getResourceManager();
+    return axis.getResourceManager();
   }
 }
