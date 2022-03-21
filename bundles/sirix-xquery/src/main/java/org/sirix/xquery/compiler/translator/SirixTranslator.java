@@ -26,7 +26,9 @@ import org.brackit.xquery.xdm.type.NodeType;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.*;
@@ -1038,15 +1040,18 @@ public final class SirixTranslator extends TopDownTranslator {
     @Nullable
     private SirixJsonLazySequence getLazySequence(String recordFieldAsString, JsonDBObject jsonDBObject,
         JsonNodeReadOnlyTrx rtx) {
-      if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.hasChildren()) {
+      final var resourceManager = rtx.getResourceManager();
+      if (resourceManager.getResourceConfig().withPathSummary && rtx.hasChildren()) {
         try {
+          final int revisionNumber = rtx.getRevisionNumber();
+          final var nodeKey = rtx.getNodeKey();
           rtx.moveToParent();
           final long pcr = rtx.isDocumentRoot() ? 0 : rtx.getPathNodeKey();
           rtx.moveTo(jsonDBObject.getNodeKey());
           final PathData data = filterMap.get(pcr);
           BitSet matches = data == null ? null : data.matchingPathNodeKeys;
           int startLevel = data == null ? 0 : data.level;
-          try (final PathSummaryReader reader = rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber())) {
+          try (final PathSummaryReader reader = resourceManager.openPathSummary(rtx.getRevisionNumber())) {
             if (matches == null) {
               if (pcr != 0) {
                 reader.moveTo(pcr);
@@ -1083,7 +1088,11 @@ public final class SirixTranslator extends TopDownTranslator {
               }
               // Match at a level below the child level.
               final Deque<PathSegment> pathSegments = getPathSegments(matchLevel, startLevel, reader);
-              return getLazySequence(new SirixJsonStream(buildQuery(rtx, pathSegments), jsonDBObject.getCollection()));
+              return getLazySequence(new SirixJsonStream(buildQuery(rtx,
+                                                                    pathSegments,
+                                                                    resourceManager,
+                                                                    revisionNumber,
+                                                                    nodeKey), jsonDBObject.getCollection()));
             }
             // More than one match.
             boolean onSameLevel = true;
@@ -1102,9 +1111,9 @@ public final class SirixTranslator extends TopDownTranslator {
             // Matches on same level.
             final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
             if (onSameLevel) {
-              final var newRtx = rtx.getResourceManager().beginNodeReadOnlyTrx(rtx.getRevisionNumber());
+              final var newRtx = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
               newRtx.moveTo(rtx.getNodeKey());
-              final var newRtx2 = rtx.getResourceManager().beginNodeReadOnlyTrx(rtx.getRevisionNumber());
+              final var newRtx2 = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
               newRtx2.moveTo(rtx.getNodeKey());
               for (int j = level; j > startLevel; j--) {
                 // Build an immutable set and turn it into a list for sorting.
@@ -1157,8 +1166,9 @@ public final class SirixTranslator extends TopDownTranslator {
               }
               return getLazySequence(new SirixJsonStream(axis, jsonDBObject.getCollection()));
             } else {
-              final var newRtx = rtx.getResourceManager().beginNodeReadOnlyTrx(rtx.getRevisionNumber());
-              newRtx.moveTo(rtx.getNodeKey());
+              final var newRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+              newRtx.moveTo(nodeKey);
+
               // Matches on different levels.
               level = startLevel;
               for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
@@ -1172,23 +1182,25 @@ public final class SirixTranslator extends TopDownTranslator {
                 }
                 // Match at the next level (single child-path).
                 if (matchLevel == level + 1) {
-                  final var concurrentFilterAxis = new FilterAxis<>(new ChildAxis(rtx),
-                                                                    new ObjectKeyFilter(rtx),
-                                                                    new JsonNameFilter(rtx, recordFieldAsString));
+                  final var newConcurrentRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+                  newConcurrentRtx.moveTo(nodeKey);
+                  final var filterAxis = new FilterAxis<>(new ChildAxis(newConcurrentRtx),
+                                                          new ObjectKeyFilter(newConcurrentRtx),
+                                                          new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
-                  axisQueue.addLast(new NestedAxis(concurrentFilterAxis, new ChildAxis(rtx)));
+                  axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(rtx, filterAxis), new ChildAxis(rtx)));
                 }
                 // Match at a level below the child level.
                 else {
                   final Deque<PathSegment> pathSegments = getPathSegments(matchLevel, level, reader);
-                  axisQueue.addLast(buildQuery(rtx, pathSegments));
+                  axisQueue.addLast(buildQuery(rtx, pathSegments, resourceManager, revisionNumber, nodeKey));
                 }
               }
 
               org.sirix.api.Axis axis = new ConcurrentUnionAxis<>(newRtx, axisQueue.pollFirst(), axisQueue.pollFirst());
               final int size = axisQueue.size();
               for (i = 0; i < size; i++) {
-                axis = new ConcurrentUnionAxis(newRtx, axis, axisQueue.pollFirst());
+                axis = new ConcurrentUnionAxis<>(newRtx, axis, axisQueue.pollFirst());
               }
               return getLazySequence(new SirixJsonStream(axis, jsonDBObject.getCollection()));
             }
@@ -1224,22 +1236,38 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     // Build the query.
-    private static org.sirix.api.Axis buildQuery(final JsonNodeReadOnlyTrx rtx, final Deque<PathSegment> pathSegments) {
+    private static org.sirix.api.Axis buildQuery(final JsonNodeReadOnlyTrx rtx, final Deque<PathSegment> pathSegments,
+        final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager, final int revisionNumber,
+        final long nodeKey) {
+      final var concurrentRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+      concurrentRtx.moveTo(nodeKey);
       var pathSegment = pathSegments.pop();
-      org.sirix.api.Axis axis =
-          new FilterAxis<>(new ChildAxis(rtx), new ObjectKeyFilter(rtx), new JsonNameFilter(rtx, pathSegment.name));
-      axis = new NestedAxis(axis, new ChildAxis(rtx));
+      org.sirix.api.Axis axis;
+      if (pathSegments.isEmpty()) {
+        axis = new FilterAxis<>(new ChildAxis(concurrentRtx),
+                                new ObjectKeyFilter(concurrentRtx),
+                                new JsonNameFilter(concurrentRtx, pathSegment.name));
+        axis = new NestedAxis(new ConcurrentAxis<>(rtx, axis), new ChildAxis(rtx));
+      } else {
+        axis =
+            new FilterAxis<>(new ChildAxis(concurrentRtx), new ObjectKeyFilter(concurrentRtx), new JsonNameFilter(concurrentRtx, pathSegment.name));
+        axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+      }
       for (int i = 0, size = pathSegments.size(); i < size; i++) {
         pathSegment = pathSegments.pop();
 
         if (!pathSegment.isArray) {
           axis = new NestedAxis(axis,
-                                new FilterAxis<>(new ChildAxis(rtx),
-                                                 new ObjectKeyFilter(rtx),
-                                                 new JsonNameFilter(rtx, pathSegment.name)));
+                                new FilterAxis<>(new ChildAxis(concurrentRtx),
+                                                 new ObjectKeyFilter(concurrentRtx),
+                                                 new JsonNameFilter(concurrentRtx, pathSegment.name)));
         }
 
-        axis = new NestedAxis(axis, new ChildAxis(rtx));
+        if (i == size - 1) {
+          axis = new NestedAxis(new ConcurrentAxis<>(rtx, axis), new ChildAxis(rtx));
+        } else {
+          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+        }
       }
 
       return axis;
