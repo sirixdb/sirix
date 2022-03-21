@@ -36,13 +36,13 @@ import org.sirix.utils.Pair;
 public final class JsonDescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
-  private Deque<Pair<Long, Integer>> mRightSiblingKeyStack;
+  private Deque<Pair<Long, Integer>> rightSiblingKeyStack;
 
   /** Determines if it's the first call to hasNext(). */
-  private boolean mFirst;
+  private boolean first;
 
   /** The current depth, starts with zero. */
-  private int mDepth;
+  private int depth;
 
   /**
    * Constructor initializing internal state.
@@ -66,25 +66,25 @@ public final class JsonDescendantAxis extends AbstractAxis {
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
-    mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<>();
+    first = true;
+    rightSiblingKeyStack = new ArrayDeque<>();
   }
 
   @Override
   protected long nextKey() {
-    long key = Fixed.NULL_NODE_KEY.getStandardProperty();
+    long key;
 
     final NodeCursor cursor = getCursor();
 
     // Determines if first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
+    if (first) {
+      first = false;
 
       if (includeSelf() == IncludeSelf.YES) {
         key = cursor.getNodeKey();
       } else {
         key = cursor.getFirstChildKey();
-        mDepth++;
+        depth++;
       }
 
       return key;
@@ -94,9 +94,9 @@ public final class JsonDescendantAxis extends AbstractAxis {
     if (cursor.hasFirstChild()) {
       key = cursor.getFirstChildKey();
       if (cursor.hasRightSibling()) {
-        mRightSiblingKeyStack.push(new Pair<>(cursor.getRightSiblingKey(), mDepth));
+        rightSiblingKeyStack.push(new Pair<>(cursor.getRightSiblingKey(), depth));
       }
-      mDepth++;
+      depth++;
       return key;
     }
 
@@ -104,19 +104,21 @@ public final class JsonDescendantAxis extends AbstractAxis {
     if (cursor.hasRightSibling()) {
       key = cursor.getRightSiblingKey();
 
-      if (mDepth == 0)
+      if (depth == 0) {
         return done();
+      }
       return key;
     }
 
     // Then follow right sibling on stack.
-    if (mRightSiblingKeyStack.size() > 0) {
-      final var pair = mRightSiblingKeyStack.pop();
+    if (rightSiblingKeyStack.size() > 0) {
+      final var pair = rightSiblingKeyStack.pop();
       key = pair.getFirst();
-      mDepth = pair.getSecond();
+      depth = pair.getSecond();
 
-      if (mDepth == 0)
+      if (depth == 0) {
         return done();
+      }
       return key;
     }
 
