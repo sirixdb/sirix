@@ -92,7 +92,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    */
   public ConcurrentAxis(final R rtx, final Axis childAxis) {
     super(rtx);
-    if (rtx.getId() == childAxis.getTrx().getId()) {
+    if (rtx == childAxis.getTrx()) {
       throw new IllegalArgumentException(
           "The filter must be bound to another transaction but on the same revision/node!");
     }
@@ -162,7 +162,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    * @return null node key to indicate that the travesal is done
    */
   @Override
-protected final long done() {
+  protected long done() {
     executorService.shutdown();
     try {
         executorService.awaitTermination(5, TimeUnit.SECONDS);
