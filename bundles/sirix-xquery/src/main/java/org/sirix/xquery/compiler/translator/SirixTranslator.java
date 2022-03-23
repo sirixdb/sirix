@@ -1111,11 +1111,12 @@ public final class SirixTranslator extends TopDownTranslator {
             // Matches on same level.
             final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
             if (onSameLevel) {
-              final var newRtx = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
-              newRtx.moveTo(rtx.getNodeKey());
-              final var newRtx2 = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
-              newRtx2.moveTo(rtx.getNodeKey());
               for (int j = level; j > startLevel; j--) {
+                final var newRtx = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
+                newRtx.moveTo(rtx.getNodeKey());
+                final var newRtx2 = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
+                newRtx2.moveTo(rtx.getNodeKey());
+
                 // Build an immutable set and turn it into a list for sorting.
                 final Builder<PathSegment> pathSegmentBuilder = ImmutableSet.builder();
                 for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
@@ -1140,11 +1141,7 @@ public final class SirixTranslator extends TopDownTranslator {
                 org.sirix.api.Axis axis;
 
                 if (pathSegment.isArray) {
-                  //                  if (rtx.getChildCount() > 1_000) {
                   axis = new ConcurrentAxis<>(rtx, new ChildAxis(newRtx));
-                  //                  } else {
-                  //                    axis = new ChildAxis(rtx);
-                  //                  }
                 } else {
                   if (sameName) {
                     axis = new FilterAxis<>(new ChildAxis(newRtx2),
@@ -1166,9 +1163,6 @@ public final class SirixTranslator extends TopDownTranslator {
               }
               return getLazySequence(new SirixJsonStream(axis, jsonDBObject.getCollection()));
             } else {
-              final var newRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
-              newRtx.moveTo(nodeKey);
-
               // Matches on different levels.
               level = startLevel;
               for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
@@ -1198,9 +1192,11 @@ public final class SirixTranslator extends TopDownTranslator {
                 }
               }
 
+              var newRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
               org.sirix.api.Axis axis = new ConcurrentUnionAxis<>(newRtx, axisQueue.pollFirst(), axisQueue.pollFirst());
               final int size = axisQueue.size();
               for (i = 0; i < size; i++) {
+                newRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
                 axis = new ConcurrentUnionAxis<>(newRtx, axis, axisQueue.pollFirst());
               }
               return getLazySequence(new SirixJsonStream(axis, jsonDBObject.getCollection()));
@@ -1313,12 +1309,11 @@ public final class SirixTranslator extends TopDownTranslator {
                   if (lazySequence == null) {
                     return null;
                   }
-                  lazySequenceIter = lazySequence.iterate();
                 } else {
                   lazySequence.getAxis().reset(rtx.getNodeKey());
-                  lazySequenceIter = lazySequence.iterate();
                 }
 
+                lazySequenceIter = lazySequence.iterate();
                 final Item currItem = lazySequenceIter.next();
 
                 if (currItem != null) {

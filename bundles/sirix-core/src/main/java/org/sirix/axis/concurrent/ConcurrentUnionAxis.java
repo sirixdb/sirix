@@ -31,8 +31,7 @@ import org.sirix.service.xml.xpath.EXPathError;
  * <p>
  * Computes concurrently and returns a union of two operands. This axis takes two node sequences as
  * operands and returns a sequence containing all the items that occur in either of the operands. A
- * union of two sequences may lead to a sequence containing duplicates. These duplicates are removed
- * by the concept of .... Additionally this guarantees the document order.
+ * union of two sequences may lead to a sequence containing duplicates. These duplicates are removed.
  * </p>
  */
 public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
