@@ -19,6 +19,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """;
     final String query = """
           let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array==>test
+        """.stripIndent();
+    final String assertion = "\"test string\" [{\"blabla\":\"test blabla string\"}]";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithOnePathMatchAndChildMatch2() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [{"blabla": "test blabla string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
           return $array[]==>test
         """.stripIndent();
     final String assertion = "\"test string\" [{\"blabla\":\"test blabla string\"}]";
@@ -26,7 +39,33 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testDescendantDerefExprWithOnePathMatchAndChildMatch3() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"test": "test string"}')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array==>test
+        """.stripIndent();
+    final String assertion = "\"test string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "test blabla string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array==>test
+        """.stripIndent();
+    final String assertion = "\"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch2() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "test blabla string"}]}]')
         """;
@@ -39,13 +78,39 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch3() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"bla": ["test string",{"test": "test blabla string"}]}')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array==>test
+        """.stripIndent();
+    final String assertion = "\"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testDescendantDerefExprWithDifferentPathsOnSameLevel() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"tada": {"baz": [{"test": "test string"}],"foo": [{"test": "test blabla string"}]}}')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array==>test
+        """.stripIndent();
+    final String assertion = "\"test string\" \"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithDifferentPathsOnSameLevel2() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"baz": [{"test": "test string"}]},{"foo": [{"test": "test blabla string"}]}]')
         """;
     final String query = """
           let $array := jn:doc('mycol.jn','mydoc.jn')
-          return $array[]==>test
+          return $array==>test
         """.stripIndent();
     final String assertion = "\"test string\" \"test blabla string\"";
     test(storeQuery, query, assertion);
@@ -58,7 +123,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """;
     final String query = """
           let $array := jn:doc('mycol.jn','mydoc.jn')
-          return $array[]==>test
+          return $array==>test
         """.stripIndent();
     final String assertion = """
         "test string" [{"test":"test string"},{"test":"test string"}] "test string" "test string"
@@ -73,10 +138,55 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """;
     final String query = """
           let $array := jn:doc('mycol.jn','mydoc.jn')
-          return $array[]==>test
+          return $array==>test
         """.stripIndent();
     final String assertion = """
         "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithDifferentPaths3() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": "test string"}]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]==>test
+        """.stripIndent();
+    final String assertion = """
+        "test string" [{"test":"test string"},{"test":"test string"}] "test string" "test string"
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithDifferentPaths4() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]==>test
+        """.stripIndent();
+    final String assertion = """
+        true "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithDifferentPaths5() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"tztz": [[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]}')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array==>test
+        """.stripIndent();
+    final String assertion = """
+        true "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
         """.strip();
     test(storeQuery, query, assertion);
   }
