@@ -192,6 +192,21 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testDerefExprWithDescendantDerefExpr() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','{"tztz": [[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]}')
+        """;
+    final String query = """
+          let $object := jn:doc('mycol.jn','mydoc.jn')
+          return $object=>tztz[]=>test==>test
+        """.stripIndent();
+    final String assertion = """
+        "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
+        """.strip();
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testRenameFieldValue() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"test": "test string"}]')

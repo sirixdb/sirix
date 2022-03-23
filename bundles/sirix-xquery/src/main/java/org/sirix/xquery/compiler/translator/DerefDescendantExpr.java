@@ -36,12 +36,11 @@ import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.NodeKind;
 import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.json.JsonDBObject;
 import org.sirix.xquery.stream.json.SirixJsonStream;
 
 import java.util.*;
 
-class DerefDescendant implements Expr {
+class DerefDescendantExpr implements Expr {
 
   private record PathSegment(QNm name, boolean isArray) {
   }
@@ -57,7 +56,7 @@ class DerefDescendant implements Expr {
   private final Expr context;
   private final Expr field;
 
-  public DerefDescendant(Expr context, Expr field) {
+  public DerefDescendantExpr(Expr context, Expr field) {
     this.context = context;
     this.field = field;
     filterMap = new HashMap<>();
@@ -75,11 +74,7 @@ class DerefDescendant implements Expr {
       return getLazySequence(ctx, tuple, lazySequence.iterate());
     }
 
-    if (sequence instanceof Array array) {
-      return getLazySequence(ctx, tuple, array.iterate());
-    }
-
-    if (!(sequence instanceof Object object)) {
+    if (!(sequence instanceof Object) && !(sequence instanceof Array)) {
       return null;
     }
 
@@ -89,10 +84,10 @@ class DerefDescendant implements Expr {
     }
 
     final var recordFieldAsString = getRecordFieldAsString(itemField);
-    final var jsonDBObject = (JsonDBObject) object;
-    final var rtx = jsonDBObject.getTrx();
+    final var jsonDBItem = (JsonDBItem) sequence;
+    final var rtx = jsonDBItem.getTrx();
 
-    return getLazySequence(recordFieldAsString, jsonDBObject, rtx);
+    return getLazySequence(recordFieldAsString, jsonDBItem, rtx);
   }
 
   @SuppressWarnings("ConstantConditions")
@@ -147,12 +142,18 @@ class DerefDescendant implements Expr {
               if (reader.getPathNode().getKind() == NodeKind.ARRAY) {
                 return getLazySequence(new SirixJsonStream(new ChildAxis(rtx), jsonDBItem.getCollection()));
               }
-              return getLazySequence(new SirixJsonStream(new NestedAxis(new FilterAxis<>(new ChildAxis(rtx),
-                                                                                         new ObjectKeyFilter(rtx),
-                                                                                         new JsonNameFilter(rtx,
-                                                                                                            recordFieldAsString)),
-                                                                        new ChildAxis(rtx)),
-                                                         jsonDBItem.getCollection()));
+              if (nodeKind == NodeKind.ARRAY) {
+                var axis = new NestedAxis(new FilterAxis<>(new NestedAxis(new ChildAxis(rtx), new ChildAxis(rtx)),
+                                                           new ObjectKeyFilter(rtx),
+                                                           new JsonNameFilter(rtx, recordFieldAsString)),
+                                          new ChildAxis(rtx));
+                return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
+              }
+              var axis = new NestedAxis(new FilterAxis<>(new ChildAxis(rtx),
+                                                         new ObjectKeyFilter(rtx),
+                                                         new JsonNameFilter(rtx, recordFieldAsString)),
+                                        new ChildAxis(rtx));
+              return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
             }
             // Match at a level below the child level.
             final Deque<PathSegment> pathSegments = getPathSegments(matchLevel, startLevel, reader);
@@ -211,12 +212,23 @@ class DerefDescendant implements Expr {
               if (pathSegment.isArray) {
                 axis = new ConcurrentAxis<>(newRtx, new ChildAxis(newRtx2));
               } else {
-                if (sameName) {
-                  axis = new FilterAxis<>(new ChildAxis(newRtx2),
-                                          new ObjectKeyFilter(newRtx2),
-                                          new JsonNameFilter(newRtx2, pathSegment.name));
+                if (j == startLevel && nodeKind == NodeKind.ARRAY) {
+                  if (sameName) {
+                    axis = new FilterAxis<>(new NestedAxis(new ChildAxis(newRtx2), new ChildAxis(newRtx2)),
+                                            new ObjectKeyFilter(newRtx2),
+                                            new JsonNameFilter(newRtx2, pathSegment.name));
+                  } else {
+                    axis = new FilterAxis<>(new NestedAxis(new ChildAxis(newRtx2), new ChildAxis(newRtx2)),
+                                            new ObjectKeyFilter(newRtx2));
+                  }
                 } else {
-                  axis = new FilterAxis<>(new ChildAxis(newRtx2), new ObjectKeyFilter(newRtx2));
+                  if (sameName) {
+                    axis = new FilterAxis<>(new ChildAxis(newRtx2),
+                                            new ObjectKeyFilter(newRtx2),
+                                            new JsonNameFilter(newRtx2, pathSegment.name));
+                  } else {
+                    axis = new FilterAxis<>(new ChildAxis(newRtx2), new ObjectKeyFilter(newRtx2));
+                  }
                 }
 
                 axis = new NestedAxis(new ConcurrentAxis<>(newRtx, axis), new ChildAxis(newRtx));
@@ -251,12 +263,23 @@ class DerefDescendant implements Expr {
                 if (reader.getPathNode().getKind() == NodeKind.ARRAY) {
                   axisQueue.addLast(new ConcurrentAxis<>(newConcurrentRtx1, new ChildAxis(rtx)));
                 } else {
-                  final var filterAxis = new FilterAxis<>(new ChildAxis(newConcurrentRtx),
-                                                          new ObjectKeyFilter(newConcurrentRtx),
-                                                          new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
+                  final FilterAxis<JsonNodeReadOnlyTrx> filterAxis;
+                  if (nodeKind == NodeKind.ARRAY) {
+                    filterAxis = new FilterAxis<>(new NestedAxis(new ChildAxis(newConcurrentRtx),
+                                                                 new ChildAxis(newConcurrentRtx)),
+                                                  new ObjectKeyFilter(newConcurrentRtx),
+                                                  new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
-                  axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
-                                                   new ChildAxis(rtx)));
+                    axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
+                                                     new ChildAxis(newConcurrentRtx1)));
+                  } else {
+                    filterAxis = new FilterAxis<>(new ChildAxis(newConcurrentRtx),
+                                                  new ObjectKeyFilter(newConcurrentRtx),
+                                                  new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
+
+                    axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
+                                                     new ChildAxis(newConcurrentRtx1)));
+                  }
                 }
               }
               // Match at a level below the child level.
@@ -316,22 +339,36 @@ class DerefDescendant implements Expr {
     var pathSegment = pathSegments.pop();
     org.sirix.api.Axis axis;
     if (pathSegments.isEmpty()) {
-      if (!pathSegment.isArray()) {
-        axis = new FilterAxis<>(new ChildAxis(concurrentRtx),
-                                new ObjectKeyFilter(concurrentRtx),
-                                new JsonNameFilter(concurrentRtx, pathSegment.name));
-        axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
-      } else {
+      if (pathSegment.isArray()) {
         axis = new ConcurrentAxis<>(concurrentRtx1, new ChildAxis(concurrentRtx));
+      } else {
+        if (concurrentRtx.getKind() == NodeKind.ARRAY) {
+          axis = new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
+                                  new ObjectKeyFilter(concurrentRtx),
+                                  new JsonNameFilter(concurrentRtx, pathSegment.name));
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+        } else {
+          axis = new FilterAxis<>(new ChildAxis(concurrentRtx),
+                                  new ObjectKeyFilter(concurrentRtx),
+                                  new JsonNameFilter(concurrentRtx, pathSegment.name));
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+        }
       }
     } else {
-      if (!pathSegment.isArray()) {
-        axis = new FilterAxis<>(new ChildAxis(concurrentRtx),
-                                new ObjectKeyFilter(concurrentRtx),
-                                new JsonNameFilter(concurrentRtx, pathSegment.name));
-        axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
-      } else {
+      if (pathSegment.isArray()) {
         axis = new ChildAxis(concurrentRtx);
+      } else {
+        if (concurrentRtx.getKind() == NodeKind.ARRAY) {
+          axis = new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
+                                  new ObjectKeyFilter(concurrentRtx),
+                                  new JsonNameFilter(concurrentRtx, pathSegment.name));
+          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+        } else {
+          axis = new FilterAxis<>(new ChildAxis(concurrentRtx),
+                                  new ObjectKeyFilter(concurrentRtx),
+                                  new JsonNameFilter(concurrentRtx, pathSegment.name));
+          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+        }
       }
     }
     for (int i = 0, size = pathSegments.size(); i < size; i++) {
@@ -400,10 +437,11 @@ class DerefDescendant implements Expr {
               }
 
               lazySequenceIter = lazySequence.iterate();
-              final Item currItem = lazySequenceIter.next();
-
-              if (currItem != null) {
-                return currItem;
+              Item currItem;
+              while ((currItem = lazySequenceIter.next()) != null) {
+                if (currItem != null) {
+                  return currItem;
+                }
               }
             }
 

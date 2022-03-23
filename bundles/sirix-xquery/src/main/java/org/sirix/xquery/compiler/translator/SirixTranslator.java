@@ -73,7 +73,7 @@ public final class SirixTranslator extends TopDownTranslator {
   protected Expr derefDescendantExpr(AST node) throws QueryException {
     Expr object = expr(node.getChild(0), true);
     Expr field = expr(node.getChild(1), true);
-    return new DerefDescendant(object, field);
+    return new DerefDescendantExpr(object, field);
   }
 
   private Expr indexExpr(AST node) {
