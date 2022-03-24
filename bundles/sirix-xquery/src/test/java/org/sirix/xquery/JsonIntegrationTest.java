@@ -52,6 +52,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testDescendantDerefExprWithOnePathMatchAndChildMatch4() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [[{"blabla": "test blabla string"}],{"blabla": "test blabla string"},[{"blabla": "test blabla string"}]]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]=>test==>blabla
+        """.stripIndent();
+    final String assertion = "\"test blabla string\" \"test blabla string\" \"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
   public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch() throws IOException {
     final String storeQuery = """
           jn:store('mycol.jn','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "test blabla string"}]}]')
@@ -87,6 +100,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
           return $array==>test
         """.stripIndent();
     final String assertion = "\"test blabla string\"";
+    test(storeQuery, query, assertion);
+  }
+
+  @Test
+  public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch4() throws IOException {
+    final String storeQuery = """
+          jn:store('mycol.jn','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "foo"}, [{"test": "test blabla string"}]]}]')
+        """;
+    final String query = """
+          let $array := jn:doc('mycol.jn','mydoc.jn')
+          return $array[]=>foo==>test
+        """.stripIndent();
+    final String assertion = "\"foo\" \"test blabla string\"";
     test(storeQuery, query, assertion);
   }
 

@@ -337,9 +337,10 @@ class DerefDescendantExpr implements Expr {
     concurrentRtx.moveTo(nodeKey);
     final var concurrentRtx1 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
     var pathSegment = pathSegments.pop();
+    var lastPathSegmentIsArray = pathSegment.isArray();
     org.sirix.api.Axis axis;
     if (pathSegments.isEmpty()) {
-      if (pathSegment.isArray()) {
+      if (lastPathSegmentIsArray) {
         axis = new ConcurrentAxis<>(concurrentRtx1, new ChildAxis(concurrentRtx));
       } else {
         if (concurrentRtx.getKind() == NodeKind.ARRAY) {
@@ -355,7 +356,7 @@ class DerefDescendantExpr implements Expr {
         }
       }
     } else {
-      if (pathSegment.isArray()) {
+      if (lastPathSegmentIsArray) {
         axis = new ChildAxis(concurrentRtx);
       } else {
         if (concurrentRtx.getKind() == NodeKind.ARRAY) {
@@ -375,12 +376,21 @@ class DerefDescendantExpr implements Expr {
       pathSegment = pathSegments.pop();
 
       if (!pathSegment.isArray) {
-        axis = new NestedAxis(axis,
-                              new FilterAxis<>(new ChildAxis(concurrentRtx),
-                                               new ObjectKeyFilter(concurrentRtx),
-                                               new JsonNameFilter(concurrentRtx, pathSegment.name)));
+        if (lastPathSegmentIsArray) {
+          axis = new NestedAxis(axis,
+                                new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx),
+                                                                new ChildAxis(concurrentRtx)),
+                                                 new ObjectKeyFilter(concurrentRtx),
+                                                 new JsonNameFilter(concurrentRtx, pathSegment.name)));
+        } else {
+          axis = new NestedAxis(axis,
+                                new FilterAxis<>(new ChildAxis(concurrentRtx),
+                                                 new ObjectKeyFilter(concurrentRtx),
+                                                 new JsonNameFilter(concurrentRtx, pathSegment.name)));
+        }
       }
 
+      lastPathSegmentIsArray = false;
       if (i == size - 1) {
         axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
       } else {
@@ -437,11 +447,9 @@ class DerefDescendantExpr implements Expr {
               }
 
               lazySequenceIter = lazySequence.iterate();
-              Item currItem;
-              while ((currItem = lazySequenceIter.next()) != null) {
-                if (currItem != null) {
-                  return currItem;
-                }
+              final var currItem = lazySequenceIter.next();
+              if (currItem != null) {
+                return currItem;
               }
             }
 
