@@ -388,9 +388,10 @@ class DerefDescendantExpr implements Expr {
                                                  new ObjectKeyFilter(concurrentRtx),
                                                  new JsonNameFilter(concurrentRtx, pathSegment.name)));
         }
+
+        lastPathSegmentIsArray = false;
       }
 
-      lastPathSegmentIsArray = false;
       if (i == size - 1) {
         axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
       } else {
