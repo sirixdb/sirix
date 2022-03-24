@@ -54,7 +54,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testDescendantDerefExprWithOnePathMatchAndChildMatch4() throws IOException {
     final String storeQuery = """
-          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [[{"blabla": "test blabla string"}],{"blabla": "test blabla string"},[{"blabla": "test blabla string"}]]}]')
+          jn:store('mycol.jn','mydoc.jn','[{"test": "test string"},{"test": [[[{"blabla": "test blabla string"}]],{"blabla": "test blabla string"},[{"blabla": "test blabla string"}]]}]')
         """;
     final String query = """
           let $array := jn:doc('mycol.jn','mydoc.jn')
