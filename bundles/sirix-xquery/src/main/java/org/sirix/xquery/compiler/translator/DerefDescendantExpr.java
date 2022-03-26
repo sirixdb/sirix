@@ -133,10 +133,6 @@ class DerefDescendantExpr implements Expr {
             assert reader.getPathNode() != null;
             final int matchLevel = reader.getPathNode().getLevel();
 
-            // Match at the same level.
-            if (matchLevel == startLevel) {
-              return getLazySequence(new SirixJsonStream(new SelfAxis(rtx), jsonDBItem.getCollection()));
-            }
             // Match at the next level (single child-path).
             if (matchLevel == startLevel + 1) {
               if (reader.getPathNode().getKind() == NodeKind.ARRAY) {
@@ -183,8 +179,7 @@ class DerefDescendantExpr implements Expr {
             for (int j = level; (j > startLevel && nodeKind == NodeKind.OBJECT) || (j >= startLevel
                 && nodeKind == NodeKind.ARRAY); j--) {
               final var newRtx = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
-              final var newRtx2 = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
-              newRtx2.moveTo(nodeKey);
+              newRtx.moveTo(nodeKey);
 
               // Build an immutable set and turn it into a list for sorting.
               final ImmutableSet.Builder<PathSegment> pathSegmentBuilder = ImmutableSet.builder();
@@ -210,36 +205,43 @@ class DerefDescendantExpr implements Expr {
               org.sirix.api.Axis axis;
 
               if (pathSegment.isArray) {
-                axis = new ConcurrentAxis<>(newRtx, new ChildAxis(newRtx2));
+                axis = new ChildAxis(newRtx);
               } else {
                 if (j == startLevel && nodeKind == NodeKind.ARRAY) {
                   if (sameName) {
-                    axis = new FilterAxis<>(new NestedAxis(new ChildAxis(newRtx2), new ChildAxis(newRtx2)),
-                                            new ObjectKeyFilter(newRtx2),
-                                            new JsonNameFilter(newRtx2, pathSegment.name));
+                    axis = new FilterAxis<>(new NestedAxis(new ChildAxis(newRtx), new ChildAxis(newRtx)),
+                                            new ObjectKeyFilter(newRtx),
+                                            new JsonNameFilter(newRtx, pathSegment.name));
                   } else {
-                    axis = new FilterAxis<>(new NestedAxis(new ChildAxis(newRtx2), new ChildAxis(newRtx2)),
-                                            new ObjectKeyFilter(newRtx2));
+                    axis = new FilterAxis<>(new NestedAxis(new ChildAxis(newRtx), new ChildAxis(newRtx)),
+                                            new ObjectKeyFilter(newRtx));
                   }
                 } else {
                   if (sameName) {
-                    axis = new FilterAxis<>(new ChildAxis(newRtx2),
-                                            new ObjectKeyFilter(newRtx2),
-                                            new JsonNameFilter(newRtx2, pathSegment.name));
+                    axis = new FilterAxis<>(new ChildAxis(newRtx),
+                                            new ObjectKeyFilter(newRtx),
+                                            new JsonNameFilter(newRtx, pathSegment.name));
                   } else {
-                    axis = new FilterAxis<>(new ChildAxis(newRtx2), new ObjectKeyFilter(newRtx2));
+                    axis = new FilterAxis<>(new ChildAxis(newRtx), new ObjectKeyFilter(newRtx));
                   }
                 }
 
-                axis = new NestedAxis(new ConcurrentAxis<>(newRtx, axis), new ChildAxis(newRtx));
+                axis = new NestedAxis(axis, new ChildAxis(newRtx));
               }
 
               axisQueue.push(axis);
             }
 
+            final var doParallelExecution = axisQueue.size() > 3 || rtx.getDescendantCount() > 50_000;
+
             org.sirix.api.Axis axis = axisQueue.pop();
             for (int k = 0, size = axisQueue.size(); k < size; k++) {
-              axis = new NestedAxis(axis, axisQueue.pop());
+              if (doParallelExecution && k == size - 1) {
+                final var newRtx2 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+                axis = new NestedAxis(new ConcurrentAxis<>(newRtx2, axis), axisQueue.pop());
+              } else {
+                axis = new NestedAxis(axis, axisQueue.pop());
+              }
             }
             return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
           } else {
