@@ -31,7 +31,7 @@ public final class IsDeletedTest {
   @Test
   public void testIsDeletedTrue() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
+      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
       try (final var manager = database.openResourceManager("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {
@@ -61,7 +61,7 @@ public final class IsDeletedTest {
   @Test
   public void testIsDeletedFalse() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
+      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
       try (final var manager = database.openResourceManager("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {

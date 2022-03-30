@@ -332,7 +332,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
             }
 
             // Reinstantiate everything.
-            if (afterCommitState == AfterCommitState.KeepOpen) {
+            if (afterCommitState == AfterCommitState.KEEP_OPEN) {
                 reInstantiate(getId(), preCommitRevision);
                 state = State.Running;
             } else {

@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: 'adopt'
-          java-version: '17'
+          java-version: '18'
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Build with Gradle
@@ -63,7 +63,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: 'adopt'
-          java-version: '17'
+          java-version: '18'
       - name: Gradle deploy
         run: ./gradlew travisReleaseSnapshot --info
       - name: Login to Docker Hub

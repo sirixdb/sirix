@@ -11,6 +11,7 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.axis.DescendantAxis;
+import org.sirix.io.StorageType;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.InsertPosition;
 import org.sirix.settings.VersioningType;
@@ -45,7 +46,7 @@ public final class JsonShredderTest {
     assertEquals("test", jsonStringReader.nextString());
   }
 
-  @Ignore
+//  @Ignore
   @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -56,7 +57,7 @@ public final class JsonShredderTest {
       int count = 0;
 
       for (final long nodeKey : axis) {
-        if (count % 1_000_000L == 0) {
+        if (count % 50_000_000L == 0) {
           System.out.println(nodeKey);
         }
         count++;
@@ -66,7 +67,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -76,11 +76,12 @@ public final class JsonShredderTest {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                      .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                      .buildPathSummary(true)
-                                                     .hashKind(HashType.NONE)
+                                                     .hashKind(HashType.ROLLING)
                                                      .useTextCompression(false)
+                                                     .storageType(StorageType.FILECHANNEL)
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx(10_000_000)) {
+             final var trx = manager.beginNodeTrx(500_000)) {
           trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
         }
       }

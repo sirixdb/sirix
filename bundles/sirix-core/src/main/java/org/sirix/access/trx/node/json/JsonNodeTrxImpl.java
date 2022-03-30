@@ -64,6 +64,7 @@ import org.sirix.settings.Fixed;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
@@ -124,6 +125,11 @@ final class JsonNodeTrxImpl extends
   private final boolean storeChildCount;
 
   /**
+   * Flag to decide wheter to store the full node history or not.
+   */
+  private final boolean storeNodeHistory;
+
+  /**
    * Determines if a value can be replaced, used for replacing an object record.
    */
   private boolean canRemoveValue;
@@ -160,7 +166,6 @@ final class JsonNodeTrxImpl extends
       @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
       final JsonNodeFactory nodeFactory, @NonNull final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
-
     super(new JsonNodeTrxThreadFactory(),
           resourceManager.getResourceConfig().hashType,
           nodeReadTrx,
@@ -186,6 +191,7 @@ final class JsonNodeTrxImpl extends
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
 
     deweyIDManager = new JsonDeweyIDManager(this);
+    storeNodeHistory = resourceManager.getResourceConfig().storeNodeHistory;
   }
 
   @Override
@@ -598,7 +604,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -634,7 +642,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -667,7 +677,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -700,7 +712,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -749,7 +763,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -799,7 +815,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -903,7 +921,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -945,7 +965,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -983,7 +1005,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1022,7 +1046,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1055,7 +1081,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1087,7 +1115,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1163,7 +1193,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1210,7 +1242,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1262,7 +1296,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1293,7 +1329,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1336,7 +1374,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1379,7 +1419,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1406,7 +1448,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1433,7 +1477,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1508,7 +1554,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1552,7 +1600,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1580,7 +1630,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1613,7 +1665,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1653,7 +1707,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1693,7 +1749,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1721,7 +1779,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1749,7 +1809,9 @@ final class JsonNodeTrxImpl extends
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
-      nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1803,7 +1865,9 @@ final class JsonNodeTrxImpl extends
         // Then remove node.
         pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
 
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNode.getNodeKey());
+        if (storeNodeHistory) {
+          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNode.getNodeKey());
+        }
       }
 
       // Remove the name of subtree-root.
@@ -1820,7 +1884,9 @@ final class JsonNodeTrxImpl extends
       adaptForRemove(node);
       nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       if (node.hasRightSibling()) {
         moveTo(node.getRightSiblingKey());
@@ -1929,7 +1995,9 @@ final class JsonNodeTrxImpl extends
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -1995,7 +2063,9 @@ final class JsonNodeTrxImpl extends
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -2031,7 +2101,9 @@ final class JsonNodeTrxImpl extends
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
@@ -2068,7 +2140,9 @@ final class JsonNodeTrxImpl extends
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
-      nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+      }
 
       return this;
     });
