@@ -30,7 +30,7 @@ public class ItemHistoryTest {
   @Test
   public void test() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
+      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
       try (final var manager = database.openResourceManager("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {

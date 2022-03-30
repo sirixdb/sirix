@@ -60,7 +60,7 @@ afterReleaseBuild.dependsOn(uploadPublications)
 allprojects {
     group = 'io.sirix'
 
-    apply plugin: 'jacoco'
+//    apply plugin: 'jacoco'
     apply plugin: 'com.github.kt3k.coveralls'
     apply plugin: 'idea'
 
@@ -86,8 +86,8 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_18
+        targetCompatibility = JavaVersion.VERSION_18
         withSourcesJar()
         withJavadocJar()
 
@@ -99,7 +99,7 @@ subprojects {
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '17')
+            addStringOption('-release', '18')
             addBooleanOption('-enable-preview', true)
             addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
@@ -120,16 +120,16 @@ subprojects {
         }
     }
     
-    jacoco {
-        toolVersion = "0.8.7"
-    }
-
-    jacocoTestReport {
-        reports {
-            xml.enabled = true
-            html.enabled = true
-        }
-    }
+//    jacoco {
+//        toolVersion = "0.8.7"
+//    }
+//
+//    jacocoTestReport {
+//        reports {
+//            xml.enabled = true
+//            html.enabled = true
+//        }
+//    }
 
     publishing {
         publications {
@@ -235,21 +235,21 @@ subprojects {
     }
 }
 
-task jacocoRootReport(type: JacocoReport) {
-    description = 'Generates an aggregate report from all subprojects'
-    dependsOn = subprojects.test
-    sourceDirectories.setFrom files(subprojects.sourceSets.main.allSource.srcDirs)
-    classDirectories.setFrom files(subprojects.sourceSets.main.output)
-    executionData.setFrom files(subprojects.jacocoTestReport.executionData).filter {
-        file -> file.exists()
-    }.asList()
-    reports {
-        html.enabled = true
-        xml.enabled = true
-    }
-}
-
-coveralls {
-    sourceDirs = subprojects.sourceSets.main.allSource.srcDirs.flatten()
-    jacocoReportPath = "${buildDir}/reports/jacoco/jacocoRootReport/jacocoRootReport.xml"
-}
+//task jacocoRootReport(type: JacocoReport) {
+//    description = 'Generates an aggregate report from all subprojects'
+//    dependsOn = subprojects.test
+//    sourceDirectories.setFrom files(subprojects.sourceSets.main.allSource.srcDirs)
+//    classDirectories.setFrom files(subprojects.sourceSets.main.output)
+//    executionData.setFrom files(subprojects.jacocoTestReport.executionData).filter {
+//        file -> file.exists()
+//    }.asList()
+//    reports {
+//        html.enabled = true
+//        xml.enabled = true
+//    }
+//}
+//
+//coveralls {
+//    sourceDirs = subprojects.sourceSets.main.allSource.srcDirs.flatten()
+//    jacocoReportPath = "${buildDir}/reports/jacoco/jacocoRootReport/jacocoRootReport.xml"
+//}

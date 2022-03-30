@@ -1,7 +1,7 @@
 # Stage-1
 # Build jar
 
-FROM gradle:7.2-jdk17 as builder
+FROM gradle:7.4-jdk18 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
@@ -12,7 +12,7 @@ RUN gradle build --refresh-dependencies -x test
 # Stage-2
 # Copy jar and run the server
 
-FROM gradle:jdk17-alpine as server
+FROM gradle:jdk18-alpine as server
 RUN apk update && apk add --no-cache bash && apk add --no-cache gcompat
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles

@@ -23,9 +23,10 @@ package org.sirix.io.memorymapped;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ResourceScope;
+import jdk.incubator.foreign.ValueLayout;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -33,12 +34,10 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.nio.file.Path;
+import java.nio.ByteOrder;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -48,6 +47,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger
  */
 public final class MMFileReader implements Reader {
+
+  static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
+  static final ValueLayout.OfInt LAYOUT_LE_INT =
+      ValueLayout.JAVA_INT.withOrder(ByteOrder.LITTLE_ENDIAN).withBitAlignment(8);
+  static final ValueLayout.OfLong LAYOUT_LE_LONG =
+      ValueLayout.JAVA_LONG.withOrder(ByteOrder.LITTLE_ENDIAN).withBitAlignment(8);
+
 
   /**
    * Beacon of first references.
@@ -76,7 +82,7 @@ public final class MMFileReader implements Reader {
 
   private MemorySegment dataFileSegment;
 
-  private MemorySegment revisionsOffsetFileSegment;
+  private final MemorySegment revisionsOffsetFileSegment;
 
   /**
    * Constructor.
@@ -103,25 +109,22 @@ public final class MMFileReader implements Reader {
           if (reference.getKey() < 0) {
             throw new SirixIOException("Reference key is not valid: " + reference.getKey());
           }
-          offset = reference.getKey() + 4;
-          yield MemoryAccess.getIntAtOffset(dataFileSegment, reference.getKey());
+          offset = reference.getKey() + LAYOUT_LE_INT.byteSize();
+          yield dataFileSegment.get(LAYOUT_LE_INT, reference.getKey());
         }
         case TRANSACTION_INTENT_LOG -> {
           if (reference.getLogKey() < 0) {
             throw new SirixIOException("Reference log key is not valid: " + reference.getPersistentLogKey());
           }
-          offset = reference.getPersistentLogKey() + 4;
-          yield MemoryAccess.getIntAtOffset(dataFileSegment, reference.getPersistentLogKey());
+          offset = reference.getPersistentLogKey() + LAYOUT_LE_INT.byteSize();
+          yield dataFileSegment.get(LAYOUT_LE_INT, reference.getPersistentLogKey());
         }
         default -> throw new AssertionError();
       };
 
-      //      reference.setLength(dataLength + MMFileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
-      for (int i = 0; i < dataLength; i++) {
-        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, offset + (long) i);
-      }
+      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
 
       return deserialize(pageReadTrx, page);
     } catch (final IOException e) {
@@ -133,7 +136,7 @@ public final class MMFileReader implements Reader {
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
 
-    uberPageReference.setKey(MemoryAccess.getLong(dataFileSegment));
+    uberPageReference.setKey(dataFileSegment.get(LAYOUT_LE_LONG, 0));
 
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
@@ -143,14 +146,12 @@ public final class MMFileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      final long dataFileOffset = MemoryAccess.getLongAtOffset(revisionsOffsetFileSegment, revision * 8);
-      final int dataLength = MemoryAccess.getIntAtOffset(dataFileSegment, dataFileOffset);
+      final long dataFileOffset = revisionsOffsetFileSegment.get(LAYOUT_LE_LONG, revision * LAYOUT_LE_LONG.byteSize());
+      final int dataLength = dataFileSegment.get(LAYOUT_LE_INT, dataFileOffset);
 
       final byte[] page = new byte[dataLength];
 
-      for (int i = 0; i < dataLength; i++) {
-        page[i] = MemoryAccess.getByteAtOffset(dataFileSegment, dataFileOffset + 4L + (long) i);
-      }
+      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, dataFileOffset + LAYOUT_LE_INT.byteSize(), page, 0, dataLength);
 
       return (RevisionRootPage) deserialize(pageReadTrx, page);
     } catch (final IOException e) {

@@ -21,9 +21,9 @@
 
 package org.sirix.io.memorymapped;
 
-import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
@@ -51,9 +51,9 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
   private static final byte PAGE_FRAGMENT_WORD_ALIGN = 64;
 
-  private static int TEST_BLOCK_SIZE = 64 * 1024; // Smallest safe block size for Windows 8+.
+  private static final int TEST_BLOCK_SIZE = 64 * 1024; // Smallest safe block size for Windows 8+.
 
-  private final ResourceScope dataFileScope;
+  private ResourceScope dataFileScope;
 
   private final ResourceScope revisionsOffsetFileScope;
 
@@ -129,7 +129,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
           throw new SirixIOException(e);
         }
         try (final RandomAccessFile file = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw")) {
-          file.setLength(file.length() - 8 * (currentRevision - revision));
+          file.setLength(file.length() - MMFileReader.LAYOUT_LE_LONG.byteSize() * (currentRevision - revision));
         } catch (final IOException e) {
           throw new SirixIOException(e);
         }
@@ -176,38 +176,39 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       }
 
       dataSegmentFileSize = offset;
-      dataSegmentFileSize += 4;
+      dataSegmentFileSize += MMFileReader.LAYOUT_LE_INT.byteSize();
       dataSegmentFileSize += serializedPage.length;
 
       reInstantiateDataFileSegment();
 
-      MemoryAccess.setIntAtOffset(dataFileSegment, offset, serializedPage.length);
+      dataFileSegment.set(MMFileReader.LAYOUT_LE_INT, offset, serializedPage.length);
 
-      long currOffsetWithInt = offset + 4;
+      long currOffsetWithInt = offset + MMFileReader.LAYOUT_LE_INT.byteSize();
 
-      for (int i = 0; i < serializedPage.length; i++) {
-        MemoryAccess.setByteAtOffset(dataFileSegment, currOffsetWithInt + (long) i, serializedPage[i]);
-      }
+      MemorySegment.copy(serializedPage,
+                         0,
+                         dataFileSegment,
+                         MMFileReader.LAYOUT_BYTE,
+                         currOffsetWithInt,
+                         serializedPage.length);
 
       // Remember page coordinates.
       switch (type) {
-        case DATA:
-          pageReference.setKey(offset);
-          break;
-        case TRANSACTION_INTENT_LOG:
-          pageReference.setPersistentLogKey(offset);
-          break;
-        default:
-          // Must not happen.
+        case DATA -> pageReference.setKey(offset);
+        case TRANSACTION_INTENT_LOG -> pageReference.setPersistentLogKey(offset);
       }
 
-      //      pageReference.setLength(serializedPage.length + 4);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
       if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
         if (revisionsOffsetFileSegment.byteSize() < Integer.MAX_VALUE) {
           try {
-            storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+            final var hasAcquiredLock = storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+
+            if (!hasAcquiredLock) {
+              throw new IllegalStateException("Could not acquire lock.");
+            }
+
             revisionsOffsetFileSegment = MemorySegment.mapFile(revisionsOffsetFilePath,
                                                                0,
                                                                Integer.MAX_VALUE,
@@ -222,7 +223,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
           }
         }
 
-        MemoryAccess.setLongAtOffset(revisionsOffsetFileSegment, revisionsOffsetSegmentFileSize, offset);
+        revisionsOffsetFileSegment.set(MMFileReader.LAYOUT_LE_LONG, revisionsOffsetSegmentFileSize, offset);
 
         revisionsOffsetSegmentFileSize += 8;
       }
@@ -240,8 +241,14 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       } while (dataSegmentFileSize > currByteSizeToMap);
 
       try {
-        storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+        final var hasAcquiredLock = storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
+        if (!hasAcquiredLock) {
+          throw new IllegalStateException("Could not acquire lock.");
+        }
+
+//        dataFileScope.close();
+//        dataFileScope = ResourceScope.newSharedScope();
         dataFileSegment =
             MemorySegment.mapFile(dataFilePath, 0, currByteSizeToMap, FileChannel.MapMode.READ_WRITE, dataFileScope);
         reader.setDataSegment(dataFileSegment);
@@ -258,7 +265,11 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   @Override
   public void close() {
     try {
-      storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      final var hasAcquiredLock = storage.semaphore.tryAcquire(5, TimeUnit.SECONDS);
+
+      if (!hasAcquiredLock) {
+        throw new IllegalStateException("Could not acquire lock.");
+      }
 
       if (reader != null) {
         reader.close();
@@ -290,7 +301,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     try {
       reInstantiateDataFileSegment();
 
-      MemoryAccess.setLong(dataFileSegment, pageReference.getKey());
+      dataFileSegment.set(MMFileReader.LAYOUT_LE_LONG, 0, pageReference.getKey());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -320,7 +331,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return "MemoryMappedFileWriter{" + "dataFile=" + dataFileSegment + ", reader=" + reader + ", type=" + type
         + ", revisionsOffsetFile=" + revisionsOffsetFileSegment + ", pagePersister=" + pagePersister + '}';
   }

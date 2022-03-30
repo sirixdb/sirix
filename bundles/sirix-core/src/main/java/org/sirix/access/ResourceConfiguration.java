@@ -38,6 +38,7 @@ import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
 
 import org.checkerframework.checker.index.qual.NonNegative;
+
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -161,8 +162,8 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE =
-      OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
+  private static final StorageType STORAGE = StorageType.FILECHANNEL;
+//      OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
 
   /**
    * Standard versioning approach.
@@ -265,12 +266,17 @@ public final class ResourceConfiguration {
   /**
    * Determines if diffs are going to be stored or not.
    */
-  private final boolean storeDiffs;
+  public final boolean storeDiffs;
 
   /**
    * Determines if custom commit timestamps should be stored or not.
    */
-  private final boolean customCommitTimestamps;
+  public final boolean customCommitTimestamps;
+
+  /**
+   * Store the full node history of each record.
+   */
+  public final boolean storeNodeHistory;
 
   // END MEMBERS FOR FIXED FIELDS
 
@@ -305,6 +311,7 @@ public final class ResourceConfiguration {
     storeChildCount = builder.storeChildCount;
     storeDiffs = builder.storeDiffs;
     customCommitTimestamps = builder.customCommitTimestamps;
+    storeNodeHistory = builder.storeNodeHistory;
   }
 
   public boolean customCommitTimestamps() {
@@ -419,13 +426,17 @@ public final class ResourceConfiguration {
     return storeChildCount;
   }
 
+  public boolean storeNodeHistory() {
+    return storeNodeHistory;
+  }
+
   /**
    * JSON names.
    */
   private static final String[] JSONNAMES =
       { "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind",
           "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter",
-          "storeDiffs", "customCommitTimestamps" };
+          "storeDiffs", "customCommitTimestamps", "storeNodeHistory" };
 
   /**
    * Serialize the configuration.
@@ -471,6 +482,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[12]).value(config.storeDiffs);
       // Custom commit timestamps.
       jsonWriter.name(JSONNAMES[13]).value(config.customCommitTimestamps);
+      // Node history.
+      jsonWriter.name(JSONNAMES[14]).value(config.storeNodeHistory);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -564,6 +577,9 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[13]);
       final boolean customCommitTimestamps = jsonReader.nextBoolean();
+      name = jsonReader.nextName();
+      assert name.equals(JSONNAMES[14]);
+      final boolean storeNodeHistory = jsonReader.nextBoolean();
 
       jsonReader.endObject();
       jsonReader.close();
@@ -584,7 +600,8 @@ public final class ResourceConfiguration {
              .buildPathSummary(pathSummary)
              .useDeweyIDs(deweyIDsStored)
              .storeDiffs(storeDiffs)
-             .customCommitTimestamps(customCommitTimestamps);
+             .customCommitTimestamps(customCommitTimestamps)
+             .storeNodeHistory(storeNodeHistory);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -671,6 +688,11 @@ public final class ResourceConfiguration {
     private boolean customCommitTimestamps;
 
     /**
+     * Determines if node history should be stored or not.
+     */
+    private boolean storeNodeHistory;
+
+    /**
      * Constructor, setting the mandatory fields.
      *
      * @param resource the name of the resource
@@ -680,9 +702,6 @@ public final class ResourceConfiguration {
       this.resource = checkNotNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      // final Path path =
-      // mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(mResource);
-
       byteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
     }
 
@@ -818,6 +837,17 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Set to {@code true} if node history should be stored.
+     *
+     * @param storeNodeHistory {code true}, if node history should be stored, {@code false} if not
+     * @return reference to the builder object
+     */
+    public Builder storeNodeHistory(boolean storeNodeHistory) {
+      this.storeNodeHistory = storeNodeHistory;
+      return this;
+    }
+
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
@@ -828,6 +858,12 @@ public final class ResourceConfiguration {
                         .add("PathSummary", pathSummary)
                         .add("TextCompression", useTextCompression)
                         .add("Store diffs", storeDiffs)
+                        .add("Store child count", storeChildCount)
+                        .add("Store node history", storeNodeHistory)
+                        .add("Custom commit timestamps", customCommitTimestamps)
+                        .add("Max number of revisions to restore", maxNumberOfRevisionsToRestore)
+                        .add("Use deweyIDs", useDeweyIDs)
+                        .add("Byte handler pipeline", byteHandler)
                         .toString();
     }
 

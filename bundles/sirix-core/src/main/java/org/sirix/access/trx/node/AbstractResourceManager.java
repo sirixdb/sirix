@@ -337,23 +337,23 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public W beginNodeTrx() {
-    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, AfterCommitState.KeepOpen);
+    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxNodeCount) {
-    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KeepOpen);
+    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit) {
-    return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KeepOpen);
+    return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
       final @NonNull TimeUnit timeUnit) {
-    return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KeepOpen);
+    return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
   }
 
   @Override

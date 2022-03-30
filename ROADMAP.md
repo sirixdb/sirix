@@ -14,8 +14,6 @@ From there on or even before releasing 1.0.0 I'd love to put work into our [**we
 
 - **Sharding** I'll have a look into how best to write and read from a distributed transaction log based on Apache BookKeeper most probably. Main goal is to shard SirixDB databases, that is replicate resources, partition a database... *However a community discussion would be best*.
 
-- **Rewrite rules for the query compiler** We have to figure out how to rewrite the AST in Brackit to automatically take indexes and various statistics into account. In the future: Cost based optimizer. However I'm no query compiler expert, so as always a community effort would be awesome
-
 ## In the long run
 
 - **Full text index** Would be awesome to provide full text indexing and querying capabilitie

@@ -1,7 +1,7 @@
 package org.sirix.access.trx.node;
 
 public enum AfterCommitState {
-    KeepOpen,
+    KEEP_OPEN,
 
-    Close
+    CLOSE
 }

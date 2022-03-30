@@ -432,10 +432,10 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 17, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 18, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
 
 ### Maven artifacts
-At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
+At this stage of development, you should use the latest SNAPSHOT aSrtifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
 
 Just add the following repository section to your POM or build.gradle file:
 ```xml

@@ -33,6 +33,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 
@@ -90,17 +91,21 @@ public final class FullReferencesPage implements Page {
     for (int index = 0, size = pageToClone.references.length; index < size; index++) {
       final var pageReference = new PageReference();
       final var pageReferenceToClone = pageToClone.getReferences().get(index);
-      pageReference.setKey(pageReferenceToClone.getKey());
-      pageReference.setLogKey(pageReferenceToClone.getLogKey());
-      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-      pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
+
+      if (pageReferenceToClone != null) {
+        pageReference.setKey(pageReferenceToClone.getKey());
+        pageReference.setLogKey(pageReferenceToClone.getLogKey());
+        pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+        pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
+      }
+
       references[index] = pageReference;
     }
   }
 
   @Override
   public List<PageReference> getReferences() {
-    return List.of(references);
+    return Arrays.asList(references);
   }
 
   /**
