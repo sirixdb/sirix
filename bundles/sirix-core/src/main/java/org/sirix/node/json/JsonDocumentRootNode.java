@@ -47,13 +47,13 @@ import com.google.common.base.Objects;
 public final class JsonDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableJsonNode {
 
   /** {@link NodeDelegate} reference. */
-  private final NodeDelegate mNodeDel;
+  private final NodeDelegate nodeDel;
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
   /** The hash code of the node. */
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Constructor.
@@ -62,8 +62,8 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
    * @param structDel {@link StructNodeDelegate} reference
    */
   public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structDel) {
-    mNodeDel = checkNotNull(nodeDel);
-    mStructNodeDel = checkNotNull(structDel);
+    this.nodeDel = checkNotNull(nodeDel);
+    structNodeDel = checkNotNull(structDel);
   }
 
   @Override
@@ -75,22 +75,22 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    if (mHash == null)
-      mHash = Node.to128BitsAtMaximumBigInteger(computeHash());
-    return mHash;
+    if (hash == null)
+      hash = Node.to128BitsAtMaximumBigInteger(computeHash());
+    return hash;
   }
 
   @Override
@@ -100,14 +100,14 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeDel);
+    return Objects.hashCode(nodeDel);
   }
 
   @Override
   public boolean equals(@Nullable final Object obj) {
     if (obj instanceof JsonDocumentRootNode) {
       final JsonDocumentRootNode other = (JsonDocumentRootNode) obj;
-      return Objects.equal(mNodeDel, other.mNodeDel);
+      return Objects.equal(nodeDel, other.nodeDel);
     }
     return false;
   }
@@ -119,11 +119,11 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
 
   @Override
   protected NodeDelegate delegate() {
-    return mNodeDel;
+    return nodeDel;
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 }

@@ -46,7 +46,7 @@ public final class JsonShredderTest {
     assertEquals("test", jsonStringReader.nextString());
   }
 
-//  @Ignore
+  @Ignore
   @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -67,6 +67,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Ignore
   @Test
   public void testChicago() {
     try {
