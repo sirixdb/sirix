@@ -57,47 +57,67 @@ public final class ItemHistory extends AbstractFunction {
     final NodeReadOnlyTrx rtx = item.getTrx();
 
     final var resMgr = rtx.getResourceManager();
-    final var optionalRtxInMostRecentRevision =
-        resMgr.getNodeReadTrxByRevisionNumber(resMgr.getMostRecentRevisionNumber());
-    final NodeReadOnlyTrx rtxInMostRecentRevision;
-    if (optionalRtxInMostRecentRevision.isEmpty()) {
-      rtxInMostRecentRevision = resMgr.beginNodeReadOnlyTrx();
-    } else {
-      rtxInMostRecentRevision = optionalRtxInMostRecentRevision.get();
-    }
+    final NodeReadOnlyTrx rtxInMostRecentRevision = resMgr.beginNodeReadOnlyTrx();
 
     final Optional<RevisionReferencesNode> optionalNode =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
-    final RevisionReferencesNode node = optionalNode.orElseThrow(IllegalStateException::new);
+    final RevisionReferencesNode node = optionalNode.orElse(null);
 
-    final int[] revisions = node.getRevisions();
-    final List<Item> sequences = new ArrayList<>(revisions.length);
-
-    for (final int revision : revisions) {
-      final var optionalRtxInRevision = resMgr.getNodeReadTrxByRevisionNumber(revision);
-      final NodeReadOnlyTrx rtxInRevision;
-      if (optionalRtxInRevision.isEmpty()) {
-        rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
-      } else {
-        rtxInRevision = optionalRtxInRevision.get();
-      }
-
-      if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
-        if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
-          assert item instanceof XmlDBNode;
-          sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
-        } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
-          assert item instanceof JsonDBItem;
-          final JsonDBItem jsonItem = (JsonDBItem) item;
-          sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
-                                                          jsonItem.getCollection()));
+    if (node == null) {
+      final List<Item> sequences = new ArrayList<>();
+      final var resourceManager = item.getTrx().getResourceManager();
+      for (int revision = 1; revision < resourceManager.getMostRecentRevisionNumber(); revision++) {
+        final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
+        if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
+          if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
+            assert item instanceof XmlDBNode;
+            if (!sequences.isEmpty() && ((XmlDBNode) sequences.get(sequences.size() - 1)).getTrx().getHash() != rtxInRevision.getHash()) {
+              sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
+            } else if (sequences.isEmpty()) {
+              sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
+            } else {
+              rtxInRevision.close();
+            }
+          } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
+            assert item instanceof JsonDBItem;
+            final JsonDBItem jsonItem = (JsonDBItem) item;
+            if (!sequences.isEmpty() && ((JsonDBItem) sequences.get(sequences.size() - 1)).getTrx().getHash() != rtxInRevision.getHash()) {
+              sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));
+            } else if (sequences.isEmpty()) {
+              sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));;
+            } else {
+              rtxInRevision.close();
+            }
+          }
+        } else {
+          rtxInRevision.close();
         }
-      } else {
-        sequences.add(null);
       }
-    }
 
-    return new ItemSequence(sequences.toArray(new Item[0]));
+      return new ItemSequence(sequences.toArray(new Item[0]));
+    } else {
+      final int[] revisions = node.getRevisions();
+      final List<Item> sequences = new ArrayList<>(revisions.length);
+
+      for (final int revision : revisions) {
+        final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
+
+        if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
+          if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
+            assert item instanceof XmlDBNode;
+            sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
+          } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
+            assert item instanceof JsonDBItem;
+            final JsonDBItem jsonItem = (JsonDBItem) item;
+            sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));
+          }
+        } else {
+          sequences.add(null);
+        }
+      }
+
+      return new ItemSequence(sequences.toArray(new Item[0]));
+    }
   }
 }

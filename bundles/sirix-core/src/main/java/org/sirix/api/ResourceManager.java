@@ -356,13 +356,13 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   boolean hasRunningNodeWriteTrx();
 
-  /**
-   * Get a read-only transaction for a specific revision, if it exists.
-   *
-   * @param revision the revision number
-   * @return optional read-only transaction
-   */
-  Optional<R> getNodeReadTrxByRevisionNumber(final int revision);
+//  /**
+//   * Get a read-only transaction for a specific revision, if it exists.
+//   *
+//   * @param revision the revision number
+//   * @return optional read-only transaction
+//   */
+//  Optional<R> getNodeReadTrxByRevisionNumber(final int revision);
 
   /**
    * Get the user associated with the current ressource manager session.

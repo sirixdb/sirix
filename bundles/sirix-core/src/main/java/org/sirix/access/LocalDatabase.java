@@ -8,7 +8,9 @@ import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+
 import java.time.Instant;
+
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -28,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.checkerframework.checker.index.qual.NonNegative;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,7 +46,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
-        implements Database<T> {
+    implements Database<T> {
 
   /**
    * Logger for {@link LocalDatabase}.
@@ -105,18 +108,15 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
    * Constructor.
    *
    * @param transactionManager A manager for database transactions.
-   * @param dbConfig         {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions         The database sessions management instance.
-   * @param resourceStore    The resource store used by this database.
-   * @param writeLocks       Manages the locks for resource managers.
-   * @param resourceManagers The pool for resource managers.
+   * @param dbConfig           {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param sessions           The database sessions management instance.
+   * @param resourceStore      The resource store used by this database.
+   * @param writeLocks         Manages the locks for resource managers.
+   * @param resourceManagers   The pool for resource managers.
    */
-  public LocalDatabase(final TransactionManager transactionManager,
-                       final DatabaseConfiguration dbConfig,
-                       final PathBasedPool<Database<?>> sessions,
-                       final ResourceStore<T> resourceStore,
-                       final WriteLocksRegistry writeLocks,
-                       final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+  public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
+      final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
+      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
 
     this.transactionManager = transactionManager;
     this.dbConfig = checkNotNull(dbConfig);
@@ -142,13 +142,12 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   public T openResourceManager(final String resourceName) {
     assertNotClosed();
 
-    final Path resourceFile = dbConfig.getDatabaseFile()
-            .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-            .resolve(resourceName);
+    final Path resourceFile =
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
 
     if (!Files.exists(resourceFile)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
-              resourceFile.toString());
+                                    resourceFile.toString());
     }
 
     if (resourceStore.hasOpenResourceManager(resourceFile)) {
@@ -252,10 +251,8 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   }
 
   private boolean bootstrapResource(ResourceConfiguration resConfig) {
-    try (
-            final T resourceTrxManager =
-                    openResourceManager(resConfig.getResource().getFileName().toString());
-            final W wtx = resourceTrxManager.beginNodeTrx()) {
+    try (final T resourceTrxManager = openResourceManager(resConfig.getResource().getFileName().toString());
+         final W wtx = resourceTrxManager.beginNodeTrx()) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
         wtx.commit(null, Instant.ofEpochMilli(0));

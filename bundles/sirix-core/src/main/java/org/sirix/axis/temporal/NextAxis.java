@@ -1,7 +1,7 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
+
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -18,16 +18,16 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     extends AbstractTemporalAxis<R, W> {
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> mResourceManager;
+  private final ResourceManager<R, W> resourceManager;
 
   /** Determines if it's the first call. */
-  private boolean mFirst;
+  private boolean first;
 
   /** The revision number. */
-  private int mRevision;
+  private int revision;
 
   /** Node key to lookup and retrieve. */
-  private long mNodeKey;
+  private long nodeKey;
 
   /**
    * Constructor.
@@ -35,30 +35,22 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
   public NextAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    mResourceManager = checkNotNull(resourceManager);
-    mRevision = 0;
-    mNodeKey = rtx.getNodeKey();
-    mRevision = rtx.getRevisionNumber() + 1;
-    mFirst = true;
+    this.resourceManager = checkNotNull(resourceManager);
+    revision = 0;
+    nodeKey = rtx.getNodeKey();
+    revision = rtx.getRevisionNumber() + 1;
+    first = true;
   }
 
   @Override
   protected R computeNext() {
-    if (mRevision <= mResourceManager.getMostRecentRevisionNumber() && mFirst) {
-      mFirst = false;
+    if (revision <= resourceManager.getMostRecentRevisionNumber() && first) {
+      first = false;
 
-      final Optional<R> optionalRtx = mResourceManager.getNodeReadTrxByRevisionNumber(mRevision);
+      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+      revision++;
 
-      final R rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-      } else {
-        rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision);
-      }
-
-      mRevision++;
-
-      if (rtx.moveTo(mNodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey).hasMoved()) {
         return rtx;
       } else {
         rtx.close();
@@ -71,6 +63,6 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
   @Override
   public ResourceManager<R, W> getResourceManager() {
-    return mResourceManager;
+    return resourceManager;
   }
 }

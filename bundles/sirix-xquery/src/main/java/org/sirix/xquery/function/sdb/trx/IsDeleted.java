@@ -65,26 +65,20 @@ public final class IsDeleted extends AbstractFunction {
     final Optional<RevisionReferencesNode> optionalNode =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
-    final RevisionReferencesNode node = optionalNode.orElseThrow(() -> new IllegalStateException());
+    final RevisionReferencesNode node = optionalNode.orElse(null);
 
-    final var revisions = node.getRevisions();
+    if (node == null) {
+      return rtxInMostRecentRevision.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;
+    } else {
+      final var revisions = node.getRevisions();
+      final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
+      final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
 
-    final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
-
-    final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
-
-    return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;
+      return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;
+    }
   }
 
   private NodeReadOnlyTrx getTrx(org.sirix.api.ResourceManager<?, ?> resMgr, int mostRecentRevisionOfItem) {
-    final var optionalRtxInMostRecentRevisionOfItem =
-        resMgr.getNodeReadTrxByRevisionNumber(mostRecentRevisionOfItem);
-    final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem;
-    if (optionalRtxInMostRecentRevisionOfItem.isEmpty()) {
-      rtxInMostRecentRevisionOfItem = resMgr.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
-    } else {
-      rtxInMostRecentRevisionOfItem = optionalRtxInMostRecentRevisionOfItem.get();
-    }
-    return rtxInMostRecentRevisionOfItem;
+    return resMgr.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
   }
 }

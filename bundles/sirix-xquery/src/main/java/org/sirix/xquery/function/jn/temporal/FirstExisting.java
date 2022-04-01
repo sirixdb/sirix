@@ -54,6 +54,17 @@ public final class FirstExisting extends AbstractFunction {
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       rtx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(rtx, item.getCollection());
-    }).orElse(null);
+    }).orElseGet(() -> {
+      final var resourceManager = item.getTrx().getResourceManager();
+      for (int revisionNumber = 1; revisionNumber < resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
+        final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+        if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
+          return new JsonItemFactory().getSequence(rtx, item.getCollection());
+        } else {
+          rtx.close();
+        }
+      }
+      return null;
+    });
   }
 }

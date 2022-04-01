@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, All rights reserved.
+ * Copyright (c) 2022, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
@@ -30,6 +30,7 @@ import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.filechannel.FileChannelWriter;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
@@ -38,9 +39,7 @@ import java.io.UncheckedIOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.nio.file.StandardOpenOption;
 
 /**
  * Storage, to provide offheap memory mapped access.
@@ -69,17 +68,9 @@ public final class MMStorage implements IOStorage {
    */
   private final ByteHandlePipeline byteHandlerPipeline;
 
-  long revisionsOffsetFileSize;
+  private FileChannel dataFileChannel;
 
-  ResourceScope dataFileScope;
-
-  MemorySegment dataFileSegment;
-
-  ResourceScope revisionsOffsetFileScope;
-
-  MemorySegment revisionsOffsetFileSegment;
-
-  final Semaphore semaphore = new Semaphore(1);
+  private FileChannel revisionsOffsetFileChannel;
 
   /**
    * Constructor.
@@ -93,51 +84,34 @@ public final class MMStorage implements IOStorage {
   }
 
   @Override
-  public synchronized Reader createReader() {
+  public Reader createReader() {
     try {
-      semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      if (revisionsOffsetFileSize == 0)
-        revisionsOffsetFileSize = Files.size(revisionsOffsetFilePath);
+      final var dataFileScope = ResourceScope.newSharedScope();
+      final var dataFileSegmentFileSize = Files.size(dataFilePath);
+      final var dataFileSegment =
+          MemorySegment.mapFile(dataFilePath, 0, dataFileSegmentFileSize, FileChannel.MapMode.READ_ONLY, dataFileScope);
 
-      createMemoryMappingsIfNeeded(dataFilePath, revisionsOffsetFilePath);
+      final var revisionsOffsetFileScope = ResourceScope.newSharedScope();
+      final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
+      final var revisionsOffsetFileSegment = MemorySegment.mapFile(revisionsOffsetFilePath,
+                                                                   0,
+                                                                   revisionsOffsetSegmentFileSize,
+                                                                   FileChannel.MapMode.READ_ONLY,
+                                                                   revisionsOffsetFileScope);
 
       return new MMFileReader(dataFileSegment,
                               revisionsOffsetFileSegment,
                               new ByteHandlePipeline(byteHandlerPipeline),
                               SerializationType.DATA,
                               new PagePersister());
-    } catch (final IOException | InterruptedException e) {
+    } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      semaphore.release();
     }
-  }
-
-  private void createMemoryMappingsIfNeeded(Path dataFilePath, Path revisionsOffsetFilePath) throws IOException {
-    if (dataFileScope == null)
-      dataFileScope = ResourceScope.newSharedScope();
-
-    if (dataFileSegment == null)
-      dataFileSegment = MemorySegment.mapFile(dataFilePath,
-                                              0,
-                                              Files.size(dataFilePath),
-                                              FileChannel.MapMode.READ_WRITE,
-                                              dataFileScope);
-
-    if (revisionsOffsetFileScope == null)
-      revisionsOffsetFileScope = ResourceScope.newSharedScope();
-
-    if (revisionsOffsetFileSegment == null)
-      revisionsOffsetFileSegment = MemorySegment.mapFile(revisionsOffsetFilePath,
-                                                         0,
-                                                         Files.size(revisionsOffsetFilePath),
-                                                         FileChannel.MapMode.READ_WRITE,
-                                                         revisionsOffsetFileScope);
   }
 
   private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
@@ -158,45 +132,49 @@ public final class MMStorage implements IOStorage {
   }
 
   @Override
-  public Writer createWriter() {
+  public synchronized Writer createWriter() {
     try {
-      semaphore.tryAcquire(5, TimeUnit.SECONDS);
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
+      createDataFileChannelIfNotInitialized(dataFilePath);
+      createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
 
-      if (revisionsOffsetFileSize == 0)
-        revisionsOffsetFileSize = Files.size(revisionsOffsetFilePath);
-
-      createMemoryMappingsIfNeeded(dataFilePath, revisionsOffsetFilePath);
-
-      return new MMFileWriter(this,
-                              dataFilePath,
-                              dataFileScope,
-                              dataFileSegment,
-                              revisionsOffsetFilePath,
-                              revisionsOffsetFileScope,
-                              revisionsOffsetFileSegment,
-                              revisionsOffsetFileSize,
-                              new ByteHandlePipeline(byteHandlerPipeline),
-                              SerializationType.DATA,
-                              new PagePersister());
-    } catch (final IOException | InterruptedException e) {
+      return new FileChannelWriter(dataFileChannel,
+                                   revisionsOffsetFileChannel,
+                                   new ByteHandlePipeline(byteHandlerPipeline),
+                                   SerializationType.DATA,
+                                   new PagePersister());
+    } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      semaphore.release();
+    }
+  }
+
+  private void createDataFileChannelIfNotInitialized(Path dataFilePath) throws IOException {
+    if (dataFileChannel == null) {
+      dataFileChannel = FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
+    }
+  }
+
+  private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath) throws IOException {
+    if (revisionsOffsetFileChannel == null) {
+      revisionsOffsetFileChannel =
+          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
     }
   }
 
   @Override
   public void close() {
-    if (dataFileScope != null && dataFileScope.isAlive()) {
-      dataFileScope.close();
-    }
-
-    if (revisionsOffsetFileScope != null && revisionsOffsetFileScope.isAlive()) {
-      revisionsOffsetFileScope.close();
+    try {
+      if (revisionsOffsetFileChannel != null) {
+        revisionsOffsetFileChannel.close();
+      }
+      if (dataFileChannel != null) {
+        dataFileChannel.close();
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException(e.getMessage(), e);
     }
   }
 

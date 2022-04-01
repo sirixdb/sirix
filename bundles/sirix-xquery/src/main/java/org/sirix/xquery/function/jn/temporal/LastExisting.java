@@ -9,7 +9,6 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.json.JsonItem;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.index.IndexType;
 import org.sirix.node.RevisionReferencesNode;
@@ -67,29 +66,30 @@ public final class LastExisting extends AbstractFunction {
         if (revision < resourceManager.getMostRecentRevisionNumber()) {
           // Has been inserted, but never been removed, thus open most recent revision.
           rtx.close();
-          final var mostRecentRevisionTrx =
-              resourceManager.getNodeReadTrxByRevisionNumber(resourceManager.getMostRecentRevisionNumber());
-          return getJsonItem(item, resourceManager.getMostRecentRevisionNumber(), resourceManager, mostRecentRevisionTrx);
+          return getJsonItem(item, resourceManager.getMostRecentRevisionNumber(), resourceManager);
         } else {
           rtx.moveTo(item.getNodeKey());
           return new JsonItemFactory().getSequence(rtx, item.getCollection());
         }
       } else {
-        final var mostRecentRevisionTrx = resourceManager.getNodeReadTrxByRevisionNumber(revision - 1);
-        return getJsonItem(item, revision - 1, resourceManager, mostRecentRevisionTrx);
+        return getJsonItem(item, revision - 1, resourceManager);
       }
-    }).orElseThrow(() -> new QueryException(new QNm("May never happen.")));
+    }).orElseGet(() -> {
+      for (int revisionNumber = resourceManager.getMostRecentRevisionNumber(); revisionNumber > 0; revisionNumber--) {
+        final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+        if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
+          return new JsonItemFactory().getSequence(rtx, item.getCollection());
+        } else {
+          rtx.close();
+        }
+      }
+      return null;
+    });
   }
 
-  private JsonItem getJsonItem(JsonDBItem item, int revision, JsonResourceManager resourceManager,
-      Optional<JsonNodeReadOnlyTrx> mostRecentRevisionTrx) {
-    return mostRecentRevisionTrx.map(trx -> {
-      trx.moveTo(item.getNodeKey());
-      return new JsonItemFactory().getSequence(trx, item.getCollection());
-    }).orElseGet(() -> {
+  private JsonItem getJsonItem(JsonDBItem item, int revision, JsonResourceManager resourceManager) {
       final var trx = resourceManager.beginNodeReadOnlyTrx(revision);
       trx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(trx, item.getCollection());
-    });
   }
 }
