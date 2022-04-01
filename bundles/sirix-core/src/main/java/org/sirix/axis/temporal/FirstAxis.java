@@ -1,7 +1,7 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
+
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -18,13 +18,13 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
     extends AbstractTemporalAxis<R, W> {
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> mResourceManager;
+  private final ResourceManager<R, W> resourceManager;
 
   /** Node key to lookup and retrieve. */
-  private final long mNodeKey;
+  private final long nodeKey;
 
   /** Determines if it's the first call. */
-  private boolean mFirst;
+  private boolean first;
 
   /**
    * Constructor.
@@ -33,25 +33,17 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
    * @param rtx the transactional cursor
    */
   public FirstAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    mResourceManager = checkNotNull(resourceManager);
-    mNodeKey = rtx.getNodeKey();
-    mFirst = true;
+    this.resourceManager = checkNotNull(resourceManager);
+    nodeKey = rtx.getNodeKey();
+    first = true;
   }
 
   @Override
   protected R computeNext() {
-    if (mFirst) {
-      mFirst = false;
-      final Optional<R> optionalRtx = mResourceManager.getNodeReadTrxByRevisionNumber(1);
-
-      final R rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-      } else {
-        rtx = mResourceManager.beginNodeReadOnlyTrx(1);
-      }
-
-      if (rtx.moveTo(mNodeKey).hasMoved()) {
+    if (first) {
+      first = false;
+      final R rtx = resourceManager.beginNodeReadOnlyTrx(1);
+      if (rtx.moveTo(nodeKey).hasMoved()) {
         return rtx;
       } else {
         rtx.close();
@@ -64,6 +56,6 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
 
   @Override
   public ResourceManager<R, W> getResourceManager() {
-    return mResourceManager;
+    return resourceManager;
   }
 }

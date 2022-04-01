@@ -684,12 +684,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return Optional.ofNullable(nodeTrxMap.get(ID));
   }
 
-  @Override
-  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
-    assertNotClosed();
-
-    return nodeTrxMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
-  }
+//  @Override
+//  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
+//    assertNotClosed();
+//
+//    return nodeTrxMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
+//  }
 
   @SuppressWarnings("unchecked")
   @Override

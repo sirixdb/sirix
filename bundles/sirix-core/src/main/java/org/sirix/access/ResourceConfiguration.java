@@ -162,8 +162,8 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE = StorageType.FILECHANNEL;
-//      OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
+  private static final StorageType STORAGE = //StorageType.FILECHANNEL;
+      OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
 
   /**
    * Standard versioning approach.
@@ -173,7 +173,7 @@ public final class ResourceConfiguration {
   /**
    * Type of hashing.
    */
-  private static final HashType HASHKIND = HashType.NONE;
+  private static final HashType HASHKIND = HashType.ROLLING;
 
   /**
    * Versions to restore.

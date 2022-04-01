@@ -42,15 +42,7 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     if (first) {
       first = false;
 
-      final Optional<R> optionalRtx =
-          resourceManager.getNodeReadTrxByRevisionNumber(resourceManager.getMostRecentRevisionNumber());
-
-      final R rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-      } else {
-        rtx = resourceManager.beginNodeReadOnlyTrx(resourceManager.getMostRecentRevisionNumber());
-      }
+      final R rtx = resourceManager.beginNodeReadOnlyTrx(resourceManager.getMostRecentRevisionNumber());
 
       if (rtx.moveTo(nodeKey).hasMoved()) {
         return rtx;

@@ -1,7 +1,7 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
+
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -23,13 +23,13 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
     extends AbstractTemporalAxis<R, W> {
 
   /** The revision number. */
-  private int mRevision;
+  private int revision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> mResourceManager;
+  private final ResourceManager<R, W> resourceManager;
 
   /** Node key to lookup and retrieve. */
-  private long mNodeKey;
+  private long nodeKey;
 
   /**
    * Constructor.
@@ -49,9 +49,9 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
    * @param includeSelf determines if current revision must be included or not
    */
   public FutureAxis(final ResourceManager<R, W> resourceManager, final R rtx, final IncludeSelf includeSelf) {
-    mResourceManager = checkNotNull(resourceManager);
-    mNodeKey = rtx.getNodeKey();
-    mRevision = checkNotNull(includeSelf) == IncludeSelf.YES
+    this.resourceManager = checkNotNull(resourceManager);
+    nodeKey = rtx.getNodeKey();
+    revision = checkNotNull(includeSelf) == IncludeSelf.YES
         ? rtx.getRevisionNumber()
         : rtx.getRevisionNumber() + 1;
   }
@@ -59,19 +59,10 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
   @Override
   protected R computeNext() {
     // != a little bit faster?
-    if (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
-      final Optional<R> optionalRtx = mResourceManager.getNodeReadTrxByRevisionNumber(mRevision);
-
-      final R rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-      } else {
-        rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision);
-      }
-
-      mRevision++;
-
-      if (rtx.moveTo(mNodeKey).hasMoved()) {
+    if (revision <= resourceManager.getMostRecentRevisionNumber()) {
+      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+      revision++;
+      if (rtx.moveTo(nodeKey).hasMoved()) {
         return rtx;
       } else {
         rtx.close();
@@ -84,6 +75,6 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
 
   @Override
   public ResourceManager<R, W> getResourceManager() {
-    return mResourceManager;
+    return resourceManager;
   }
 }

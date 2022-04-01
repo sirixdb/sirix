@@ -202,7 +202,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       buffer.putLong(pageReference.getKey());
       buffer.position(0);
 
-      dataFileChannel.write(buffer, 0);
+      dataFileChannel.write(buffer, 0L);
 
       if (dataFileChannel != null) {
         dataFileChannel.force(true);

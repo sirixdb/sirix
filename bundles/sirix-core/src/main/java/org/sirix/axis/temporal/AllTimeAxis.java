@@ -1,7 +1,7 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
+
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -30,7 +30,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   private long nodeKey;
 
   /** Determines if node has been found before and now has been deleted. */
-  private boolean mHasMoved;
+  private boolean hasMoved;
 
   /**
    * Constructor.
@@ -47,21 +47,12 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   @Override
   protected R computeNext() {
     while (revision <= resourceManager.getMostRecentRevisionNumber()) {
-      final Optional<R> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(revision);
-
-      final R rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-      } else {
-        rtx = resourceManager.beginNodeReadOnlyTrx(revision);
-      }
-
+      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       revision++;
-
       if (rtx.moveTo(nodeKey).hasMoved()) {
-        mHasMoved = true;
+        hasMoved = true;
         return rtx;
-      } else if (mHasMoved) {
+      } else if (hasMoved) {
         rtx.close();
         return endOfData();
       }
