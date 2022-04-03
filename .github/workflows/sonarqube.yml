@@ -8,13 +8,14 @@ jobs:
     name: Run Sonarqube
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Set up JDK 18
+      - name: Install JDK
         uses: actions/setup-java@v2
         with:
-          distribution: 'adopt'
+          distribution: 'temurin'
           java-version: '18'
       - name: Cache SonarCloud packages
         uses: actions/cache@v1
