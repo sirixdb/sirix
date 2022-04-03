@@ -23,6 +23,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.page.NamePage;
 import org.sirix.settings.Fixed;
 
@@ -325,7 +326,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
             } else {
               insertPathAsFirstChild(nodeRtx.getName(), nodeRtx.getKind(), ++level);
             }
-            resetPathNodeKey(nodeRtx.getNodeKey());
+            resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
 
             if (nodeRtx instanceof XmlNodeReadOnlyTrx rtx) {
               // Namespaces.
@@ -333,7 +334,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                 rtx.moveToNamespace(i);
                 // Path Summary : New mapping.
                 insertPathAsFirstChild(rtx.getName(), NodeKind.NAMESPACE, level + 1);
-                resetPathNodeKey(rtx.getNodeKey());
+                resetPathNodeKey(rtx.getNodeKey(), NodeKind.NAMESPACE);
                 rtx.moveToParent();
                 pathSummaryReader.moveToParent();
               }
@@ -343,7 +344,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                 rtx.moveToAttribute(i);
                 // Path Summary : New mapping.
                 insertPathAsFirstChild(rtx.getName(), NodeKind.ATTRIBUTE, level + 1);
-                resetPathNodeKey(rtx.getNodeKey());
+                resetPathNodeKey(rtx.getNodeKey(), NodeKind.ATTRIBUTE);
                 rtx.moveToParent();
                 pathSummaryReader.moveToParent();
               }
@@ -541,7 +542,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     increaseReferenceCount();
 
     // Set new path node.
-    resetPathNodeKey(nodeRtx.getNodeKey());
+    resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
   }
 
   private void setNewPathNodeKey() {
@@ -591,11 +592,17 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Reset a path node key.
    *
    * @param nodeKey the nodeKey of the node to adapt
+   * @param nodeKind the kind of the node to adapt
    * @throws SirixException if anything fails
    */
-  private void resetPathNodeKey(final @NonNegative long nodeKey) {
-    final NameNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
-    currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
+  private void resetPathNodeKey(final @NonNegative long nodeKey, final NodeKind nodeKind) {
+    if (nodeKind == NodeKind.ATTRIBUTE || nodeKind == NodeKind.ELEMENT || nodeKind == NodeKind.NAMESPACE) {
+      final NameNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
+    } else {
+      final ObjectKeyNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
+    }
   }
 
   /**

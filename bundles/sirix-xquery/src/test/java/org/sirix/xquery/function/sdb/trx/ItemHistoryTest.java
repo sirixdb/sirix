@@ -7,6 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -56,6 +57,38 @@ public class ItemHistoryTest {
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, openQuery).serialize(ctx, printWriter);
         Assert.assertEquals("\"bla\" \"blabla\" \"blablabla\"", out.toString());
+      }
+    }
+  }
+
+  @Test
+  public void test2() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder("mydoc2.jn").build());
+
+      try (final var manager = database.openResourceManager("mydoc2.jn");
+           final var wtx = manager.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}"));
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"generic\": 1, \"location\": {\"state\": \"CA\", \"city\": \"Los Angeles\"}}"));
+        wtx.moveTo(12);
+        wtx.setObjectKeyName("generic1");
+        wtx.commit();
+      }
+    }
+
+    // Initialize query context and store.
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                        .build();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      // Use XQuery to load a JSON database/resource.
+      final String openQuery = "sdb:item-history(sdb:select-item(jn:doc('json-path1','mydoc2.jn'), 12))";
+
+      try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
+        new XQuery(chain, openQuery).serialize(ctx, printWriter);
+        Assert.assertEquals("\"generic\" \"generic1\"", out.toString());
       }
     }
   }
