@@ -66,9 +66,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   /** {@link Scope} of node. */
   private SirixScope scope;
 
-  /** Optional dewey ID. */
-  private final SirixDeweyID deweyID;
-
   /**
    * Constructor.
    *
@@ -83,6 +80,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     kind = this.rtx.getKind();
     deweyID = this.rtx.getNode().getDeweyID();
   }
+
+  /** Optional dewey ID. */
+  private final SirixDeweyID deweyID;
 
   /**
    * Create a new {@link NodeReadOnlyTrx} and move to node key.
