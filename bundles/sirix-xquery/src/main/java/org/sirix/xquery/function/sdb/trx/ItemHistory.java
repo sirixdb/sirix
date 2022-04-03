@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
@@ -15,12 +16,12 @@ import org.sirix.index.IndexType;
 import org.sirix.node.RevisionReferencesNode;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.json.JsonItemFactory;
+import org.sirix.xquery.json.*;
 import org.sirix.xquery.node.XmlDBNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -67,27 +68,44 @@ public final class ItemHistory extends AbstractFunction {
     if (node == null) {
       final List<Item> sequences = new ArrayList<>();
       final var resourceManager = item.getTrx().getResourceManager();
+      Item previousItem = null;
       for (int revision = 1; revision < resourceManager.getMostRecentRevisionNumber(); revision++) {
         final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
         if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
             assert item instanceof XmlDBNode;
-            if (!sequences.isEmpty() && ((XmlDBNode) sequences.get(sequences.size() - 1)).getTrx().getHash() != rtxInRevision.getHash()) {
-              sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
-            } else if (sequences.isEmpty()) {
-              sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
+            final var xmlDBNode = new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
+            if (previousItem == null || !Objects.equals(((XmlDBNode) previousItem).getValue(), xmlDBNode.getValue())
+                || !Objects.equals(((XmlDBNode) previousItem).getName(), xmlDBNode.getName())) {
+              sequences.add(xmlDBNode);
+              previousItem = xmlDBNode;
             } else {
               rtxInRevision.close();
             }
-          } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
+          } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx trx) {
             assert item instanceof JsonDBItem;
-            final JsonDBItem jsonItem = (JsonDBItem) item;
-            if (!sequences.isEmpty() && ((JsonDBItem) sequences.get(sequences.size() - 1)).getTrx().getHash() != rtxInRevision.getHash()) {
-              sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));
-            } else if (sequences.isEmpty()) {
-              sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));;
+            final var jsonItem = new JsonItemFactory().getSequence(trx, ((JsonDBItem) item).getCollection());
+            if (previousItem == null) {
+              sequences.add(jsonItem);
+              previousItem = jsonItem;
             } else {
-              rtxInRevision.close();
+              if (jsonItem instanceof AtomicStrJsonDBItem atomicStrJsonDBItem
+                  && !Objects.equals(atomicStrJsonDBItem.stringValue(),
+                                     ((AtomicStrJsonDBItem) previousItem).stringValue())) {
+                sequences.add(jsonItem);
+                previousItem = jsonItem;
+              } else if (jsonItem instanceof AtomicBooleanJsonDBItem atomicBooleanJsonDBItem && !Objects.equals(
+                  atomicBooleanJsonDBItem.booleanValue(),
+                  previousItem.booleanValue())) {
+                sequences.add(jsonItem);
+                previousItem = jsonItem;
+              } else if (jsonItem instanceof NumericJsonDBItem numericJsonDBItem
+                  && numericJsonDBItem.cmp((Atomic) previousItem) != 0) {
+                sequences.add(jsonItem);
+                previousItem = jsonItem;
+              } else {
+                rtxInRevision.close();
+              }
             }
           }
         } else {
@@ -110,7 +128,8 @@ public final class ItemHistory extends AbstractFunction {
           } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
             assert item instanceof JsonDBItem;
             final JsonDBItem jsonItem = (JsonDBItem) item;
-            sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));
+            sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
+                                                            jsonItem.getCollection()));
           }
         } else {
           sequences.add(null);
