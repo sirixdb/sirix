@@ -69,7 +69,7 @@ public final class ItemHistory extends AbstractFunction {
       final List<Item> sequences = new ArrayList<>();
       final var resourceManager = item.getTrx().getResourceManager();
       Item previousItem = null;
-      for (int revision = 1; revision < resourceManager.getMostRecentRevisionNumber(); revision++) {
+      for (int revision = 1; revision <= resourceManager.getMostRecentRevisionNumber(); revision++) {
         final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
         if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
@@ -88,24 +88,22 @@ public final class ItemHistory extends AbstractFunction {
             if (previousItem == null) {
               sequences.add(jsonItem);
               previousItem = jsonItem;
+            } else if (jsonItem instanceof AtomicStrJsonDBItem atomicStrJsonDBItem && !Objects.equals(
+                atomicStrJsonDBItem.stringValue(),
+                ((AtomicStrJsonDBItem) previousItem).stringValue())) {
+              sequences.add(jsonItem);
+              previousItem = jsonItem;
+            } else if (jsonItem instanceof AtomicBooleanJsonDBItem atomicBooleanJsonDBItem && !Objects.equals(
+                atomicBooleanJsonDBItem.booleanValue(),
+                previousItem.booleanValue())) {
+              sequences.add(jsonItem);
+              previousItem = jsonItem;
+            } else if (jsonItem instanceof NumericJsonDBItem numericJsonDBItem
+                && numericJsonDBItem.cmp((Atomic) previousItem) != 0) {
+              sequences.add(jsonItem);
+              previousItem = jsonItem;
             } else {
-              if (jsonItem instanceof AtomicStrJsonDBItem atomicStrJsonDBItem
-                  && !Objects.equals(atomicStrJsonDBItem.stringValue(),
-                                     ((AtomicStrJsonDBItem) previousItem).stringValue())) {
-                sequences.add(jsonItem);
-                previousItem = jsonItem;
-              } else if (jsonItem instanceof AtomicBooleanJsonDBItem atomicBooleanJsonDBItem && !Objects.equals(
-                  atomicBooleanJsonDBItem.booleanValue(),
-                  previousItem.booleanValue())) {
-                sequences.add(jsonItem);
-                previousItem = jsonItem;
-              } else if (jsonItem instanceof NumericJsonDBItem numericJsonDBItem
-                  && numericJsonDBItem.cmp((Atomic) previousItem) != 0) {
-                sequences.add(jsonItem);
-                previousItem = jsonItem;
-              } else {
-                rtxInRevision.close();
-              }
+              rtxInRevision.close();
             }
           }
         } else {
