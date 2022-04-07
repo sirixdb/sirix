@@ -19,6 +19,11 @@ public abstract class AbstractImmutableJsonStructuralNode implements ImmutableSt
   }
 
   @Override
+  public byte[] getDeweyIDAsBytes() {
+    return structDelegate().getDeweyIDAsBytes();
+  }
+
+  @Override
   public boolean hasFirstChild() {
     return structDelegate().hasFirstChild();
   }

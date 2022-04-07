@@ -43,13 +43,13 @@ import com.google.common.base.Objects;
 public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNode {
 
   /** Delegate for common node information. */
-  private NodeDelegate mDelegate;
+  private NodeDelegate nodeDelegate;
 
   /** Storing the value. */
-  private byte[] mValue;
+  private byte[] value;
 
   /** Determines if input has been compressed. */
-  private boolean mCompressed;
+  private boolean compressed;
 
   /**
    * Constructor
@@ -61,14 +61,14 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   public ValueNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
     assert nodeDel != null : "nodeDel must not be null!";
     assert val != null : "val must not be null!";
-    mDelegate = nodeDel;
-    mValue = val;
-    mCompressed = compressed;
+    nodeDelegate = nodeDel;
+    value = val;
+    this.compressed = compressed;
   }
 
   @Override
   public BigInteger computeHash() {
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, mDelegate.getHashFunction().hashBytes(getRawValue()).asBytes()));
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, nodeDelegate.getHashFunction().hashBytes(getRawValue()).asBytes()));
   }
 
   @Override
@@ -83,9 +83,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public byte[] getRawValue() {
-    return mCompressed
-        ? Compression.decompress(mValue)
-        : mValue;
+    return compressed
+        ? Compression.decompress(value)
+        : value;
   }
 
   @Override
@@ -99,15 +99,15 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
    * @return {@code value} which might be compressed
    */
   public byte[] getCompressed() {
-    return mValue;
+    return value;
   }
 
   @Override
   public void setValue(final byte[] value) {
-    mCompressed = new String(value).length() > 10
+    compressed = new String(value).length() > 10
         ? true
         : false;
-    mValue = mCompressed
+    this.value = compressed
         ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
         : value;
   }
@@ -118,7 +118,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
    * @return {@code true}, if it has been compressed, {@code false} otherwise
    */
   public boolean isCompressed() {
-    return mCompressed;
+    return compressed;
   }
 
   /**
@@ -127,12 +127,12 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
    * @param compressed determines if value is compressed or not
    */
   public void setCompressed(final boolean compressed) {
-    mCompressed = compressed;
+    this.compressed = compressed;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mDelegate, mValue);
+    return Objects.hashCode(nodeDelegate, value);
   }
 
   @Override
@@ -141,17 +141,17 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
       return false;
 
     final ValueNodeDelegate other = (ValueNodeDelegate) obj;
-    return Objects.equal(mDelegate, other.mDelegate) && Arrays.equals(mValue, other.mValue);
+    return Objects.equal(nodeDelegate, other.nodeDelegate) && Arrays.equals(value, other.value);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", new String(mValue)).toString();
+    return MoreObjects.toStringHelper(this).add("value", new String(value)).toString();
   }
 
   @Override
   public boolean isSameItem(final @Nullable Node other) {
-    return mDelegate.isSameItem(other);
+    return nodeDelegate.isSameItem(other);
   }
 
   @Override
@@ -161,6 +161,11 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   protected NodeDelegate delegate() {
-    return mDelegate;
+    return nodeDelegate;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return nodeDelegate.getDeweyIDAsBytes();
   }
 }

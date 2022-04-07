@@ -29,6 +29,7 @@ import org.sirix.JsonTestHelper;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.DataRecord;
@@ -68,7 +69,7 @@ public class ObjectNumberNodeTest {
   public void test() throws IOException {
     // Create empty node.
     final double value = 10.87463D;
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, null);
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, (SirixDeweyID) null);
     final StructNodeDelegate strucDel = new StructNodeDelegate(del,
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),

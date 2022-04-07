@@ -17,6 +17,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.*;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
@@ -89,13 +90,15 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
 
     if (indexType == IndexType.DEWEYID_TO_RECORDID && resourceConfig.areDeweyIDsStored
         && recordPersister instanceof NodePersistenter persistenter) {
-      SirixDeweyID optionalDeweyId = null;
+      byte[] optionalDeweyId = null;
 
       for (int index = 0; index < size; index++) {
-        optionalDeweyId = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
+        final byte[] deweyID = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
 
-        if (optionalDeweyId != null) {
-          deserializeRecordAndPutIntoMap(in, optionalDeweyId);
+        optionalDeweyId = deweyID;
+
+        if (deweyID != null) {
+          deserializeRecordAndPutIntoMap(in, new SirixDeweyID(deweyID));
         }
       }
     }
@@ -188,22 +191,23 @@ public final class HashedKeyValuePage<K extends Comparable<? super K>> implement
       final K firstRecord = recordKeys.iterator().next();
 
       if (firstRecord instanceof SirixDeweyID) {
-        // Write dewey IDs.
-        final List<SirixDeweyID> ids = new ArrayList<>((Collection<? extends SirixDeweyID>) recordKeys);
-        ids.sort(Comparator.comparingInt((SirixDeweyID sirixDeweyID) -> sirixDeweyID.toBytes().length));
-        final var iter = Iterators.peekingIterator(ids.iterator());
-        SirixDeweyID id = null;
-        if (iter.hasNext()) {
-          id = iter.next();
-          persistence.serializeDeweyID(out, id, null, resourceConfig);
-          serializeDeweyRecord(id, out);
-        }
-        while (iter.hasNext()) {
-          final var nextDeweyID = iter.next();
-          persistence.serializeDeweyID(out, id, nextDeweyID, resourceConfig);
-          serializeDeweyRecord(nextDeweyID, out);
-          id = nextDeweyID;
-        }
+//        // Write dewey IDs.
+//        final List<SirixDeweyID> ids = new ArrayList<>((Collection<? extends SirixDeweyID>) recordKeys);
+//        final List<byte[]> sirixDeweyIds = ids.stream().map(SirixDeweyID::toBytes).collect(Collectors.toList());
+//        sirixDeweyIds.sort(Comparator.comparingInt((byte[] sirixDeweyID) -> sirixDeweyID.length));
+//        final var iter = Iterators.peekingIterator(sirixDeweyIds.iterator());
+//        byte[] id = null;
+//        if (iter.hasNext()) {
+//          id = iter.next();
+//          persistence.serializeDeweyID(out, id, null, resourceConfig);
+//          serializeDeweyRecord(id, out);
+//        }
+//        while (iter.hasNext()) {
+//          final var nextDeweyID = iter.next();
+//          persistence.serializeDeweyID(out, id, nextDeweyID, resourceConfig);
+//          serializeDeweyRecord(nextDeweyID, out);
+//          id = nextDeweyID;
+//        }
       }
     }
   }

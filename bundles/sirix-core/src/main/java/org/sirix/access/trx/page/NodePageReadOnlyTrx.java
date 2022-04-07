@@ -169,10 +169,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
 
       if (page == null) {
-        if (trxIntentLog == null) {
+        page = resourceBufferManager.getPageCache().get(reference);
+        if (trxIntentLog != null) {
           // Putting to the transaction log afterwards would otherwise render the cached entry invalid
           // as the reference log key is set and the key is reset to Constants.NULL_ID_LONG.
-          page = resourceBufferManager.getPageCache().get(reference);
+          resourceBufferManager.getPageCache().remove(reference);
         }
 
         if (page == null) {
@@ -184,10 +185,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             if (trxIntentLog == null) {
               // Put page into buffer manager.
               resourceBufferManager.getPageCache().put(reference, page);
+              reference.setPage(page);
             }
-            reference.setPage(page);
           }
         }
+//        } else {
+//          reference.setPage(page);
+//        }
       }
     }
 

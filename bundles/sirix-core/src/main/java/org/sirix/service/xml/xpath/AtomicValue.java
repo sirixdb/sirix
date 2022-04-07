@@ -50,16 +50,16 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   /** Value of the item as byte array. */
-  private byte[] mValue;
+  private byte[] value;
 
   /** The item's value type. */
-  private int mType;
+  private int type;
 
   /**
    * The item's key. In case of an Atomic value this is always a negative to make them distinguishable
    * from nodes.
    */
-  private long mItemKey;
+  private long itemKey;
 
   /**
    * Constructor. Initializes the internal state.
@@ -68,8 +68,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @param type the item's type
    */
   public AtomicValue(final byte[] value, final int type) {
-    mValue = checkNotNull(value);
-    mType = type;
+    this.value = checkNotNull(value);
+    this.type = type;
   }
 
   /**
@@ -78,8 +78,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @param pValue the value of the Item
    */
   public AtomicValue(final boolean pValue) {
-    mValue = TypedValue.getBytes(Boolean.toString(pValue));
-    mType = NamePageHash.generateHashForString("xs:boolean");
+    value = TypedValue.getBytes(Boolean.toString(pValue));
+    type = NamePageHash.generateHashForString("xs:boolean");
   }
 
   /**
@@ -90,8 +90,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    */
   public AtomicValue(final Number pValue, final Type pType) {
 
-    mValue = TypedValue.getBytes(pValue.toString());
-    mType = NamePageHash.generateHashForString(pType.getStringRepr());
+    value = TypedValue.getBytes(pValue.toString());
+    type = NamePageHash.generateHashForString(pType.getStringRepr());
   }
 
   /**
@@ -101,8 +101,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @param pType the item's type
    */
   public AtomicValue(final String pValue, @NonNull final Type pType) {
-    mValue = TypedValue.getBytes(pValue);
-    mType = NamePageHash.generateHashForString(pType.getStringRepr());
+    value = TypedValue.getBytes(pValue);
+    type = NamePageHash.generateHashForString(pType.getStringRepr());
   }
 
   /**
@@ -111,7 +111,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @param pItemKey unique item key
    */
   public void setNodeKey(final long pItemKey) {
-    mItemKey = pItemKey;
+    itemKey = pItemKey;
   }
 
   @Override
@@ -126,7 +126,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   @Override
   public long getNodeKey() {
-    return mItemKey;
+    return itemKey;
   }
 
   @Override
@@ -163,8 +163,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public final int getTypeKey() {
-    return mType;
+  public int getTypeKey() {
+    return type;
   }
 
   /**
@@ -172,8 +172,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    *
    * @return the type of this value
    */
-  public final String getType() {
-    return Type.getType(mType).getStringRepr();
+  public String getType() {
+    return Type.getType(type).getStringRepr();
   }
 
   /**
@@ -191,7 +191,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @return the value as a boolean
    */
   public boolean getBool() {
-    return Boolean.parseBoolean(new String(mValue));
+    return Boolean.parseBoolean(new String(value));
   }
 
   /**
@@ -200,7 +200,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @return the value as a float
    */
   public float getFLT() {
-    return Float.parseFloat(new String(mValue));
+    return Float.parseFloat(new String(value));
   }
 
   /**
@@ -209,7 +209,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @return the value as a double
    */
   public double getDBL() {
-    return Double.parseDouble(new String(mValue));
+    return Double.parseDouble(new String(value));
   }
 
   /**
@@ -221,9 +221,9 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   public String toString() {
     final StringBuilder builder = new StringBuilder();
     builder.append("Atomic Value: ");
-    builder.append(new String(mValue));
+    builder.append(new String(value));
     builder.append("\nKey: ");
-    builder.append(mItemKey);
+    builder.append(itemKey);
     return builder.toString();
   }
 
@@ -259,12 +259,12 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   @Override
   public byte[] getRawValue() {
-    return mValue;
+    return value;
   }
 
   @Override
   public void setValue(byte[] pVal) {
-    mValue = checkNotNull(pVal);
+    value = checkNotNull(pVal);
   }
 
   @Override
@@ -284,7 +284,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   @Override
   public String getValue() {
-    return new String(mValue, Constants.DEFAULT_ENCODING);
+    return new String(value, Constants.DEFAULT_ENCODING);
   }
 
   @Override
@@ -294,6 +294,11 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   @Override
   public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
     throw new UnsupportedOperationException();
   }
 }

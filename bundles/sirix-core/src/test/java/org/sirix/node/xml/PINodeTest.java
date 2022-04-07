@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -50,32 +50,32 @@ public class PINodeTest {
   private Holder mHolder;
 
   /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private PageReadOnlyTrx pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
+    pageReadTrx.close();
     mHolder.close();
   }
 
   @Test
   public void testProcessInstructionNode() throws IOException {
-    final byte[] value = {(byte) 17, (byte) 18};
+    final byte[] value = { (byte) 17, (byte) 18 };
 
     final NodeDelegate del = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
-    final PINode node = new PINode(structDel, nameDel, valDel, mPageReadTrx);
+    final PINode node = new PINode(structDel, nameDel, valDel, pageReadTrx);
     node.setHash(node.computeHash());
 
     // Create empty node.
@@ -83,10 +83,12 @@ public class PINodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID(), mPageReadTrx);
+    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in),
+                                                                              node.getNodeKey(),
+                                                                              node.getDeweyID().toBytes(),
+                                                                              pageReadTrx);
     check(node2);
   }
 

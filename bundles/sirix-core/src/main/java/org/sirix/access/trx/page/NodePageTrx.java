@@ -21,6 +21,9 @@
 
 package org.sirix.access.trx.page;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -29,6 +32,7 @@ import org.sirix.access.trx.node.Restore;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -37,27 +41,16 @@ import org.sirix.index.IndexType;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
-import org.sirix.page.CASPage;
-import org.sirix.page.DeweyIDPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -92,6 +85,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * Page writer to serialize.
    */
   private final Writer storagePageReaderWriter;
+
+  /**
+   * The buffer manager.
+   */
+  private final BufferManager bufferManager;
 
   /**
    * Transaction intent log.
@@ -157,7 +155,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
-      final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
+      final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx,
+      final BufferManager bufferManager) {
     this.treeModifier = checkNotNull(treeModifier);
     storagePageReaderWriter = checkNotNull(writer);
     this.log = checkNotNull(log);
@@ -167,6 +166,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
+    this.bufferManager = checkNotNull(bufferManager);
     mostRecentPageContainers = new LinkedHashMap<>(15) {
       private static final int MAX_ENTRIES = 15;
 
@@ -292,7 +292,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                                                               null,
                                                               null,
                                                               pageRtx.getRevisionNumber(),
-                                                              null));
+                                                              (SirixDeweyID) null));
         ((UnorderedKeyValuePage) cont.getModified()).setRecord(delNode.getNodeKey(), delNode);
         ((UnorderedKeyValuePage) cont.getComplete()).setRecord(delNode.getNodeKey(), delNode);
       } else {
@@ -344,15 +344,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public int createNameKey(final @Nullable String name, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
     checkNotNull(nodeKind);
-    final String string = (name == null ? "" : name);
+    final String string = name == null ? "" : name;
     final NamePage namePage = getNamePage(newRevisionRootPage);
     return namePage.setName(string, nodeKind, this);
   }
 
   @Override
   public void commit(final @Nullable PageReference reference) {
-    if (reference == null)
+    if (reference == null) {
       return;
+    }
 
     final PageContainer container = log.get(reference, this);
 
@@ -376,6 +377,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Remove page reference.
     reference.setPage(null);
+
+    // Will only be used once the UberPage is written to durable storage.
+    bufferManager.getPageCache().put(reference, page);
   }
 
   @Override
@@ -412,14 +416,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       storagePageReaderWriter.writeUberPageReference(uberPageReference);
       uberPageReference.setPage(null);
 
-      final Path indexes = pageRtx.getResourceManager()
-                                  .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                   .resolve(revision + ".xml");
+      if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
+        final Path indexes = pageRtx.getResourceManager()
+                                    .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                                     .resolve(revision + ".xml");
 
-      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
-        indexController.serialize(out);
-      } catch (final IOException e) {
-        throw new SirixIOException("Index definitions couldn't be serialized!", e);
+        try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+          indexController.serialize(out);
+        } catch (final IOException e) {
+          throw new SirixIOException("Index definitions couldn't be serialized!", e);
+        }
       }
 
       log.truncate();
@@ -502,45 +508,57 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     assert indexType != null;
 
     return mostRecentPageContainers.computeIfAbsent(new IndexLogKey(indexType,
-                                                             recordPageKey,
-                                                             indexNumber,
-                                                             newRevisionRootPage.getRevision()), (IndexLogKey) -> {
-      final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
+                                                                    recordPageKey,
+                                                                    indexNumber,
+                                                                    newRevisionRootPage.getRevision()),
+                                                    (IndexLogKey) -> {
+                                                      final PageReference pageReference = pageRtx.getPageReference(
+                                                          newRevisionRootPage,
+                                                          indexType,
+                                                          indexNumber);
 
-      // Get the reference to the unordered key/value page storing the records.
-      final PageReference reference = treeModifier.prepareLeafOfTree(pageRtx,
-                                                                     log,
-                                                                     getUberPage().getPageCountExp(indexType),
-                                                                     pageReference,
-                                                                     recordPageKey,
-                                                                     indexNumber,
-                                                                     indexType,
-                                                                     newRevisionRootPage);
+                                                      // Get the reference to the unordered key/value page storing the records.
+                                                      final PageReference reference = treeModifier.prepareLeafOfTree(
+                                                          pageRtx,
+                                                          log,
+                                                          getUberPage().getPageCountExp(indexType),
+                                                          pageReference,
+                                                          recordPageKey,
+                                                          indexNumber,
+                                                          indexType,
+                                                          newRevisionRootPage);
 
-      PageContainer pageContainer = log.get(reference, this);
+                                                      PageContainer pageContainer = log.get(reference, this);
 
-      if (pageContainer.equals(PageContainer.emptyInstance())) {
-        if (reference.getKey() == Constants.NULL_ID_LONG) {
-          final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, indexType, pageRtx);
-          final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(pageRtx, completePage);
-          pageContainer = PageContainer.getInstance(completePage, modifyPage);
-        } else {
-          pageContainer = dereferenceRecordPageForModification(reference);
-        }
+                                                      if (pageContainer.equals(PageContainer.emptyInstance())) {
+                                                        if (reference.getKey() == Constants.NULL_ID_LONG) {
+                                                          final UnorderedKeyValuePage completePage =
+                                                              new UnorderedKeyValuePage(recordPageKey,
+                                                                                        indexType,
+                                                                                        pageRtx);
+                                                          final UnorderedKeyValuePage modifyPage =
+                                                              new UnorderedKeyValuePage(pageRtx, completePage);
+                                                          pageContainer =
+                                                              PageContainer.getInstance(completePage, modifyPage);
+                                                        } else {
+                                                          pageContainer =
+                                                              dereferenceRecordPageForModification(reference);
+                                                        }
 
-        assert pageContainer != null;
+                                                        assert pageContainer != null;
 
-        // $CASES-OMITTED$
-        switch (indexType) {
-          case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME -> appendLogRecord(
-              reference,
-              pageContainer);
-          default -> throw new IllegalStateException("Page kind not known!");
-        }
-      }
+                                                        // $CASES-OMITTED$
+                                                        switch (indexType) {
+                                                          case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME -> appendLogRecord(
+                                                              reference,
+                                                              pageContainer);
+                                                          default -> throw new IllegalStateException(
+                                                              "Page kind not known!");
+                                                        }
+                                                      }
 
-      return pageContainer;
-    });
+                                                      return pageContainer;
+                                                    });
   }
 
   /**

@@ -27,7 +27,7 @@ public interface RecordSerializer {
    * @throws IOException if an I/O error occurs during deserialization
    */
   @NonNull
-  DataRecord deserialize(DataInput source, @NonNegative long recordID, SirixDeweyID deweyID, PageReadOnlyTrx pageReadTrx)
+  DataRecord deserialize(DataInput source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx)
       throws IOException;
 
   /**

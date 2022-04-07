@@ -50,19 +50,19 @@ public class CommentNodeTest {
   private Holder mHolder;
 
   /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private PageReadOnlyTrx pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
+    pageReadTrx.close();
     mHolder.close();
   }
 
@@ -80,10 +80,10 @@ public class CommentNodeTest {
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final CommentNode node2 = (CommentNode) NodeKind.COMMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID(), mPageReadTrx);
+                                                                         node.getDeweyID().toBytes(), pageReadTrx);
     check(node2);
   }
 

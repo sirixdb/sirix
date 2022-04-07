@@ -97,4 +97,8 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
     delegate().setDeweyID(id);
   }
 
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return delegate().getDeweyIDAsBytes();
+  }
 }

@@ -152,4 +152,9 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
   public BigInteger computeHash() {
     return node.computeHash();
   }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return node.getDeweyIDAsBytes();
+  }
 }

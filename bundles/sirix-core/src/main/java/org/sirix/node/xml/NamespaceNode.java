@@ -48,15 +48,15 @@ import java.math.BigInteger;
 public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXmlNode {
 
   /** Delegate for name node information. */
-  private final NameNodeDelegate mNameDel;
+  private final NameNodeDelegate nameDel;
 
   /** {@link NodeDelegate} reference. */
-  private final NodeDelegate mNodeDel;
+  private final NodeDelegate nodeDel;
 
   /** The qualified name. */
-  private final QNm mQNm;
+  private final QNm qNm;
 
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Constructor.
@@ -69,9 +69,9 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
     assert nodeDel != null;
     assert nameDel != null;
     assert qNm != null;
-    mNodeDel = nodeDel;
-    mNameDel = nameDel;
-    mQNm = qNm;
+    this.nodeDel = nodeDel;
+    this.nameDel = nameDel;
+    this.qNm = qNm;
   }
 
   /**
@@ -87,10 +87,10 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
     assert nodeDel != null;
     assert nameDel != null;
     assert qNm != null;
-    mHash = hashCode;
-    mNodeDel = nodeDel;
-    mNameDel = nameDel;
-    mQNm = qNm;
+    hash = hashCode;
+    this.nodeDel = nodeDel;
+    this.nameDel = nameDel;
+    this.qNm = qNm;
   }
 
   @Override
@@ -102,53 +102,53 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mNodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(nodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(nameDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   @Override
   public int getPrefixKey() {
-    return mNameDel.getPrefixKey();
+    return nameDel.getPrefixKey();
   }
 
   @Override
   public int getLocalNameKey() {
-    return mNameDel.getLocalNameKey();
+    return nameDel.getLocalNameKey();
   }
 
   @Override
   public int getURIKey() {
-    return mNameDel.getURIKey();
+    return nameDel.getURIKey();
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    mHash = null;
-    mNameDel.setPrefixKey(prefixKey);
+    hash = null;
+    nameDel.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    mHash = null;
-    mNameDel.setLocalNameKey(localNameKey);
+    hash = null;
+    nameDel.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    mHash = null;
-    mNameDel.setURIKey(uriKey);
+    hash = null;
+    nameDel.setURIKey(uriKey);
   }
 
   @Override
@@ -158,31 +158,31 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeDel, mNameDel);
+    return Objects.hashCode(nodeDel, nameDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof NamespaceNode) {
       final NamespaceNode other = (NamespaceNode) obj;
-      return Objects.equal(mNodeDel, other.mNodeDel) && Objects.equal(mNameDel, other.mNameDel);
+      return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameDel, other.nameDel);
     }
     return false;
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel", mNameDel).toString();
+    return MoreObjects.toStringHelper(this).add("nodeDel", nodeDel).add("nameDel", nameDel).toString();
   }
 
   @Override
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    mNameDel.setPathNodeKey(pathNodeKey);
+    nameDel.setPathNodeKey(pathNodeKey);
   }
 
   @Override
   public long getPathNodeKey() {
-    return mNameDel.getPathNodeKey();
+    return nameDel.getPathNodeKey();
   }
 
   /**
@@ -191,26 +191,31 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
    * @return {@link NameNodeDelegate} instance
    */
   public NameNodeDelegate getNameNodeDelegate() {
-    return mNameDel;
+    return nameDel;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mNodeDel;
+    return nodeDel;
   }
 
   @Override
   public QNm getName() {
-    return mQNm;
+    return qNm;
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return mNodeDel.getDeweyID();
+    return nodeDel.getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return mNodeDel.getTypeKey();
+    return nodeDel.getTypeKey();
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return nodeDel.getDeweyIDAsBytes();
   }
 }

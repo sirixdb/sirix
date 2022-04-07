@@ -18,7 +18,7 @@ public interface ImmutableNode extends DataRecord {
   NodeKind getKind();
 
   /**
-   * Determines if {@code pOther} is the same item.
+   * Determines if {@code other} is the same item.
    *
    * @param other the other node
    * @return {@code true}, if it is the same item, {@code false} otherwise

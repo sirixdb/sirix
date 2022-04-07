@@ -64,7 +64,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(
         ((PathSummaryPage) pageTrx.getActualRevisionRootPage().getPathSummaryPageReference().getPage()).getMaxNodeKey(0)
-            + 1, parentKey, hashFunction, null, revision, null);
+            + 1, parentKey, hashFunction, null, revision, (SirixDeweyID) null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),

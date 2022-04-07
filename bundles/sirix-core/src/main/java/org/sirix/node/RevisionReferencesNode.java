@@ -27,6 +27,11 @@ public final class RevisionReferencesNode implements DataRecord {
   }
 
   @Override
+  public byte[] getDeweyIDAsBytes() {
+    return null;
+  }
+
+  @Override
   public RecordSerializer getKind() {
     return NodeKind.REVISION_REFERENCES_NODE;
   }

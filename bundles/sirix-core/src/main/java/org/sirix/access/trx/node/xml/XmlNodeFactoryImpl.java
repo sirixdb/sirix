@@ -3,6 +3,8 @@ package org.sirix.access.trx.node.xml;
 import com.google.common.collect.HashBiMap;
 import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathNode;
@@ -13,14 +15,11 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.xml.*;
-import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.ArrayList;
 import java.util.zip.Deflater;
 
@@ -72,7 +71,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(
         ((PathSummaryPage) pageTrx.getActualRevisionRootPage().getPathSummaryPageReference().getPage()).getMaxNodeKey(0)
-            + 1, parentKey, hashFunction, null, revision, null);
+            + 1, parentKey, hashFunction, null, revision, (SirixDeweyID) null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
@@ -137,8 +136,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public AttributeNode createAttributeNode(final @NonNegative long parentKey, @NonNull final QNm name,
-      @NonNull final byte[] value, final @NonNegative long pathNodeKey, final SirixDeweyID id) {
+  public AttributeNode createAttributeNode(final @NonNegative long parentKey, final @NonNull QNm name,
+      final @NonNull byte[] value, final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final long revision = pageTrx.getRevisionNumber();
     final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey =

@@ -295,4 +295,9 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
     return descendantCount != 0 || childCount != 0 || leftSibling != Fixed.NULL_NODE_KEY.getStandardProperty()
         || rightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return nodeDelegate.getDeweyIDAsBytes();
+  }
 }
