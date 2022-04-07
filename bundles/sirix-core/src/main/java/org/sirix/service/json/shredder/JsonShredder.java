@@ -35,6 +35,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
+@SuppressWarnings({ "DuplicatedCode", "ConstantConditions" })
 public final class JsonShredder implements Callable<Long> {
 
   /** {@link LogWrapper} reference. */
@@ -104,6 +105,7 @@ public final class JsonShredder implements Callable<Long> {
       return this;
     }
 
+    @SuppressWarnings("UnusedReturnValue")
     public Builder skipRootJsonToken() {
       skipRootJsonToken = true;
       return this;
@@ -154,7 +156,7 @@ public final class JsonShredder implements Callable<Long> {
    *
    * @throws SirixException if something went wrong while inserting
    */
-  protected void insertNewContent() {
+  private void insertNewContent() {
     try {
       level = 0;
       boolean endReached = false;
@@ -165,7 +167,7 @@ public final class JsonShredder implements Callable<Long> {
         final var nextToken = reader.peek();
 
         switch (nextToken) {
-          case BEGIN_OBJECT:
+          case BEGIN_OBJECT -> {
             level++;
             reader.beginObject();
             if (!(level == 1 && skipRootJson)) {
@@ -174,29 +176,20 @@ public final class JsonShredder implements Callable<Long> {
               if (insertedRootNodeKey == -1)
                 insertedRootNodeKey = insertedObjectNodeKey;
             }
-            break;
-          case NAME:
+          }
+          case NAME -> {
             final String name = reader.nextName();
             addObjectRecord(name);
-            break;
-          case END_OBJECT:
+          }
+          case END_OBJECT -> {
             level--;
             if (level == 0) {
               endReached = true;
             }
-
             reader.endObject();
-            if (!(level == 0 && skipRootJson)) {
-              parents.pop();
-              wtx.moveTo(parents.peek());
-
-              if (reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT) {
-                parents.pop();
-                wtx.moveTo(parents.peek());
-              }
-            }
-            break;
-          case BEGIN_ARRAY:
+            processTrxMovement();
+          }
+          case BEGIN_ARRAY -> {
             level++;
             reader.beginArray();
             if (!(level == 1 && skipRootJson)) {
@@ -205,66 +198,65 @@ public final class JsonShredder implements Callable<Long> {
               if (insertedRootNodeKey == -1)
                 insertedRootNodeKey = insertedArrayNodeKey;
             }
-            break;
-          case END_ARRAY:
+          }
+          case END_ARRAY -> {
             level--;
             if (level == 0) {
               endReached = true;
             }
-
             reader.endArray();
-            if (!(level == 0 && skipRootJson)) {
-              parents.pop();
-              wtx.moveTo(parents.peek());
-
-              if (reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT) {
-                parents.pop();
-                wtx.moveTo(parents.peek());
-              }
-            }
-            break;
-          case STRING:
+            processTrxMovement();
+          }
+          case STRING -> {
             final var string = reader.nextString();
             final var insertedStringValueNodeKey =
                 insertStringValue(string, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
             if (insertedRootNodeKey == -1)
               insertedRootNodeKey = insertedStringValueNodeKey;
-            break;
-          case BOOLEAN:
+          }
+          case BOOLEAN -> {
             final var bool = reader.nextBoolean();
             final var insertedBooleanValueNodeKey =
                 insertBooleanValue(bool, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
             if (insertedRootNodeKey == -1)
               insertedRootNodeKey = insertedBooleanValueNodeKey;
-            break;
-          case NULL:
+          }
+          case NULL -> {
             reader.nextNull();
             final var insertedNullValueNodeKey =
                 insertNullValue(reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
             if (insertedRootNodeKey == -1)
               insertedRootNodeKey = insertedNullValueNodeKey;
-            break;
-          case NUMBER:
+          }
+          case NUMBER -> {
             final var number = readNumber();
-
             final var insertedNumberValueNodeKey =
                 insertNumberValue(number, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-
             if (insertedRootNodeKey == -1)
               insertedRootNodeKey = insertedNumberValueNodeKey;
-            break;
-          case END_DOCUMENT:
-          default:
-            // Node kind not known.
+          }
+          default -> {
+          }
+          // Node kind not known.
         }
       }
 
       wtx.moveTo(insertedRootNodeKey);
     } catch (final IOException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  @SuppressWarnings("ConstantConditions")
+  private void processTrxMovement() throws IOException {
+    if (!(level == 0 && skipRootJson)) {
+      parents.pop();
+      wtx.moveTo(parents.peek());
+
+      if (reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT) {
+        parents.pop();
+        wtx.moveTo(parents.peek());
+      }
     }
   }
 
@@ -309,29 +301,28 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private long insertBooleanValue(final boolean boolValue, final boolean nextTokenIsParent) {
-    final boolean value = checkNotNull(boolValue);
     final long key;
 
     switch (insert) {
       case AS_FIRST_CHILD:
         if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = wtx.insertBooleanValueAsFirstChild(value).getNodeKey();
+          key = wtx.insertBooleanValueAsFirstChild(boolValue).getNodeKey();
         } else {
-          key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+          key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
         if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = wtx.insertBooleanValueAsLastChild(value).getNodeKey();
+          key = wtx.insertBooleanValueAsLastChild(boolValue).getNodeKey();
         } else {
-          key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+          key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         }
         break;
       case AS_LEFT_SIBLING:
-        key = wtx.insertBooleanValueAsLeftSibling(value).getNodeKey();
+        key = wtx.insertBooleanValueAsLeftSibling(boolValue).getNodeKey();
         break;
       case AS_RIGHT_SIBLING:
-        key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+        key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         break;
       default:
         throw new AssertionError();//Should not happen
@@ -420,7 +411,7 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private long insertArray() {
-    long key = -1;
+    long key;
     switch (insert) {
       case AS_FIRST_CHILD:
         if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -467,7 +458,7 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private long addObject() {
-    long key = -1;
+    long key;
     switch (insert) {
       case AS_FIRST_CHILD:
         if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -562,53 +553,35 @@ public final class JsonShredder implements Callable<Long> {
 
   public ObjectRecordValue<?> getObjectRecordValue() throws IOException {
     final var nextToken = reader.peek();
-    final ObjectRecordValue<?> value;
-
-    switch (nextToken) {
-      case BEGIN_OBJECT:
+    return switch (nextToken) {
+      case BEGIN_OBJECT -> {
         level++;
         reader.beginObject();
-
-        value = new ObjectValue();
-
-        break;
-      case BEGIN_ARRAY:
+        yield new ObjectValue();
+      }
+      case BEGIN_ARRAY -> {
         level++;
         reader.beginArray();
-
-        value = new ArrayValue();
-
-        break;
-      case BOOLEAN:
+        yield new ArrayValue();
+      }
+      case BOOLEAN -> {
         final boolean booleanVal = reader.nextBoolean();
-
-        value = new BooleanValue(booleanVal);
-
-        break;
-      case STRING:
+        yield new BooleanValue(booleanVal);
+      }
+      case STRING -> {
         final String stringVal = reader.nextString();
-
-        value = new StringValue(stringVal);
-
-        break;
-      case NULL:
+        yield new StringValue(stringVal);
+      }
+      case NULL -> {
         reader.nextNull();
-        value = new NullValue();
-        break;
-      case NUMBER:
+        yield new NullValue();
+      }
+      case NUMBER -> {
         final var numberVal = readNumber();
-
-        value = new NumberValue(numberVal);
-
-        break;
-      case END_ARRAY:
-      case END_DOCUMENT:
-      case END_OBJECT:
-      case NAME:
-      default:
-        throw new AssertionError();
-    }
-    return value;
+        yield new NumberValue(numberVal);
+      }
+      default -> throw new AssertionError();
+    };
   }
 
   /**

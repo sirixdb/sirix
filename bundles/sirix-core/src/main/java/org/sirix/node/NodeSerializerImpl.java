@@ -19,7 +19,7 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements NodePersistenter {
   @Override
-  public DataRecord deserialize(final DataInput source, final @NonNegative long recordID, final SirixDeweyID deweyID,
+  public DataRecord deserialize(final DataInput source, final @NonNegative long recordID, final byte[] deweyID,
       final PageReadOnlyTrx pageReadTrx) throws IOException {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
@@ -36,11 +36,11 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+  public byte[] deserializeDeweyID(DataInput source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig) throws IOException {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
-        final byte[] previousDeweyIDBytes = previousDeweyID.toBytes();
+        final byte[] previousDeweyIDBytes = previousDeweyID;
         final int cutOffSize = source.readByte();
         final int size = source.readByte();
         final byte[] deweyIDBytes = new byte[size];
@@ -51,12 +51,12 @@ public final class NodeSerializerImpl implements NodePersistenter {
         target.put(Arrays.copyOfRange(previousDeweyIDBytes, 0, cutOffSize));
         target.put(deweyIDBytes);
 
-        return new SirixDeweyID(bytes);
+        return bytes;
       } else {
         final byte deweyIDLength = source.readByte();
         final byte[] deweyIDBytes = new byte[deweyIDLength];
         source.readFully(deweyIDBytes, 0, deweyIDLength);
-        return new SirixDeweyID(deweyIDBytes);
+        return deweyIDBytes;
       }
     }
 
@@ -64,12 +64,12 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public void serializeDeweyID(DataOutput sink, SirixDeweyID deweyID, SirixDeweyID nextDeweyID,
+  public void serializeDeweyID(DataOutput sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) throws IOException {
     if (resourceConfig.areDeweyIDsStored) {
       if (nextDeweyID != null) {
-        final byte[] deweyIDBytes = deweyID.toBytes();
-        final byte[] nextDeweyIDBytes = nextDeweyID.toBytes();
+        final byte[] deweyIDBytes = deweyID;
+        final byte[] nextDeweyIDBytes = nextDeweyID;
 
         assert deweyIDBytes.length <= nextDeweyIDBytes.length;
 
@@ -81,7 +81,7 @@ public final class NodeSerializerImpl implements NodePersistenter {
         }
         writeDeweyID(sink, nextDeweyIDBytes, i);
       } else {
-        final byte[] deweyIDBytes = deweyID.toBytes();
+        final byte[] deweyIDBytes = deweyID;
         sink.writeByte(deweyIDBytes.length);
         sink.write(deweyIDBytes);
       }
@@ -92,6 +92,7 @@ public final class NodeSerializerImpl implements NodePersistenter {
       throws IOException {
     sink.writeByte(i);
     sink.writeByte(deweyID.length - i);
-    sink.write(Arrays.copyOfRange(deweyID, i, deweyID.length));
+    final var bytes = Arrays.copyOfRange(deweyID, i, deweyID.length);
+    sink.write(bytes);
   }
 }

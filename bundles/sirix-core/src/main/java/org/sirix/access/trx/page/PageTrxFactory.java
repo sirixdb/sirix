@@ -38,6 +38,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
@@ -85,7 +86,7 @@ public final class PageTrxFactory {
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @NonNegative long trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
-      final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx) {
+      final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
     final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
     final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
 
@@ -117,7 +118,7 @@ public final class PageTrxFactory {
                                                                 representRevision,
                                                                 writer,
                                                                 log,
-                                                                null,
+                                                                bufferManager,
                                                                 new RevisionRootPageReader());
 
     // Create new revision root page.
@@ -204,6 +205,7 @@ public final class PageTrxFactory {
                            pageRtx,
                            indexController,
                            representRevision,
-                           isBoundToNodeTrx);
+                           isBoundToNodeTrx,
+                           bufferManager);
   }
 }

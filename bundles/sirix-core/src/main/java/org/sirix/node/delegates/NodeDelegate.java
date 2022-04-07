@@ -52,6 +52,9 @@ public class NodeDelegate implements Node {
   /** Key of the current node. Must be unique for all nodes. */
   private final long nodeKey;
 
+  /** The DeweyID data. */
+  private byte[] deweyIDData;
+
   /** Key of the parent node. */
   private long parentKey;
 
@@ -66,7 +69,7 @@ public class NodeDelegate implements Node {
   /** Revision this node was added. */
   private final long revision;
 
-  /** {@link SirixDeweyID} reference. */
+  /** {@link SirixDeweyID} (needs to be deserialized). */
   private SirixDeweyID sirixDeweyID;
 
   /** The hash function. */
@@ -92,7 +95,30 @@ public class NodeDelegate implements Node {
     this.hashCode = hashCode;
     this.revision = revision;
     typeKey = TYPE_KEY;
-    sirixDeweyID = deweyID;
+    this.sirixDeweyID = deweyID;
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param nodeKey node key
+   * @param parentKey parent node key
+   * @param hashCode hash code of the node
+   * @param hashFunction the hash function used to compute hash codes
+   * @param revision revision this node was added
+   * @param deweyID optional DeweyID
+   */
+  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final HashFunction hashFunction,
+      final BigInteger hashCode, final @NonNegative long revision, final byte[] deweyID) {
+    assert nodeKey >= 0 : "nodeKey must be >= 0!";
+    assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.hashFunction = hashFunction;
+    this.hashCode = hashCode;
+    this.revision = revision;
+    typeKey = TYPE_KEY;
+    deweyIDData = deweyID;
   }
 
   public HashFunction getHashFunction() {
@@ -197,7 +223,22 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public SirixDeweyID getDeweyID() {
+  public synchronized SirixDeweyID getDeweyID() {
+    if (sirixDeweyID == null && deweyIDData != null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDData);
+    }
     return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDData != null) {
+      return deweyIDData;
+    } else if (sirixDeweyID != null) {
+      deweyIDData = sirixDeweyID.toBytes();
+      return deweyIDData;
+    } else {
+      return null;
+    }
   }
 }

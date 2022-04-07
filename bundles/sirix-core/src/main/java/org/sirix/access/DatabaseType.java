@@ -22,16 +22,24 @@ public enum DatabaseType {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
-            DatabaseConfiguration dbConfig, User user) {
+        DatabaseConfiguration dbConfig, User user) {
       return (Database<R>) Databases.MANAGER.xmlDatabaseFactory().createDatabase(dbConfig, user);
     }
 
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), null, null, 0, id);
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+                                                    Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                    null,
+                                                    null,
+                                                    0,
+                                                    id == null ? null : id.toBytes());
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  0,
+                                                                  0);
 
       return new XmlDocumentRootNode(nodeDel, structDel);
     }
@@ -41,16 +49,25 @@ public enum DatabaseType {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
-            DatabaseConfiguration dbConfig, User user) {
+        DatabaseConfiguration dbConfig, User user) {
       return (Database<R>) Databases.MANAGER.jsonDatabaseFactory().createDatabase(dbConfig, user);
     }
 
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), null, null, 0, id);
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+                                                    Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                    null,
+                                                    null,
+                                                    0,
+                                                    id == null ? null : id.toBytes());
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                                  0,
+                                                                  0);
 
       return new JsonDocumentRootNode(nodeDel, structDel);
     }
@@ -74,7 +91,7 @@ public enum DatabaseType {
   }
 
   public abstract <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
-          DatabaseConfiguration dbConfig, User user);
+      DatabaseConfiguration dbConfig, User user);
 
   public abstract Node getDocumentNode(SirixDeweyID id);
 }

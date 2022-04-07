@@ -143,7 +143,7 @@ public enum VersioningType {
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
 
-      final T latest = firstPage;
+      @SuppressWarnings("UnnecessaryLocalVariable") final T latest = firstPage;
       T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
       final boolean isFullDump = revision % revToRestore == 0;
 

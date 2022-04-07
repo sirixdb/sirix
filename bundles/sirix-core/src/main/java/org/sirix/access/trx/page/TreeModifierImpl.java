@@ -27,14 +27,16 @@
  */
 package org.sirix.access.trx.page;
 
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.IndexType;
-import org.sirix.page.*;
+import org.sirix.page.IndirectPage;
+import org.sirix.page.PageReference;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UberPage;
 import org.sirix.settings.Constants;
-
-import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

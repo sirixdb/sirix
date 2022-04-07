@@ -99,4 +99,9 @@ public final class HashCountEntryNode implements DataRecord {
   public SirixDeweyID getDeweyID() {
     return null;
   }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return null;
+  }
 }

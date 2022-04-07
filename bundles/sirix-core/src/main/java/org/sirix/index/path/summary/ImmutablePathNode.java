@@ -160,4 +160,9 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   public SirixDeweyID getDeweyID() {
     return node.getDeweyID();
   }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return node.getDeweyIDAsBytes();
+  }
 }

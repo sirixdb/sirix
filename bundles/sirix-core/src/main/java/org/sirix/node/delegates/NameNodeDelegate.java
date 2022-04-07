@@ -49,19 +49,19 @@ import java.math.BigInteger;
 public class NameNodeDelegate extends AbstractForwardingNode implements NameNode {
 
   /** Node delegate, containing basic node information. */
-  private final NodeDelegate mDelegate;
+  private final NodeDelegate nodeDelegate;
 
   /** Key of the prefix. */
-  private int mPrefixKey;
+  private int prefixKey;
 
   /** Key of the local name */
-  private int mLocalNameKey;
+  private int localNameKey;
 
   /** URI of the related namespace. */
-  private int mUriKey;
+  private int uriKey;
 
   /** Path node key. */
-  private long mPathNodeKey;
+  private long pathNodeKey;
 
   /**
    * Constructor.
@@ -75,12 +75,12 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey, final int localNameKey,
       final @NonNegative long pathNodeKey) {
     assert delegate != null : "delegate must not be null!";
-    mDelegate = delegate;
-    mPrefixKey = prefixKey;
-    mLocalNameKey = localNameKey;
-    mUriKey = uriKey;
+    this.nodeDelegate = delegate;
+    this.prefixKey = prefixKey;
+    this.localNameKey = localNameKey;
+    this.uriKey = uriKey;
     assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
-    mPathNodeKey = pathNodeKey;
+    this.pathNodeKey = pathNodeKey;
   }
 
   /**
@@ -89,11 +89,11 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    * @param nameDel old name node delegate
    */
   public NameNodeDelegate(final NameNodeDelegate nameDel) {
-    mDelegate = nameDel.mDelegate;
-    mPrefixKey = nameDel.mPrefixKey;
-    mLocalNameKey = nameDel.mLocalNameKey;
-    mUriKey = nameDel.mUriKey;
-    mPathNodeKey = nameDel.mPathNodeKey;
+    nodeDelegate = nameDel.nodeDelegate;
+    prefixKey = nameDel.prefixKey;
+    localNameKey = nameDel.localNameKey;
+    uriKey = nameDel.uriKey;
+    pathNodeKey = nameDel.pathNodeKey;
   }
 
   @Override
@@ -111,7 +111,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
     };
 
     return Node.to128BitsAtMaximumBigInteger(
-        new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes()));
+        new BigInteger(1, nodeDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes()));
   }
 
   @Override
@@ -126,22 +126,22 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
   @Override
   public int getLocalNameKey() {
-    return mLocalNameKey;
+    return localNameKey;
   }
 
   @Override
   public int getURIKey() {
-    return mUriKey;
+    return uriKey;
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    mLocalNameKey = localNameKey;
+    this.localNameKey = localNameKey;
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    mUriKey = uriKey;
+    this.uriKey = uriKey;
   }
 
   /**
@@ -152,7 +152,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   @Override
   public void setPathNodeKey(@NonNegative final long pathNodeKey) {
     assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
-    mPathNodeKey = pathNodeKey;
+    this.pathNodeKey = pathNodeKey;
   }
 
   /**
@@ -162,12 +162,12 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    */
   @Override
   public long getPathNodeKey() {
-    return mPathNodeKey;
+    return pathNodeKey;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mUriKey, mPrefixKey, mLocalNameKey);
+    return Objects.hashCode(uriKey, prefixKey, localNameKey);
   }
 
   @Override
@@ -177,44 +177,49 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
     final NameNodeDelegate other = (NameNodeDelegate) obj;
 
-    return Objects.equal(mUriKey, other.mUriKey) && Objects.equal(mPrefixKey, other.mPrefixKey)
-        && Objects.equal(mLocalNameKey, other.mLocalNameKey);
+    return Objects.equal(uriKey, other.uriKey) && Objects.equal(prefixKey, other.prefixKey)
+        && Objects.equal(localNameKey, other.localNameKey);
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", mDelegate)
-                      .add("uriKey", mUriKey)
-                      .add("prefixKey", mPrefixKey)
-                      .add("localNameKey", mLocalNameKey)
-                      .add("pathNodeKey", mPathNodeKey)
+                      .add("node delegate", nodeDelegate)
+                      .add("uriKey", uriKey)
+                      .add("prefixKey", prefixKey)
+                      .add("localNameKey", localNameKey)
+                      .add("pathNodeKey", pathNodeKey)
                       .toString();
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mDelegate;
+    return nodeDelegate;
   }
 
   @Override
   public long getRevision() {
-    return mDelegate.getRevision();
+    return nodeDelegate.getRevision();
   }
 
   @Override
   public int getPrefixKey() {
-    return mPrefixKey;
+    return prefixKey;
   }
 
   @Override
   public void setPrefixKey(int prefixKey) {
-    mPrefixKey = prefixKey;
+    this.prefixKey = prefixKey;
   }
 
   // Override in concrete node-classes, as the type is not known over here.
   @Override
   public QNm getName() {
     return null;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return nodeDelegate.getDeweyIDAsBytes();
   }
 }

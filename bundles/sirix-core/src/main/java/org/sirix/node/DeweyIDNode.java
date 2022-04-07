@@ -33,4 +33,9 @@ public final class DeweyIDNode implements DataRecord {
   public long getRevision() {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return deweyId.toBytes();
+  }
 }

@@ -23,6 +23,10 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -36,12 +40,11 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.*;
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import static java.util.stream.Collectors.toList;
 import static org.sirix.node.Utils.getVarLong;
@@ -56,6 +59,10 @@ import static org.sirix.node.Utils.putVarLong;
  * </p>
  */
 public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecord> {
+
+  private static final int NUMBER_OF_THREADS = Runtime.getRuntime().availableProcessors();
+
+  private static final ExecutorService threadPool = Executors.newSingleThreadExecutor();
 
   /**
    * The current revision.
@@ -88,9 +95,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   private final Map<Long, byte[]> slots;
 
   /**
-   * Dewey IDs which have to be serialized.
+   * Dewey IDs to node key mapping.
    */
-  private final Map<SirixDeweyID, Long> deweyIDs;
+  private Map<byte[], Long> deweyIDs;
 
   /**
    * Sirix {@link PageReadOnlyTrx}.
@@ -154,14 +161,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
-
-    if (this.pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
-        && recordPersister instanceof NodePersistenter) {
-      deweyIDs = new LinkedHashMap<>();
-    } else {
-      deweyIDs = Collections.emptyMap();
-    }
-
+    deweyIDs = new HashMap<>();
     this.revision = pageReadOnlyTrx.getRevisionNumber();
   }
 
@@ -180,21 +180,23 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     slots = new LinkedHashMap<>();
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
-      deweyIDs = new LinkedHashMap<>();
+      deweyIDs = new HashMap<>();
       final int deweyIDSize = in.readInt();
 
       records = new LinkedHashMap<>(deweyIDSize);
-      SirixDeweyID optionalDeweyId = null;
+      byte[] optionalDeweyId = null;
 
       for (int index = 0; index < deweyIDSize; index++) {
-        optionalDeweyId = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
+        final byte[] deweyID = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
 
-        if (optionalDeweyId != null) {
-          deserializeRecordAndPutIntoMap(in, optionalDeweyId);
+        optionalDeweyId = deweyID;
+
+        if (deweyID != null) {
+          deserializeRecordAndPutIntoMap(in, deweyID);
         }
       }
     } else {
-      deweyIDs = Collections.emptyMap();
+      deweyIDs = new HashMap<>();
       records = new LinkedHashMap<>();
     }
 
@@ -228,11 +230,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       reference.setKey(in.readLong());
       references.put(key, reference);
     }
-    assert pageReadTrx != null : "pageReadTrx must not be null!";
     indexType = IndexType.getType(in.readByte());
   }
 
-  private void deserializeRecordAndPutIntoMap(DataInput in, SirixDeweyID deweyId) {
+  private void deserializeRecordAndPutIntoMap(DataInput in, byte[] deweyId) {
     try {
       final long key = getVarLong(in);
       final int dataSize = in.readInt();
@@ -282,7 +283,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
 
   @Override
   public void setRecord(final Long key, @NonNull final DataRecord value) {
-    assert value != null : "record must not be null!";
     addedReferences = false;
     records.put(key, value);
   }
@@ -298,11 +298,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     out.writeInt(revision);
     // Write dewey IDs.
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistence) {
+      // Write dewey IDs.
       out.writeInt(deweyIDs.size());
-      final List<SirixDeweyID> ids = new ArrayList<>(deweyIDs.keySet());
-      ids.sort(Comparator.comparingInt((SirixDeweyID sirixDeweyID) -> sirixDeweyID.toBytes().length));
+      final List<byte[]> ids = new ArrayList<>(deweyIDs.keySet());
+      ids.sort(Comparator.comparingInt((byte[] sirixDeweyID) -> sirixDeweyID.length));
       final var iter = Iterators.peekingIterator(ids.iterator());
-      SirixDeweyID id = null;
+      byte[] id = null;
       if (iter.hasNext()) {
         id = iter.next();
         persistence.serializeDeweyID(out, id, null, resourceConfig);
@@ -352,7 +353,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     out.writeByte(indexType.getID());
   }
 
-  private void serializeDeweyRecord(SirixDeweyID id, DataOutput out) throws IOException {
+  private void serializeDeweyRecord(byte[] id, DataOutput out) throws IOException {
     final long recordKey = deweyIDs.get(id);
     putVarLong(out, recordKey);
     final byte[] data = slots.get(recordKey);
@@ -421,7 +422,64 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     final var storeDeweyIDs = pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
 
     final var entries = sort();
-    for (final var entry : entries) {
+
+    if (storeDeweyIDs && recordPersister instanceof NodePersistenter && !entries.isEmpty()) {
+      final List<Entry<Long, DataRecord>> copiedEntries = new ArrayList<>(entries);
+      final CountDownLatch latch = new CountDownLatch(1);
+      threadPool.submit(() -> {
+        _processEntries(copiedEntries);
+        latch.countDown();
+      });
+
+      //      if (entries.size() == Constants.INP_REFERENCE_COUNT) {
+      //        deweyIDs = entries.parallelStream()
+      //                          .map(Entry::getValue)
+      //                          .filter(record -> record.getDeweyID() != null && record.getNodeKey() != 0)
+      //                          .collect(Collectors.toMap(DataRecord::getDeweyIDAsBytes, DataRecord::getNodeKey));
+
+      //        final int splitIndex = entries.size() % NUMBER_OF_THREADS;
+      //        final var entryPartitions = Lists.partition(entries, splitIndex);
+      //        final CountDownLatch latch = new CountDownLatch(entries.size());
+      //
+      //        for (final var entryPartition : entryPartitions) {
+      //          threadPool.submit(() -> {
+      //            for (final var entry : entryPartition) {
+      //              final var record = entry.getValue();
+      //              if (record.getDeweyID() != null && record.getNodeKey() != 0) {
+      //                deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+      //              }
+      //              latch.countDown();
+      //            }
+      //          });
+      //        }
+      //
+      //        try {
+      //          latch.await(10, TimeUnit.SECONDS);
+      //        } catch (InterruptedException e) {
+      //          throw new SirixIOException(e);
+      //        }
+      //      } else {
+      for (final var entry : entries) {
+        final var record = entry.getValue();
+        if (record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
+          deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+        }
+        //        }
+      }
+      try {
+        latch.await(30, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        throw new SirixIOException(e);
+      }
+    } else {
+      _processEntries(entries);
+    }
+
+    addedReferences = true;
+  }
+
+  private void _processEntries(List<Entry<Long, DataRecord>> copiedEntries) {
+    for (final var entry : copiedEntries) {
       final var record = entry.getValue();
       final var recordID = record.getNodeKey();
       if (slots.get(recordID) == null) {
@@ -430,6 +488,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
         try (final var output = new ByteArrayOutputStream(); final var out = new DataOutputStream(output)) {
           recordPersister.serialize(out, record, pageReadOnlyTrx);
           data = output.toByteArray();
+        } catch (final IOException e) {
+          throw new SirixIOException(e.getMessage(), e);
         }
 
         if (data.length > PageConstants.MAX_RECORD_SIZE) {
@@ -439,16 +499,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
         } else {
           slots.put(recordID, data);
         }
-      }
-      if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyID() != null
-          && record.getNodeKey() != 0) {
-        deweyIDs.put(record.getDeweyID(), record.getNodeKey());
+
+        //          if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
+        //            deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+        //          }
       }
     }
-
-    // assert deweyIDs.size() == 0 || deweyIDs.size() == entries.size() -1;
-
-    addedReferences = true;
   }
 
   private List<Entry<Long, DataRecord>> sort() {

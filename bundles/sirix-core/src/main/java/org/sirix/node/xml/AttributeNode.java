@@ -53,18 +53,18 @@ import java.math.BigInteger;
 public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
 
   /** Delegate for name node information. */
-  private final NameNodeDelegate mNameDel;
+  private final NameNodeDelegate nameDel;
 
   /** Delegate for val node information. */
-  private final ValueNodeDelegate mValDel;
+  private final ValueNodeDelegate valDel;
 
   /** Node delegate. */
-  private final NodeDelegate mNodeDel;
+  private final NodeDelegate nodeDel;
 
   /** The qualified name. */
-  private final QNm mQNm;
+  private final QNm qNm;
 
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Creating an attribute.
@@ -76,13 +76,13 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValueNodeDelegate valDel,
       final QNm qNm) {
     assert nodeDel != null : "nodeDel must not be null!";
-    mNodeDel = nodeDel;
+    this.nodeDel = nodeDel;
     assert nameDel != null : "nameDel must not be null!";
-    mNameDel = nameDel;
+    this.nameDel = nameDel;
     assert valDel != null : "valDel must not be null!";
-    mValDel = valDel;
+    this.valDel = valDel;
     assert qNm != null : "qNm must not be null!";
-    mQNm = qNm;
+    this.qNm = qNm;
   }
 
   /**
@@ -94,15 +94,15 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    */
   public AttributeNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
       final ValueNodeDelegate valDel, final QNm qNm) {
-    mHash = hashCode;
+    hash = hashCode;
     assert nodeDel != null : "nodeDel must not be null!";
-    mNodeDel = nodeDel;
+    this.nodeDel = nodeDel;
     assert nameDel != null : "nameDel must not be null!";
-    mNameDel = nameDel;
+    this.nameDel = nameDel;
     assert valDel != null : "valDel must not be null!";
-    mValDel = valDel;
+    this.valDel = valDel;
     assert qNm != null : "qNm must not be null!";
-    mQNm = qNm;
+    this.qNm = qNm;
   }
 
   @Override
@@ -112,14 +112,14 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public BigInteger computeHash() {
-    final HashCode valueHashCode = mNodeDel.getHashFunction().hashBytes(getRawValue());
+    final HashCode valueHashCode = nodeDel.getHashFunction().hashBytes(getRawValue());
 
     final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
 
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mNodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(nodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(nameDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
 
     return Node.to128BitsAtMaximumBigInteger(result);
@@ -127,12 +127,12 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public void setHash(BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   @Override
@@ -142,71 +142,71 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("nameDel", mNameDel).add("valDel", mValDel).toString();
+    return MoreObjects.toStringHelper(this).add("nameDel", nameDel).add("valDel", valDel).toString();
   }
 
   @Override
   public int getPrefixKey() {
-    return mNameDel.getPrefixKey();
+    return nameDel.getPrefixKey();
   }
 
   @Override
   public int getLocalNameKey() {
-    return mNameDel.getLocalNameKey();
+    return nameDel.getLocalNameKey();
   }
 
   @Override
   public int getURIKey() {
-    return mNameDel.getURIKey();
+    return nameDel.getURIKey();
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    mNameDel.setPrefixKey(prefixKey);
+    nameDel.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    mNameDel.setLocalNameKey(localNameKey);
+    nameDel.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    mNameDel.setURIKey(uriKey);
+    nameDel.setURIKey(uriKey);
   }
 
   @Override
   public byte[] getRawValue() {
-    return mValDel.getRawValue();
+    return valDel.getRawValue();
   }
 
   @Override
   public void setValue(final byte[] value) {
-    mValDel.setValue(value);
+    valDel.setValue(value);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNameDel, mValDel);
+    return Objects.hashCode(nameDel, valDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof AttributeNode) {
       final AttributeNode other = (AttributeNode) obj;
-      return Objects.equal(mNameDel, other.mNameDel) && Objects.equal(mValDel, other.mValDel);
+      return Objects.equal(nameDel, other.nameDel) && Objects.equal(valDel, other.valDel);
     }
     return false;
   }
 
   @Override
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    mNameDel.setPathNodeKey(pathNodeKey);
+    nameDel.setPathNodeKey(pathNodeKey);
   }
 
   @Override
   public long getPathNodeKey() {
-    return mNameDel.getPathNodeKey();
+    return nameDel.getPathNodeKey();
   }
 
   /**
@@ -215,7 +215,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    * @return the {@link NameNodeDelegate} instance
    */
   public NameNodeDelegate getNameNodeDelegate() {
-    return mNameDel;
+    return nameDel;
   }
 
   /**
@@ -224,31 +224,36 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    * @return the {@link ValueNodeDelegate} instance
    */
   public ValueNodeDelegate getValNodeDelegate() {
-    return mValDel;
+    return valDel;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mNodeDel;
+    return nodeDel;
   }
 
   @Override
   public QNm getName() {
-    return mQNm;
+    return qNm;
   }
 
   @Override
   public String getValue() {
-    return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
+    return new String(valDel.getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return mNodeDel.getDeweyID();
+    return nodeDel.getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return mNodeDel.getTypeKey();
+    return nodeDel.getTypeKey();
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return nodeDel.getDeweyIDAsBytes();
   }
 }

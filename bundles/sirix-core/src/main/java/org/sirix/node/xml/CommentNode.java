@@ -30,15 +30,15 @@ import java.math.BigInteger;
 public final class CommentNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
   /** {@link ValueNodeDelegate} reference. */
-  private final ValueNodeDelegate mValDel;
+  private final ValueNodeDelegate valDel;
 
   /** Value of the node. */
-  private byte[] mValue;
+  private byte[] value;
 
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Constructor for TextNode.
@@ -47,11 +47,11 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
    * @param structDel delegate for {@link StructNode} implementation
    */
   public CommentNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    mHash = hashCode;
+    hash = hashCode;
     assert valDel != null;
-    mValDel = valDel;
+    this.valDel = valDel;
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
   }
 
   /**
@@ -62,9 +62,9 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
    */
   public CommentNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
     assert valDel != null;
-    mValDel = valDel;
+    this.valDel = valDel;
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
   }
 
   @Override
@@ -74,14 +74,14 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
 
   @Override
   public BigInteger computeHash() {
-    final HashCode valueHashCode = mStructNodeDel.getNodeDelegate().getHashFunction().hashBytes(getRawValue());
+    final HashCode valueHashCode = structNodeDel.getNodeDelegate().getHashFunction().hashBytes(getRawValue());
 
     final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
 
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
 
     return Node.to128BitsAtMaximumBigInteger(result);
@@ -89,26 +89,26 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   @Override
   public byte[] getRawValue() {
-    if (mValue == null) {
-      mValue = mValDel.getRawValue();
+    if (value == null) {
+      value = valDel.getRawValue();
     }
-    return mValue;
+    return value;
   }
 
   @Override
   public void setValue(final byte[] value) {
-    mValue = null;
-    mValDel.setValue(value);
+    this.value = null;
+    valDel.setValue(value);
   }
 
   @Override
@@ -153,14 +153,14 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mStructNodeDel.getNodeDelegate(), mValDel);
+    return Objects.hashCode(structNodeDel.getNodeDelegate(), valDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof CommentNode) {
       final CommentNode other = (CommentNode) obj;
-      return Objects.equal(mStructNodeDel.getNodeDelegate(), other.getNodeDelegate()) && mValDel.equals(other.mValDel);
+      return Objects.equal(structNodeDel.getNodeDelegate(), other.getNodeDelegate()) && valDel.equals(other.valDel);
     }
     return false;
   }
@@ -168,38 +168,42 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", mStructNodeDel.getNodeDelegate())
-                      .add("value delegate", mValDel)
+                      .add("node delegate", structNodeDel.getNodeDelegate())
+                      .add("value delegate", valDel)
                       .toString();
   }
 
   public ValueNodeDelegate getValNodeDelegate() {
-    return mValDel;
+    return valDel;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   @Override
   public String getValue() {
-    return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
+    return new String(valDel.getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return mStructNodeDel.getNodeDelegate().getDeweyID();
+    return structNodeDel.getNodeDelegate().getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return mStructNodeDel.getNodeDelegate().getTypeKey();
+    return structNodeDel.getNodeDelegate().getTypeKey();
   }
 
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return structNodeDel.getDeweyIDAsBytes();
+  }
 }

@@ -23,6 +23,8 @@ public interface DataRecord {
    */
   SirixDeweyID getDeweyID();
 
+  byte[] getDeweyIDAsBytes();
+
   /**
    * Gets the kind of the node (element node, text node, attribute node....).
    * 

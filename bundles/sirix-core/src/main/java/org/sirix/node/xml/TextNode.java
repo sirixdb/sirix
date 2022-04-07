@@ -49,15 +49,15 @@ import java.math.BigInteger;
 public final class TextNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
 
   /** Delegate for common value node information. */
-  private final ValueNodeDelegate mValDel;
+  private final ValueNodeDelegate valDel;
 
   /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+  private final StructNodeDelegate structNodeDel;
 
   /** Value of the node. */
-  private byte[] mValue;
+  private byte[] value;
 
-  private BigInteger mHash;
+  private BigInteger hash;
 
   /**
    * Constructor for TextNode.
@@ -66,11 +66,11 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
    * @param structDel delegate for {@link StructNode} implementation
    */
   public TextNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    mHash = hashCode;
+    hash = hashCode;
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
     assert valDel != null;
-    mValDel = valDel;
+    this.valDel = valDel;
   }
 
   /**
@@ -81,30 +81,30 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
    */
   public TextNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
     assert structDel != null;
-    mStructNodeDel = structDel;
+    structNodeDel = structDel;
     assert valDel != null;
-    mValDel = valDel;
+    this.valDel = valDel;
   }
 
   @Override
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mValDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(valDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hash;
   }
 
   @Override
@@ -114,16 +114,16 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
 
   @Override
   public byte[] getRawValue() {
-    if (mValue == null) {
-      mValue = mValDel.getRawValue();
+    if (value == null) {
+      value = valDel.getRawValue();
     }
-    return mValue;
+    return value;
   }
 
   @Override
   public void setValue(final byte[] value) {
-    mValue = null;
-    mValDel.setValue(value);
+    this.value = null;
+    valDel.setValue(value);
   }
 
   @Override
@@ -168,14 +168,14 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mStructNodeDel.getNodeDelegate(), mValDel);
+    return Objects.hashCode(structNodeDel.getNodeDelegate(), valDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof TextNode) {
       final TextNode other = (TextNode) obj;
-      return Objects.equal(mStructNodeDel.getNodeDelegate(), other.getNodeDelegate()) && mValDel.equals(other.mValDel);
+      return Objects.equal(structNodeDel.getNodeDelegate(), other.getNodeDelegate()) && valDel.equals(other.valDel);
     }
     return false;
   }
@@ -183,38 +183,43 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", mStructNodeDel.getNodeDelegate())
-                      .add("struct delegate", mStructNodeDel)
-                      .add("value delegate", mValDel)
+                      .add("node delegate", structNodeDel.getNodeDelegate())
+                      .add("struct delegate", structNodeDel)
+                      .add("value delegate", valDel)
                       .toString();
   }
 
   public ValueNodeDelegate getValNodeDelegate() {
-    return mValDel;
+    return valDel;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDel;
   }
 
   @Override
   public String getValue() {
-    return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
+    return new String(valDel.getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return mStructNodeDel.getNodeDelegate().getDeweyID();
+    return structNodeDel.getNodeDelegate().getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return mStructNodeDel.getNodeDelegate().getTypeKey();
+    return structNodeDel.getNodeDelegate().getTypeKey();
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return structNodeDel.getDeweyIDAsBytes();
   }
 }

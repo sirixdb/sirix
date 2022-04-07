@@ -10,6 +10,7 @@ import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
 import org.sirix.index.redblacktree.interfaces.References;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.*;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -55,10 +57,8 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param pageTrx      {@link PageTrx} for persistent storage
    * @param type         type of index
    */
-  private RBTreeWriter(final DatabaseType databaseType,
-                       final PageTrx pageTrx,
-                       final IndexType type,
-                       final @NonNegative int index) {
+  private RBTreeWriter(final DatabaseType databaseType, final PageTrx pageTrx, final IndexType type,
+      final @NonNegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
       final PageReference reference;
@@ -101,11 +101,10 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param pageWriteTrx {@link PageTrx} for persistent storage
    * @param type         type of index
    * @param index        the index number
-   *
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeWriter<K, V> getInstance(
-          final DatabaseType databaseType, final PageTrx pageWriteTrx, final IndexType type, final int index) {
+      final DatabaseType databaseType, final PageTrx pageWriteTrx, final IndexType type, final int index) {
 
     return new RBTreeWriter<>(databaseType, pageWriteTrx, type, index);
   }
@@ -133,11 +132,11 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                          new RBNode<>(key,
                                                                       value,
                                                                       new NodeDelegate(nodeKey,
-                                                                                         Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                                                         null,
-                                                                                         null,
-                                                                                         0,
-                                                                                         null)),
+                                                                                       Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+                                                                                       null,
+                                                                                       null,
+                                                                                       0,
+                                                                                       (SirixDeweyID) null)),
                                                          rbTreeReader.indexType,
                                                          rbTreeReader.index);
       final StructNode document = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
@@ -176,11 +175,11 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                       new RBNode<>(key,
                                                                    value,
                                                                    new NodeDelegate(nodeKey,
-                                                                                      node.getNodeKey(),
-                                                                                      null,
-                                                                                      null,
-                                                                                      0,
-                                                                                      null)),
+                                                                                    node.getNodeKey(),
+                                                                                    null,
+                                                                                    null,
+                                                                                    0,
+                                                                                    (SirixDeweyID) null)),
                                                       rbTreeReader.indexType,
                                                       rbTreeReader.index);
       node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
@@ -233,9 +232,8 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       removed = value.removeNodeKey(nodeKey);
 
       if (removed) {
-        final RBNode<K, V> node = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
-                                                                       rbTreeReader.indexType,
-                                                                       rbTreeReader.index);
+        final RBNode<K, V> node =
+            pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         node.getValue().removeNodeKey(nodeKey);
       }
     }
@@ -406,16 +404,15 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                                      rbTreeReader.index);
       parent.setFirstChildKey(right.getNodeKey());
     } else //noinspection ConstantConditions
-      if (moveTo(node.getParentKey()).hasMoved() && rbTreeReader.getCurrentNode().getLeftChildKey() == node.getNodeKey()) {
-        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
-                                                                         rbTreeReader.indexType,
-                                                                         rbTreeReader.index);
+      if (moveTo(node.getParentKey()).hasMoved()
+          && rbTreeReader.getCurrentNode().getLeftChildKey() == node.getNodeKey()) {
+        final RBNode<K, V> parent =
+            pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setLeftChildKey(right.getNodeKey());
         parent.setLeftChild(right);
       } else {
-        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
-                                                                         rbTreeReader.indexType,
-                                                                         rbTreeReader.index);
+        final RBNode<K, V> parent =
+            pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setRightChildKey(right.getNodeKey());
         parent.setRightChild(right);
       }
@@ -466,15 +463,13 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     } else //noinspection ConstantConditions
       if (moveTo(node.getParentKey()).hasMoved()
           && rbTreeReader.getCurrentNode().getRightChildKey() == node.getNodeKey()) {
-        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
-                                                                         rbTreeReader.indexType,
-                                                                         rbTreeReader.index);
+        final RBNode<K, V> parent =
+            pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setRightChildKey(leftChild.getNodeKey());
         parent.setRightChild(leftChild);
       } else {
-        final RBNode<K, V> parent = pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(),
-                                                                         rbTreeReader.indexType,
-                                                                         rbTreeReader.index);
+        final RBNode<K, V> parent =
+            pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setLeftChildKey(leftChild.getNodeKey());
         parent.setLeftChild(leftChild);
       }

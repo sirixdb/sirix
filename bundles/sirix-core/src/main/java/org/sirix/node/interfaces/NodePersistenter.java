@@ -11,9 +11,11 @@ import java.io.IOException;
 public interface NodePersistenter extends RecordSerializer {
   IntegratedIntCompressor INTEGRATED_INT_COMPRESSOR = new IntegratedIntCompressor();
 
-  SirixDeweyID deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+  record DeweyIDData(SirixDeweyID deweyID, byte[] data) {}
+
+  byte[] deserializeDeweyID(DataInput source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig) throws IOException;
 
-  void serializeDeweyID(DataOutput sink, SirixDeweyID deweyID, SirixDeweyID nextDeweyID,
+  void serializeDeweyID(DataOutput sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) throws IOException;
 }

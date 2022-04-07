@@ -198,4 +198,9 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   public SirixDeweyID getDeweyID() {
     return null;
   }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return null;
+  }
 }

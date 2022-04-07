@@ -21,7 +21,7 @@ import org.sirix.node.xml.TextNode;
  */
 public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, ImmutableXmlNode {
   /** Mutable {@link TextNode}. */
-  private final TextNode mNode;
+  private final TextNode node;
 
   /**
    * Private constructor.
@@ -29,7 +29,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
    * @param node {@link TextNode} to wrap
    */
   private ImmutableText(final TextNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -44,12 +44,12 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
 
   @Override
   public int getTypeKey() {
-    return mNode.getTypeKey();
+    return node.getTypeKey();
   }
 
   @Override
   public boolean isSameItem(final @Nullable Node pOther) {
-    return mNode.isSameItem(pOther);
+    return node.isSameItem(pOther);
   }
 
   @Override
@@ -59,37 +59,37 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
 
   @Override
   public BigInteger getHash() {
-    return mNode.getHash();
+    return node.getHash();
   }
 
   @Override
   public long getParentKey() {
-    return mNode.getParentKey();
+    return node.getParentKey();
   }
 
   @Override
   public boolean hasParent() {
-    return mNode.hasParent();
+    return node.hasParent();
   }
 
   @Override
   public long getNodeKey() {
-    return mNode.getNodeKey();
+    return node.getNodeKey();
   }
 
   @Override
   public NodeKind getKind() {
-    return mNode.getKind();
+    return node.getKind();
   }
 
   @Override
   public long getRevision() {
-    return mNode.getRevision();
+    return node.getRevision();
   }
 
   @Override
   public boolean hasFirstChild() {
-    return mNode.hasFirstChild();
+    return node.hasFirstChild();
   }
 
   @Override
@@ -99,27 +99,27 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
 
   @Override
   public boolean hasLeftSibling() {
-    return mNode.hasLeftSibling();
+    return node.hasLeftSibling();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return mNode.hasRightSibling();
+    return node.hasRightSibling();
   }
 
   @Override
   public long getChildCount() {
-    return mNode.getChildCount();
+    return node.getChildCount();
   }
 
   @Override
   public long getDescendantCount() {
-    return mNode.getDescendantCount();
+    return node.getDescendantCount();
   }
 
   @Override
   public long getFirstChildKey() {
-    return mNode.getFirstChildKey();
+    return node.getFirstChildKey();
   }
 
   @Override
@@ -129,46 +129,51 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
 
   @Override
   public long getLeftSiblingKey() {
-    return mNode.getLeftSiblingKey();
+    return node.getLeftSiblingKey();
   }
 
   @Override
   public long getRightSiblingKey() {
-    return mNode.getRightSiblingKey();
+    return node.getRightSiblingKey();
   }
 
   @Override
   public byte[] getRawValue() {
-    return mNode.getRawValue();
+    return node.getRawValue();
   }
 
   @Override
   public String getValue() {
-    return mNode.getValue();
+    return node.getValue();
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return mNode.getDeweyID();
+    return node.getDeweyID();
   }
 
   @Override
   public boolean equals(Object obj) {
-    return mNode.equals(obj);
+    return node.equals(obj);
   }
 
   @Override
   public int hashCode() {
-    return mNode.hashCode();
+    return node.hashCode();
   }
 
   @Override
   public String toString() {
-    return mNode.toString();
+    return node.toString();
   }
 
   @Override
   public BigInteger computeHash() {
-    return mNode.computeHash();
+    return node.computeHash();
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    return node.getDeweyIDAsBytes();
   }
 }
