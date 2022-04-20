@@ -41,6 +41,7 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
 
 ## Table of contents
 -   [Keeping All Versions of Your Data By Sharing Structure](#keeping-all-versions-of-your-data-by-sharing-structure)
+-   [JSONiq examples](#jsoniq-examples)
 -   [SirixDB Features](#sirixdb-features)
     -   [Design Goals](#design-goals)
     -   [Revision Histories](#revision-histories)
