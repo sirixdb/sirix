@@ -187,6 +187,8 @@ With the function `sdb:nodekey` you can find out the internal unique node key of
 sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',1), 26)))
 ```
 
+### Index types
+
 SirixDB has three types of indexes along with a path summary tree, which is basically a tree of all distinct paths:
 
 - name indexes, to index a set of object fields
