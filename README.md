@@ -41,6 +41,7 @@ SirixDB currently supports the storage and (time travel) querying of both XML - 
 
 ## Table of contents
 -   [Keeping All Versions of Your Data By Sharing Structure](#keeping-all-versions-of-your-data-by-sharing-structure)
+-   [JSONiq examples](#jsoniq-examples)
 -   [SirixDB Features](#sirixdb-features)
     -   [Design Goals](#design-goals)
     -   [Revision Histories](#revision-histories)
@@ -186,6 +187,8 @@ With the function `sdb:nodekey` you can find out the internal unique node key of
 ```xquery
 sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',1), 26)))
 ```
+
+### Index types
 
 SirixDB has three types of indexes along with a path summary tree, which is basically a tree of all distinct paths:
 

@@ -92,10 +92,6 @@ public abstract class AbstractDeweyIDManager<W extends NodeTrx & NodeCursor> {
         id = SirixDeweyID.newBetween(currID, nodeTrx.getDeweyID());
         nodeTrx.moveToLeftSibling();
       } else {
-        if (currID == null) {
-          System.out.println();
-          nodeTrx.getDeweyID();
-        }
         id = SirixDeweyID.newBetween(currID, null);
       }
     }
