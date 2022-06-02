@@ -22,6 +22,8 @@ out/
 *.project
 *.classpath
 
+# Visual Studio Code files 
+settings.json
 # Java classfiles
 *.class
 

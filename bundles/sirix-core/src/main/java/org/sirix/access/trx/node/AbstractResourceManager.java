@@ -144,6 +144,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param resourceStore  the resource store with which this manager has been created
    * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
    * @param bufferManager  the cache of in-memory pages shared amongst all resource managers and transactions
+   * @param storage        the I/O backed storage backend
+   * @param uberPage       holds a reference to the revision root page tree
+   * @param writeLock      allow for concurrent writes
+   * @param user           the user tied to the resource manager
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    * @throws SirixException if Sirix encounters an exception
    */
