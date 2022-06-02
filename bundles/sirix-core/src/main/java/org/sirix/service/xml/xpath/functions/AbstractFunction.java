@@ -153,6 +153,7 @@ public abstract class AbstractFunction extends AbstractExpression {
   protected abstract byte[] computeResult() throws SirixXPathException;
 
   /**
+   * Get all the arguments provided to the function
    * @return the list of function arguments
    */
   protected List<Axis> getArgs() {
