@@ -322,7 +322,7 @@ public final class XmlDocumentCreator {
 
   /**
    * Create revisioned document.
-   *
+   * @param database the database to create the revisioned document from
    * @throws SirixException if shredding fails
    */
   public static void createRevisioned(final Database<XmlResourceManager> database) {
