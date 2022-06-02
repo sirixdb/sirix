@@ -486,11 +486,11 @@ Brackit binding:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
-  <version>0.9.6-SNAPSHOT</version>
+  <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-xquery', version:'0.9.6-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-xquery', version:'0.9.7-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
@@ -498,12 +498,12 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
-  <version>0.9.4-SNAPSHOT</version>
+  <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 
 ```groovy
-compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.6-SNAPSHOT'
+compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.7-SNAPSHOT'
 ```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
