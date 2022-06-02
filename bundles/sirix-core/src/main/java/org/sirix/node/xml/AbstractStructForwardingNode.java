@@ -20,7 +20,11 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   /** Constructor for use by subclasses. */
   protected AbstractStructForwardingNode() {}
 
-  /** {@link StructNodeDelegate} instance. */
+  /** 
+   * {@link StructNodeDelegate} instance. 
+   * 
+   * @return the struct node delegate
+  */
   protected abstract StructNodeDelegate structDelegate();
 
   /**

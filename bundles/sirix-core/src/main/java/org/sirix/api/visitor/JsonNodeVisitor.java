@@ -46,6 +46,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableArrayNode}.
    *
    * @param node the {@link ImmutableArrayNode}
+   * @return the result of visiting the {@link ImmutableArrayNode}
    */
   default VisitResult visit(ImmutableArrayNode node) {
     return VisitResultType.CONTINUE;
@@ -55,6 +56,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableObjectNode}.
    *
    * @param node the {@link ImmutableObjectNode}
+   * @return the result of visiting the {@link ImmutableObjectNode}
    */
   default VisitResult visit(ImmutableObjectNode node) {
     return VisitResultType.CONTINUE;
@@ -64,6 +66,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting an {@link ImmutableObjectKeyNode}.
    *
    * @param node the {@link ImmutableObjectKeyNode}
+   * @return the result of visiting the {@link ImmutableObjectKeyNode}
    */
   default VisitResult visit(ImmutableObjectKeyNode node) {
     return VisitResultType.CONTINUE;
@@ -73,6 +76,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableObjectBooleanNode}.
    *
    * @param node the {@link ImmutableObjectBooleanNode}
+   * @return the result of visiting the {@link ImmutableBooleanObjectNode}
    */
   default VisitResult visit(ImmutableObjectBooleanNode node) {
     return VisitResultType.CONTINUE;
@@ -82,6 +86,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableBooleanNode}.
    *
    * @param node the {@link ImmutableBooleanNode}
+   * @return the result of visiting the {@link ImmutableBooleanNode}
    */
   default VisitResult visit(ImmutableBooleanNode node) {
     return VisitResultType.CONTINUE;
@@ -91,6 +96,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * ImmutableDocumentRoot Do something when visiting a {@link ImmutableStringNode}.
    *
    * @param node the {@link ImmutableStringNode}
+   * @return the result of visiting the {@link ImmutableStringNode}
    */
   default VisitResult visit(ImmutableStringNode node) {
     return VisitResultType.CONTINUE;
@@ -100,6 +106,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableNullNode}.
    *
    * @param node the {@link ImmutableNullNode}
+   * @return the result of visiting the {@link ImmutableNumberNode}
    */
   default VisitResult visit(ImmutableNumberNode node) {
     return VisitResultType.CONTINUE;
@@ -109,6 +116,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableNullNode}.
    *
    * @param node the {@link ImmutableNullNode}
+   * @return the result of visiting the {@link ImmutableNullNode}
    */
   default VisitResult visit(ImmutableNullNode node) {
     return VisitResultType.CONTINUE;
@@ -118,6 +126,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * ImmutableDocumentRoot Do something when visiting a {@link ImmutableObjectStringNode}.
    *
    * @param node the {@link ImmutableObjectStringNode}
+   * @return the result of visiting the {@link ImmutableObjectStringNode}
    */
   default VisitResult visit(ImmutableObjectStringNode node) {
     return VisitResultType.CONTINUE;
@@ -127,6 +136,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableObjectNumberNode}.
    *
    * @param node the {@link ImmutableObjectNumberNode}
+   * @return the result of visiting the {@link ImmutableObjectNumberNode}
    */
   default VisitResult visit(ImmutableObjectNumberNode node) {
     return VisitResultType.CONTINUE;
@@ -136,6 +146,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableObjectNullNode}.
    *
    * @param node the {@link ImmutableObjectNullNode}
+   * @return the result of visiting the {@link ImmutableObjectNullNode}
    */
   default VisitResult visit(ImmutableObjectNullNode node) {
     return VisitResultType.CONTINUE;
@@ -145,6 +156,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting the {@link ImmutableJsonDocumentRootNode}.
    *
    * @param node the {@link ImmutableJsonDocumentRootNode}
+   * @return the result of visiting the {@link ImmutableJsonDocumentRootNode}
    */
   default VisitResult visit(ImmutableJsonDocumentRootNode node) {
     return VisitResultType.CONTINUE;

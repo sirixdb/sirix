@@ -50,6 +50,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @param type type of index to lookup
    * @param resourceManager the {@link ResourceManager} this index controller is bound to
+   * @param revision the revision for this index controller
    * @return {@code true} if an index of the specified type exists, {@code false} otherwise
    * @throws SirixIOException if an I/O exception occurs while deserializing the index configuration
    *         for the specified {@code revision}
@@ -148,6 +149,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Deserialize from an {@link InputStream}.
    *
    * @param in the {@link InputStream} from which to deserialize the XML fragment
+   * @return the deserialized XML fragment Node
    * @throws SirixException if an exception occurs during serialization
    */
   static Node<?> deserialize(final InputStream in) {

@@ -63,6 +63,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    * Constructor.
    *
    * @param indexes   the index definitions
+   * @param listeners the set of listeners
    * @param pathIndex the path index manager
    * @param casIndex  the CAS index manager
    * @param nameIndex the name index manager
