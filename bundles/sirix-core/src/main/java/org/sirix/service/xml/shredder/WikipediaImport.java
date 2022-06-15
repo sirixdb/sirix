@@ -131,6 +131,8 @@ public final class WikipediaImport implements Import<StartElement> {
   public WikipediaImport(final Path xmlFile, final Path sirixDatabase) throws SirixException {
     mPageEvents = new ArrayDeque<>();
     final XMLInputFactory xmlif = XMLInputFactory.newInstance();
+    xmlif.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+
     try {
       mReader = xmlif.createXMLEventReader(new FileInputStream(checkNotNull(xmlFile.toFile())));
     } catch (XMLStreamException | FileNotFoundException e) {
