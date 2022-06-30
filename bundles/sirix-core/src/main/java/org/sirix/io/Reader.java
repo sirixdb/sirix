@@ -21,6 +21,7 @@
 
 package org.sirix.io;
 
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
@@ -28,7 +29,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
+import java.time.Instant;
 
 /**
  * Interface for reading the stored pages in every backend.
@@ -73,4 +74,8 @@ public interface Reader extends AutoCloseable {
    * @return the revision root page
    */
   RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx);
+
+  Instant readRevisionRootPageCommitTimestamp(int revision);
+
+  RevisionFileData getRevisionFileData(int revision);
 }

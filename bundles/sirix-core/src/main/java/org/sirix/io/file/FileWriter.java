@@ -21,31 +21,30 @@
 
 package org.sirix.io.file;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.github.benmanes.caffeine.cache.AsyncCache;
+import org.sirix.exception.SirixIOException;
+import org.sirix.io.AbstractForwardingReader;
+import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
+import org.sirix.io.Writer;
+import org.sirix.page.*;
+import org.sirix.page.interfaces.Page;
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.AbstractForwardingReader;
-import org.sirix.io.Reader;
-import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersister;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.Page;
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * File Writer for providing read/write access for file as a Sirix backend.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
- *
  */
 public final class FileWriter extends AbstractForwardingReader implements Writer {
 
@@ -53,10 +52,14 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 64;
 
-  /** Random access to work on. */
+  /**
+   * Random access to work on.
+   */
   private final RandomAccessFile dataFile;
 
-  /** {@link FileReader} reference for this writer. */
+  /**
+   * {@link FileReader} reference for this writer.
+   */
   private final FileReader reader;
 
   private final SerializationType type;
@@ -65,26 +68,27 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private final PagePersister pagePersister;
 
+  private final AsyncCache<Integer, RevisionFileData> cache;
+
   /**
    * Constructor.
    *
-   * @param dataFile the data file
+   * @param dataFile            the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler the byte handler
-   * @param serializationType the serialization type (for the transaction log or the data file)
-   * @param pagePersister transforms in-memory pages into byte-arrays and back
+   * @param serializationType   the serialization type (for the transaction log or the data file)
+   * @param pagePersister       transforms in-memory pages into byte-arrays and back
+   * @param cache               the revision file data cache
+   * @param reader              the reader delegate
    */
   public FileWriter(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
-      final ByteHandler handler, final SerializationType serializationType,
-      final PagePersister pagePersister) {
+      final SerializationType serializationType, final PagePersister pagePersister,
+      final AsyncCache<Integer, RevisionFileData> cache, final FileReader reader) {
     this.dataFile = checkNotNull(dataFile);
     type = checkNotNull(serializationType);
-    this.revisionsOffsetFile = type == SerializationType.DATA
-        ? checkNotNull(revisionsOffsetFile)
-        : null;
+    this.revisionsOffsetFile = type == SerializationType.DATA ? checkNotNull(revisionsOffsetFile) : null;
     this.pagePersister = checkNotNull(pagePersister);
-    reader =
-        new FileReader(dataFile, revisionsOffsetFile, handler, serializationType, pagePersister);
+    this.cache = cache;
+    this.reader = checkNotNull(reader);
   }
 
   @Override
@@ -92,8 +96,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     UberPage uberPage = (UberPage) reader.readUberPageReference().getPage();
 
     while (uberPage.getRevisionNumber() != revision) {
-      uberPage = (UberPage) reader.read(
-          new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
+      uberPage = (UberPage) reader.read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
       if (uberPage.getRevisionNumber() == revision) {
         try {
           dataFile.setLength(uberPage.getPreviousUberPageKey());
@@ -124,8 +127,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       final byte[] serializedPage;
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream();
-          final DataOutputStream dataOutput =
-              new DataOutputStream(reader.byteHandler.serialize(output))) {
+           final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
         pagePersister.serializePage(dataOutput, page, type);
         dataOutput.flush();
         serializedPage = output.toByteArray();
@@ -140,9 +142,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       // Getting actual offset and appending to the end of the current file.
       final long fileSize = dataFile.length();
-      long offset = fileSize == 0
-          ? FileReader.FIRST_BEACON
-          : fileSize;
+      long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage) {
           if (offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
@@ -167,12 +167,19 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
           // Must not happen.
       }
 
-//      pageReference.setLength(writtenPage.length);
+      //      pageReference.setLength(writtenPage.length);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
-      if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
+      if (type == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
         revisionsOffsetFile.seek(revisionsOffsetFile.length());
         revisionsOffsetFile.writeLong(offset);
+        revisionsOffsetFile.writeLong(revisionRootPage.getRevisionTimestamp());
+        if (cache != null) {
+          final long currOffset = offset;
+          cache.put(revisionRootPage.getRevision(),
+                    CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
+                                                                             Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+        }
       }
 
       return this;

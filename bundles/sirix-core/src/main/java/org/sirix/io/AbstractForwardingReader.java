@@ -8,6 +8,8 @@ import org.sirix.page.interfaces.Page;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.time.Instant;
+
 /**
  * Forwards all methods to the delegate.
  *
@@ -32,6 +34,16 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   @Override
   public RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx) {
     return delegate().readRevisionRootPage(revision, pageReadTrx);
+  }
+
+  @Override
+  public Instant readRevisionRootPageCommitTimestamp(int revision) {
+    return delegate().readRevisionRootPageCommitTimestamp(revision);
+  }
+
+  @Override
+  public RevisionFileData getRevisionFileData(int revision) {
+    return delegate().getRevisionFileData(revision);
   }
 
   @Override

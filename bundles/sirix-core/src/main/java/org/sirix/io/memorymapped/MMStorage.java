@@ -21,15 +21,18 @@
 
 package org.sirix.io.memorymapped;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.filechannel.FileChannelReader;
 import org.sirix.io.filechannel.FileChannelWriter;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
@@ -68,6 +71,11 @@ public final class MMStorage implements IOStorage {
    */
   private final ByteHandlePipeline byteHandlerPipeline;
 
+  /**
+   * Revision file data cache.
+   */
+  private final AsyncCache<Integer, RevisionFileData> cache;
+
   private FileChannel dataFileChannel;
 
   private FileChannel revisionsOffsetFileChannel;
@@ -76,11 +84,13 @@ public final class MMStorage implements IOStorage {
    * Constructor.
    *
    * @param resourceConfig the resource configuration
+   * @param cache          the revision file data cache
    */
-  public MMStorage(final ResourceConfiguration resourceConfig) {
+  public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
+    this.cache = cache;
   }
 
   @Override
@@ -103,12 +113,13 @@ public final class MMStorage implements IOStorage {
                                                                    revisionsOffsetSegmentFileSize,
                                                                    FileChannel.MapMode.READ_ONLY,
                                                                    revisionsOffsetFileScope);
-
       return new MMFileReader(dataFileSegment,
                               revisionsOffsetFileSegment,
                               new ByteHandlePipeline(byteHandlerPipeline),
                               SerializationType.DATA,
-                              new PagePersister());
+                              new PagePersister(),
+                              cache.synchronous());
+
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -141,11 +152,21 @@ public final class MMStorage implements IOStorage {
       createDataFileChannelIfNotInitialized(dataFilePath);
       createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
 
+      final var byteHandlePipeline = new ByteHandlePipeline(byteHandlerPipeline);
+      final var serializationType = SerializationType.DATA;
+      final var pagePersister = new PagePersister();
+      final var reader = new FileChannelReader(dataFileChannel,
+                                               revisionsOffsetFileChannel,
+                                               byteHandlePipeline,
+                                               serializationType,
+                                               pagePersister,
+                                               cache.synchronous());
+
       return new FileChannelWriter(dataFileChannel,
-                                   revisionsOffsetFileChannel,
-                                   new ByteHandlePipeline(byteHandlerPipeline),
-                                   SerializationType.DATA,
-                                   new PagePersister());
+                                   revisionsOffsetFileChannel, serializationType,
+                                   pagePersister,
+                                   cache,
+                                   reader);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

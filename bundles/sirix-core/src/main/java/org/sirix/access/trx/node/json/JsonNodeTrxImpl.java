@@ -183,7 +183,7 @@ final class JsonNodeTrxImpl extends
     this.databaseName = checkNotNull(databaseName);
 
     hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
-    storeChildCount = resourceManager.getResourceConfig().getStoreChildCount();
+    storeChildCount = resourceManager.getResourceConfig().storeChildCount();
 
     // Only auto commit by node modifications if it is more then 0.
     this.isAutoCommitting = isAutoCommitting;

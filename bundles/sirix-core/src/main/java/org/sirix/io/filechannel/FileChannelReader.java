@@ -21,22 +21,25 @@
 
 package org.sirix.io.filechannel;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.time.Instant;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -89,6 +92,8 @@ public final class FileChannelReader implements Reader {
    */
   private final PagePersister pagePersiter;
 
+  private final Cache<Integer, RevisionFileData> cache;
+
   /**
    * Constructor.
    *
@@ -96,14 +101,16 @@ public final class FileChannelReader implements Reader {
    * @param revisionsOffsetFileChannel the file, which holds pointers to the revision root pages
    * @param handler                    {@link ByteHandler} instance
    */
-  public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel, final ByteHandler handler,
-      final SerializationType type, final PagePersister pagePersistenter) throws IOException {
+  public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
+      final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
+      final Cache<Integer, RevisionFileData> cache) {
     hashFunction = Hashing.sha256();
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
     pagePersiter = checkNotNull(pagePersistenter);
+    this.cache = cache;
   }
 
   @Override
@@ -115,23 +122,23 @@ public final class FileChannelReader implements Reader {
       final long position;
 
       switch (type) {
-        case DATA:
+        case DATA -> {
           position = reference.getKey();
           dataFileChannel.read(buffer, position);
-          break;
-        case TRANSACTION_INTENT_LOG:
+        }
+        case TRANSACTION_INTENT_LOG -> {
           position = reference.getPersistentLogKey();
           dataFileChannel.read(buffer, position);
-          break;
-        default:
+        }
+        default ->
           // Must not happen.
-          throw new IllegalStateException();
+            throw new IllegalStateException();
       }
 
       buffer.position(0);
       final int dataLength = buffer.getInt();
 
-//      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
+      //      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
       buffer = ByteBuffer.allocate(dataLength);
@@ -171,19 +178,16 @@ public final class FileChannelReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      ByteBuffer buffer = ByteBuffer.allocate(8);
-      revisionsOffsetFileChannel.read(buffer, revision * 8);
-      buffer.position(0);
-      final var position = buffer.getLong();
+      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      buffer = ByteBuffer.allocate(4);
-      dataFileChannel.read(buffer, position);
+      ByteBuffer buffer = ByteBuffer.allocate(4);
+      dataFileChannel.read(buffer, dataFileOffset);
       buffer.position(0);
       final int dataLength = buffer.getInt();
       final byte[] page = new byte[dataLength];
 
       buffer = ByteBuffer.allocate(dataLength);
-      dataFileChannel.read(buffer, position + 4);
+      dataFileChannel.read(buffer, dataFileOffset + 4);
       buffer.position(0);
       buffer.get(page);
 
@@ -198,14 +202,30 @@ public final class FileChannelReader implements Reader {
   }
 
   @Override
+  public Instant readRevisionRootPageCommitTimestamp(int revision) {
+    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+  }
+
+  @Override
+  public RevisionFileData getRevisionFileData(int revision) {
+    try {
+      final var fileOffset = revision * 8 * 2;
+      final ByteBuffer buffer = ByteBuffer.allocate(16);
+      revisionsOffsetFileChannel.read(buffer, fileOffset);
+      buffer.position(8);
+      revisionsOffsetFileChannel.read(buffer, fileOffset + 8);
+      buffer.position(0);
+      final var offset = buffer.getLong();
+      buffer.position(8);
+      final var timestamp = buffer.getLong();
+      return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Override
   public void close() {
-//    try {
-//      if (revisionsOffsetChannel != null) {
-//        revisionsOffsetChannel.close();
-//      }
-//      dataFileChannel.close();
-//    } catch (final IOException e) {
-//      throw new SirixIOException(e);
-//    }
+    cache.invalidateAll();
   }
 }

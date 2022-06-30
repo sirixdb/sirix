@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,10 +21,11 @@
 
 package org.sirix.io.file;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -41,31 +42,44 @@ import java.nio.file.Path;
  * Factory to provide File access as a backend.
  *
  * @author Sebastian Graf, University of Konstanz.
- *
  */
 public final class FileStorage implements IOStorage {
 
-  /** Data file name. */
+  /**
+   * Data file name.
+   */
   private static final String FILENAME = "sirix.data";
 
-  /** Revisions file name. */
+  /**
+   * Revisions file name.
+   */
   private static final String REVISIONS_FILENAME = "sirix.revisions";
 
-  /** Instance to storage. */
+  /**
+   * Instance to storage.
+   */
   private final Path file;
 
-  /** Byte handler pipeline. */
+  /**
+   * Byte handler pipeline.
+   */
   private final ByteHandlePipeline byteHandlerPipeline;
+
+  /**
+   * The revision file cache.
+   */
+  private final AsyncCache<Integer, RevisionFileData> cache;
 
   /**
    * Constructor.
    *
    * @param resourceConfig the resource configuration
    */
-  public FileStorage(final ResourceConfiguration resourceConfig) {
+  public FileStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
+    this.cache = cache;
   }
 
   @Override
@@ -75,8 +89,11 @@ public final class FileStorage implements IOStorage {
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
-          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-          new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
+                            new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
+                            new ByteHandlePipeline(byteHandlerPipeline),
+                            SerializationType.DATA,
+                            new PagePersister(),
+                            cache.synchronous());
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -99,9 +116,24 @@ public final class FileStorage implements IOStorage {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      return new FileWriter(new RandomAccessFile(dataFilePath.toFile(), "rw"),
-          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw"),
-          new ByteHandlePipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister());
+      final var randomAccessDataFile = new RandomAccessFile(dataFilePath.toFile(), "r");
+      final var randomAccessRevisionDataFile = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r");
+      final var byteHandlerPipe = new ByteHandlePipeline(byteHandlerPipeline);
+      final var serializationType = SerializationType.DATA;
+      final var pagePersister = new PagePersister();
+      final var reader = new FileReader(randomAccessDataFile,
+                                        randomAccessRevisionDataFile,
+                                        byteHandlerPipe,
+                                        serializationType,
+                                        pagePersister,
+                                        cache.synchronous());
+
+      return new FileWriter(randomAccessDataFile,
+                            randomAccessRevisionDataFile,
+                            serializationType,
+                            pagePersister,
+                            cache,
+                            reader);
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -127,8 +159,7 @@ public final class FileStorage implements IOStorage {
    * @return the concrete storage for this database
    */
   private Path getRevisionFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-               .resolve(REVISIONS_FILENAME);
+    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
   }
 
   @Override

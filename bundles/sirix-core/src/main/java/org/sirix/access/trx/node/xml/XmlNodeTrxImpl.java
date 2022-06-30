@@ -27,7 +27,6 @@ import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.Movement;
 import org.sirix.api.PageTrx;
-import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -147,7 +146,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     );
 
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    storeChildCount = this.resourceManager.getResourceConfig().getStoreChildCount();
+    storeChildCount = this.resourceManager.getResourceConfig().storeChildCount();
 
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
     deweyIDManager = new XmlDeweyIDManager(this);

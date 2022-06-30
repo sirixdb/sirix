@@ -1776,7 +1776,7 @@ public enum NodeKind implements NodePersistenter {
         kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
             || kind == NodeKind.NULL_VALUE;
 
-    final boolean storeChildCount = config.getStoreChildCount();
+    final boolean storeChildCount = config.storeChildCount();
 
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
@@ -1796,7 +1796,7 @@ public enum NodeKind implements NodePersistenter {
   private static StructNodeDelegate deserializeStructDel(final NodeKind kind, final NodeDelegate nodeDel,
       final DataInput source, final ResourceConfiguration config) throws IOException {
     final long currKey = nodeDel.getNodeKey();
-    final boolean storeChildNodes = config.getStoreChildCount();
+    final boolean storeChildNodes = config.storeChildCount();
 
     final var isValueNode =
         kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
