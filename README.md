@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
-<h1 align="center">An Evolutionary, Append-Only Database System</h1>
+<h1 align="center">An Embeddable, Evolutionary, Append-Only Database System</h1>
 <p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner. It facilitates querying and reconstructing the entire history as well as easy audits.</p>
 
 <p align="center">
@@ -21,9 +21,11 @@
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments during a copy-on-write out-of-place operation instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page (thus, a fast, random access storage device as a PCIe SSD is best suited or even byte addressable storage as Intel DC optane memory in the near future -- as we store fine granular not page aligned modifications in a single file (page fragments are currently word-aligned)).
+SirixDB appends data to an indexed log file without the need of a WAL. It can simply be embedded and used as a library from your favorite language on the JVM to store and query data locally or by using a simple CLI. An asynchronous HTTP-server, which adds the core and query modules as dependencies can alternatively be used to interact with SirixDB over the network using Keycloak for authentication/authorization. One file stores the data with all revisions and possibly secondary indexes. A second file stores offsets into the file to quickly search for a revision by a given timestamp using an in-memory binary search. Furthermore a few maintenance files exist, which store the configuration of a resource and the definitions of secondary indexes (if any are configured). Other JSON files keep track of changes in delta files if enabled.
 
-SirixDB currently supports the storage and (time travel) querying of both XML - and JSON-data in our binary encoding, tailored to support versioning. The index-structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement the storage and querying of other data formats as relational data.
+It currently supports the storage and (time travel) querying of both XML - and JSON-data in its binary encoding, tailored to support versioning. The index-structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement the storage and querying of other data formats as relational data.
+
+SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments during a copy-on-write out-of-place operation instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page (thus, a fast, random access storage device as a PCIe SSD is best suited or even byte addressable storage as Intel DC optane memory in the near future -- as SirixDB stores fine granular not page aligned modifications in a single file (page fragments are currently word-aligned)).
 
 <!--
 <p>&nbsp;</p>
@@ -486,11 +488,11 @@ Brackit binding:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
-  <version>0.9.6-SNAPSHOT</version>
+  <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-xquery', version:'0.9.6-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-xquery', version:'0.9.7-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
@@ -498,12 +500,12 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
-  <version>0.9.4-SNAPSHOT</version>
+  <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 
 ```groovy
-compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.6-SNAPSHOT'
+compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.7-SNAPSHOT'
 ```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
