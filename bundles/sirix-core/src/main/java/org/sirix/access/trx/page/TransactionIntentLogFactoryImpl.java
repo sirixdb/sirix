@@ -31,6 +31,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.file.FileReader;
 import org.sirix.io.file.FileWriter;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
@@ -43,7 +44,6 @@ import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
 final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFactory {
 
@@ -67,9 +67,15 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
 
       final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
 
-      final FileWriter fileWriter = new FileWriter(file, null,
-          new ByteHandlePipeline(resourceConfig.byteHandlePipeline), SerializationType.TRANSACTION_INTENT_LOG,
-          new PagePersister());
+      final FileReader reader = new FileReader(file,
+                                               null,
+                                               new ByteHandlePipeline(resourceConfig.byteHandlePipeline),
+                                               SerializationType.TRANSACTION_INTENT_LOG,
+                                               new PagePersister(),
+                                               null);
+
+      final FileWriter fileWriter =
+          new FileWriter(file, null, SerializationType.TRANSACTION_INTENT_LOG, new PagePersister(), null, reader);
 
       final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter);
 

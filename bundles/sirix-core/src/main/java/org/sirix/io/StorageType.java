@@ -22,6 +22,9 @@ package org.sirix.io;
 
 import java.io.RandomAccessFile;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.filechannel.FileChannelStorage;
@@ -48,7 +51,10 @@ public enum StorageType {
   FILE {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      return new FileStorage(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final var storage = new FileStorage(resourceConf, cache);
+      storage.loadRevisionFileDataIntoMemory(cache);
+      return storage;
     }
   },
 
@@ -56,7 +62,10 @@ public enum StorageType {
   FILECHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      return new FileChannelStorage(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final var storage = new FileChannelStorage(resourceConf, cache);
+      storage.loadRevisionFileDataIntoMemory(cache);
+      return storage;
     }
   },
 
@@ -64,7 +73,10 @@ public enum StorageType {
   MEMORY_MAPPED {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      return new MMStorage(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final var storage = new MMStorage(resourceConf, cache);
+      storage.loadRevisionFileDataIntoMemory(cache);
+      return storage;
     }
   };
 

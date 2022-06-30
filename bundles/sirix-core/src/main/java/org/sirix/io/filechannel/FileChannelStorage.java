@@ -1,9 +1,11 @@
 package org.sirix.io.filechannel;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -23,20 +25,27 @@ import java.util.concurrent.TimeUnit;
  * Factory to provide file channel access as a backend.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class FileChannelStorage implements IOStorage {
 
-  /** Data file name. */
+  /**
+   * Data file name.
+   */
   private static final String FILENAME = "sirix.data";
 
-  /** Revisions file name. */
+  /**
+   * Revisions file name.
+   */
   private static final String REVISIONS_FILENAME = "sirix.revisions";
 
-  /** Instance to storage. */
+  /**
+   * Instance to storage.
+   */
   private final Path file;
 
-  /** Byte handler pipeline. */
+  /**
+   * Byte handler pipeline.
+   */
   private final ByteHandlePipeline byteHandlerPipeline;
 
   private FileChannel revisionsOffsetFileChannel;
@@ -46,20 +55,31 @@ public final class FileChannelStorage implements IOStorage {
   final Semaphore semaphore = new Semaphore(1);
 
   /**
+   * Revision file data cache.
+   */
+  private final AsyncCache<Integer, RevisionFileData> cache;
+
+  /**
    * Constructor.
    *
    * @param resourceConfig the resource configuration
    */
-  public FileChannelStorage(final ResourceConfiguration resourceConfig) {
+  public FileChannelStorage(final ResourceConfiguration resourceConfig,
+      final AsyncCache<Integer, RevisionFileData> cache) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
+    this.cache = cache;
   }
 
   @Override
   public Reader createReader() {
     try {
-      semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+
+      if (!sempahoreAcquired) {
+        throw new IllegalStateException("Couldn't acquire semaphore.");
+      }
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -71,7 +91,8 @@ public final class FileChannelStorage implements IOStorage {
                                    revisionsOffsetFileChannel,
                                    new ByteHandlePipeline(byteHandlerPipeline),
                                    SerializationType.DATA,
-                                   new PagePersister());
+                                   new PagePersister(),
+                                   cache.synchronous());
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -85,8 +106,7 @@ public final class FileChannelStorage implements IOStorage {
     }
   }
 
-  private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath)
-      throws IOException {
+  private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath) throws IOException {
     if (revisionsOffsetFileChannel == null) {
       revisionsOffsetFileChannel =
           FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
@@ -107,7 +127,11 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public Writer createWriter() {
     try {
-      semaphore.tryAcquire(5, TimeUnit.SECONDS);
+      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+
+      if (!sempahoreAcquired) {
+        throw new IllegalStateException("Couldn't acquire semaphore.");
+      }
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -115,11 +139,22 @@ public final class FileChannelStorage implements IOStorage {
       createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
       createDataFileChannelIfNotInitialized(dataFilePath);
 
+      final var byteHandlePipeline = new ByteHandlePipeline(byteHandlerPipeline);
+      final var serializationType = SerializationType.DATA;
+      final var pagePersister = new PagePersister();
+      final var reader = new FileChannelReader(dataFileChannel,
+                                               revisionsOffsetFileChannel,
+                                               byteHandlePipeline,
+                                               serializationType,
+                                               pagePersister,
+                                               cache.synchronous());
+
       return new FileChannelWriter(dataFileChannel,
                                    revisionsOffsetFileChannel,
-                                   new ByteHandlePipeline(byteHandlerPipeline),
-                                   SerializationType.DATA,
-                                   new PagePersister());
+                                   serializationType,
+                                   new PagePersister(),
+                                   cache,
+                                   reader);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {

@@ -1,5 +1,6 @@
 package org.sirix.io.ram;
 
+import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -8,6 +9,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PageReference;
@@ -146,6 +148,18 @@ public final class RAMStorage implements IOStorage {
       mUberPageKey.put(-1, mPageKey++);
       mExists = true;
       return this;
+    }
+
+    @Override
+    public Instant readRevisionRootPageCommitTimestamp(int revision) {
+      // FIXME
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public RevisionFileData getRevisionFileData(int revision) {
+      // FIXME
+      throw new UnsupportedOperationException();
     }
 
     @Override

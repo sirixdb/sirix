@@ -21,11 +21,12 @@
 
 package org.sirix.io.filechannel;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
@@ -34,6 +35,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -65,24 +68,27 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private final PagePersister pagePersister;
 
+  private final AsyncCache<Integer, RevisionFileData> cache;
+
   /**
    * Constructor.
    *
    * @param dataFileChannel            the data file channel
    * @param revisionsOffsetFileChannel the channel to the file, which holds pointers to the revision root pages
-   * @param handler                    the byte handler
    * @param serializationType          the serialization type (for the transaction log or the data file)
    * @param pagePersister              transforms in-memory pages into byte-arrays and back
+   * @param cache                      the revision file data cache
+   * @param reader                     the reader delegate
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
-      final ByteHandler handler, final SerializationType serializationType, final PagePersister pagePersister)
-      throws IOException {
+      final SerializationType serializationType, final PagePersister pagePersister,
+      final AsyncCache<Integer, RevisionFileData> cache, final FileChannelReader reader) throws IOException {
     this.dataFileChannel = dataFileChannel;
     type = checkNotNull(serializationType);
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     this.pagePersister = checkNotNull(pagePersister);
-    reader =
-        new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, handler, serializationType, pagePersister);
+    this.cache = checkNotNull(cache);
+    this.reader = checkNotNull(reader);
   }
 
   @Override
@@ -150,24 +156,27 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       // Remember page coordinates.
       switch (type) {
-        case DATA:
-          pageReference.setKey(offset);
-          break;
-        case TRANSACTION_INTENT_LOG:
-          pageReference.setPersistentLogKey(offset);
-          break;
-        default:
+        case DATA -> pageReference.setKey(offset);
+        case TRANSACTION_INTENT_LOG -> pageReference.setPersistentLogKey(offset);
+        default -> {
           // Must not happen.
+        }
       }
 
       //      pageReference.setLength(writtenPageLength);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
-      if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
-        buffer = ByteBuffer.allocate(8);
+      if (type == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
+        buffer = ByteBuffer.allocate(16);
         buffer.putLong(offset);
+        buffer.position(8);
+        buffer.putLong(revisionRootPage.getRevisionTimestamp());
         buffer.position(0);
         revisionsOffsetFileChannel.write(buffer, revisionsOffsetFileChannel.size());
+        final long currOffset = offset;
+        cache.put(revisionRootPage.getRevision(),
+                  CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
+                                                                           Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
       }
 
       return this;
@@ -203,10 +212,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       buffer.position(0);
 
       dataFileChannel.write(buffer, 0L);
+      dataFileChannel.force(true);
 
-      if (dataFileChannel != null) {
-        dataFileChannel.force(true);
-      }
       if (revisionsOffsetFileChannel != null) {
         revisionsOffsetFileChannel.force(true);
       }

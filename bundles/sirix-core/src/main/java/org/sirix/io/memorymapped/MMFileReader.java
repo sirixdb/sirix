@@ -21,6 +21,7 @@
 
 package org.sirix.io.memorymapped;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import jdk.incubator.foreign.MemorySegment;
@@ -30,6 +31,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
@@ -38,6 +40,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteOrder;
+import java.time.Instant;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -48,9 +51,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class MMFileReader implements Reader {
 
-  static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
+  static final ValueLayout.OfByte LAYOUT_BYTE =
+      ValueLayout.JAVA_BYTE.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
   static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
-  static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
+  static final ValueLayout.OfLong LAYOUT_LONG =
+      ValueLayout.JAVA_LONG.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
 
   /**
    * Beacon of first references.
@@ -75,25 +80,28 @@ public final class MMFileReader implements Reader {
   /**
    * Used to serialize/deserialize pages.
    */
-  private final PagePersister pagePersiter;
-
+  private final PagePersister pagePersitenter;
   private MemorySegment dataFileSegment;
 
   private final MemorySegment revisionsOffsetFileSegment;
 
+  private final Cache<Integer, RevisionFileData> cache;
+
   /**
    * Constructor.
    *
-   * @param handler {@link ByteHandler} instance
+   * @param byteHandler {@link ByteHandler} instance
    */
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
-      final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter) {
+      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
+      final Cache<Integer, RevisionFileData> cache) {
     hashFunction = Hashing.sha256();
-    byteHandler = checkNotNull(handler);
+    this.byteHandler = checkNotNull(byteHandler);
     this.type = checkNotNull(type);
-    pagePersiter = checkNotNull(pagePersistenter);
-    this.dataFileSegment = dataFileSegment;
-    this.revisionsOffsetFileSegment = revisionFileSegment;
+    this.pagePersitenter = checkNotNull(pagePersistenter);
+    this.dataFileSegment = checkNotNull(dataFileSegment);
+    this.revisionsOffsetFileSegment = checkNotNull(revisionFileSegment);
+    this.cache = checkNotNull(cache);
   }
 
   @Override
@@ -143,7 +151,8 @@ public final class MMFileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
-      final long dataFileOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, revision * LAYOUT_LONG.byteSize());
+      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
 
       final byte[] page = new byte[dataLength];
@@ -156,16 +165,31 @@ public final class MMFileReader implements Reader {
     }
   }
 
+  @Override
+  public Instant readRevisionRootPageCommitTimestamp(int revision) {
+    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+  }
+
+  @Override
+  public RevisionFileData getRevisionFileData(int revision) {
+    final var fileOffset = revision * LAYOUT_LONG.byteSize() * 2;
+    final var revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset);
+    final var timestamp =
+        Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));
+    return new RevisionFileData(revisionOffset, timestamp);
+  }
+
   private Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
     // perform byte operations
     final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
 
     // return deserialized page
-    return pagePersiter.deserializePage(input, pageReadTrx, type);
+    return pagePersitenter.deserializePage(input, pageReadTrx, type);
   }
 
   @Override
   public void close() {
+    cache.invalidateAll();
     dataFileSegment.scope().close();
     revisionsOffsetFileSegment.scope().close();
   }

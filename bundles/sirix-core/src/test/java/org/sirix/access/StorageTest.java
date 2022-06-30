@@ -21,6 +21,7 @@
 
 package org.sirix.access;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.io.Reader;
@@ -28,6 +29,8 @@ import org.sirix.io.IOStorage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
+import org.sirix.io.filechannel.FileChannelStorage;
+import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -131,7 +134,9 @@ public final class StorageTest {
     return new Object[][]{
         { IOStorage.class,
             new IOStorage[]{
-                new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),
+                new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+                new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+                new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
                 new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),
             }
         }

@@ -162,7 +162,7 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE = //StorageType.FILECHANNEL;
+  private static final StorageType STORAGE =
       OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
 
   /**
@@ -422,7 +422,7 @@ public final class ResourceConfiguration {
     return resourcePath.resolve(ResourcePaths.CONFIG_BINARY.getPath());
   }
 
-  public boolean getStoreChildCount() {
+  public boolean storeChildCount() {
     return storeChildCount;
   }
 

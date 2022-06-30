@@ -23,6 +23,7 @@ import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Node;
 import org.sirix.page.UberPage;
@@ -33,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -215,10 +217,19 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final Writer writer = storage.createWriter();
     final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    return this.pageTrxFactory.createPageTrx(this, abort == Abort.YES && lastCommittedUberPage.isBootstrap()
-            ? new UberPage()
-            : new UberPage(lastCommittedUberPage, representRevision > 0 ? writer.readUberPageReference().getKey() : -1),
-        writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx, bufferManager);
+    return this.pageTrxFactory.createPageTrx(this,
+                                             abort == Abort.YES && lastCommittedUberPage.isBootstrap()
+                                                 ? new UberPage()
+                                                 : new UberPage(lastCommittedUberPage,
+                                                                representRevision > 0 ? writer.readUberPageReference()
+                                                                                              .getKey() : -1),
+                                             writer,
+                                             id,
+                                             representRevision,
+                                             storedRevision,
+                                             lastCommittedRev,
+                                             isBoundToNodeTrx,
+                                             bufferManager);
   }
 
   @Override
@@ -638,9 +649,14 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx =
-        new NodePageReadOnlyTrx(currentPageTrxID, this, lastCommittedUberPage.get(), revision, storage.createReader(),
-            null, bufferManager, new RevisionRootPageReader());
+    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
+                                                                    this,
+                                                                    lastCommittedUberPage.get(),
+                                                                    revision,
+                                                                    storage.createReader(),
+                                                                    null,
+                                                                    bufferManager,
+                                                                    new RevisionRootPageReader());
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -684,12 +700,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return Optional.ofNullable(nodeTrxMap.get(ID));
   }
 
-//  @Override
-//  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
-//    assertNotClosed();
-//
-//    return nodeTrxMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
-//  }
+  //  @Override
+  //  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
+  //    assertNotClosed();
+  //
+  //    return nodeTrxMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
+  //  }
 
   @SuppressWarnings("unchecked")
   @Override
@@ -721,7 +737,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final R rtxRevision = beginNodeReadOnlyTrx(revision);
 
     if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-        rtxRevision.getRevisionTimestamp().toEpochMilli())) {
+                                                                                                rtxRevision.getRevisionTimestamp()
+                                                                                                           .toEpochMilli())) {
       rtxRevision.close();
       return rtxRevisionMinus1;
     } else {
@@ -734,12 +751,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     int low = 0;
     int high = getMostRecentRevisionNumber();
 
-    while (low <= high) {
-      final int mid = (low + high) >>> 1;
+    try (final Reader reader = storage.createReader()) {
+      while (low <= high) {
+        final int mid = (low + high) >>> 1;
 
-      try (final PageReadOnlyTrx trx = beginPageReadOnlyTrx(mid)) {
-        final long midVal = trx.getActualRevisionRootPage().getRevisionTimestamp();
-        final int cmp = Instant.ofEpochMilli(midVal).compareTo(Instant.ofEpochMilli(timestamp));
+        final Instant midVal = reader.readRevisionRootPageCommitTimestamp(mid);
+        final int cmp = midVal.compareTo(Instant.ofEpochMilli(timestamp));
 
         if (cmp < 0)
           low = mid + 1;
@@ -776,7 +793,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       final int revisionNumber;
 
       if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-          rtxRevision.getRevisionTimestamp().toEpochMilli())) {
+                                                                                                  rtxRevision.getRevisionTimestamp()
+                                                                                                             .toEpochMilli())) {
         revisionNumber = rtxRevisionMinus1.getRevisionNumber();
       } else {
         revisionNumber = rtxRevision.getRevisionNumber();

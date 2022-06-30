@@ -85,7 +85,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
    */
   public MMFileWriter(final Path dataFile, final Path revisionsOffsetFile, final MemorySegment dataFileSegment,
       final MemorySegment revisionsOffsetFileSegment, final ByteHandler handler,
-      final SerializationType serializationType, final PagePersister pagePersister) throws IOException {
+      final SerializationType serializationType, final PagePersister pagePersister) {
     this.dataFilePath = dataFile;
     this.revisionsOffsetFilePath = revisionsOffsetFile;
     this.dataFileSegment = dataFileSegment;
@@ -97,7 +97,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       currByteSizeToMap = currByteSizeToMap << 1;
     }
 
-    reader = new MMFileReader(dataFileSegment, revisionsOffsetFileSegment, handler, serializationType, pagePersister);
+    reader = new MMFileReader(dataFileSegment, revisionsOffsetFileSegment, handler, serializationType, pagePersister, null);
   }
 
   @Override
@@ -185,10 +185,13 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
 
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
-      if (type == SerializationType.DATA && page instanceof RevisionRootPage) {
+      if (type == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
         revisionsOffsetFileSegment.set(MMFileReader.LAYOUT_LONG, revisionsOffsetSegmentFileSize, offset);
+        revisionsOffsetFileSegment.set(MMFileReader.LAYOUT_LONG,
+                                       revisionsOffsetSegmentFileSize += MMFileReader.LAYOUT_LONG.byteSize(),
+                                       revisionRootPage.getRevisionTimestamp());
 
-        revisionsOffsetSegmentFileSize += 8;
+        revisionsOffsetSegmentFileSize += MMFileReader.LAYOUT_LONG.byteSize();
       }
 
       return this;

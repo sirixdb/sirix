@@ -7,6 +7,7 @@ import org.sirix.JsonTestHelper;
 import org.sirix.index.IndexType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.SnappyCompressor;
+import org.sirix.io.file.FileReader;
 import org.sirix.io.file.FileWriter;
 import org.sirix.page.PageKind;
 import org.sirix.page.PagePersister;
@@ -19,7 +20,6 @@ import java.io.RandomAccessFile;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
-
 
 public class TransactionIntentLogTest {
   @Before
@@ -35,13 +35,25 @@ public class TransactionIntentLogTest {
   @Test
   public void integrationTest() throws FileNotFoundException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      final var resourceManager = database.openResourceManager(JsonTestHelper.RESOURCE);
-      final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx()) {
+         final var resourceManager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx()) {
       final RandomAccessFile file = new RandomAccessFile(JsonTestHelper.PATHS.PATH2.getFile().toFile(), "rw");
+      final var byteHandlerPipeline = new ByteHandlePipeline(new ByteHandlePipeline(new SnappyCompressor()));
+      final var pagePersister = new PagePersister();
 
-      final FileWriter fileWriter =
-          new FileWriter(file, null, new ByteHandlePipeline(new ByteHandlePipeline(new SnappyCompressor())),
-                         SerializationType.TRANSACTION_INTENT_LOG, new PagePersister());
+      final FileReader fileReader = new FileReader(file,
+                                                   null,
+                                                   byteHandlerPipeline,
+                                                   SerializationType.TRANSACTION_INTENT_LOG,
+                                                   pagePersister,
+                                                   null);
+
+      final FileWriter fileWriter = new FileWriter(file,
+                                                   null,
+                                                   SerializationType.TRANSACTION_INTENT_LOG,
+                                                   pagePersister,
+                                                   null,
+                                                   fileReader);
 
       final var persistentCache = new PersistentFileCache(fileWriter);
       final var trxIntentLog = new TransactionIntentLog(persistentCache, 1);
