@@ -80,6 +80,7 @@ public final class FileChannelStorage implements IOStorage {
       if (!sempahoreAcquired) {
         throw new IllegalStateException("Couldn't acquire semaphore.");
       }
+
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -132,6 +133,7 @@ public final class FileChannelStorage implements IOStorage {
       if (!sempahoreAcquired) {
         throw new IllegalStateException("Couldn't acquire semaphore.");
       }
+
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -152,7 +154,7 @@ public final class FileChannelStorage implements IOStorage {
       return new FileChannelWriter(dataFileChannel,
                                    revisionsOffsetFileChannel,
                                    serializationType,
-                                   new PagePersister(),
+                                   pagePersister,
                                    cache,
                                    reader);
     } catch (final IOException | InterruptedException e) {
