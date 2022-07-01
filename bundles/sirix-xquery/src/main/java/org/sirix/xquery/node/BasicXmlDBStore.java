@@ -16,6 +16,8 @@ import org.sirix.io.StorageType;
 import org.sirix.service.InsertPosition;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sirix.utils.OS;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -90,7 +92,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Storage type.
      */
-    private StorageType storageType = StorageType.FILE;
+    private StorageType storageType =
+        OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
 
     /**
      * The location to store created collections/databases.
