@@ -94,7 +94,7 @@ public final class MMStorage implements IOStorage {
   }
 
   @Override
-  public Reader createReader() {
+  public synchronized Reader createReader() {
     try {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
