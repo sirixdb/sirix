@@ -88,6 +88,10 @@ public final class FileStorage implements IOStorage {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
+      if (!Files.exists(revisionsOffsetFilePath)) {
+        Files.createFile(revisionsOffsetFilePath);
+      }
+
       return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
                             new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
                             new ByteHandlePipeline(byteHandlerPipeline),
@@ -116,8 +120,12 @@ public final class FileStorage implements IOStorage {
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      final var randomAccessDataFile = new RandomAccessFile(dataFilePath.toFile(), "r");
-      final var randomAccessRevisionDataFile = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r");
+      if (!Files.exists(revisionsOffsetFilePath)) {
+        Files.createFile(revisionsOffsetFilePath);
+      }
+
+      final var randomAccessDataFile = new RandomAccessFile(dataFilePath.toFile(), "rw");
+      final var randomAccessRevisionDataFile = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw");
       final var byteHandlerPipe = new ByteHandlePipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();

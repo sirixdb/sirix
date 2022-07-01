@@ -18,6 +18,8 @@ import org.sirix.service.json.shredder.JsonShredder;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sirix.utils.OS;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -88,7 +90,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     /**
      * Storage type.
      */
-    private StorageType storageType = StorageType.FILE;
+    private StorageType storageType =
+        OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
 
     /**
      * The location to store created collections/databases.
