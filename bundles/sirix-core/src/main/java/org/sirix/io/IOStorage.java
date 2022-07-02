@@ -40,6 +40,16 @@ import java.util.Map;
 public interface IOStorage {
 
   /**
+   * Beacon of first references.
+   */
+  int FIRST_BEACON = 200;
+
+  /**
+   * Beacon of the other references.
+   */
+  int OTHER_BEACON = 4;
+
+ /**
    * Getting a writer.
    *
    * @return an {@link Writer} instance

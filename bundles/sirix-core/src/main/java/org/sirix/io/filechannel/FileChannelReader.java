@@ -28,6 +28,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -51,16 +52,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger
  */
 public final class FileChannelReader implements Reader {
-
-  /**
-   * Beacon of first references.
-   */
-  final static int FIRST_BEACON = 12;
-
-  /**
-   * Beacon of the other references.
-   */
-  final static int OTHER_BEACON = 4;
 
   /**
    * Inflater to decompress.
@@ -160,19 +151,11 @@ public final class FileChannelReader implements Reader {
   @Override
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
-    try {
-      // Read primary beacon.
-      ByteBuffer buffer = ByteBuffer.allocate(8);
-      dataFileChannel.read(buffer, 0);
-      buffer.position(0);
-      uberPageReference.setKey(buffer.getLong());
+    uberPageReference.setKey(0);
 
-      final UberPage page = (UberPage) read(uberPageReference, null);
-      uberPageReference.setPage(page);
-      return uberPageReference;
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
+    final UberPage page = (UberPage) read(uberPageReference, null);
+    uberPageReference.setPage(page);
+    return uberPageReference;
   }
 
   @Override
@@ -209,7 +192,7 @@ public final class FileChannelReader implements Reader {
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
     try {
-      final var fileOffset = revision * 8 * 2;
+      final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
       final ByteBuffer buffer = ByteBuffer.allocate(16);
       revisionsOffsetFileChannel.read(buffer, fileOffset);
       buffer.position(8);

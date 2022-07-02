@@ -22,11 +22,9 @@
 package org.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.AbstractForwardingReader;
-import org.sirix.io.Reader;
-import org.sirix.io.RevisionFileData;
-import org.sirix.io.Writer;
+import org.sirix.io.*;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
@@ -64,11 +62,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private final SerializationType type;
 
-  private final FileChannel revisionsOffsetFileChannel;
+  private final FileChannel revisionsFileChannel;
 
   private final PagePersister pagePersister;
 
   private final AsyncCache<Integer, RevisionFileData> cache;
+
+  private boolean isFirstUberPage;
 
   /**
    * Constructor.
@@ -82,10 +82,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final SerializationType serializationType, final PagePersister pagePersister,
-      final AsyncCache<Integer, RevisionFileData> cache, final FileChannelReader reader) throws IOException {
+      final AsyncCache<Integer, RevisionFileData> cache, final FileChannelReader reader) {
     this.dataFileChannel = dataFileChannel;
     type = checkNotNull(serializationType);
-    this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
+    this.revisionsFileChannel = revisionsOffsetFileChannel;
     this.pagePersister = checkNotNull(pagePersister);
     this.cache = checkNotNull(cache);
     this.reader = checkNotNull(reader);
@@ -117,7 +117,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * @throws SirixIOException if errors during writing occur
    */
   @Override
-  public FileChannelWriter write(final PageReference pageReference) throws SirixIOException {
+  public FileChannelWriter write(final PageReference pageReference) {
+    try {
+      final long fileSize = dataFileChannel.size();
+      long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
+      return writePageReference(pageReference, offset);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @NotNull
+  private FileChannelWriter writePageReference(PageReference pageReference, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -133,15 +144,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         serializedPage = output.toByteArray();
       }
 
-      final int writtenPageLength = serializedPage.length + FileChannelReader.OTHER_BEACON;
+      final int writtenPageLength = serializedPage.length + IOStorage.OTHER_BEACON;
       ByteBuffer buffer = ByteBuffer.allocate(writtenPageLength);
       buffer.putInt(serializedPage.length);
       buffer.put(serializedPage);
       buffer.position(0);
 
       // Getting actual offset and appending to the end of the current file.
-      final long fileSize = dataFileChannel.size();
-      long offset = fileSize == 0 ? FileChannelReader.FIRST_BEACON : fileSize;
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage) {
           if (offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
@@ -163,20 +172,34 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         }
       }
 
-      //      pageReference.setLength(writtenPageLength);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
-      if (type == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
-        buffer = ByteBuffer.allocate(16);
-        buffer.putLong(offset);
-        buffer.position(8);
-        buffer.putLong(revisionRootPage.getRevisionTimestamp());
-        buffer.position(0);
-        revisionsOffsetFileChannel.write(buffer, revisionsOffsetFileChannel.size());
-        final long currOffset = offset;
-        cache.put(revisionRootPage.getRevision(),
-                  CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                           Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+      if (type == SerializationType.DATA) {
+        if (page instanceof RevisionRootPage revisionRootPage) {
+          buffer = ByteBuffer.allocate(16);
+          buffer.putLong(offset);
+          buffer.position(8);
+          buffer.putLong(revisionRootPage.getRevisionTimestamp());
+          buffer.position(0);
+          final long revisionsFileOffset;
+          if (revisionRootPage.getRevision() == 0) {
+            revisionsFileOffset = revisionsFileChannel.size() + IOStorage.FIRST_BEACON;
+          } else {
+            revisionsFileOffset = revisionsFileChannel.size();
+          }
+          revisionsFileChannel.write(buffer, revisionsFileOffset);
+          final long currOffset = offset;
+          cache.put(revisionRootPage.getRevision(),
+                    CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
+                                                                             Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+        } else if (page instanceof UberPage && isFirstUberPage) {
+          buffer = ByteBuffer.allocate(IOStorage.FIRST_BEACON >> 1);
+          buffer.put(serializedPage);
+          buffer.position(0);
+          revisionsFileChannel.write(buffer, 0);
+          buffer.position(0);
+          revisionsFileChannel.write(buffer, IOStorage.FIRST_BEACON >> 1);
+        }
       }
 
       return this;
@@ -191,8 +214,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       if (dataFileChannel != null) {
         dataFileChannel.force(true);
       }
-      if (revisionsOffsetFileChannel != null) {
-        revisionsOffsetFileChannel.force(true);
+      if (revisionsFileChannel != null) {
+        revisionsFileChannel.force(true);
       }
       if (reader != null) {
         reader.close();
@@ -204,24 +227,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public Writer writeUberPageReference(final PageReference pageReference) {
-    try {
-      write(pageReference);
-
-      final ByteBuffer buffer = ByteBuffer.allocate(8);
-      buffer.putLong(pageReference.getKey());
-      buffer.position(0);
-
-      dataFileChannel.write(buffer, 0L);
-      dataFileChannel.force(true);
-
-      if (revisionsOffsetFileChannel != null) {
-        revisionsOffsetFileChannel.force(true);
-      }
-
-      return this;
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
+    isFirstUberPage = true;
+    writePageReference(pageReference, 0);
+    isFirstUberPage = false;
+    writePageReference(pageReference, 0);
+    return this;
   }
 
   @Override
@@ -234,8 +244,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     try {
       dataFileChannel.truncate(0);
 
-      if (revisionsOffsetFileChannel != null) {
-        revisionsOffsetFileChannel.truncate(0);
+      if (revisionsFileChannel != null) {
+        revisionsFileChannel.truncate(0);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);

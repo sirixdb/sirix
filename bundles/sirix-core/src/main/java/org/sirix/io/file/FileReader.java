@@ -35,6 +35,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -55,16 +56,6 @@ import com.google.common.hash.Hashing;
  * @author Johannes Lichtenberger
  */
 public final class FileReader implements Reader {
-
-  /**
-   * Beacon of first references.
-   */
-  final static int FIRST_BEACON = 12;
-
-  /**
-   * Beacon of the other references.
-   */
-  final static int OTHER_BEACON = 4;
 
   /**
    * Inflater to decompress.
@@ -152,7 +143,7 @@ public final class FileReader implements Reader {
     try {
       // Read primary beacon.
       dataFile.seek(0);
-      uberPageReference.setKey(dataFile.readLong());
+      uberPageReference.setKey(0);
 
       final UberPage page = (UberPage) read(uberPageReference, null);
       uberPageReference.setPage(page);
@@ -197,7 +188,7 @@ public final class FileReader implements Reader {
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
     try {
-      final var fileOffset = revision * 8 * 2;
+      final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
       revisionsOffsetFile.seek(fileOffset);
       final long offset = revisionsOffsetFile.readLong();
       revisionsOffsetFile.seek(fileOffset + 8);

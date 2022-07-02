@@ -98,8 +98,6 @@ public final class UberPage extends AbstractForwardingPage {
   protected UberPage(final DataInput in, final SerializationType type) throws IOException {
     delegate = new ReferencesPage4(in, type);
     revisionCount = in.readInt();
-    if (in.readBoolean())
-      previousUberPageKey = in.readLong();
     isBootstrap = false;
     rootPage = null;
     currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
@@ -176,10 +174,6 @@ public final class UberPage extends AbstractForwardingPage {
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
     delegate.serialize(checkNotNull(out), checkNotNull(type));
     out.writeInt(revisionCount);
-    out.writeBoolean(!isBootstrap);
-    if (!isBootstrap) {
-      out.writeLong(previousUberPageKey);
-    }
     out.writeByte(currentMaxLevelOfIndirectPages);
     isBootstrap = false;
   }
