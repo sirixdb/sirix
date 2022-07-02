@@ -22,11 +22,9 @@
 package org.sirix.io.file;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.AbstractForwardingReader;
-import org.sirix.io.Reader;
-import org.sirix.io.RevisionFileData;
-import org.sirix.io.Writer;
+import org.sirix.io.*;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
@@ -64,11 +62,13 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private final SerializationType type;
 
-  private final RandomAccessFile revisionsOffsetFile;
+  private final RandomAccessFile revisionsFile;
 
   private final PagePersister pagePersister;
 
   private final AsyncCache<Integer, RevisionFileData> cache;
+
+  private boolean isFirstUberPage;
 
   /**
    * Constructor.
@@ -85,7 +85,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       final AsyncCache<Integer, RevisionFileData> cache, final FileReader reader) {
     this.dataFile = checkNotNull(dataFile);
     type = checkNotNull(serializationType);
-    this.revisionsOffsetFile = type == SerializationType.DATA ? checkNotNull(revisionsOffsetFile) : null;
+    this.revisionsFile = type == SerializationType.DATA ? checkNotNull(revisionsOffsetFile) : null;
     this.pagePersister = checkNotNull(pagePersister);
     this.cache = cache;
     this.reader = checkNotNull(reader);
@@ -118,6 +118,17 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    */
   @Override
   public FileWriter write(final PageReference pageReference) {
+    try {
+      final long fileSize = dataFile.length();
+      long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
+      return writePageReference(pageReference, offset);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @NotNull
+  private FileWriter writePageReference(PageReference pageReference, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -133,7 +144,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
         serializedPage = output.toByteArray();
       }
 
-      final byte[] writtenPage = new byte[serializedPage.length + FileReader.OTHER_BEACON];
+      final byte[] writtenPage = new byte[serializedPage.length + IOStorage.OTHER_BEACON];
       final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
       buffer.putInt(serializedPage.length);
       buffer.put(serializedPage);
@@ -141,8 +152,6 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       buffer.get(writtenPage);
 
       // Getting actual offset and appending to the end of the current file.
-      final long fileSize = dataFile.length();
-      long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage) {
           if (offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
@@ -167,18 +176,28 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
           // Must not happen.
       }
 
-      //      pageReference.setLength(writtenPage.length);
       pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
 
-      if (type == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
-        revisionsOffsetFile.seek(revisionsOffsetFile.length());
-        revisionsOffsetFile.writeLong(offset);
-        revisionsOffsetFile.writeLong(revisionRootPage.getRevisionTimestamp());
-        if (cache != null) {
-          final long currOffset = offset;
-          cache.put(revisionRootPage.getRevision(),
-                    CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                             Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+      if (type == SerializationType.DATA) {
+        if (page instanceof RevisionRootPage revisionRootPage) {
+          if (revisionRootPage.getRevision() == 0) {
+            revisionsFile.seek(revisionsFile.length() + IOStorage.FIRST_BEACON);
+          } else {
+            revisionsFile.seek(revisionsFile.length());
+          }
+          revisionsFile.writeLong(offset);
+          revisionsFile.writeLong(revisionRootPage.getRevisionTimestamp());
+          if (cache != null) {
+            final long currOffset = offset;
+            cache.put(revisionRootPage.getRevision(),
+                      CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
+                                                                               Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+          }
+        } else if (page instanceof UberPage && isFirstUberPage) {
+          revisionsFile.seek(0);
+          revisionsFile.write(serializedPage);
+          revisionsFile.seek(IOStorage.FIRST_BEACON >> 1);
+          revisionsFile.write(serializedPage);
         }
       }
 
@@ -194,8 +213,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       if (dataFile != null) {
         dataFile.close();
       }
-      if (revisionsOffsetFile != null) {
-        revisionsOffsetFile.close();
+      if (revisionsFile != null) {
+        revisionsFile.close();
       }
       if (reader != null) {
         reader.close();
@@ -207,15 +226,11 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   @Override
   public Writer writeUberPageReference(final PageReference pageReference) {
-    try {
-      write(pageReference);
-      dataFile.seek(0);
-      dataFile.writeLong(pageReference.getKey());
-
-      return this;
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
+    isFirstUberPage = true;
+    writePageReference(pageReference, 0);
+    isFirstUberPage = false;
+    writePageReference(pageReference, 100);
+    return this;
   }
 
   @Override
@@ -228,8 +243,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     try {
       dataFile.setLength(0);
 
-      if (revisionsOffsetFile != null) {
-        revisionsOffsetFile.setLength(0);
+      if (revisionsFile != null) {
+        revisionsFile.setLength(0);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);

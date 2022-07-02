@@ -30,6 +30,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -56,11 +57,6 @@ public final class MMFileReader implements Reader {
   static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
   static final ValueLayout.OfLong LAYOUT_LONG =
       ValueLayout.JAVA_LONG.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
-
-  /**
-   * Beacon of first references.
-   */
-  final static int FIRST_BEACON = 12;
 
   /**
    * Inflater to decompress.
@@ -140,8 +136,7 @@ public final class MMFileReader implements Reader {
   @Override
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
-
-    uberPageReference.setKey(dataFileSegment.get(LAYOUT_LONG, 0L));
+    uberPageReference.setKey(0);
 
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
@@ -172,7 +167,7 @@ public final class MMFileReader implements Reader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
-    final var fileOffset = revision * LAYOUT_LONG.byteSize() * 2;
+    final var fileOffset = IOStorage.FIRST_BEACON + (revision * LAYOUT_LONG.byteSize() * 2);
     final var revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset);
     final var timestamp =
         Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));
@@ -192,9 +187,5 @@ public final class MMFileReader implements Reader {
     cache.invalidateAll();
     dataFileSegment.scope().close();
     revisionsOffsetFileSegment.scope().close();
-  }
-
-  public void setDataSegment(MemorySegment dataSegment) {
-    this.dataFileSegment = dataSegment;
   }
 }
