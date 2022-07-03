@@ -76,7 +76,7 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * Do something when visiting a {@link ImmutableObjectBooleanNode}.
    *
    * @param node the {@link ImmutableObjectBooleanNode}
-   * @return the result of visiting the {@link ImmutableBooleanObjectNode}
+   * @return the result of visiting the {@link ImmutableObjectBooleanNode}
    */
   default VisitResult visit(ImmutableObjectBooleanNode node) {
     return VisitResultType.CONTINUE;

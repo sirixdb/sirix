@@ -83,7 +83,7 @@ public interface IOStorage {
   /**
    * Load the revision file data into an in-memory cache.
    *
-   * @cache the cache to
+   * @param cache the cache to
    */
   default void loadRevisionFileDataIntoMemory(AsyncCache<Integer, RevisionFileData> cache) {
     final UberPage uberPage;
