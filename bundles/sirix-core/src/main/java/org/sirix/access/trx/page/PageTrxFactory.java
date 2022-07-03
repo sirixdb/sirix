@@ -186,16 +186,10 @@ public final class PageTrxFactory {
           pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
       log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
 
-      final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(pageRtx,
-                                                                                     log,
-                                                                                     uberPage.getPageCountExp(IndexType.REVISIONS),
-                                                                                     uberPage.getIndirectPageReference(),
-                                                                                     uberPage.getRevisionNumber(),
-                                                                                     -1,
-                                                                                     IndexType.REVISIONS,
-                                                                                     newRevisionRootPage);
-
+      final var revisionRootPageReference = new PageReference();
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
+      uberPage.setRevisionRootPageReference(revisionRootPageReference);
+      uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
     return new NodePageTrx(treeModifier,

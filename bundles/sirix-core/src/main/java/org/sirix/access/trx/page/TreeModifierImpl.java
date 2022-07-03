@@ -60,18 +60,8 @@ public final class TreeModifierImpl implements TreeModifier {
       // Prepare revision root nodePageReference.
       revisionRootPage = new RevisionRootPage(pageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
-      // Prepare indirect tree to hold reference to prepared revision root nodePageReference.
-      final PageReference revisionRootPageReference = prepareLeafOfTree(pageRtx,
-                                                                        log,
-                                                                        uberPage.getPageCountExp(IndexType.REVISIONS),
-                                                                        uberPage.getIndirectPageReference(),
-                                                                        uberPage.getRevisionNumber(),
-                                                                        -1,
-                                                                        IndexType.REVISIONS,
-                                                                        revisionRootPage);
-
       // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      log.put(revisionRootPageReference, PageContainer.getInstance(revisionRootPage, revisionRootPage));
+      log.put(new PageReference(), PageContainer.getInstance(revisionRootPage, revisionRootPage));
     }
 
     // Return prepared revision root nodePageReference.
@@ -119,7 +109,7 @@ public final class TreeModifierImpl implements TreeModifier {
     for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length; level < height;
         level++) {
       offset = (int) (levelKey >> inpLevelPageCountExp[level]);
-      levelKey -= offset << inpLevelPageCountExp[level];
+      levelKey -= (long) offset << inpLevelPageCountExp[level];
       final IndirectPage page = prepareIndirectPage(pageRtx, log, reference);
       reference = page.getOrCreateReference(offset);
     }
@@ -147,7 +137,6 @@ public final class TreeModifierImpl implements TreeModifier {
       final IndexType indexType, final int index, final PageReference pageReference) {
     // $CASES-OMITTED$
     switch (indexType) {
-      case REVISIONS -> pageRtx.getUberPage().setOrCreateReference(0, pageReference);
       case DOCUMENT -> revisionRoot.setOrCreateReference(0, pageReference);
       case CHANGED_NODES -> revisionRoot.setOrCreateReference(1, pageReference);
       case RECORD_TO_REVISIONS -> revisionRoot.setOrCreateReference(2, pageReference);
@@ -164,7 +153,6 @@ public final class TreeModifierImpl implements TreeModifier {
       final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
     // $CASES-OMITTED$
     return switch (indexType) {
-      case REVISIONS -> pageRtx.getUberPage().incrementAndGetCurrentMaxLevelOfIndirectPages();
       case DOCUMENT -> revisionRoot.incrementAndGetCurrentMaxLevelOfDocumentIndexIndirectPages();
       case CHANGED_NODES -> revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
       case RECORD_TO_REVISIONS -> revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();

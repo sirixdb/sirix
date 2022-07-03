@@ -167,23 +167,7 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public Writer truncateTo(int revision) {
-      PageReference uberPageReference = readUberPageReference();
-      UberPage uberPage = (UberPage) uberPageReference.getPage();
-
-      while (uberPage.getRevisionNumber() != revision) {
-        mResourceFileStorage.remove(uberPageReference.getKey());
-        final Long previousUberPageKey = uberPage.getPreviousUberPageKey();
-        uberPage = (UberPage) read(new PageReference().setKey(previousUberPageKey), null);
-        uberPageReference = new PageReference();
-        uberPageReference.setKey(previousUberPageKey);
-
-        if (uberPage.getRevisionNumber() == revision) {
-          mResourceFileStorage.put(previousUberPageKey, uberPage);
-          mUberPageKey.put(-1, previousUberPageKey);
-          break;
-        }
-      }
-
+      // TODO
       return this;
     }
 

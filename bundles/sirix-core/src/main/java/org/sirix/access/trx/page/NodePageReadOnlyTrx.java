@@ -299,21 +299,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
       return revisionRootPage;
     } else {
-      // The indirect page reference either fails horribly or returns a non null instance.
-      final PageReference reference =
-          getReferenceToLeafOfSubtree(uberPage.getIndirectPageReference(), revisionKey, -1, IndexType.REVISIONS);
-
-      // Try to get it from the transaction log if it's present.
-      final PageContainer cont = trxIntentLog.get(reference, this);
-      RevisionRootPage page = cont == null ? null : (RevisionRootPage) cont.getComplete();
-
-      if (page == null && reference != null) {
-        assert reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
-            || reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
-        page = (RevisionRootPage) loadPage(reference);
+      if (revisionKey == 0 && uberPage.getRevisionRootReference() != null) {
+        final var revisionRootPageReference = uberPage.getRevisionRootReference();
+        final var pageContainer = trxIntentLog.get(revisionRootPageReference, this);
+        return (RevisionRootPage) pageContainer.getModified();
       }
-
-      return page;
+      return pageReader.readRevisionRootPage(revisionKey, this);
     }
   }
 
@@ -634,7 +625,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // $CASES-OMITTED$
     maxLevel = switch (indexType) {
-      case REVISIONS -> uberPage.getCurrentMaxLevelOfIndirectPages();
+      case REVISIONS -> throw new IllegalStateException();
       case DOCUMENT -> currentRevisionRootPage.getCurrentMaxLevelOfDocumentIndexIndirectPages();
       case CHANGED_NODES -> currentRevisionRootPage.getCurrentMaxLevelOfChangedNodesIndexIndirectPages();
       case RECORD_TO_REVISIONS -> currentRevisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();

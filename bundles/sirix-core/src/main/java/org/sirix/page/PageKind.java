@@ -92,7 +92,7 @@ public enum PageKind {
     @NonNull
     Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx, final SerializationType type)
         throws IOException {
-      return new UberPage(source, type);
+      return new UberPage(source);
     }
 
     @Override

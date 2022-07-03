@@ -224,9 +224,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return this.pageTrxFactory.createPageTrx(this,
                                              abort == Abort.YES && lastCommittedUberPage.isBootstrap()
                                                  ? new UberPage()
-                                                 : new UberPage(lastCommittedUberPage,
-                                                                representRevision > 0 ? writer.readUberPageReference()
-                                                                                              .getKey() : -1),
+                                                 : new UberPage(lastCommittedUberPage),
                                              writer,
                                              id,
                                              representRevision,

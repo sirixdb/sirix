@@ -93,19 +93,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public Writer truncateTo(final int revision) {
-    UberPage uberPage = (UberPage) reader.readUberPageReference().getPage();
-
-    while (uberPage.getRevisionNumber() != revision) {
-      uberPage = (UberPage) reader.read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
-      if (uberPage.getRevisionNumber() == revision) {
-        try {
-          dataFileChannel.truncate(uberPage.getPreviousUberPageKey());
-        } catch (final IOException e) {
-          throw new SirixIOException(e);
-        }
-        break;
-      }
-    }
+    // FIXME | TODO
 
     return this;
   }
