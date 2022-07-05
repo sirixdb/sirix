@@ -632,7 +632,9 @@ final class JsonNodeTrxImpl extends
 
       final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
-          : ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+          : (structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+              ? deweyIDManager.newFirstChildID()
+              : deweyIDManager.newLastChildID());
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
 
@@ -790,8 +792,9 @@ final class JsonNodeTrxImpl extends
 
       final long pathNodeKey = getPathNodeKey(structNode, key, NodeKind.OBJECT_KEY);
 
-      final SirixDeweyID id =
-          (structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID();
+      final SirixDeweyID id = structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+          ? deweyIDManager.newFirstChildID()
+          : deweyIDManager.newLastChildID();
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey,
                                                                      leftSibKey,
@@ -1015,7 +1018,6 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertArrayAsLastChild() {
-
     return supplyLocked(() -> {
       final NodeKind kind = getKind();
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
@@ -1034,7 +1036,9 @@ final class JsonNodeTrxImpl extends
 
       final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
-          : ((currentNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+          : currentNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+              ? deweyIDManager.newFirstChildID()
+              : deweyIDManager.newLastChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
@@ -1056,7 +1060,6 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertArrayAsLeftSibling() {
-
     return supplyLocked(() -> {
       checkAccessAndCommit();
       checkPrecondition();
@@ -1227,7 +1230,9 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectStringNode(parentKey, textValue, useTextCompression, id);
       } else {
-        id = ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+        id = structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+            ? deweyIDManager.newFirstChildID()
+            : deweyIDManager.newLastChildID();
         final long leftSibKey = structNode.getLastChildKey();
         final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
@@ -1404,7 +1409,9 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectBooleanNode(parentKey, value, id);
       } else {
-        id = ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+        id = structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+            ? deweyIDManager.newFirstChildID()
+            : deweyIDManager.newLastChildID();
         final long leftSibKey = structNode.getLastChildKey();
         final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value, id);
@@ -1585,7 +1592,9 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectNumberNode(parentKey, value, id);
       } else {
-        id = ((currentNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+        id = currentNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+            ? deweyIDManager.newFirstChildID()
+            : deweyIDManager.newLastChildID();
         final long leftSibKey = currentNode.getLastChildKey();
         final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value, id);
@@ -1737,7 +1746,9 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRecordValueID();
         node = nodeFactory.createJsonObjectNullNode(parentKey, id);
       } else {
-        id = ((structNode.getChildCount() == 0) ? deweyIDManager.newFirstChildID() : deweyIDManager.newLastChildID());
+        id = structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+            ? deweyIDManager.newFirstChildID()
+            : deweyIDManager.newLastChildID();
         final long leftSibKey = structNode.getLeftSiblingKey();
         final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         node = nodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey, id);
