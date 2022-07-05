@@ -20,6 +20,9 @@
  */
 package org.sirix.page;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
@@ -31,6 +34,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
+import org.sirix.io.RevisionFileData;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
@@ -90,7 +94,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   /**
    * Slots which have to be serialized.
    */
-  private final Map<Long, byte[]> slots;
+  private final ConcurrentMap<Long, byte[]> slots;
 
   /**
    * Dewey IDs to node key mapping.
@@ -154,7 +158,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     references = new LinkedHashMap<>();
     this.recordPageKey = recordPageKey;
     records = new LinkedHashMap<>();
-    slots = new LinkedHashMap<>();
+    slots = new ConcurrentHashMap<>();
     this.pageReadOnlyTrx = pageReadOnlyTrx;
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
@@ -175,7 +179,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     resourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
     this.pageReadOnlyTrx = pageReadTrx;
-    slots = new LinkedHashMap<>();
+    slots = new ConcurrentHashMap<>();
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       deweyIDs = new HashMap<>();
@@ -283,6 +287,25 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   public void setRecord(final Long key, @NonNull final DataRecord value) {
     addedReferences = false;
     records.put(key, value);
+//    CompletableFuture.supplyAsync(() -> {
+//      // Must be either a normal record or one which requires an overflow page.
+//      final byte[] data;
+//      try (final var output = new ByteArrayOutputStream(); final var out = new DataOutputStream(output)) {
+//        recordPersister.serialize(out, value, pageReadOnlyTrx);
+//        data = output.toByteArray();
+//      } catch (final IOException e) {
+//        throw new SirixIOException(e.getMessage(), e);
+//      }
+//
+//      if (data.length > PageConstants.MAX_RECORD_SIZE) {
+//        final var reference = new PageReference();
+//        reference.setPage(new OverflowPage(data));
+//        references.put(key, reference);
+//      } else {
+//        slots.put(key, data);
+//      }
+//      return null;
+//    });
   }
 
   @Override
@@ -477,7 +500,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   private void processEntries(List<Entry<Long, DataRecord>> copiedEntries) {
-    for (final var entry : copiedEntries) {
+    copiedEntries.parallelStream().forEach((entry) -> {
       final var record = entry.getValue();
       final var recordID = record.getNodeKey();
       if (slots.get(recordID) == null) {
@@ -502,7 +525,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
         //            deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
         //          }
       }
-    }
+    });
   }
 
   private List<Entry<Long, DataRecord>> sort() {

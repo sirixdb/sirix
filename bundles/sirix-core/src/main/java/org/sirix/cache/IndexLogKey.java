@@ -5,7 +5,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import org.sirix.index.IndexType;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import java.util.Objects;
 
 /**
  * Index log key.
@@ -25,6 +26,9 @@ public final class IndexLogKey {
 
   /** The revision number. */
   private final int revisionNumber;
+
+  /** The hash code. */
+  private int hash;
 
   /**
    * Constructor.
@@ -56,7 +60,10 @@ public final class IndexLogKey {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(recordPageKey, indexNumber, indexType, revisionNumber);
+    if (hash == 0) {
+      hash = Objects.hash(recordPageKey, indexNumber, indexType, revisionNumber);
+    }
+    return hash;
   }
 
   @Override
