@@ -3,12 +3,15 @@ package org.sirix.service.json;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
-public class JsonNumber {
+public final class JsonNumber {
 
-  static Number stringDecimal(String stringValue) {
+  private JsonNumber() {
+  }
+
+  private static Number stringDecimal(String stringValue) {
     Number number;
     Number n1 = Float.MAX_VALUE;
-    try{
+    try {
       if (stringValue.contains("E") || stringValue.contains("e")) {
         number = Double.valueOf(stringValue);
 
@@ -16,15 +19,14 @@ public class JsonNumber {
           number = Float.valueOf(stringValue);
         }
       } else {
-          number = new BigDecimal(stringValue);
+        number = new BigDecimal(stringValue);
       }
-    }catch (final NumberFormatException eeeeee) {
+    } catch (final NumberFormatException eeeeee) {
       throw new IllegalStateException(eeeeee);
     }
 
     return number;
   }
-
 
   public static Number stringToNumber(String stringValue) {
     Number number;

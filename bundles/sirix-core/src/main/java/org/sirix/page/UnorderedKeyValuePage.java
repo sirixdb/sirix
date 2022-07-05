@@ -23,7 +23,6 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
-import com.google.common.collect.Lists;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -44,7 +43,6 @@ import java.io.*;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 import static java.util.stream.Collectors.toList;
 import static org.sirix.node.Utils.getVarLong;
@@ -427,7 +425,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final List<Entry<Long, DataRecord>> copiedEntries = new ArrayList<>(entries);
       final CountDownLatch latch = new CountDownLatch(1);
       threadPool.submit(() -> {
-        _processEntries(copiedEntries);
+        processEntries(copiedEntries);
         latch.countDown();
       });
 
@@ -472,13 +470,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
         throw new SirixIOException(e);
       }
     } else {
-      _processEntries(entries);
+      processEntries(entries);
     }
 
     addedReferences = true;
   }
 
-  private void _processEntries(List<Entry<Long, DataRecord>> copiedEntries) {
+  private void processEntries(List<Entry<Long, DataRecord>> copiedEntries) {
     for (final var entry : copiedEntries) {
       final var record = entry.getValue();
       final var recordID = record.getNodeKey();
