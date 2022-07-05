@@ -14,7 +14,7 @@ implLibraries = [
         logbackClassic           : 'ch.qos.logback:logback-classic:1.2.10',
         logbackCore              : 'ch.qos.logback:logback-core:1.2.10',
         guice                    : 'com.google.inject:guice:4.2.2',
-        gson                     : 'com.google.code.gson:gson:2.8.9',
+        gson                     : 'com.google.code.gson:gson:2.9.0',
         guava                    : 'com.google.guava:guava:31.0.1-jre',
         guavaTestlib             : 'com.google.guava:guava-testlib:31.0.1-jre',
         checkerFramework         : 'org.checkerframework:checker:3.21.2',
