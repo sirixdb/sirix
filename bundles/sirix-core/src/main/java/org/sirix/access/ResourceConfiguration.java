@@ -436,7 +436,7 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind",
           "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter",
-          "storeDiffs", "customCommitTimestamps", "storeNodeHistory" };
+          "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
 
   /**
    * Serialize the configuration.
@@ -484,6 +484,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[13]).value(config.customCommitTimestamps);
       // Node history.
       jsonWriter.name(JSONNAMES[14]).value(config.storeNodeHistory);
+      // Child count.
+      jsonWriter.name(JSONNAMES[15]).value(config.storeChildCount);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -580,6 +582,9 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[14]);
       final boolean storeNodeHistory = jsonReader.nextBoolean();
+      name = jsonReader.nextName();
+      assert name.equals(JSONNAMES[15]);
+      final boolean storeChildCount = jsonReader.nextBoolean();
 
       jsonReader.endObject();
       jsonReader.close();
@@ -600,6 +605,7 @@ public final class ResourceConfiguration {
              .buildPathSummary(pathSummary)
              .useDeweyIDs(deweyIDsStored)
              .storeDiffs(storeDiffs)
+             .storeChildCount(storeChildCount)
              .customCommitTimestamps(customCommitTimestamps)
              .storeNodeHistory(storeNodeHistory);
 
@@ -607,7 +613,8 @@ public final class ResourceConfiguration {
       final ResourceConfiguration config = new ResourceConfiguration(builder);
       config.setDatabaseConfiguration(dbConfig);
       return config.setID(ID);
-    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException |
+             IllegalAccessException | InvocationTargetException e) {
       throw new SirixIOException(e);
     }
   }
