@@ -62,6 +62,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -379,7 +380,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     reference.setPage(null);
 
     // Will only be used once the UberPage is written to durable storage.
-    bufferManager.getPageCache().put(reference, page);
+    //bufferManager.getPageCache().put(reference, page);
   }
 
   @Override
@@ -507,58 +508,48 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     assert recordPageKey >= 0;
     assert indexType != null;
 
+    final Function<IndexLogKey, PageContainer> retrieveFunction = (unused) -> {
+      final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
+
+      // Get the reference to the unordered key/value page storing the records.
+      final PageReference reference = treeModifier.prepareLeafOfTree(pageRtx,
+                                                                     log,
+                                                                     getUberPage().getPageCountExp(indexType),
+                                                                     pageReference,
+                                                                     recordPageKey,
+                                                                     indexNumber,
+                                                                     indexType,
+                                                                     newRevisionRootPage);
+
+      PageContainer pageContainer = log.get(reference, this);
+
+      if (pageContainer.equals(PageContainer.emptyInstance())) {
+        if (reference.getKey() == Constants.NULL_ID_LONG) {
+          final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, indexType, pageRtx);
+          final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(pageRtx, completePage);
+          pageContainer = PageContainer.getInstance(completePage, modifyPage);
+        } else {
+          pageContainer = dereferenceRecordPageForModification(reference);
+        }
+
+        assert pageContainer != null;
+
+        // $CASES-OMITTED$
+        switch (indexType) {
+          case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME ->
+              appendLogRecord(reference, pageContainer);
+          default -> throw new IllegalStateException("Page kind not known!");
+        }
+      }
+
+      return pageContainer;
+    };
+
     return mostRecentPageContainers.computeIfAbsent(new IndexLogKey(indexType,
                                                                     recordPageKey,
                                                                     indexNumber,
                                                                     newRevisionRootPage.getRevision()),
-                                                    (IndexLogKey) -> {
-                                                      final PageReference pageReference = pageRtx.getPageReference(
-                                                          newRevisionRootPage,
-                                                          indexType,
-                                                          indexNumber);
-
-                                                      // Get the reference to the unordered key/value page storing the records.
-                                                      final PageReference reference = treeModifier.prepareLeafOfTree(
-                                                          pageRtx,
-                                                          log,
-                                                          getUberPage().getPageCountExp(indexType),
-                                                          pageReference,
-                                                          recordPageKey,
-                                                          indexNumber,
-                                                          indexType,
-                                                          newRevisionRootPage);
-
-                                                      PageContainer pageContainer = log.get(reference, this);
-
-                                                      if (pageContainer.equals(PageContainer.emptyInstance())) {
-                                                        if (reference.getKey() == Constants.NULL_ID_LONG) {
-                                                          final UnorderedKeyValuePage completePage =
-                                                              new UnorderedKeyValuePage(recordPageKey,
-                                                                                        indexType,
-                                                                                        pageRtx);
-                                                          final UnorderedKeyValuePage modifyPage =
-                                                              new UnorderedKeyValuePage(pageRtx, completePage);
-                                                          pageContainer =
-                                                              PageContainer.getInstance(completePage, modifyPage);
-                                                        } else {
-                                                          pageContainer =
-                                                              dereferenceRecordPageForModification(reference);
-                                                        }
-
-                                                        assert pageContainer != null;
-
-                                                        // $CASES-OMITTED$
-                                                        switch (indexType) {
-                                                          case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME -> appendLogRecord(
-                                                              reference,
-                                                              pageContainer);
-                                                          default -> throw new IllegalStateException(
-                                                              "Page kind not known!");
-                                                        }
-                                                      }
-
-                                                      return pageContainer;
-                                                    });
+                                                    retrieveFunction);
   }
 
   /**
