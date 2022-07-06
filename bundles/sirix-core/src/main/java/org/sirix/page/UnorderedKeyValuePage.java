@@ -287,12 +287,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   public void setRecord(final Long key, @NonNull final DataRecord value) {
     addedReferences = false;
     records.put(key, value);
-    if ((records.size() % Constants.NDP_NODE_COUNT == 0) && (slots.size() != Constants.NDP_NODE_COUNT)) {
-      CompletableFuture.runAsync(() -> {
-        final List<Entry<Long, DataRecord>> entries = new ArrayList<>(records.entrySet());
-        processEntries(entries);
-      });
-    }
+//    if ((records.size() % Constants.NDP_NODE_COUNT == 0) && (slots.size() != Constants.NDP_NODE_COUNT)) {
+//      CompletableFuture.runAsync(() -> {
+//        final List<Entry<Long, DataRecord>> entries = new ArrayList<>(records.entrySet());
+//        processEntries(entries);
+//      });
+//    }
   }
 
   @Override
