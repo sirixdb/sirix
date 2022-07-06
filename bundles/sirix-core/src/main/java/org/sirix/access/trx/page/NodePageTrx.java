@@ -372,7 +372,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     reference.setPage(page);
 
-    // Recursively commit indirectly referenced pages and then write self.f
+    // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(reference);
 

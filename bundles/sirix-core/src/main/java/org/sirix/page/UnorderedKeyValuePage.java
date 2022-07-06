@@ -155,7 +155,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     assert recordPageKey >= 0 : "recordPageKey must not be negative!";
     assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
 
-    references = new LinkedHashMap<>();
+    references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     records = new LinkedHashMap<>();
     slots = new ConcurrentHashMap<>();
@@ -287,25 +287,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   public void setRecord(final Long key, @NonNull final DataRecord value) {
     addedReferences = false;
     records.put(key, value);
-//    CompletableFuture.supplyAsync(() -> {
-//      // Must be either a normal record or one which requires an overflow page.
-//      final byte[] data;
-//      try (final var output = new ByteArrayOutputStream(); final var out = new DataOutputStream(output)) {
-//        recordPersister.serialize(out, value, pageReadOnlyTrx);
-//        data = output.toByteArray();
-//      } catch (final IOException e) {
-//        throw new SirixIOException(e.getMessage(), e);
-//      }
-//
-//      if (data.length > PageConstants.MAX_RECORD_SIZE) {
-//        final var reference = new PageReference();
-//        reference.setPage(new OverflowPage(data));
-//        references.put(key, reference);
-//      } else {
-//        slots.put(key, data);
-//      }
-//      return null;
-//    });
+    if ((records.size() % Constants.NDP_NODE_COUNT == 0) && (slots.size() != Constants.NDP_NODE_COUNT)) {
+      CompletableFuture.runAsync(() -> {
+        final List<Entry<Long, DataRecord>> entries = new ArrayList<>(records.entrySet());
+        processEntries(entries);
+      });
+    }
   }
 
   @Override
@@ -499,33 +486,35 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     addedReferences = true;
   }
 
-  private void processEntries(List<Entry<Long, DataRecord>> copiedEntries) {
-    copiedEntries.parallelStream().forEach((entry) -> {
-      final var record = entry.getValue();
-      final var recordID = record.getNodeKey();
-      if (slots.get(recordID) == null) {
-        // Must be either a normal record or one which requires an overflow page.
-        final byte[] data;
-        try (final var output = new ByteArrayOutputStream(); final var out = new DataOutputStream(output)) {
+  private void processEntries(List<Entry<Long, DataRecord>> entries) {
+    try (final var output = new ByteArrayOutputStream(10_0000); final var out = new DataOutputStream(output)) {
+      for (Entry<Long, DataRecord> entry : entries) {
+        final var record = entry.getValue();
+        final var recordID = record.getNodeKey();
+        if (slots.get(recordID) == null) {
+          // Must be either a normal record or one which requires an overflow page.
+          final byte[] data;
+
           recordPersister.serialize(out, record, pageReadOnlyTrx);
           data = output.toByteArray();
-        } catch (final IOException e) {
-          throw new SirixIOException(e.getMessage(), e);
-        }
+          output.reset();
 
-        if (data.length > PageConstants.MAX_RECORD_SIZE) {
-          final var reference = new PageReference();
-          reference.setPage(new OverflowPage(data));
-          references.put(recordID, reference);
-        } else {
-          slots.put(recordID, data);
-        }
+          if (data.length > PageConstants.MAX_RECORD_SIZE) {
+            final var reference = new PageReference();
+            reference.setPage(new OverflowPage(data));
+            references.put(recordID, reference);
+          } else {
+            slots.put(recordID, data);
+          }
 
-        //          if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
-        //            deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
-        //          }
+          //          if (storeDeweyIDs && recordPersister instanceof NodePersistenter && record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
+          //            deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+          //          }
+        }
       }
-    });
+    } catch (final IOException e) {
+      throw new SirixIOException(e.getMessage(), e);
+    }
   }
 
   private List<Entry<Long, DataRecord>> sort() {
