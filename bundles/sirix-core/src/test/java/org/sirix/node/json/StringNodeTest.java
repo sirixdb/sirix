@@ -26,7 +26,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
@@ -69,11 +71,10 @@ public class StringNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageTrx);
     final StringNode node2 =
-        (StringNode) NodeKind.STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
+        (StringNode) NodeKind.STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 

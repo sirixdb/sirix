@@ -3,6 +3,9 @@ package org.sirix.node.interfaces;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
@@ -24,11 +27,9 @@ public interface RecordSerializer {
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @return a {@link DataRecord} instance
    * @throws NullPointerException if one of the parameters is {@code null}
-   * @throws IOException if an I/O error occurs during deserialization
    */
   @NonNull
-  DataRecord deserialize(DataInput source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx)
-      throws IOException;
+  DataRecord deserialize(Bytes<ByteBuffer> source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx);
 
   /**
    * Serialize a record.
@@ -37,7 +38,6 @@ public interface RecordSerializer {
    * @param record the record to serialize
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @throws NullPointerException if one of the parameters is {@code null}
-   * @throws IOException if an I/O error occurs during serialization
    */
-  void serialize(DataOutput sink, DataRecord record, PageReadOnlyTrx pageReadTrx) throws IOException;
+  void serialize(Bytes<ByteBuffer> sink, DataRecord record, PageReadOnlyTrx pageReadTrx);
 }

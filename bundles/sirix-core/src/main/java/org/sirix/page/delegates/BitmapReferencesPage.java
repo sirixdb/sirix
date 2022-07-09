@@ -22,6 +22,9 @@
 package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
 import org.sirix.page.DeserializedBitmapReferencesPageTuple;
@@ -30,10 +33,7 @@ import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import java.io.DataInput;
-import java.io.DataOutput;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -109,7 +109,7 @@ public final class BitmapReferencesPage implements Page {
    * @param in             input stream to read from
    * @param type           the serialization type
    */
-  public BitmapReferencesPage(final @NonNegative int referenceCount, final DataInput in, final SerializationType type) {
+  public BitmapReferencesPage(final @NonNegative int referenceCount, final Bytes<ByteBuffer> in, final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
     bitmap = tuple.getBitmap();
@@ -224,7 +224,7 @@ public final class BitmapReferencesPage implements Page {
    *             itself).
    */
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     assert out != null;
     assert type != null;
 

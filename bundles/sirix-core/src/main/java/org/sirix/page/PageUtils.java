@@ -1,5 +1,7 @@
 package org.sirix.page;
 
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
@@ -14,10 +16,7 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import java.io.DataInput;
-import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 
 /**
  * Page utilities.
@@ -49,18 +48,14 @@ public final class PageUtils {
     return pageDelegate;
   }
 
-  public static Page createDelegate(DataInput in, SerializationType type) {
-    try {
-      final byte kind = in.readByte();
-      return switch (kind) {
-        case 0 -> new ReferencesPage4(in, type);
-        case 1 -> new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
-        case 2 -> new FullReferencesPage(in, type);
-        default -> throw new IllegalStateException();
-      };
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
+  public static Page createDelegate(Bytes<ByteBuffer> in, SerializationType type) {
+    final byte kind = in.readByte();
+    return switch (kind) {
+      case 0 -> new ReferencesPage4(in, type);
+      case 1 -> new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, in, type);
+      case 2 -> new FullReferencesPage(in, type);
+      default -> throw new IllegalStateException();
+    };
   }
 
   /**
@@ -70,16 +65,15 @@ public final class PageUtils {
    * @param reference    reference from revision root
    * @param indexType    the index type
    */
-  public static void createTree(final DatabaseType databaseType,
-                                @NonNull PageReference reference, final IndexType indexType,
-                                final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+  public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
+      final IndexType indexType, final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
     reference = page.getOrCreateReference(0);
 
     // Create new record page.
     final UnorderedKeyValuePage recordPage =
-            new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
+        new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
 

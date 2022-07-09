@@ -20,9 +20,9 @@
  */
 package org.sirix.page.interfaces;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 
@@ -30,6 +30,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
@@ -46,9 +47,8 @@ public interface Page {
    *
    * @param out {@link DataOutput} to serialize to
    * @param type serialization type (currently transaction intent log or normal commit)
-   * @throws IOException if an I/O exception occured
    */
-  void serialize(DataOutput out, SerializationType type) throws IOException;
+  void serialize(Bytes<ByteBuffer> out, SerializationType type);
 
   /**
    * Get all page references.

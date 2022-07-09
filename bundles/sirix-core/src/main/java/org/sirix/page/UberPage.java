@@ -22,6 +22,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageTrx;
@@ -31,9 +32,8 @@ import org.sirix.index.IndexType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
@@ -70,7 +70,7 @@ public final class UberPage implements Page {
    *
    * @param in   input bytes
    */
-  protected UberPage(final DataInput in) throws IOException {
+  protected UberPage(final Bytes<ByteBuffer> in) {
     revisionCount = in.readInt();
     isBootstrap = false;
     rootPage = null;
@@ -122,7 +122,7 @@ public final class UberPage implements Page {
 
 
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     out.writeInt(revisionCount);
     isBootstrap = false;
   }

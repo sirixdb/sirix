@@ -1,11 +1,12 @@
 package org.sirix.page;
 
+import net.openhft.chronicle.bytes.Bytes;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageTrx;
 import org.sirix.page.interfaces.Page;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
@@ -34,9 +35,9 @@ public final class OverflowPage implements Page {
     this.data = data;
   }
 
-  public OverflowPage(final DataInput in) throws IOException {
+  public OverflowPage(final Bytes<ByteBuffer> in) {
     data = new byte[in.readInt()];
-    in.readFully(data);
+    in.read(data);
   }
 
   @Override
@@ -45,7 +46,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public void commit(PageTrx pageWriteTrx) {
+  public void commit(@NotNull PageTrx pageWriteTrx) {
   }
 
   @Override
@@ -59,7 +60,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     out.writeInt(data.length);
     out.write(data);
   }

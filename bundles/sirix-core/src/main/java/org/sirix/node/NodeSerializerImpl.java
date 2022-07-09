@@ -1,14 +1,12 @@
 package org.sirix.node;
 
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -19,16 +17,15 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements NodePersistenter {
   @Override
-  public DataRecord deserialize(final DataInput source, final @NonNegative long recordID, final byte[] deweyID,
-      final PageReadOnlyTrx pageReadTrx) throws IOException {
+  public DataRecord deserialize(final Bytes<ByteBuffer> source, final @NonNegative long recordID, final byte[] deweyID,
+      final PageReadOnlyTrx pageReadTrx) {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
     return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
   }
 
   @Override
-  public void serialize(final DataOutput sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx)
-      throws IOException {
+  public void serialize(final Bytes<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     final NodeKind nodeKind = (NodeKind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);
@@ -36,26 +33,25 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public byte[] deserializeDeweyID(DataInput source, byte[] previousDeweyID,
-      ResourceConfiguration resourceConfig) throws IOException {
+  public byte[] deserializeDeweyID(Bytes<ByteBuffer> source, byte[] previousDeweyID,
+      ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
-        final byte[] previousDeweyIDBytes = previousDeweyID;
         final int cutOffSize = source.readByte();
         final int size = source.readByte();
         final byte[] deweyIDBytes = new byte[size];
-        source.readFully(deweyIDBytes);
+        source.read(deweyIDBytes);
 
         final byte[] bytes = new byte[cutOffSize + deweyIDBytes.length];
         final ByteBuffer target = ByteBuffer.wrap(bytes);
-        target.put(Arrays.copyOfRange(previousDeweyIDBytes, 0, cutOffSize));
+        target.put(Arrays.copyOfRange(previousDeweyID, 0, cutOffSize));
         target.put(deweyIDBytes);
 
         return bytes;
       } else {
         final byte deweyIDLength = source.readByte();
         final byte[] deweyIDBytes = new byte[deweyIDLength];
-        source.readFully(deweyIDBytes, 0, deweyIDLength);
+        source.read(deweyIDBytes, 0, deweyIDLength);
         return deweyIDBytes;
       }
     }
@@ -64,8 +60,8 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public void serializeDeweyID(DataOutput sink, byte[] deweyID, byte[] nextDeweyID,
-      ResourceConfiguration resourceConfig) throws IOException {
+  public void serializeDeweyID(Bytes<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+      ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
       if (nextDeweyID != null) {
         final byte[] deweyIDBytes = deweyID;
@@ -82,16 +78,15 @@ public final class NodeSerializerImpl implements NodePersistenter {
         writeDeweyID(sink, nextDeweyIDBytes, i);
       } else {
         final byte[] deweyIDBytes = deweyID;
-        sink.writeByte(deweyIDBytes.length);
+        sink.writeByte((byte) deweyIDBytes.length);
         sink.write(deweyIDBytes);
       }
     }
   }
 
-  private static void writeDeweyID(final DataOutput sink, final byte[] deweyID, @NonNegative final int i)
-      throws IOException {
-    sink.writeByte(i);
-    sink.writeByte(deweyID.length - i);
+  private static void writeDeweyID(final Bytes<ByteBuffer> sink, final byte[] deweyID, @NonNegative final int i) {
+    sink.writeByte((byte) i);
+    sink.writeByte((byte) (deweyID.length - i));
     final var bytes = Arrays.copyOfRange(deweyID, i, deweyID.length);
     sink.write(bytes);
   }

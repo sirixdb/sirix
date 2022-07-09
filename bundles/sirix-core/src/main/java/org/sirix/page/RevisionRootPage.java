@@ -22,6 +22,9 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -33,11 +36,8 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -170,7 +170,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param in input stream
    */
-  protected RevisionRootPage(final DataInput in, final SerializationType type) throws IOException {
+  RevisionRootPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = new BitmapReferencesPage(8, in, type);
     revision = in.readInt();
     maxNodeKeyInDocumentIndex = in.readLong();
@@ -179,7 +179,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     revisionTimestamp = in.readLong();
     if (in.readBoolean()) {
       final byte[] commitMessage = new byte[in.readInt()];
-      in.readFully(commitMessage);
+      in.read(commitMessage);
       this.commitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
     }
     currentMaxLevelOfDocumentIndexIndirectPages = in.readByte() & 0xFF;
@@ -187,7 +187,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     currentMaxLevelOfRecordToRevisionsIndirectPages = in.readByte() & 0xFF;
 
     if (in.readBoolean()) {
-      user = new User(in.readUTF(), UUID.fromString(in.readUTF()));
+      user = new User(in.readUtf8(), UUID.fromString(in.readUtf8()));
     } else {
       user = null;
     }
@@ -393,7 +393,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     revisionTimestamp = commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
     delegate.serialize(checkNotNull(out), checkNotNull(type));
     out.writeInt(revision);
@@ -408,14 +408,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       out.write(commitMessage);
     }
 
-    out.writeByte(currentMaxLevelOfDocumentIndexIndirectPages);
-    out.writeByte(currentMaxLevelOfChangedNodesIndirectPages);
-    out.writeByte(currentMaxLevelOfRecordToRevisionsIndirectPages);
+    out.writeByte((byte) currentMaxLevelOfDocumentIndexIndirectPages);
+    out.writeByte((byte) currentMaxLevelOfChangedNodesIndirectPages);
+    out.writeByte((byte) currentMaxLevelOfRecordToRevisionsIndirectPages);
     final boolean hasUser = user != null;
     out.writeBoolean(hasUser);
     if (hasUser) {
-      out.writeUTF(user.getName());
-      out.writeUTF(user.getId().toString());
+      out.writeUtf8(user.getName());
+      out.writeUtf8(user.getId().toString());
     }
   }
 

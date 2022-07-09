@@ -24,6 +24,7 @@ package org.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
@@ -108,7 +109,7 @@ public final class FileChannelReader implements Reader {
   public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
-      ByteBuffer buffer = ByteBuffer.allocate(4);
+      ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
 
       final long position;
 
@@ -139,7 +140,7 @@ public final class FileChannelReader implements Reader {
       buffer.get(page);
 
       // Perform byte operations.
-      final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); // byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
       return pagePersiter.deserializePage(input, pageReadTrx, type);
@@ -175,7 +176,7 @@ public final class FileChannelReader implements Reader {
       buffer.get(page);
 
       // Perform byte operations.
-      final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
       return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, type);

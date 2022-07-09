@@ -22,6 +22,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.map.ChronicleMap;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
@@ -37,9 +38,8 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Optional;
 
 public final class DeweyIDPage extends AbstractForwardingPage {
@@ -79,23 +79,23 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  protected DeweyIDPage(final DataInput in, final SerializationType type) throws IOException {
+  protected DeweyIDPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     maxNodeKey = in.readLong();
     currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
   }
 
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     if (delegate instanceof ReferencesPage4) {
-      out.writeByte(0);
+      out.writeByte((byte) 0);
     } else if (delegate instanceof BitmapReferencesPage) {
-      out.writeByte(1);
+      out.writeByte((byte) 1);
     }
     super.serialize(out, type);
 
     out.writeLong(maxNodeKey);
-    out.writeByte(currentMaxLevelOfIndirectPages);
+    out.writeByte((byte) currentMaxLevelOfIndirectPages);
   }
 
   public int getCurrentMaxLevelOfIndirectPages() {

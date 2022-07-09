@@ -19,6 +19,7 @@ dependencies {
     implementation implLibraries.browniesCollections
     implementation implLibraries.chronicleMap
     implementation implLibraries.integercompression
+    implementation implLibraries.chronicleBytes
 
     annotationProcessor implLibraries.daggerCompiler
 
@@ -33,6 +34,7 @@ dependencies {
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.commonsCollections4
     testImplementation testLibraries.commonsCollections4Tests
+    testImplementation testLibraries.assertjCore
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +

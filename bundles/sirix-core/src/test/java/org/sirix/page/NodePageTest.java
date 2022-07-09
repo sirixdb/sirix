@@ -27,8 +27,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -95,12 +97,10 @@ public final class NodePageTest {
     assertEquals(0L, node1.getNodeKey());
     page1.setRecord(node1.getNodeKey(), node1);
 
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    final DataOutputStream dataOut = new DataOutputStream(out);
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     final PagePersister pagePersister = new PagePersister();
-    pagePersister.serializePage(dataOut, page1, SerializationType.DATA);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) pagePersister.deserializePage(new DataInputStream(in),
+    pagePersister.serializePage(data, page1, SerializationType.DATA);
+    final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) pagePersister.deserializePage(data,
                                                                                               pageReadTrx, SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) page2.getValue(0l);

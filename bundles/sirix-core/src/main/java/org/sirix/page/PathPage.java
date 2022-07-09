@@ -1,6 +1,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -10,9 +11,8 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,9 +56,8 @@ public final class PathPage extends AbstractForwardingPage {
    * Read meta page.
    *
    * @param in input bytes to read from
-   * @throws IOException if the page couldn't be deserialized
    */
-  protected PathPage(final DataInput in, final SerializationType type) throws IOException {
+  PathPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
     maxNodeKeys = new HashMap<>(size);
@@ -74,7 +73,7 @@ public final class PathPage extends AbstractForwardingPage {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("mDelegate", delegate).toString();
+    return MoreObjects.toStringHelper(this).add("delegate", delegate).toString();
   }
 
   @Override
@@ -113,11 +112,11 @@ public final class PathPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     if (delegate instanceof ReferencesPage4) {
-      out.writeByte(0);
+      out.writeByte((byte) 0);
     } else if (delegate instanceof BitmapReferencesPage) {
-      out.writeByte(1);
+      out.writeByte((byte) 1);
     }
     super.serialize(out, type);
     final int size = maxNodeKeys.size();
@@ -128,7 +127,7 @@ public final class PathPage extends AbstractForwardingPage {
     final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte(currentMaxLevelsOfIndirectPages.get(i));
+      out.writeByte(currentMaxLevelsOfIndirectPages.get(i).byteValue());
     }
   }
 

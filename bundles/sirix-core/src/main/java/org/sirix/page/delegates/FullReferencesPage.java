@@ -22,16 +22,16 @@
 package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import java.io.DataInput;
-import java.io.DataOutput;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -48,19 +48,12 @@ public final class FullReferencesPage implements Page {
   private final PageReference[] references;
 
   /**
-   * Constructor to initialize instance.
-   */
-  public FullReferencesPage() {
-    references = new PageReference[Constants.INP_REFERENCE_COUNT];
-  }
-
-  /**
    * Constructor to read from durable storage.
    *
    * @param in   input stream to read from
    * @param type the serialization type
    */
-  public FullReferencesPage(final DataInput in, final SerializationType type) {
+  public FullReferencesPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     references = type.deserializeFullReferencesPage(in);
   }
 
@@ -154,7 +147,7 @@ public final class FullReferencesPage implements Page {
    *             itself).
    */
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) {
+  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     assert out != null;
     assert type != null;
     type.serializeFullReferencesPage(out, references);

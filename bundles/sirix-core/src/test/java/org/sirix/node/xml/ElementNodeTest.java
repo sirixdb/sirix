@@ -23,6 +23,7 @@ package org.sirix.node.xml;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -39,6 +40,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.utils.NamePageHash;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 import static org.junit.Assert.assertEquals;
@@ -90,10 +92,9 @@ public class ElementNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageReadTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(new DataInputStream(in),
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageReadTrx);
+    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(data,
                                                                          node.getNodeKey(),
                                                                          node.getDeweyID().toBytes(),
                                                                          pageReadTrx);

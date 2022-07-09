@@ -22,6 +22,7 @@
 package org.sirix.node.json;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
@@ -34,6 +35,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -62,11 +64,10 @@ public class NullNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageWriteTrx);
     final NullNode node2 =
-        (NullNode) NodeKind.NULL_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
+        (NullNode) NodeKind.NULL_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 

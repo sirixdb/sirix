@@ -8,12 +8,10 @@ import static org.mockito.Mockito.when;
 import static org.testng.AssertJUnit.assertArrayEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
@@ -44,7 +42,7 @@ public class PageTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
@@ -56,30 +54,29 @@ public class PageTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @AfterClass
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
   }
 
   @Test(dataProvider = "instantiatePages")
   public void testByteRepresentation(final Page[] handlers) throws IOException {
     for (final Page handler : handlers) {
-      final ByteArrayOutputStream out = new ByteArrayOutputStream();
-      handler.serialize(new DataOutputStream(out), SerializationType.DATA);
-      final byte[] pageBytes = out.toByteArray();
-
-      final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
+      final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+      handler.serialize(data, SerializationType.DATA);
+      final var pageBytes = data.toByteArray();
       final Page serializedPage = PageKind.getKind(handler.getClass())
-                                          .deserializePage(new DataInputStream(new ByteArrayInputStream(pageBytes)),
+                                          .deserializePage(data,
                                                            pageReadTrx,
                                                            SerializationType.DATA);
-      serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.DATA);
-      assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedOutput.toByteArray());
+      serializedPage.serialize(data, SerializationType.DATA);
+      final var serializedPageBytes = data.toByteArray();
+      assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
     }
   }
 

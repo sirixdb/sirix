@@ -22,6 +22,7 @@
 package org.sirix.node.json;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,6 +42,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -82,11 +84,10 @@ public class ObjectBooleanNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageTrx);
     final ObjectBooleanNode node2 =
-        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(new DataInputStream(in),
+        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(data,
                                                                       node.getNodeKey(),
                                                                       null,
                                                                       pageTrx);

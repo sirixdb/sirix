@@ -30,6 +30,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -76,11 +79,10 @@ public class ArrayNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageTrx);
     final ArrayNode node2 =
-        (ArrayNode) NodeKind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
+        (ArrayNode) NodeKind.ARRAY.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 

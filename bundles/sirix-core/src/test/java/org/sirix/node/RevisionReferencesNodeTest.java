@@ -1,5 +1,6 @@
 package org.sirix.node;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -10,6 +11,7 @@ import org.sirix.node.json.ObjectNode;
 import org.sirix.node.xml.AttributeNode;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -37,11 +39,10 @@ public final class RevisionReferencesNodeTest {
     checkNode(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageTrx);
     final RevisionReferencesNode node2 =
-        (RevisionReferencesNode) node.getKind().deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
+        (RevisionReferencesNode) node.getKind().deserialize(data, node.getNodeKey(), null, pageTrx);
     checkNode(node2);
   }
 

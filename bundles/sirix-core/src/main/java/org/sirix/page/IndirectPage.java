@@ -21,15 +21,15 @@
 
 package org.sirix.page;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.FullReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /**
  * Bitmap based indirect page holds a set of references to build a reference tree.
@@ -53,7 +53,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    *
    * @param in input source
    */
-  public IndirectPage(final DataInput in, final SerializationType type) {
+  public IndirectPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
   }
 
@@ -104,13 +104,13 @@ public final class IndirectPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(DataOutput out, SerializationType type) throws IOException {
+  public void serialize(Bytes<ByteBuffer> out, SerializationType type) {
     if (delegate instanceof ReferencesPage4) {
-      out.writeByte(0);
+      out.writeByte((byte) 0);
     } else if (delegate instanceof BitmapReferencesPage) {
-      out.writeByte(1);
+      out.writeByte((byte) 1);
     } else if (delegate instanceof FullReferencesPage) {
-      out.writeByte(2);
+      out.writeByte((byte) 2);
     }
     super.serialize(out, type);
   }

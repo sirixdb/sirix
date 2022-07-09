@@ -22,6 +22,7 @@
 package org.sirix.node.xml;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,6 +37,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 
@@ -88,10 +90,9 @@ public class DocumentRootNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageReadTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(new DataInputStream(in),
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageReadTrx);
+    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data,
                                                                                               node.getNodeKey(),
                                                                                               node.getDeweyID()
                                                                                                   .toBytes(),
