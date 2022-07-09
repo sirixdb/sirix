@@ -22,6 +22,7 @@
 package org.sirix.node.xml;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,6 +39,7 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 
@@ -79,10 +81,9 @@ public class TextNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(new DataInputStream(in),
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, mPageReadTrx);
+    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data,
                                                                 node.getNodeKey(),
                                                                 node.getDeweyID().toBytes(),
                                                                 mPageReadTrx);

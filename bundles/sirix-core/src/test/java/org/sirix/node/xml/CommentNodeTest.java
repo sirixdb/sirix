@@ -22,6 +22,7 @@
 package org.sirix.node.xml;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,6 +39,7 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 
@@ -47,7 +49,7 @@ import static org.junit.Assert.assertEquals;
 public class CommentNodeTest {
 
   /** {@link Holder} instance. */
-  private Holder mHolder;
+  private Holder holder;
 
   /** Sirix {@link PageReadOnlyTrx} instance. */
   private PageReadOnlyTrx pageReadTrx;
@@ -56,14 +58,14 @@ public class CommentNodeTest {
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
   }
 
   @Test
@@ -79,10 +81,9 @@ public class CommentNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageReadTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final CommentNode node2 = (CommentNode) NodeKind.COMMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageReadTrx);
+    final CommentNode node2 = (CommentNode) NodeKind.COMMENT.deserialize(data, node.getNodeKey(),
                                                                          node.getDeweyID().toBytes(), pageReadTrx);
     check(node2);
   }

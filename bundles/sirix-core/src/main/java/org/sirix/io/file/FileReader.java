@@ -27,9 +27,11 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.time.Instant;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
@@ -128,7 +130,7 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
       return pagePersiter.deserializePage(input, pageReadTrx, serializationType);
@@ -171,7 +173,7 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
       return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, serializationType);

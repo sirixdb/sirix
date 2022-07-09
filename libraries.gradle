@@ -37,7 +37,8 @@ implLibraries = [
         kotlinxCli               : 'org.jetbrains.kotlinx:kotlinx-cli:0.2.1',
         integercompression       : 'me.lemire.integercompression:JavaFastPFOR:0.1.12',
         dagger                   : 'com.google.dagger:dagger:2.32',
-        daggerCompiler           : 'com.google.dagger:dagger-compiler:2.32'
+        daggerCompiler           : 'com.google.dagger:dagger-compiler:2.32',
+        chronicleBytes           : 'net.openhft:chronicle-bytes:2.22.24'
 ]
 
 testLibraries = [
@@ -57,5 +58,6 @@ testLibraries = [
         jsonassert               : 'org.skyscreamer:jsonassert:1.5.0',
         kotestAssertions         : 'io.kotest:kotest-assertions-core-jvm:4.0.5',
         commonsCollections4      : 'org.apache.commons:commons-collections4:4.3',
-        commonsCollections4Tests : 'org.apache.commons:commons-collections4:4.3:tests'
+        commonsCollections4Tests : 'org.apache.commons:commons-collections4:4.3:tests',
+        assertjCore              : 'org.assertj:assertj-core:3.23.1'
 ]

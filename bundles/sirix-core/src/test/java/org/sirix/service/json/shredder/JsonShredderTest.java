@@ -13,8 +13,8 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.settings.VersioningType;
 import org.skyscreamer.jsonassert.JSONAssert;
 
@@ -47,6 +47,7 @@ public final class JsonShredderTest {
     assertEquals("test", jsonStringReader.nextString());
   }
 
+  @Ignore
   @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -67,7 +68,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -75,7 +75,7 @@ public final class JsonShredderTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
       try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                     .versioningApproach(VersioningType.FULL)
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                      .buildPathSummary(false)
                                                      .storeDiffs(false)
                                                      .storeNodeHistory(false)
@@ -84,10 +84,9 @@ public final class JsonShredderTest {
                                                      .useTextCompression(false)
                                                      .storageType(StorageType.FILE)
                                                      .useDeweyIDs(false)
-                                                     .byteHandlerPipeline(new ByteHandlePipeline())
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx(5_000_000)) {
+             final var trx = manager.beginNodeTrx(10_000_000)) {
           trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
         }
       }

@@ -22,6 +22,7 @@
 package org.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import net.openhft.chronicle.bytes.Bytes;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.*;
@@ -125,18 +126,20 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       final byte[] serializedPage;
 
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream();
-           final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
-        pagePersister.serializePage(dataOutput, page, type);
-        dataOutput.flush();
-        serializedPage = output.toByteArray();
-      }
+      final var byteBufferBytes = Bytes.elasticByteBuffer();
 
+      pagePersister.serializePage(byteBufferBytes, page, type);
+
+      //reader.byteHandler.serialize(byteBufferBytes.outputStream());
+
+      //      byteBufferBytes.writePosition(Integer.BYTES);
+      //      byteBufferBytes.writeInt(0, byteBufferBytes.length());
+      serializedPage = byteBufferBytes.toByteArray();
       final int writtenPageLength = serializedPage.length + IOStorage.OTHER_BEACON;
       ByteBuffer buffer = ByteBuffer.allocate(writtenPageLength);
       buffer.putInt(serializedPage.length);
       buffer.put(serializedPage);
-      buffer.position(0);
+      buffer.flip();
 
       // Getting actual offset and appending to the end of the current file.
       if (type == SerializationType.DATA) {

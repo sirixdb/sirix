@@ -26,6 +26,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ValueLayout;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
@@ -37,9 +38,8 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.Instant;
 
@@ -176,7 +176,7 @@ public final class MMFileReader implements Reader {
 
   private Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
     // perform byte operations
-    final DataInputStream input = new DataInputStream(byteHandler.deserialize(new ByteArrayInputStream(page)));
+    final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); // byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
     // return deserialized page
     return pagePersitenter.deserializePage(input, pageReadTrx, type);

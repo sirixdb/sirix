@@ -22,6 +22,7 @@
 package org.sirix.node.json;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,6 +38,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -72,11 +74,10 @@ public class ObjectNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageTrx);
     final ObjectNode node2 =
-        (ObjectNode) NodeKind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageTrx);
+        (ObjectNode) NodeKind.OBJECT.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 

@@ -22,6 +22,7 @@
 package org.sirix.node.xml;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -36,6 +37,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 
@@ -74,10 +76,9 @@ public class NamespaceNodeTest {
     node.setHash(node.computeHash());
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageReadTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(new DataInputStream(in),
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageReadTrx);
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data,
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
                                                                                pageReadTrx);

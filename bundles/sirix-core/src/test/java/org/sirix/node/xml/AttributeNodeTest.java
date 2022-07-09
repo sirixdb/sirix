@@ -22,6 +22,7 @@
 package org.sirix.node.xml;
 
 import com.google.common.hash.Hashing;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -38,6 +39,7 @@ import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.utils.NamePageHash;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 
@@ -81,10 +83,9 @@ public class AttributeNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, pageReadOnlyTrx);
-    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(new DataInputStream(in),
+    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    node.getKind().serialize(data, node, pageReadOnlyTrx);
+    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data,
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
                                                                                pageReadOnlyTrx);
