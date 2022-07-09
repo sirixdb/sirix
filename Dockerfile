@@ -36,4 +36,12 @@ EXPOSE 9443
 
 # Launch the verticle
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Xms3g -Xmx8g --enable-preview --add-modules=jdk.incubator.foreign -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
+CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Xms3g -Xmx8g --enable-preview --add-modules=jdk.incubator.foreign --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED
+--add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED
+--add-opens=java.base/java.lang=ALL-UNNAMED
+--add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens=java.base/java.io=ALL-UNNAMED
+--add-opens=java.base/java.util=ALL-UNNAMED -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
