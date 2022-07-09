@@ -59,6 +59,8 @@ public final class PageReference {
 
   private List<PageFragmentKey> pageFragments;
 
+  private int hash;
+
   /**
    * Default constructor setting up an uninitialized page reference.
    */
@@ -113,6 +115,7 @@ public final class PageReference {
    * @param key key of this reference set by the persistent storage
    */
   public PageReference setKey(final long key) {
+    hash = 0;
     this.key = key;
     return this;
   }
@@ -161,6 +164,7 @@ public final class PageReference {
    * @return this instance
    */
   public PageReference setLogKey(final int key) {
+    hash = 0;
     logKey = key;
     return this;
   }
@@ -180,6 +184,7 @@ public final class PageReference {
    * @param key key of this reference set by the transaction intent log.
    */
   public PageReference setPersistentLogKey(final long key) {
+    hash = 0;
     persistentLogKey = key;
     return this;
   }
@@ -197,7 +202,10 @@ public final class PageReference {
 
   @Override
   public int hashCode() {
-    return Objects.hash(logKey, key, persistentLogKey);
+    if (hash == 0) {
+      hash = Objects.hash(logKey, key, persistentLogKey);
+    }
+    return hash;
   }
 
   @Override
