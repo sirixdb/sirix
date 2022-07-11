@@ -27,9 +27,11 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
+import org.sirix.cache.PageContainer;
 import org.sirix.page.DeserializedBitmapReferencesPageTuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -37,6 +39,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -205,13 +208,36 @@ public final class BitmapReferencesPage implements Page {
   /**
    * Recursively call commit on all referenced pages.
    *
-   * @param pageTrx the page read-write transaction
+   * @param pageWriteTrx the page read-write transaction
    */
   @Override
-  public void commit(@NonNull final PageTrx pageTrx) {
+  public void commit(@NonNull final PageTrx pageWriteTrx) {
+    final var log = pageWriteTrx.getLog();
+    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
+    for (final PageReference reference : references) {
+      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
+          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+        final PageContainer container = log.get(reference, pageWriteTrx);
+
+        assert container != null;
+
+        final Page page = container.getModified();
+
+        assert page != null;
+
+        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
+          final var byteBufferBytes = Bytes.elasticHeapByteBuffer();
+          futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
+                                                                                       SerializationType.DATA)));
+        }
+      }
+    }
+
+    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
+
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
-        pageTrx.commit(reference);
+        pageWriteTrx.commit(reference);
       }
     }
   }

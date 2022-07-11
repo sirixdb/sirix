@@ -23,6 +23,7 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
+import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -40,20 +41,17 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
 
 /**
  * <p>
- * An UnorderedKeyValuePage stores a set of records, commonly nodes in an unordered datastructure.
+ * An UnorderedKeyValuePage stores a set of records, commonly nodes in an unordered data structure.
  * </p>
  * <p>
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
@@ -82,9 +80,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   private final long recordPageKey;
 
   /**
-   * Records (must be a {@link LinkedHashMap} to provide consistent iteration order).
+   * The record-ID mapped to the records.
    */
-  private final LinkedHashMap<Long, DataRecord> records;
+  private final Map<Long, DataRecord> records;
 
   /**
    * Slots which have to be serialized.
@@ -115,6 +113,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
    * The resource configuration.
    */
   private final ResourceConfiguration resourceConfig;
+
+  private volatile Bytes<ByteBuffer> bytes;
+
+  private volatile byte[] hashCode;
 
   /**
    * Copy constructor.
@@ -177,10 +179,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     slots = new HashMap<>();
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
-      deweyIDs = new HashMap<>();
       final int deweyIDSize = in.readInt();
-
-      records = new LinkedHashMap<>(deweyIDSize);
+      deweyIDs = new HashMap<>(deweyIDSize);
+      records = new HashMap<>(deweyIDSize);
       byte[] optionalDeweyId = null;
 
       for (int index = 0; index < deweyIDSize; index++) {
@@ -193,8 +194,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
         }
       }
     } else {
-      deweyIDs = new HashMap<>();
-      records = new LinkedHashMap<>();
+      deweyIDs = new HashMap<>(Constants.NDP_NODE_COUNT);
+      records = new HashMap<>(Constants.NDP_NODE_COUNT);
     }
 
     final var entriesBitmap = SerializationType.deserializeBitSet(in);
@@ -271,11 +272,18 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     records.put(recordId, record);
   }
 
+  public byte[] getHashCode() {
+    return hashCode;
+  }
+
   @Override
   public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
-    if (!addedReferences) {
-      addReferences();
+    if (bytes != null) {
+      out.write(bytes);
+      return;
     }
+    // Add references to overflow pages if necessary.
+    addReferences();
     // Write page key.
     putVarLong(out, recordPageKey);
     // Write revision number.
@@ -334,6 +342,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     }
 
     out.writeByte(indexType.getID());
+    hashCode = Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
+    bytes = out;
   }
 
   private void serializeDeweyRecord(byte[] id, Bytes<ByteBuffer> out) {
@@ -384,9 +394,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
 
   @Override
   public void commit(@NonNull PageTrx pageWriteTrx) {
-    if (!addedReferences) {
-      addReferences();
-    }
+    addReferences();
 
     for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -398,68 +406,29 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
 
   // Add references to OverflowPages.
   private void addReferences() {
-    final var storeDeweyIDs = pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+    if (!addedReferences) {
+      final var storeDeweyIDs = pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+      final var entries = sort();
 
-    final var entries = sort();
-
-    if (storeDeweyIDs && recordPersister instanceof NodePersistenter && !entries.isEmpty()) {
-      //      final List<Entry<Long, DataRecord>> copiedEntries = new ArrayList<>(entries);
-      //      final CountDownLatch latch = new CountDownLatch(1);
-      //      threadPool.submit(() -> {
-      processEntries(entries);
-      //        latch.countDown();
-      //      });
-
-      //      if (entries.size() == Constants.INP_REFERENCE_COUNT) {
-      //        deweyIDs = entries.parallelStream()
-      //                          .map(Entry::getValue)
-      //                          .filter(record -> record.getDeweyID() != null && record.getNodeKey() != 0)
-      //                          .collect(Collectors.toMap(DataRecord::getDeweyIDAsBytes, DataRecord::getNodeKey));
-
-      //        final int splitIndex = entries.size() % NUMBER_OF_THREADS;
-      //        final var entryPartitions = Lists.partition(entries, splitIndex);
-      //        final CountDownLatch latch = new CountDownLatch(entries.size());
-      //
-      //        for (final var entryPartition : entryPartitions) {
-      //          threadPool.submit(() -> {
-      //            for (final var entry : entryPartition) {
-      //              final var record = entry.getValue();
-      //              if (record.getDeweyID() != null && record.getNodeKey() != 0) {
-      //                deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
-      //              }
-      //              latch.countDown();
-      //            }
-      //          });
-      //        }
-      //
-      //        try {
-      //          latch.await(10, TimeUnit.SECONDS);
-      //        } catch (InterruptedException e) {
-      //          throw new SirixIOException(e);
-      //        }
-      //      } else {
-      for (final var entry : entries) {
-        final var record = entry.getValue();
-        if (record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
-          deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+      if (storeDeweyIDs && recordPersister instanceof NodePersistenter && !entries.isEmpty()) {
+        processEntries(entries);
+        for (final var entry : entries) {
+          final var record = entry.getValue();
+          if (record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
+            deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+          }
         }
-        //        }
+      } else {
+        processEntries(entries);
       }
-      //      try {
-      //        latch.await(30, TimeUnit.SECONDS);
-      //      } catch (InterruptedException e) {
-      //        throw new SirixIOException(e);
-      //      }
-    } else {
-      processEntries(entries);
-    }
 
-    addedReferences = true;
+      addedReferences = true;
+    }
   }
 
-  private void processEntries(List<Entry<Long, DataRecord>> entries) {
+  private void processEntries(final List<Entry<Long, DataRecord>> entries) {
     final var out = Bytes.elasticByteBuffer();
-    for (Entry<Long, DataRecord> entry : entries) {
+    for (final Entry<Long, DataRecord> entry : entries) {
       final var record = entry.getValue();
       final var recordID = record.getNodeKey();
       if (slots.get(recordID) == null) {
@@ -566,5 +535,4 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   public int getRevision() {
     return revision;
   }
-
 }
