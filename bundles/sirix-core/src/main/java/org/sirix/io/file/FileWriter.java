@@ -71,6 +71,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private boolean isFirstUberPage;
 
+  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticByteBuffer(1_000);
+
   /**
    * Constructor.
    *
@@ -126,15 +128,17 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       final byte[] serializedPage;
 
-      final var byteBufferBytes = Bytes.elasticByteBuffer();
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000);
+           final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
+        pagePersister.serializePage(byteBufferBytes, page, type);
+        final var byteArray = byteBufferBytes.toByteArray();
+        dataOutput.write(byteArray);
+        dataOutput.flush();
+        serializedPage = output.toByteArray();
+      }
 
-      pagePersister.serializePage(byteBufferBytes, page, type);
+      byteBufferBytes.clear();
 
-     // final var bufferBytes = reader.byteHandler.serialize(byteBufferBytes.outputStream());
-
-//      byteBufferBytes.writePosition(Integer.BYTES);
-//      byteBufferBytes.writeInt(0, byteBufferBytes.length());
-      serializedPage = byteBufferBytes.toByteArray();
       final byte[] writtenPage = new byte[serializedPage.length + IOStorage.OTHER_BEACON];
       final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
       buffer.putInt(serializedPage.length);
