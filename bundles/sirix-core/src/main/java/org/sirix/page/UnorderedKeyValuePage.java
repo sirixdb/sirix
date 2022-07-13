@@ -233,8 +233,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   }
 
   public UnorderedKeyValuePage clearBytesAndHashCode() {
-    bytes.clear();
-    bytes = null;
+    if (bytes != null) {
+      bytes.clear();
+      bytes = null;
+    }
     hashCode = null;
     return this;
   }
@@ -360,7 +362,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     }
 
     out.writeByte(indexType.getID());
-    hashCode = Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
+    hashCode = new byte[] {}; //Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
     bytes = out;
   }
 
