@@ -1,13 +1,11 @@
 package org.sirix.cache;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.IndexType;
 import org.sirix.page.*;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.*;
 
 /**
@@ -21,6 +19,11 @@ public final class TransactionIntentLog implements AutoCloseable {
    * The collection to hold the maps.
    */
   private final Map<PageReference, PageContainer> map;
+
+  /**
+   * The collection to hold the maps.
+   */
+  private final Map<PageReference, PageContainer> dataPagesMap;
 
   /**
    * Maps in-memory key to persistent key and vice versa.
@@ -81,20 +84,52 @@ public final class TransactionIntentLog implements AutoCloseable {
         }
         return false;
       }
+    };
 
-      private boolean isImportant(Map.Entry<PageReference, PageContainer> eldest) {
-        final var page = eldest.getValue().getComplete();
-        if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
-            || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
-          return true;
-        } else if (page instanceof UnorderedKeyValuePage) {
-          var dataPage = (UnorderedKeyValuePage) page;
-          return dataPage.getIndexType() != IndexType.DOCUMENT;
+    dataPagesMap = new LinkedHashMap<>(maxInMemoryCapacity >> 1) {
+      private static final long serialVersionUID = 1;
+
+      @Override
+      protected boolean removeEldestEntry(final Map.@Nullable Entry<PageReference, PageContainer> eldest) {
+        if (size() > maxInMemoryCapacity) {
+          int i = 0;
+          final var iter = map.entrySet().iterator();
+          final int size = size();
+          while (iter.hasNext() && i < (size / 2)) {
+            final Map.Entry<PageReference, PageContainer> entry = iter.next();
+
+            if (isImportant(entry))
+              continue;
+
+            i++;
+            final PageReference key = entry.getKey();
+            assert key.getLogKey() != Constants.NULL_ID_INT;
+            PageContainer value = entry.getValue();
+
+            if (value != null) {
+              iter.remove();
+              TransactionIntentLog.this.secondCache.put(key, value);
+              //noinspection UnusedAssignment
+              value = null;
+              mapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
+            }
+          }
         }
         return false;
       }
     };
   }
+
+    private boolean isImportant(Map.Entry<PageReference, PageContainer> eldest) {
+      final var page = eldest.getValue().getComplete();
+      if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
+          || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
+        return true;
+      } else if (page instanceof UnorderedKeyValuePage dataPage) {
+        return dataPage.getIndexType() != IndexType.DOCUMENT;
+      }
+      return false;
+    }
 
   /**
    * Retrieves an entry from the cache.<br>
@@ -105,19 +140,26 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public PageContainer get(final PageReference key, final PageReadOnlyTrx pageRtx) {
     PageContainer value = map.get(key);
-    if (value == null) {
-      if (key.getLogKey() != Constants.NULL_ID_INT) {
-        final Long persistentKey = mapToPersistentLogKey.get(key.getLogKey());
-        if (persistentKey != null)
-          key.setPersistentLogKey(persistentKey);
-      }
-      value = secondCache.get(key, pageRtx);
-      if (value != null && !PageContainer.emptyInstance().equals(value)) {
-        mapToPersistentLogKey.remove(key.getLogKey());
-        key.setPersistentLogKey(Constants.NULL_ID_LONG);
-        //key.setPage(value.getModified());
-        put(key, value);
-      }
+    if (value != null) {
+      return value;
+    }
+
+    value = dataPagesMap.get(key);
+    if (value != null) {
+      return value;
+    }
+
+    if (key.getLogKey() != Constants.NULL_ID_INT) {
+      final Long persistentKey = mapToPersistentLogKey.get(key.getLogKey());
+      if (persistentKey != null)
+        key.setPersistentLogKey(persistentKey);
+    }
+    value = secondCache.get(key, pageRtx);
+    if (value != null && !PageContainer.emptyInstance().equals(value)) {
+      mapToPersistentLogKey.remove(key.getLogKey());
+      key.setPersistentLogKey(Constants.NULL_ID_LONG);
+      //key.setPage(value.getModified());
+      put(key, value);
     }
     return value;
   }
@@ -135,7 +177,12 @@ public final class TransactionIntentLog implements AutoCloseable {
     key.setKey(Constants.NULL_ID_LONG);
     key.setLogKey(logKey++);
     key.setPersistentLogKey(Constants.NULL_ID_LONG);
-    map.put(key, value);
+
+    if (value.getModified() instanceof UnorderedKeyValuePage) {
+      dataPagesMap.put(key, value);
+    } else {
+      map.put(key, value);
+    }
   }
 
   /**
@@ -145,6 +192,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public void remove(final PageReference key) {
     map.remove(key);
+    dataPagesMap.remove(key);
     mapToPersistentLogKey.remove(key.getLogKey());
   }
 
@@ -154,15 +202,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   public void clear() {
     logKey = 0;
     map.clear();
-  }
-
-  /**
-   * Returns the number of used entries in the cache.
-   *
-   * @return the number of entries currently in the cache.
-   */
-  public int usedEntries() {
-    return map.size();
+    dataPagesMap.clear();
   }
 
   /**
@@ -174,11 +214,6 @@ public final class TransactionIntentLog implements AutoCloseable {
     return new ArrayList<>(map.entrySet());
   }
 
-  //  @Override
-  //  public String toString() {
-  //    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
-  //  }
-
   /**
    * Get a view of the underlying map.
    *
@@ -186,6 +221,15 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public Map<PageReference, PageContainer> getMap() {
     return Collections.unmodifiableMap(map);
+  }
+
+  /**
+   * Get a view of the underlying map.
+   *
+   * @return an unmodifiable view of all entries in the cache
+   */
+  public Map<PageReference, PageContainer> getDataPagesMap() {
+    return Collections.unmodifiableMap(dataPagesMap);
   }
 
   /**
@@ -197,12 +241,14 @@ public final class TransactionIntentLog implements AutoCloseable {
     secondCache.close();
     mapToPersistentLogKey.clear();
     map.clear();
+    dataPagesMap.clear();
     return this;
   }
 
   @Override
   public void close() {
     map.clear();
+    dataPagesMap.clear();
     secondCache.close();
   }
 }

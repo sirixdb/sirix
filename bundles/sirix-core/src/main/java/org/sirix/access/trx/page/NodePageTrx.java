@@ -416,14 +416,15 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         newRevisionRootPage.setCommitTimestamp(commitTimestamp);
       }
 
-      log.getMap()
+      log.getDataPagesMap()
          .entrySet()
          .parallelStream()
          .map(entry -> entry.getValue())
          .map(PageContainer::getModified)
-         .filter(page -> page instanceof UnorderedKeyValuePage)
+//         .filter(page -> page instanceof UnorderedKeyValuePage)
          .forEach(page -> {
-           Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer();
+           assert page instanceof UnorderedKeyValuePage;
+           Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(10_000);
            page.serialize(bytes, SerializationType.DATA);
          });
 
