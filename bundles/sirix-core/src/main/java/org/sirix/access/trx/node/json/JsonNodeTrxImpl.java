@@ -882,9 +882,10 @@ final class JsonNodeTrxImpl extends
   }
 
   private void moveToParentObjectKeyArrayOrDocumentRoot() {
-    while (nodeReadOnlyTrx.getKind() != NodeKind.OBJECT_KEY && nodeReadOnlyTrx.getKind() != NodeKind.ARRAY
-        && nodeReadOnlyTrx.getKind() != NodeKind.JSON_DOCUMENT) {
+    var nodeKind = nodeReadOnlyTrx.getKind();
+    while (nodeKind != NodeKind.OBJECT_KEY && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
       nodeReadOnlyTrx.moveToParent();
+      nodeKind = nodeReadOnlyTrx.getKind();
     }
   }
 
@@ -2178,24 +2179,20 @@ final class JsonNodeTrxImpl extends
       parent.incrementChildCount();
     }
 
-    if (!structNode.hasLeftSibling()) {
+    if (structNode.hasLeftSibling()) {
+      final StructNode leftSiblingNode =
+          pageTrx.prepareRecordForModification(structNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
+      leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
+    } else {
       parent.setFirstChildKey(structNode.getNodeKey());
-    }
-
-    if (!structNode.hasRightSibling()) {
-      parent.setLastChildKey(structNode.getNodeKey());
     }
 
     if (structNode.hasRightSibling()) {
       final StructNode rightSiblingNode =
           pageTrx.prepareRecordForModification(structNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
       rightSiblingNode.setLeftSiblingKey(structNode.getNodeKey());
-    }
-
-    if (structNode.hasLeftSibling()) {
-      final StructNode leftSiblingNode =
-          pageTrx.prepareRecordForModification(structNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
-      leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
+    } else {
+      parent.setLastChildKey(structNode.getNodeKey());
     }
   }
 

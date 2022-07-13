@@ -1,13 +1,10 @@
 package org.sirix.node;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import net.openhft.chronicle.bytes.Bytes;
+
+import java.nio.ByteBuffer;
 
 /**
  * Copied from Kafka ByteUtils class.
