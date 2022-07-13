@@ -202,7 +202,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
 
     final int normalEntrySize = in.readInt();
     var setBit = -1;
-    var byteBufferBytes = Bytes.elasticByteBuffer(100);
+    var byteBufferBytes = Bytes.elasticByteBuffer(25);
     for (int index = 0; index < normalEntrySize; index++) {
       setBit = entriesBitmap.nextSetBit(setBit + 1);
       assert setBit >= 0;
@@ -361,7 +361,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     }
 
     out.writeByte(indexType.getID());
-    hashCode = new byte[] {}; //Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
+    hashCode = Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
     bytes = out;
   }
 
