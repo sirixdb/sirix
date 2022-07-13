@@ -71,6 +71,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private boolean isFirstUberPage;
 
+  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticByteBuffer();
+
   /**
    * Constructor.
    *
@@ -126,15 +128,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       final byte[] serializedPage;
 
-      final var byteBufferBytes = Bytes.elasticByteBuffer();
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000);
+           final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
+        pagePersister.serializePage(byteBufferBytes, page, type);
+        final var byteArray = byteBufferBytes.toByteArray();
+        dataOutput.write(byteArray);
+        dataOutput.flush();
+        serializedPage = output.toByteArray();
+      }
 
-      pagePersister.serializePage(byteBufferBytes, page, type);
+      byteBufferBytes.clear();
 
-      //reader.byteHandler.serialize(byteBufferBytes.outputStream());
-
-      //      byteBufferBytes.writePosition(Integer.BYTES);
-      //      byteBufferBytes.writeInt(0, byteBufferBytes.length());
-      serializedPage = byteBufferBytes.toByteArray();
       final int writtenPageLength = serializedPage.length + IOStorage.OTHER_BEACON;
       ByteBuffer buffer = ByteBuffer.allocate(writtenPageLength);
       buffer.putInt(serializedPage.length);
@@ -153,6 +157,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
 
       dataFileChannel.write(buffer, offset);
+      buffer = null;
 
       // Remember page coordinates.
       switch (type) {
@@ -183,6 +188,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
             revisionsFileOffset = revisionsFileChannel.size();
           }
           revisionsFileChannel.write(buffer, revisionsFileOffset);
+          buffer = null;
           final long currOffset = offset;
           cache.put(revisionRootPage.getRevision(),
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
@@ -194,6 +200,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           revisionsFileChannel.write(buffer, 0);
           buffer.position(0);
           revisionsFileChannel.write(buffer, IOStorage.FIRST_BEACON >> 1);
+          buffer = null;
         }
       }
 

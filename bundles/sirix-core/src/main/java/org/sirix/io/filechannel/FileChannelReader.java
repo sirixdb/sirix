@@ -27,8 +27,10 @@ import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.BytesUtils;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
@@ -140,10 +142,7 @@ public final class FileChannelReader implements Reader {
       buffer.get(page);
 
       // Perform byte operations.
-      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); // byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
-
-      // Return reader required to instantiate and deserialize page.
-      return pagePersiter.deserializePage(input, pageReadTrx, type);
+      return getPage(pageReadTrx, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -176,13 +175,20 @@ public final class FileChannelReader implements Reader {
       buffer.get(page);
 
       // Perform byte operations.
-      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
-
-      // Return reader required to instantiate and deserialize page.
-      return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, type);
+      return (RevisionRootPage) getPage(pageReadTrx, page);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
+  }
+
+  @NotNull
+  private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
+    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
+    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
+    BytesUtils.doWrite(input, inputStream.readAllBytes());
+    final var deserializedPage = pagePersiter.deserializePage(input, pageReadTrx, type);
+    input.clear();
+    return deserializedPage;
   }
 
   @Override
@@ -212,4 +218,5 @@ public final class FileChannelReader implements Reader {
   public void close() {
     cache.invalidateAll();
   }
+
 }

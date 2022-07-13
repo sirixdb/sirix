@@ -21,6 +21,7 @@
 
 package org.sirix.access.trx.page;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -55,6 +56,7 @@ import org.sirix.settings.VersioningType;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serial;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -376,6 +378,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(reference);
 
+    if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
+      unorderedKeyValuePage.clearBytesAndHashCode();
+    }
+
     // Remove page reference.
     reference.setPage(null);
 
@@ -409,6 +415,17 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       if (commitTimestamp != null) {
         newRevisionRootPage.setCommitTimestamp(commitTimestamp);
       }
+
+      log.getMap()
+         .entrySet()
+         .parallelStream()
+         .map(entry -> entry.getValue())
+         .map(PageContainer::getModified)
+         .filter(page -> page instanceof UnorderedKeyValuePage)
+         .forEach(page -> {
+           Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer();
+           page.serialize(bytes, SerializationType.DATA);
+         });
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);

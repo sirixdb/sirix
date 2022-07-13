@@ -33,11 +33,10 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
-import org.sirix.node.SirixDeweyID;
+import org.sirix.io.BytesUtils;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.RecordSerializer;
-import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 
@@ -154,13 +153,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
 
     references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
-    records = new LinkedHashMap<>();
-    slots = new HashMap<>();
+    records = new HashMap<>(Constants.NDP_NODE_COUNT);
+    slots = new HashMap<>(Constants.NDP_NODE_COUNT);
     this.pageReadOnlyTrx = pageReadOnlyTrx;
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
-    deweyIDs = new HashMap<>();
+    deweyIDs = new HashMap<>(Constants.NDP_NODE_COUNT);
     this.revision = pageReadOnlyTrx.getRevisionNumber();
   }
 
@@ -176,7 +175,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     resourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
     this.pageReadOnlyTrx = pageReadTrx;
-    slots = new HashMap<>();
+    slots = new HashMap<>(Constants.NDP_NODE_COUNT);
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
@@ -210,8 +209,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.read(data);
+      var byteBufferBytes = Bytes.elasticByteBuffer();
+      BytesUtils.doWrite(byteBufferBytes, data);
       final DataRecord record =
-          recordPersister.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(data)), key, null, this.pageReadOnlyTrx);
+          recordPersister.deserialize(byteBufferBytes, key, null, this.pageReadOnlyTrx);
+      byteBufferBytes.clear();
+      byteBufferBytes = null;
       records.put(key, record);
     }
 
@@ -229,13 +232,24 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     indexType = IndexType.getType(in.readByte());
   }
 
+  public UnorderedKeyValuePage clearBytesAndHashCode() {
+    bytes.clear();
+    bytes = null;
+    hashCode = null;
+    return this;
+  }
+
   private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId) {
     final long key = getVarLong(in);
     final int dataSize = in.readInt();
     final byte[] data = new byte[dataSize];
     in.read(data);
+    var byteBufferBytes = Bytes.elasticByteBuffer();
+    BytesUtils.doWrite(byteBufferBytes, data);
     final DataRecord record =
-        recordPersister.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(data)), key, deweyId, pageReadOnlyTrx);
+        recordPersister.deserialize(byteBufferBytes, key, deweyId, pageReadOnlyTrx);
+    byteBufferBytes.clear();
+    byteBufferBytes = null;
     records.put(key, record);
   }
 
@@ -260,7 +274,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       } catch (final SirixIOException e) {
         return null;
       }
-      record = recordPersister.deserialize(Bytes.allocateDirect(data), key, null, null);
+      var byteBufferBytes = Bytes.elasticByteBuffer();
+      BytesUtils.doWrite(byteBufferBytes, data);
+      record = recordPersister.deserialize(byteBufferBytes, key, null, null);
+      byteBufferBytes.clear();
+      byteBufferBytes = null;
       records.put(key, record);
     }
     return record;
@@ -408,12 +426,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
   private void addReferences() {
     if (!addedReferences) {
       final var storeDeweyIDs = pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
-      final var entries = sort();
+      final var entries = records.values();
 
       if (storeDeweyIDs && recordPersister instanceof NodePersistenter && !entries.isEmpty()) {
         processEntries(entries);
-        for (final var entry : entries) {
-          final var record = entry.getValue();
+        for (final var record : entries) {
           if (record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
             deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
           }
@@ -426,10 +443,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     }
   }
 
-  private void processEntries(final List<Entry<Long, DataRecord>> entries) {
-    final var out = Bytes.elasticByteBuffer();
-    for (final Entry<Long, DataRecord> entry : entries) {
-      final var record = entry.getValue();
+  private void processEntries(final Collection<DataRecord> records) {
+    var out = Bytes.elasticByteBuffer(30);
+    for (final DataRecord record : records) {
       final var recordID = record.getNodeKey();
       if (slots.get(recordID) == null) {
         // Must be either a normal record or one which requires an overflow page.
@@ -445,36 +461,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
         }
       }
     }
-  }
-
-  private List<Entry<Long, DataRecord>> sort() {
-    // Sort entries which have deweyIDs according to their byte-length.
-    final List<Map.Entry<Long, DataRecord>> entries = new ArrayList<>(records.entrySet());
-    final boolean storeDeweyIDs = pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
-    if (storeDeweyIDs && recordPersister instanceof NodePersistenter) {
-      entries.sort((a, b) -> {
-        if (a.getValue() instanceof ImmutableNode && b.getValue() instanceof ImmutableNode) {
-          final SirixDeweyID first = a.getValue().getDeweyID();
-          final SirixDeweyID second = b.getValue().getDeweyID();
-
-          // Document node has no DeweyID.
-          if (first == null && second != null)
-            return 1;
-
-          if (second == null && first != null)
-            return -1;
-
-          if (first == null)
-            return 0;
-
-          return first.compareTo(second);
-        }
-
-        return -1;
-      });
-    }
-
-    return entries;
+    out = null;
   }
 
   @Override

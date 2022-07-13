@@ -31,6 +31,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.BytesUtils;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
@@ -38,6 +39,7 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -176,10 +178,12 @@ public final class MMFileReader implements Reader {
 
   private Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
     // perform byte operations
-    final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); // byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
-
-    // return deserialized page
-    return pagePersitenter.deserializePage(input, pageReadTrx, type);
+    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
+    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
+    BytesUtils.doWrite(input, inputStream.readAllBytes());
+    final var deserializedPage = pagePersitenter.deserializePage(input, pageReadTrx, type);
+    input.clear();
+    return deserializedPage;
   }
 
   @Override

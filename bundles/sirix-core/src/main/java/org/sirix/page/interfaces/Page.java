@@ -21,15 +21,13 @@
 package org.sirix.page.interfaces;
 
 import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.PageTrx;
-import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
+import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.DataOutput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -38,14 +36,13 @@ import java.util.List;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- *
  */
 public interface Page {
 
   /**
    * Serialize a page
    *
-   * @param out {@link DataOutput} to serialize to
+   * @param out  {@link DataOutput} to serialize to
    * @param type serialization type (currently transaction intent log or normal commit)
    */
   void serialize(Bytes<ByteBuffer> out, SerializationType type);
@@ -61,9 +58,38 @@ public interface Page {
    * Commit page.
    *
    * @param pageWriteTrx {@link PageTrx} implementation
-   * @throws SirixIOException if an I/O exception occured
    */
-  void commit(@NonNull PageTrx pageWriteTrx);
+  default void commit(PageTrx pageWriteTrx) {
+    final var references = getReferences();
+    //    final var log = pageWriteTrx.getLog();
+    //    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
+    //    for (final PageReference reference : references) {
+    //      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
+    //          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+    //        final PageContainer container = log.get(reference, pageWriteTrx);
+    //
+    //        assert container != null;
+    //
+    //        final Page page = container.getModified();
+    //
+    //        assert page != null;
+    //
+    //        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
+    //          final var byteBufferBytes = Bytes.elasticByteBuffer(10_000);
+    //          futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
+    //                                                                                       SerializationType.DATA)));
+    //        }
+    //      }
+    //    }
+    //
+    //    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
+
+    for (final PageReference reference : references) {
+      if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
+        pageWriteTrx.commit(reference);
+      }
+    }
+  }
 
   /**
    * Get the {@link PageReference} at the specified offset
@@ -75,7 +101,8 @@ public interface Page {
 
   /**
    * Set the reference at the specified offset
-   * @param offset the offset
+   *
+   * @param offset        the offset
    * @param pageReference the page reference
    * @return {@code true}, if the page is already full, {@code false} otherwise
    */
