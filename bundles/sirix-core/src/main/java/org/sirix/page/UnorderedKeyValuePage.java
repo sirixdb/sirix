@@ -202,6 +202,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
 
     final int normalEntrySize = in.readInt();
     var setBit = -1;
+    var byteBufferBytes = Bytes.elasticByteBuffer(100);
     for (int index = 0; index < normalEntrySize; index++) {
       setBit = entriesBitmap.nextSetBit(setBit + 1);
       assert setBit >= 0;
@@ -209,12 +210,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.read(data);
-      var byteBufferBytes = Bytes.elasticByteBuffer();
       BytesUtils.doWrite(byteBufferBytes, data);
       final DataRecord record =
           recordPersister.deserialize(byteBufferBytes, key, null, this.pageReadOnlyTrx);
       byteBufferBytes.clear();
-      byteBufferBytes = null;
       records.put(key, record);
     }
 
@@ -246,7 +245,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
     final int dataSize = in.readInt();
     final byte[] data = new byte[dataSize];
     in.read(data);
-    var byteBufferBytes = Bytes.elasticByteBuffer();
+    var byteBufferBytes = Bytes.elasticByteBuffer(data.length);
     BytesUtils.doWrite(byteBufferBytes, data);
     final DataRecord record =
         recordPersister.deserialize(byteBufferBytes, key, deweyId, pageReadOnlyTrx);
@@ -276,7 +275,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, DataRecor
       } catch (final SirixIOException e) {
         return null;
       }
-      var byteBufferBytes = Bytes.elasticByteBuffer();
+      var byteBufferBytes = Bytes.elasticByteBuffer(data.length);
       BytesUtils.doWrite(byteBufferBytes, data);
       record = recordPersister.deserialize(byteBufferBytes, key, null, null);
       byteBufferBytes.clear();
