@@ -150,20 +150,6 @@ public final class ReferencesPage4 implements Page {
   }
 
   /**
-   * Recursively call commit on all referenced pages.
-   *
-   * @param pageWriteTrx the page write transaction
-   */
-  @Override
-  public void commit(@NonNull final PageTrx pageWriteTrx) {
-    for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
-        pageWriteTrx.commit(reference);
-      }
-    }
-  }
-
-  /**
    * Serialize page references into output.
    *
    * @param out  output stream

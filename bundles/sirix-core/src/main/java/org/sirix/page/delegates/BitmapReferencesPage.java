@@ -28,10 +28,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
-import org.sirix.page.DeserializedBitmapReferencesPageTuple;
-import org.sirix.page.PageReference;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -40,6 +37,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -49,6 +47,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 public final class BitmapReferencesPage implements Page {
 
   public static final int THRESHOLD = Constants.INP_REFERENCE_COUNT - 16;
+
   /**
    * Page references.
    */
@@ -112,7 +111,8 @@ public final class BitmapReferencesPage implements Page {
    * @param in             input stream to read from
    * @param type           the serialization type
    */
-  public BitmapReferencesPage(final @NonNegative int referenceCount, final Bytes<ByteBuffer> in, final SerializationType type) {
+  public BitmapReferencesPage(final @NonNegative int referenceCount, final Bytes<ByteBuffer> in,
+      final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
     bitmap = tuple.getBitmap();
@@ -203,43 +203,6 @@ public final class BitmapReferencesPage implements Page {
     offsetBitmap.and(bitmap);
 
     return offsetBitmap.cardinality();
-  }
-
-  /**
-   * Recursively call commit on all referenced pages.
-   *
-   * @param pageWriteTrx the page read-write transaction
-   */
-  @Override
-  public void commit(@NonNull final PageTrx pageWriteTrx) {
-    final var log = pageWriteTrx.getLog();
-    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
-    for (final PageReference reference : references) {
-      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
-          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-        final PageContainer container = log.get(reference, pageWriteTrx);
-
-        assert container != null;
-
-        final Page page = container.getModified();
-
-        assert page != null;
-
-        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
-          final var byteBufferBytes = Bytes.elasticHeapByteBuffer();
-          futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
-                                                                                       SerializationType.DATA)));
-        }
-      }
-    }
-
-    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
-
-    for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
-        pageWriteTrx.commit(reference);
-      }
-    }
   }
 
   /**
