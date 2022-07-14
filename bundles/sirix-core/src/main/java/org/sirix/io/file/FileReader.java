@@ -21,34 +21,30 @@
 
 package org.sirix.io.file;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.time.Instant;
-
 import com.github.benmanes.caffeine.cache.Cache;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.BytesUtils;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersister;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UberPage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.time.Instant;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
@@ -129,14 +125,20 @@ public final class FileReader implements Reader {
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 
-      // Perform byte operations.
-      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
-
-      // Return reader required to instantiate and deserialize page.
-      return pagePersiter.deserializePage(input, pageReadTrx, serializationType);
+      return getPage(pageReadTrx, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
+  }
+
+  @NotNull
+  private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
+    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
+    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
+    BytesUtils.doWrite(input, inputStream.readAllBytes());
+    final var deserializedPage = pagePersiter.deserializePage(input, pageReadTrx, serializationType);
+    input.clear();
+    return deserializedPage;
   }
 
   @Override

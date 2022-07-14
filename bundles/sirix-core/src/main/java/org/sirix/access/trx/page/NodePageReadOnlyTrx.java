@@ -22,6 +22,9 @@
 package org.sirix.access.trx.page;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -44,9 +47,6 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -63,6 +63,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * access to this transaction.
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
+
+  private record RecordPage(int index, IndexType indexType, long recordPageKey, Page page) {
+  }
+
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -189,9 +193,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             }
           }
         }
-//        } else {
-//          reference.setPage(page);
-//        }
+        //        } else {
+        //          reference.setPage(page);
+        //        }
       }
     }
 
@@ -220,35 +224,26 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K, V> Optional<V> getRecord(@NonNull final K key, @NonNull final IndexType indexType,
-      @NonNegative final int index) {
-    checkNotNull(key);
+  public DataRecord getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
     checkNotNull(indexType);
     assertNotClosed();
 
-    if (key instanceof Long nodeKey) {
-      if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        return Optional.empty();
-      }
-
-      final long recordPageKey = pageKey(nodeKey, indexType);
-
-      // $CASES-OMITTED$
-      final Optional<Page> page = switch (indexType) {
-        case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(new IndexLogKey(
-            indexType,
-            recordPageKey,
-            index,
-            revisionNumber));
-        default -> throw new IllegalStateException();
-      };
-
-      //noinspection unchecked
-      return (Optional<V>) page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(nodeKey))
-                               .flatMap(this::checkItemIfDeleted);
+    if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return null;
     }
 
-    return Optional.empty();
+    final long recordPageKey = pageKey(recordKey, indexType);
+
+    // $CASES-OMITTED$
+    final Optional<Page> page = switch (indexType) {
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME ->
+          getRecordPage(new IndexLogKey(indexType, recordPageKey, index, revisionNumber));
+      default -> throw new IllegalStateException();
+    };
+
+    final var dataRecord = page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(recordKey));
+
+    return checkItemIfDeleted(dataRecord.orElse(null));
   }
 
   /**
@@ -257,12 +252,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param toCheck node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  Optional<DataRecord> checkItemIfDeleted(final @Nullable DataRecord toCheck) {
+  DataRecord checkItemIfDeleted(final @Nullable DataRecord toCheck) {
     if (toCheck instanceof DeletedNode) {
-      return Optional.empty();
-    } else {
-      return Optional.ofNullable(toCheck);
+      return null;
     }
+
+    return toCheck;
   }
 
   @Override
@@ -362,7 +357,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(@NonNull final IndexLogKey indexLogKey) {
+  public Optional<Page> getRecordPage(@NonNull final IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
@@ -380,8 +375,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       // Try to get from resource buffer manager.
       if (trxIntentLog == null) {
         if (page != null) {
-          mostRecentlyReadRecordPage =
-              new RecordPage(indexLogKey.getIndexNumber(), indexLogKey.getIndexType(), indexLogKey.getRecordPageKey(), page);
+          mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
+                                                      indexLogKey.getIndexType(),
+                                                      indexLogKey.getRecordPageKey(),
+                                                      page);
           return page;
         }
 
@@ -403,7 +400,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
 
       // Load list of page "fragments" from persistent storage.
-      final List<T> pages = getPageFragments(pageReference);
+      final List<KeyValuePage<DataRecord>> pages = getPageFragments(pageReference);
 
       if (pages.isEmpty()) {
         return null;
@@ -451,19 +448,19 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPageFragments(final PageReference pageReference) {
+  List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceManager.getResourceConfig();
     final int revsToRestore = config.maxNumberOfRevisionsToRestore;
     final int[] revisionsToRead = config.versioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
-    final List<T> pages = new ArrayList<>(revisionsToRead.length);
+    final List<KeyValuePage<DataRecord>> pages = new ArrayList<>(revisionsToRead.length);
 
     final var pageFragments = pageReference.getPageFragments();
 
-    @SuppressWarnings("unchecked") final T page = (T) pageReader.read(pageReference, this);
+    final KeyValuePage<DataRecord> page = (KeyValuePage<DataRecord>) pageReader.read(pageReference, this);
     pages.add(page);
 
-    if (pageFragments.isEmpty() || ((UnorderedKeyValuePage) page).entrySet().size() == Constants.NDP_NODE_COUNT) {
+    if (pageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
       return pages;
     }
 
@@ -474,8 +471,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return pages;
   }
 
-  @SuppressWarnings("unchecked")
-  private <K, V, T extends KeyValuePage<? extends K, ? extends V>> List<T> getPreviousPageFragments(
+  private <V, T extends KeyValuePage<? extends V>> List<T> getPreviousPageFragments(
       final Collection<PageFragmentKey> pageFragments) {
     final var pages = pageFragments.stream()
                                    .map(CompletableFuture::completedFuture)
@@ -522,8 +518,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       case PATH -> getPathPage(revisionRoot).getIndirectPageReference(index);
       case NAME -> getNamePage(revisionRoot).getIndirectPageReference(index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
-      default -> throw new IllegalStateException(
-          "Only defined for node, path summary, text value and attribute value pages!");
+      default ->
+          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
   }
 
@@ -714,8 +710,5 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   public int recordPageOffset(final long key) {
     assertNotClosed();
     return (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
-  }
-
-  private record RecordPage(int index, IndexType indexType, long recordPageKey, Page page) {
   }
 }

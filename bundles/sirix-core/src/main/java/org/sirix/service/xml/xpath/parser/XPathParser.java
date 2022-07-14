@@ -1528,7 +1528,7 @@ public final class XPathParser {
       String stringLiteral;
       if (isQuote()) {
         final byte[] param =
-            ((ValueNode) getTransaction().getItemList().getItem(parseStringLiteral()).get()).getRawValue();
+            ((ValueNode) getTransaction().getItemList().getItem(parseStringLiteral())).getRawValue();
         stringLiteral = Arrays.toString(param);
       } else {
         stringLiteral = parseNCName();

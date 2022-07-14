@@ -37,7 +37,7 @@ public final class RecordToRevisionsIndex {
   public void addToRecordToRevisionsIndex(long recordKey) {
     // Add to revision index.
     final int[] revisions = { pageTrx.getRevisionNumber() };
-    pageTrx.createRecord(recordKey, new RevisionReferencesNode(recordKey, revisions), IndexType.RECORD_TO_REVISIONS, 0);
+    pageTrx.createRecord(new RevisionReferencesNode(recordKey, revisions), IndexType.RECORD_TO_REVISIONS, 0);
   }
 
   /**

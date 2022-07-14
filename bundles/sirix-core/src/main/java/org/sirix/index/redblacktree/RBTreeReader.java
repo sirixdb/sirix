@@ -133,10 +133,12 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     isClosed = false;
     this.index = indexNumber;
 
-    final Optional<? extends DataRecord> node =
+    currentNode =
         this.pageReadOnlyTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
-    currentNode = (StructNode) node.orElseThrow(() -> new IllegalStateException(
-        "Node couldn't be fetched from persistent storage!"));
+
+    if (currentNode == null) {
+      throw  new IllegalStateException("Node couldn't be fetched from persistent storage!");
+    }
 
     for (final long nodeKey : new DescendantAxis(this, IncludeSelf.YES)) {
       if (nodeKey == 0) {
@@ -501,20 +503,20 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
 
     // Remember old node and fetch new one.
     final Node oldNode = currentNode;
-    Optional<? extends Node> newNode;
+    Node newNode;
     try {
       // Immediately return node from item list if node key negative.
-      newNode = pageReadOnlyTrx.getRecord(nodeKey, indexType, index);
+      newNode = (Node) pageReadOnlyTrx.getRecord(nodeKey, indexType, index);
     } catch (final SirixIOException e) {
-      newNode = Optional.empty();
+      newNode = null;
     }
 
-    if (newNode.isPresent()) {
-      currentNode = newNode.get();
-      return Move.moved(this);
-    } else {
+    if (newNode == null) {
       currentNode = oldNode;
       return Move.notMoved();
+    } else {
+      currentNode = newNode;
+      return Move.moved(this);
     }
   }
 

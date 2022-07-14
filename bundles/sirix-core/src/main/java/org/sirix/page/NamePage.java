@@ -36,7 +36,6 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -108,7 +107,7 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  protected NamePage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  NamePage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
     maxNodeKeys = new HashMap<>(size);

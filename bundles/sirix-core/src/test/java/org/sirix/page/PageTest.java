@@ -98,7 +98,7 @@ public class PageTest {
         new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
-      nodePage.setRecord(record.getNodeKey(), record);
+      nodePage.setRecord(record);
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();
@@ -119,9 +119,9 @@ public class PageTest {
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
+    when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashEntryNode);
-    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
+    when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashCountEntryNode);
     when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;

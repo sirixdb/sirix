@@ -167,31 +167,7 @@ public enum PageKind {
     }
   },
 
-  /**
-   * {@link PathPage}.
-   */
-  HASHED_KEY_VALUE_PAGE((byte) 7, HashedKeyValuePage.class) {
-    @Override
-    @NonNull Page deserializePage(final Bytes<ByteBuffer> source, final PageReadOnlyTrx pageReadTrx,
-        @NonNull final SerializationType type) {
-      return new HashedKeyValuePage(source, pageReadTrx);
-    }
-
-    @Override
-    void serializePage(final Bytes<ByteBuffer> sink, final Page page, final @NonNull SerializationType type) {
-      sink.writeByte(HASHED_KEY_VALUE_PAGE.id);
-      page.serialize(sink, type);
-    }
-
-    @Override
-    public @NonNull Page getInstance(final Page keyValuePage, final PageReadOnlyTrx pageReadTrx) {
-      assert keyValuePage instanceof HashedKeyValuePage;
-      final HashedKeyValuePage page = (HashedKeyValuePage) keyValuePage;
-      return new UnorderedKeyValuePage(page.getPageKey(), page.getIndexType(), pageReadTrx);
-    }
-  },
-
-  /**
+   /**
    * {@link CASPage}.
    */
   CASPAGE((byte) 8, CASPage.class) {

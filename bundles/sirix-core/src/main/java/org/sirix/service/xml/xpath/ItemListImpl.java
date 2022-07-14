@@ -21,10 +21,10 @@
 
 package org.sirix.service.xml.xpath;
 
+import org.sirix.api.ItemList;
+
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
-import org.sirix.api.ItemList;
 
 /**
  * <p>
@@ -68,7 +68,7 @@ public final class ItemListImpl implements ItemList<AtomicValue> {
   }
 
   @Override
-  public Optional<AtomicValue> getItem(final long key) {
+  public AtomicValue getItem(final long key) {
     assert key <= Integer.MAX_VALUE;
 
     int index = (int) key; // cast to integer, because the list only
@@ -83,9 +83,9 @@ public final class ItemListImpl implements ItemList<AtomicValue> {
     index = index - 2;
 
     if (index >= 0 && index < mList.size()) {
-      return Optional.of(mList.get(index));
+      return mList.get(index);
     } else {
-      return Optional.empty();
+      return null;
     }
   }
 
@@ -95,7 +95,7 @@ public final class ItemListImpl implements ItemList<AtomicValue> {
 
   @Override
   public String toString() {
-    return new StringBuilder("ItemList: ").append(mList.toString()).toString();
+    return new StringBuilder("ItemList: ").append(mList).toString();
   }
 
 }

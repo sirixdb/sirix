@@ -1,17 +1,17 @@
 package org.sirix.api;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.Optional;
 
 /**
@@ -59,7 +59,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  <K, V> Optional<V> getRecord(@NonNull K key, @NonNull IndexType indexType, @NonNegative int index);
+  <V extends DataRecord> V getRecord(@NonNull long key, @NonNull IndexType indexType, @NonNegative int index);
 
   /**
    * Current reference to actual revision-root page.
@@ -111,16 +111,14 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    *
    * @param indexLogKey it has the key {@code key} of key/value page to get the record from, the index number
    *                    or {@code -1}, if it's a regular record page to lookup and the kind of page to lookup
-   * @param <K>         Key
-   * @param <V>         Value
-   * @param <T>         Instance of class, implementing the {@link KeyValuePage} interface
    * @return {@code the node} or {@code null} if it's not available
    * @throws SirixIOException         if can't read recordPage
    * @throws NullPointerException     if {@code key} is {@code null}
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
+   *
    */
-  <K, V, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(@NonNull IndexLogKey indexLogKey);
+  Optional<Page> getRecordPage(@NonNull IndexLogKey indexLogKey);
 
   /**
    * Determines if transaction is closed or not.

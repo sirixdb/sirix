@@ -14,6 +14,7 @@ import org.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.time.Instant;
 
 /**
@@ -42,18 +43,17 @@ public interface PageTrx extends PageReadOnlyTrx {
   PageTrx appendLogRecord(@NonNull PageReference reference, @NonNull PageContainer page);
 
   /**
-   * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
+   * Create fresh key/record (record must be a record) and prepare key/record-tuple for modifications
    * (CoW). The record might be a node, in this case the key is the node.
    *
-   * @param key       optional key associated with the record to add (otherwise the record nodeKey is used)
-   * @param value     value to add (usually a node)
+   * @param record     record to add (usually a node)
    * @param indexType the index type
    * @param index     the index number
    * @return unmodified record for convenience
    * @throws SirixIOException     if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  <K, V> V createRecord(K key, @NonNull V value, @NonNull IndexType indexType, int index);
+  <V extends DataRecord> V createRecord(@NonNull V record, @NonNull IndexType indexType, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
@@ -68,7 +68,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code page} is {@code null}
    */
-  <K, V> V prepareRecordForModification(@NonNegative K key, @NonNull IndexType indexType, int index);
+  <V extends DataRecord> V prepareRecordForModification(@NonNegative long key, @NonNull IndexType indexType, int index);
 
   /**
    * Remove an entry from the storage.
@@ -80,7 +80,7 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException     if {@code indexType} is {@code null}
    */
-  <K> void removeRecord(K key, @NonNull IndexType indexType, int index);
+  void removeRecord(long key, @NonNull IndexType indexType, int index);
 
   /**
    * Creating a namekey for a given name.

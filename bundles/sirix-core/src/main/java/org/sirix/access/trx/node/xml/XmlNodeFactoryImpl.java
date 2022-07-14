@@ -76,8 +76,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return pageTrx.createRecord(nodeDel.getNodeKey(),
-                                new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
+    return pageTrx.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
                                 IndexType.PATH_SUMMARY,
                                 0);
   }
@@ -105,8 +104,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
 
-    return pageTrx.createRecord(nodeDel.getNodeKey(),
-                                new ElementNode(structDel,
+    return pageTrx.createRecord(new ElementNode(structDel,
                                                nameDel,
                                                new ArrayList<>(),
                                                HashBiMap.create(),
@@ -132,7 +130,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createRecord(nodeDel.getNodeKey(), new TextNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    return pageTrx.createRecord(new TextNode(valDel, structDel), IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -154,8 +152,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, value, false);
 
-    return pageTrx.createRecord(nodeDel.getNodeKey(),
-                                new AttributeNode(nodeDel, nameDel, valDel, name),
+    return pageTrx.createRecord(new AttributeNode(nodeDel, nameDel, valDel, name),
                                 IndexType.DOCUMENT,
                                 -1);
   }
@@ -178,8 +175,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, -1, pathNodeKey);
 
-    return pageTrx.createRecord(nodeDel.getNodeKey(),
-                                new NamespaceNode(nodeDel, nameDel, name),
+    return pageTrx.createRecord(new NamespaceNode(nodeDel, nameDel, name),
                                 IndexType.DOCUMENT,
                                 -1);
   }
@@ -208,8 +204,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, content, false);
 
-    return pageTrx.createRecord(nodeDel.getNodeKey(),
-                                new PINode(structDel, nameDel, valDel, pageTrx),
+    return pageTrx.createRecord(new PINode(structDel, nameDel, valDel, pageTrx),
                                 IndexType.DOCUMENT,
                                 -1);
   }
@@ -229,6 +224,6 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createRecord(nodeDel.getNodeKey(), new CommentNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    return pageTrx.createRecord(new CommentNode(valDel, structDel), IndexType.DOCUMENT, -1);
   }
 }

@@ -51,14 +51,15 @@ public final class LastExisting extends AbstractFunction {
 
     final var resourceManager = item.getTrx().getResourceManager();
 
-    final Optional<RevisionReferencesNode> indexNode;
+    final RevisionReferencesNode indexNode;
     try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx()) {
       indexNode = pageReadOnlyTrx.getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
     } catch (final Exception e) {
       throw new QueryException(new QNm(e.getMessage()), e);
     }
 
-    return indexNode.map(node -> node.getRevisions()[node.getRevisions().length - 1]).map(revision -> {
+    if (indexNode != null) {
+      final var revision = indexNode.getRevisions()[indexNode.getRevisions().length - 1];
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       final var hasMoved = rtx.moveTo(item.getNodeKey()).hasMoved();
 
@@ -74,22 +75,22 @@ public final class LastExisting extends AbstractFunction {
       } else {
         return getJsonItem(item, revision - 1, resourceManager);
       }
-    }).orElseGet(() -> {
-      for (int revisionNumber = resourceManager.getMostRecentRevisionNumber(); revisionNumber > 0; revisionNumber--) {
-        final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
-        if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
-          return new JsonItemFactory().getSequence(rtx, item.getCollection());
-        } else {
-          rtx.close();
-        }
+    }
+
+    for (int revisionNumber = resourceManager.getMostRecentRevisionNumber(); revisionNumber > 0; revisionNumber--) {
+      final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+      if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
+        return new JsonItemFactory().getSequence(rtx, item.getCollection());
+      } else {
+        rtx.close();
       }
-      return null;
-    });
+    }
+    return null;
   }
 
   private JsonItem getJsonItem(JsonDBItem item, int revision, JsonResourceManager resourceManager) {
-      final var trx = resourceManager.beginNodeReadOnlyTrx(revision);
-      trx.moveTo(item.getNodeKey());
-      return new JsonItemFactory().getSequence(trx, item.getCollection());
+    final var trx = resourceManager.beginNodeReadOnlyTrx(revision);
+    trx.moveTo(item.getNodeKey());
+    return new JsonItemFactory().getSequence(trx, item.getCollection());
   }
 }

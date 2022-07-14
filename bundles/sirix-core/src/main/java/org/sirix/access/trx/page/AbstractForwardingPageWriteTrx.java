@@ -1,22 +1,23 @@
 package org.sirix.access.trx.page;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.node.NodeKind;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Forwards all methods to the delegate.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
+public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingPageReadOnlyTrx
+    implements PageTrx {
 
   /**
    * Constructor for use by subclasses.
@@ -35,20 +36,18 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   }
 
   @Override
-  public <K, V> V createRecord(K key, @NonNull V record,
-      @NonNull IndexType indexType, @NonNegative int index) {
-    return delegate().createRecord(key, record, indexType, index);
+  public <V extends DataRecord> V createRecord(@NonNull V record, @NonNull IndexType indexType, @NonNegative int index) {
+    return delegate().createRecord(record, indexType, index);
   }
 
   @Override
-  public <K, V> V prepareRecordForModification(@NonNegative K recordKey,
-      @NonNull IndexType indexType, @NonNegative int index) {
+  public <V extends DataRecord> V prepareRecordForModification(@NonNegative long recordKey, @NonNull IndexType indexType,
+      @NonNegative int index) {
     return delegate().prepareRecordForModification(recordKey, indexType, index);
   }
 
   @Override
-  public <K> void removeRecord(@NonNegative K recordKey, @NonNull IndexType indexType,
-      @NonNegative int index) {
+  public void removeRecord(@NonNegative long recordKey, @NonNull IndexType indexType, @NonNegative int index) {
     delegate().removeRecord(recordKey, indexType, index);
   }
 

@@ -166,12 +166,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
       checkArgument(fromKey != getCurrentNode().getNodeKey(),
               "Can't move itself to right sibling of itself!");
 
-      final Optional<DataRecord> node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
-      if (node.isEmpty()) {
+      final DataRecord node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
+      if (node == null) {
         throw new IllegalStateException("Node to move must exist!");
       }
 
-      final var nodeToMove = node.get();
+      final var nodeToMove = node;
       if (nodeToMove instanceof StructNode && getCurrentNode().getKind() == NodeKind.ELEMENT) {
         // Safe to cast (because StructNode is a subtype of Node).
         checkAncestors((Node) nodeToMove);
@@ -284,12 +284,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
       }
 
       // Save: Every node in the "usual" node page is of type Node.
-      final Optional<DataRecord> node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
-      if (node.isEmpty()) {
-        throw new IllegalStateException("Node to move must exist!");
+      final var node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
+      if (node == null) {
+        throw new IllegalStateException("Node to move must exist: " + fromKey);
       }
 
-      final DataRecord nodeToMove = node.get();
+      final DataRecord nodeToMove = node;
       if (nodeToMove instanceof StructNode toMove && getCurrentNode() instanceof StructNode nodeAnchor) {
         checkAncestors(toMove);
         checkAccessAndCommit();

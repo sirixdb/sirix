@@ -24,6 +24,7 @@ package org.sirix.settings;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageFragmentKeyImpl;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -49,14 +50,14 @@ public enum VersioningType {
    */
   FULL {
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
       return pages.get(0);
     }
 
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       assert pages.size() == 1;
@@ -66,9 +67,9 @@ public enum VersioningType {
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
 
-      for (final Map.Entry<? extends K, ? extends V> entry : pages.get(0).entrySet()) {
-        returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
-        returnVal.get(1).setRecord(entry.getKey(), entry.getValue());
+      for (final V record : pages.get(0).values()) {
+        returnVal.get(0).setRecord(record);
+        returnVal.get(1).setRecord(record);
       }
 
       return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
@@ -86,7 +87,7 @@ public enum VersioningType {
    */
   DIFFERENTIAL {
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
@@ -99,24 +100,25 @@ public enum VersioningType {
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
 
-      for (final Map.Entry<K, V> entry : latest.entrySet()) {
-        returnVal.setRecord(entry.getKey(), entry.getValue());
+      for (final V record : latest.values()) {
+        returnVal.setRecord(record);
       }
-      for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
+      for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         returnVal.setPageReference(entry.getKey(), entry.getValue());
       }
 
       // Skip full dump if not needed (fulldump equals latest page).
       if (pages.size() == 2) {
-        for (final Entry<K, V> entry : fullDump.entrySet()) {
-          if (returnVal.getValue(entry.getKey()) == null) {
-            returnVal.setRecord(entry.getKey(), entry.getValue());
+        for (final V record : fullDump.values()) {
+          final var recordKey = record.getNodeKey();
+          if (returnVal.getValue(recordKey) == null) {
+            returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               break;
             }
           }
         }
-        for (final Entry<K, PageReference> entry : fullDump.referenceEntrySet()) {
+        for (final Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
           if (returnVal.getPageReference(entry.getKey()) == null) {
             returnVal.setPageReference(entry.getKey(), entry.getValue());
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
@@ -129,7 +131,7 @@ public enum VersioningType {
     }
 
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       assert pages.size() <= 2;
@@ -148,12 +150,12 @@ public enum VersioningType {
       final boolean isFullDump = revision % revToRestore == 0;
 
       // Iterate through all nodes of the latest revision.
-      for (final Map.Entry<K, V> entry : latest.entrySet()) {
-        returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
-        returnVal.get(1).setRecord(entry.getKey(), entry.getValue());
+      for (final V record : latest.values()) {
+        returnVal.get(0).setRecord(record);
+        returnVal.get(1).setRecord(record);
       }
       // Iterate through all nodes of the latest revision.
-      for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
+      for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         returnVal.get(0).setPageReference(entry.getKey(), entry.getValue());
         returnVal.get(1).setPageReference(entry.getKey(), entry.getValue());
       }
@@ -161,13 +163,14 @@ public enum VersioningType {
       // If not all entries are filled.
       if (latest.size() != Constants.NDP_NODE_COUNT) {
         // Iterate through the full dump.
-        for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
-          if (returnVal.get(0).getValue(entry.getKey()) == null) {
-            returnVal.get(0).setRecord(entry.getKey(), entry.getValue());
+        for (final V record : fullDump.values()) {
+          final var nodeKey = record.getNodeKey();
+          if (returnVal.get(0).getValue(nodeKey) == null) {
+            returnVal.get(0).setRecord(record);
           }
 
-          if (isFullDump && returnVal.get(1).getValue(entry.getKey()) == null) {
-            returnVal.get(1).setRecord(entry.getKey(), entry.getValue());
+          if (isFullDump && returnVal.get(1).getValue(nodeKey) == null) {
+            returnVal.get(1).setRecord(record);
           }
 
           if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
@@ -179,7 +182,7 @@ public enum VersioningType {
       // If not all entries are filled.
       if (latest.size() != Constants.NDP_NODE_COUNT) {
         // Iterate through the full dump.
-        for (final Map.Entry<K, PageReference> entry : fullDump.referenceEntrySet()) {
+        for (final Map.Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
           if (returnVal.get(0).getPageReference(entry.getKey()) == null) {
             returnVal.get(0).setPageReference(entry.getKey(), entry.getValue());
           }
@@ -218,7 +221,7 @@ public enum VersioningType {
    */
   INCREMENTAL {
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
@@ -232,10 +235,10 @@ public enum VersioningType {
         if (filledPage) {
           break;
         }
-        for (final Entry<K, V> entry : page.entrySet()) {
-          final K recordKey = entry.getKey();
+        for (final V record : page.values()) {
+          final long recordKey = record.getNodeKey();
           if (returnVal.getValue(recordKey) == null) {
-            returnVal.setRecord(recordKey, entry.getValue());
+            returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
               break;
@@ -243,8 +246,8 @@ public enum VersioningType {
           }
         }
         if (!filledPage) {
-          for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
-            final K recordKey = entry.getKey();
+          for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
+            final Long recordKey = entry.getKey();
             if (returnVal.getPageReference(recordKey) == null) {
               returnVal.setPageReference(recordKey, entry.getValue());
               if (returnVal.size() == Constants.NDP_NODE_COUNT) {
@@ -260,7 +263,7 @@ public enum VersioningType {
     }
 
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
         final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.get(0);
@@ -286,15 +289,14 @@ public enum VersioningType {
           break;
         }
 
-        for (final Entry<K, V> entry : page.entrySet()) {
+        for (final V record : page.values()) {
           // Caching the complete page.
-          final K key = entry.getKey();
-          assert key != null;
-          if (returnVal.get(0).getValue(key) == null) {
-            returnVal.get(0).setRecord(key, entry.getValue());
+          final long recordKey = record.getNodeKey();
+          if (returnVal.get(0).getValue(recordKey) == null) {
+            returnVal.get(0).setRecord(record);
 
-            if (returnVal.get(1).getValue(entry.getKey()) == null && isFullDump) {
-              returnVal.get(1).setRecord(key, entry.getValue());
+            if (returnVal.get(1).getValue(recordKey) == null && isFullDump) {
+              returnVal.get(1).setRecord(record);
             }
 
             if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
@@ -304,9 +306,9 @@ public enum VersioningType {
           }
         }
         if (!filledPage) {
-          for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
+          for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             // Caching the complete page.
-            final K key = entry.getKey();
+            final Long key = entry.getKey();
             assert key != null;
             if (returnVal.get(0).getPageReference(key) == null) {
               returnVal.get(0).setPageReference(key, entry.getValue());
@@ -355,7 +357,7 @@ public enum VersioningType {
    */
   SLIDING_SNAPSHOT {
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
@@ -369,10 +371,10 @@ public enum VersioningType {
         if (filledPage) {
           break;
         }
-        for (final Entry<K, V> entry : page.entrySet()) {
-          final K recordKey = entry.getKey();
+        for (final V record : page.values()) {
+          final long recordKey = record.getNodeKey();
           if (returnVal.getValue(recordKey) == null) {
-            returnVal.setRecord(recordKey, entry.getValue());
+            returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
               break;
@@ -380,8 +382,8 @@ public enum VersioningType {
           }
         }
         if (!filledPage) {
-          for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
-            final K recordKey = entry.getKey();
+          for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
+            final Long recordKey = entry.getKey();
             if (returnVal.getPageReference(recordKey) == null) {
               returnVal.setPageReference(recordKey, entry.getValue());
               if (returnVal.size() == Constants.NDP_NODE_COUNT) {
@@ -397,7 +399,7 @@ public enum VersioningType {
     }
 
     @Override
-    public <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(final List<T> pages,
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
         final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.get(0);
@@ -424,20 +426,19 @@ public enum VersioningType {
 
         final boolean isPageOutOfSlidingWindow = (i == pages.size() - 1 && revToRestore == pages.size());
 
-        for (final Entry<K, V> entry : page.entrySet()) {
+        for (final V record : page.values()) {
+          final long recordKey = record.getNodeKey();
           // Caching the complete page.
-          final K key = entry.getKey();
-          assert key != null;
           if (!isPageOutOfSlidingWindow) {
-            pageWithRecordsInSlidingWindow.setRecord(key, entry.getValue());
+            pageWithRecordsInSlidingWindow.setRecord(record);
           }
 
-          if (completePage.getValue(key) == null) {
-            completePage.setRecord(key, entry.getValue());
+          if (completePage.getValue(recordKey) == null) {
+            completePage.setRecord(record);
           }
 
-          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(key) == null) {
-            modifyingPage.setRecord(key, entry.getValue());
+          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(recordKey) == null) {
+            modifyingPage.setRecord(record);
           }
 
           if (completePage.size() == Constants.NDP_NODE_COUNT) {
@@ -446,9 +447,9 @@ public enum VersioningType {
           }
         }
         if (!filledPage) {
-          for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
+          for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
             // Caching the complete page.
-            final K key = entry.getKey();
+            final Long key = entry.getKey();
             assert key != null;
 
             if (!isPageOutOfSlidingWindow) {
@@ -505,7 +506,7 @@ public enum VersioningType {
    * @param revsToRestore the number of revisions needed to build the complete record page
    * @return the complete {@link KeyValuePage}
    */
-  public abstract <K, V, T extends KeyValuePage<K, V>> T combineRecordPages(final List<T> pages,
+  public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
       final @NonNegative int revsToRestore, final PageReadOnlyTrx pageReadTrx);
 
   /**
@@ -517,7 +518,7 @@ public enum VersioningType {
    * @return a {@link PageContainer} holding a complete {@link KeyValuePage} for reading and one for
    * writing
    */
-  public abstract <K, V, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
+  public abstract <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
       final List<T> pages, final @NonNegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
       final PageReference reference, final TransactionIntentLog log);
 

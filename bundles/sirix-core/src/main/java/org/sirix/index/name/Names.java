@@ -1,35 +1,39 @@
 package org.sirix.index.name;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import com.google.common.collect.HashBiMap;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
 import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
-import com.google.common.collect.HashBiMap;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Names index structure.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public final class Names {
 
-  /** Map the hash of a name the node key. */
+  /**
+   * Map the hash of a name the node key.
+   */
   private final Map<Integer, Long> countNodeMap;
 
-  /** Map the hash of a name to its name. */
+  /**
+   * Map the hash of a name to its name.
+   */
   private final Map<Integer, byte[]> nameMap;
 
-  /** Map which is used to count the occurences of a name mapping. */
+  /**
+   * Map which is used to count the occurences of a name mapping.
+   */
   private final Map<Integer, Integer> countNameMapping;
 
   private long maxNodeKey;
@@ -51,7 +55,7 @@ public final class Names {
    *
    * @param pageReadTrx the page reading transaction
    * @param indexNumber the kind of name dictionary
-   * @param maxNodeKey the maximum node key
+   * @param maxNodeKey  the maximum node key
    */
   private Names(final PageReadOnlyTrx pageReadTrx, final int indexNumber, final long maxNodeKey) {
     this.indexNumber = indexNumber;
@@ -64,25 +68,22 @@ public final class Names {
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1, l = maxNodeKey; i < l; i += 2) {
       final long nodeKeyOfNode = i;
-      final Optional<? extends DataRecord> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, IndexType.NAME, indexNumber);
+      final var nameNode = pageReadTrx.getRecord(nodeKeyOfNode, IndexType.NAME, indexNumber);
 
-      if (nameNode.isPresent() && nameNode.get().getKind() != NodeKind.DELETE) {
-        final HashEntryNode hashEntryNode = (HashEntryNode) nameNode.orElseThrow(
-            () -> new IllegalStateException("Node couldn't be fetched from persistent storage: " + nodeKeyOfNode));
+      if (nameNode != null && nameNode.getKind() != NodeKind.DELETE) {
+        final HashEntryNode hashEntryNode = (HashEntryNode) nameNode;
 
         final int key = hashEntryNode.getKey();
 
         nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
 
         final long nodeKeyOfCountNode = i + 1;
+        final var countNode = pageReadTrx.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
+        if (countNode == null) {
+          throw new IllegalStateException("Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode);
+        }
 
-        final Optional<? extends DataRecord> countNode =
-            pageReadTrx.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
-
-        final HashCountEntryNode hashKeyToNameCountEntryNode =
-            (HashCountEntryNode) countNode.orElseThrow(() -> new IllegalStateException(
-                "Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode));
-
+        final HashCountEntryNode hashKeyToNameCountEntryNode = (HashCountEntryNode) countNode;
         countNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
         countNodeMap.put(key, nodeKeyOfCountNode);
       }
@@ -109,7 +110,7 @@ public final class Names {
         countNameMapping.put(key, prevValue - 1);
 
         final HashCountEntryNode hashCountEntryNode =
-            (HashCountEntryNode) pageTrx.prepareRecordForModification(countNodeKey, IndexType.NAME, indexNumber);
+            pageTrx.prepareRecordForModification(countNodeKey, IndexType.NAME, indexNumber);
         hashCountEntryNode.decrementValue();
       }
     }
@@ -129,7 +130,6 @@ public final class Names {
    * Create name key given a name.
    *
    * @param name name to create key for
-   *
    * @return generated key
    */
   public int setName(final String name, final PageTrx pageTrx) {
@@ -160,10 +160,11 @@ public final class Names {
       final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, newKey, name);
       final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(maxNodeKey + 1, 1);
 
-      pageTrx.createRecord(maxNodeKey++, hashEntryNode, IndexType.NAME, indexNumber);
+      pageTrx.createRecord(hashEntryNode, IndexType.NAME, indexNumber);
+      maxNodeKey++;
 
       countNodeMap.put(newKey, maxNodeKey);
-      pageTrx.createRecord(maxNodeKey, hashCountEntryNode, IndexType.NAME, indexNumber);
+      pageTrx.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
 
       nameMap.put(newKey, checkNotNull(getBytes(name)));
       countNameMapping.put(newKey, 1);
@@ -177,7 +178,7 @@ public final class Names {
       final long nodeKey = countNodeMap.get(key);
 
       final HashCountEntryNode hashCountEntryNode =
-          (HashCountEntryNode) pageTrx.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
+          pageTrx.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
       hashCountEntryNode.incrementValue();
 
       return key;
