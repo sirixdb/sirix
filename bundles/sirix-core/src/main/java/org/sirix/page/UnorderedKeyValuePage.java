@@ -189,6 +189,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       deweyIDs = new HashMap<>(deweyIDSize);
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
+      var byteBufferBytes = Bytes.elasticByteBuffer();
 
       for (int index = 0; index < deweyIDSize; index++) {
         final byte[] deweyID = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
@@ -196,9 +197,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
         optionalDeweyId = deweyID;
 
         if (deweyID != null) {
-          deserializeRecordAndPutIntoMap(in, deweyID);
+          deserializeRecordAndPutIntoMap(in, deweyID, byteBufferBytes);
         }
       }
+
+      byteBufferBytes.clear();
+      byteBufferBytes = null;
     } else {
       deweyIDs = new HashMap<>(Constants.NDP_NODE_COUNT);
       records = new DataRecord[Constants.NDP_NODE_COUNT];
@@ -248,16 +252,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     return this;
   }
 
-  private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId) {
+  private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId, Bytes<ByteBuffer> byteBufferBytes) {
     final long key = getVarLong(in);
     final int dataSize = in.readInt();
     final byte[] data = new byte[dataSize];
     in.read(data);
-    var byteBufferBytes = Bytes.elasticByteBuffer(data.length);
     BytesUtils.doWrite(byteBufferBytes, data);
     final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, deweyId, pageReadOnlyTrx);
     byteBufferBytes.clear();
-    byteBufferBytes = null;
     final var offset = pageReadOnlyTrx.recordPageOffset(key);
     if (records[offset] == null) {
       recordsStored++;
