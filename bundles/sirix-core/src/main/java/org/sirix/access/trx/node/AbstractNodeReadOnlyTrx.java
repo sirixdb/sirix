@@ -242,28 +242,28 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     // Remember old node and fetch new one.
     final N oldNode = currentNode;
-    Optional<? extends DataRecord> newNode;
+    DataRecord newNode;
     try {
       // Immediately return node from item list if node key negative.
       if (nodeKey < 0) {
         if (itemList.size() > 0) {
           newNode = itemList.getItem(nodeKey);
         } else {
-          newNode = Optional.empty();
+          newNode = null;
         }
       } else {
         newNode = getPageTransaction().getRecord(nodeKey, IndexType.DOCUMENT, -1);
       }
     } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
-      newNode = Optional.empty();
+      newNode = null;
     }
 
-    if (newNode.isPresent()) {
-      setCurrentNode((N) newNode.get());
-      return Move.moved(thisInstance());
-    } else {
+    if (newNode == null) {
       setCurrentNode(oldNode);
       return Move.notMoved();
+    } else {
+      setCurrentNode((N) newNode);
+      return Move.moved(thisInstance());
     }
   }
 

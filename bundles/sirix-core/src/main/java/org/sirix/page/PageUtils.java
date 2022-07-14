@@ -80,7 +80,7 @@ public final class PageUtils {
     // Create a {@link DocumentRootNode}.
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;
 
-    recordPage.setRecord(0L, databaseType.getDocumentNode(id));
+    recordPage.setRecord(databaseType.getDocumentNode(id));
 
     log.put(reference, PageContainer.getInstance(recordPage, recordPage));
   }

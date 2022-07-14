@@ -46,25 +46,26 @@ public final class FirstExisting extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final JsonDBItem item = (JsonDBItem) args[0];
 
-    final Optional<RevisionReferencesNode> indexNode =
+    final RevisionReferencesNode indexNode =
         item.getTrx().getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
-    return indexNode.map(node -> node.getRevisions()[0]).map(revision -> {
+    if (indexNode != null) {
+      final var revision = indexNode.getRevisions()[0];
       final var resourceManager = item.getTrx().getResourceManager();
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       rtx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(rtx, item.getCollection());
-    }).orElseGet(() -> {
-      final var resourceManager = item.getTrx().getResourceManager();
-      for (int revisionNumber = 1; revisionNumber < resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
-        final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
-        if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
-          return new JsonItemFactory().getSequence(rtx, item.getCollection());
-        } else {
-          rtx.close();
-        }
+    }
+
+    final var resourceManager = item.getTrx().getResourceManager();
+    for (int revisionNumber = 1; revisionNumber < resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
+      final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+      if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
+        return new JsonItemFactory().getSequence(rtx, item.getCollection());
+      } else {
+        rtx.close();
       }
-      return null;
-    });
+    }
+    return null;
   }
 }

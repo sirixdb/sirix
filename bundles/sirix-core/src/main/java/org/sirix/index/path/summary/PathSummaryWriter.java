@@ -28,6 +28,7 @@ import org.sirix.page.NamePage;
 import org.sirix.settings.Fixed;
 
 import org.checkerframework.checker.index.qual.NonNegative;
+
 import javax.xml.namespace.QName;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -206,7 +207,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Adapting everything for insert operations.
    *
-   * @param newNode   pointer of the new node to be inserted
+   * @param newNode pointer of the new node to be inserted
    * @throws SirixIOException if anything weird happens
    */
   private void adaptForInsert(final Node newNode) {
@@ -443,8 +444,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (movedNodeCursorToFirstChild && movedPathSummaryToFirstChild) {
       final long pathRootNodeKey = pathSummaryReader.getNodeKey();
 
-      for (final LevelOrderAxis levelOrderAxis = new LevelOrderAxis.Builder(nodeRtx).includeSelf().build();
-          levelOrderAxis.hasNext(); ) {
+      for (final LevelOrderAxis levelOrderAxis =
+           new LevelOrderAxis.Builder(nodeRtx).includeSelf().build(); levelOrderAxis.hasNext(); ) {
         levelOrderAxis.next();
 
         if (nodeRtx.getNode() instanceof ImmutableNameNode) {
@@ -454,8 +455,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         }
       }
     } else if (movedNodeCursorToFirstChild) {
-      for (final LevelOrderAxis levelOrderAxis = new LevelOrderAxis.Builder(nodeRtx).includeSelf().build();
-          levelOrderAxis.hasNext(); ) {
+      for (final LevelOrderAxis levelOrderAxis =
+           new LevelOrderAxis.Builder(nodeRtx).includeSelf().build(); levelOrderAxis.hasNext(); ) {
         levelOrderAxis.next();
 
         if (nodeRtx.getNode() instanceof ImmutableNameNode) {
@@ -591,7 +592,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Reset a path node key.
    *
-   * @param nodeKey the nodeKey of the node to adapt
+   * @param nodeKey  the nodeKey of the node to adapt
    * @param nodeKind the kind of the node to adapt
    * @throws SirixException if anything fails
    */

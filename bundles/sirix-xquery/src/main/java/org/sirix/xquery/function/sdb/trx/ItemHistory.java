@@ -60,10 +60,8 @@ public final class ItemHistory extends AbstractFunction {
     final var resMgr = rtx.getResourceManager();
     final NodeReadOnlyTrx rtxInMostRecentRevision = resMgr.beginNodeReadOnlyTrx();
 
-    final Optional<RevisionReferencesNode> optionalNode =
+    final RevisionReferencesNode node =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
-
-    final RevisionReferencesNode node = optionalNode.orElse(null);
 
     if (node == null) {
       final List<Item> sequences = new ArrayList<>();

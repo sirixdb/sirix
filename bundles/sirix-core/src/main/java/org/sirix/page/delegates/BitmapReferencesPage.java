@@ -24,11 +24,10 @@ package org.sirix.page.delegates;
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
-import org.sirix.api.PageTrx;
-import org.sirix.cache.PageContainer;
-import org.sirix.page.*;
+import org.sirix.page.DeserializedBitmapReferencesPageTuple;
+import org.sirix.page.PageReference;
+import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -36,8 +35,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
 
 import static com.google.common.base.Preconditions.checkArgument;
 

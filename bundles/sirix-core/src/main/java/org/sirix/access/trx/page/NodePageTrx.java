@@ -205,133 +205,108 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <K, V> V prepareRecordForModification(@NonNull final K recordKey, @NonNull final IndexType indexType,
+  public DataRecord prepareRecordForModification(final long recordKey, @NonNull final IndexType indexType,
       final int index) {
     pageRtx.assertNotClosed();
-    checkNotNull(recordKey);
+    checkArgument(recordKey >= 0, "recordKey must be >= 0!");
+    checkNotNull(indexType);
 
-    if (recordKey instanceof Long nodeKey) {
-      checkArgument(nodeKey >= 0, "recordKey must be >= 0!");
-      checkNotNull(indexType);
+    final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
+    final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
 
-      final long recordPageKey = pageRtx.pageKey(nodeKey, indexType);
-      final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-
-      DataRecord record = ((UnorderedKeyValuePage) cont.getModified()).getValue(nodeKey);
-      if (record == null) {
-        final DataRecord oldRecord = ((UnorderedKeyValuePage) cont.getComplete()).getValue(nodeKey);
-        if (oldRecord == null) {
-          throw new SirixIOException("Cannot retrieve record from cache!");
-        }
-        record = oldRecord;
-        ((UnorderedKeyValuePage) cont.getModified()).setRecord(nodeKey, record);
+    DataRecord record = ((UnorderedKeyValuePage) cont.getModified()).getValue(recordKey);
+    if (record == null) {
+      final DataRecord oldRecord = ((UnorderedKeyValuePage) cont.getComplete()).getValue(recordKey);
+      if (oldRecord == null) {
+        throw new SirixIOException("Cannot retrieve record from cache!");
       }
-
-      return (V) record;
+      record = oldRecord;
+      ((UnorderedKeyValuePage) cont.getModified()).setRecord(record);
     }
 
-    // TODO
-    return null;
+    return record;
   }
 
   @Override
-  public <K, V> V createRecord(@NonNull final K recordKey, @NonNull final V record, @NonNull final IndexType indexType,
+  public DataRecord createRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType,
       @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
-    if (recordKey instanceof Long) {
-      // Allocate record key and increment record count.
-      // $CASES-OMITTED$
-      final long createdRecordKey = switch (indexType) {
-        case DOCUMENT -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
-        case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
-        case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
-        case PATH_SUMMARY -> {
-          final PathSummaryPage pathSummaryPage =
-              ((PathSummaryPage) newRevisionRootPage.getPathSummaryPageReference().getPage());
-          yield pathSummaryPage.incrementAndGetMaxNodeKey(index);
-        }
-        case CAS -> {
-          final CASPage casPage = ((CASPage) newRevisionRootPage.getCASPageReference().getPage());
-          yield casPage.incrementAndGetMaxNodeKey(index);
-        }
-        case PATH -> {
-          final PathPage pathPage = ((PathPage) newRevisionRootPage.getPathPageReference().getPage());
-          yield pathPage.incrementAndGetMaxNodeKey(index);
-        }
-        case NAME -> {
-          final NamePage namePage = ((NamePage) newRevisionRootPage.getNamePageReference().getPage());
-          yield namePage.incrementAndGetMaxNodeKey(index);
-        }
-        default -> throw new IllegalStateException();
-      };
-
-      final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
-      final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-      @SuppressWarnings("unchecked") final KeyValuePage<Long, DataRecord> modified =
-          (KeyValuePage<Long, DataRecord>) cont.getModified();
-      modified.setRecord(createdRecordKey, (DataRecord) record);
-      return record;
-    }
-
-    // TODO
-
-    return null;
-  }
-
-  @Override
-  public <K> void removeRecord(final K recordKey, @NonNull final IndexType indexType, final int index) {
-    pageRtx.assertNotClosed();
-    checkNotNull(recordKey);
-
-    if (recordKey instanceof Long nodeKey) {
-      final long recordPageKey = pageRtx.pageKey(nodeKey, indexType);
-      final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-      final Optional<DataRecord> node = getRecord(nodeKey, indexType, index);
-      if (node.isPresent()) {
-        final DataRecord nodeToDel = node.get();
-        final Node delNode = new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(),
-                                                              -1,
-                                                              null,
-                                                              null,
-                                                              pageRtx.getRevisionNumber(),
-                                                              (SirixDeweyID) null));
-        ((UnorderedKeyValuePage) cont.getModified()).setRecord(delNode.getNodeKey(), delNode);
-        ((UnorderedKeyValuePage) cont.getComplete()).setRecord(delNode.getNodeKey(), delNode);
-      } else {
-        throw new IllegalStateException("Node not found!");
+    // Allocate record key and increment record count.
+    // $CASES-OMITTED$
+    final long createdRecordKey = switch (indexType) {
+      case DOCUMENT -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
+      case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
+      case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
+      case PATH_SUMMARY -> {
+        final PathSummaryPage pathSummaryPage =
+            ((PathSummaryPage) newRevisionRootPage.getPathSummaryPageReference().getPage());
+        yield pathSummaryPage.incrementAndGetMaxNodeKey(index);
       }
-    }
+      case CAS -> {
+        final CASPage casPage = ((CASPage) newRevisionRootPage.getCASPageReference().getPage());
+        yield casPage.incrementAndGetMaxNodeKey(index);
+      }
+      case PATH -> {
+        final PathPage pathPage = ((PathPage) newRevisionRootPage.getPathPageReference().getPage());
+        yield pathPage.incrementAndGetMaxNodeKey(index);
+      }
+      case NAME -> {
+        final NamePage namePage = ((NamePage) newRevisionRootPage.getNamePageReference().getPage());
+        yield namePage.incrementAndGetMaxNodeKey(index);
+      }
+      default -> throw new IllegalStateException();
+    };
 
-    // TODO
+    final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
+    final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
+    final KeyValuePage<DataRecord> modified = (KeyValuePage<DataRecord>) cont.getModified();
+    modified.setRecord(record);
+    return record;
   }
 
   @Override
-  public <K, V> Optional<V> getRecord(@NonNull final K recordKey, @NonNull final IndexType indexType,
+  public void removeRecord(final long recordKey, @NonNull final IndexType indexType, final int index) {
+    pageRtx.assertNotClosed();
+
+    final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
+    final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
+    final DataRecord node = getRecord(recordKey, indexType, index);
+    if (node == null) {
+      throw new IllegalStateException("Node not found: " + recordKey);
+    }
+
+    final Node delNode = new DeletedNode(new NodeDelegate(node.getNodeKey(),
+                                                          -1,
+                                                          null,
+                                                          null,
+                                                          pageRtx.getRevisionNumber(),
+                                                          (SirixDeweyID) null));
+    ((UnorderedKeyValuePage) cont.getModified()).setRecord(delNode);
+    ((UnorderedKeyValuePage) cont.getComplete()).setRecord(delNode);
+  }
+
+  @Override
+  public DataRecord getRecord(@NonNull final long recordKey, @NonNull final IndexType indexType,
       @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
-    if (recordKey instanceof Long nodeKey) {
-      checkArgument(nodeKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
-      checkNotNull(indexType);
+    checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
+    checkNotNull(indexType);
 
-      // Calculate page.
-      final long recordPageKey = pageRtx.pageKey(nodeKey, indexType);
+    // Calculate page.
+    final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
 
-      final PageContainer pageCont = prepareRecordPage(recordPageKey, index, indexType);
-      if (pageCont.equals(PageContainer.emptyInstance())) {
-        return pageRtx.getRecord(recordKey, indexType, index);
-      } else {
-        DataRecord node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(nodeKey);
-        if (node == null) {
-          node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(nodeKey);
-        }
-        return (Optional<V>) pageRtx.checkItemIfDeleted(node);
+    final PageContainer pageCont = prepareRecordPage(recordPageKey, index, indexType);
+    if (pageCont.equals(PageContainer.emptyInstance())) {
+      return pageRtx.getRecord(recordKey, indexType, index);
+    } else {
+      DataRecord node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(recordKey);
+      if (node == null) {
+        node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(recordKey);
       }
+      return pageRtx.checkItemIfDeleted(node);
     }
-
-    // TODO
-    return Optional.empty();
   }
 
   @Override
@@ -416,12 +391,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         newRevisionRootPage.setCommitTimestamp(commitTimestamp);
       }
 
-      log.getDataPagesMap()
+      log.getMap()
          .entrySet()
          .parallelStream()
-         .map(entry -> entry.getValue())
+         .map(Map.Entry::getValue)
          .map(PageContainer::getModified)
-//         .filter(page -> page instanceof UnorderedKeyValuePage)
+         .filter(page -> page instanceof UnorderedKeyValuePage)
          .forEach(page -> {
            assert page instanceof UnorderedKeyValuePage;
            Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(10_000);
@@ -577,7 +552,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * @return dereferenced page
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
-    final List<UnorderedKeyValuePage> pageFragments = pageRtx.getPageFragments(reference);
+    final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
     final VersioningType revisioning = pageRtx.resourceManager.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceManager.getResourceConfig().maxNumberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);

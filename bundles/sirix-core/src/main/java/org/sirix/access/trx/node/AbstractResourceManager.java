@@ -325,18 +325,14 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
-    final Node documentNode;
-
-    @SuppressWarnings("unchecked") final Optional<? extends Node> node =
+    @SuppressWarnings("unchecked") final Node node =
         pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
-    if (node.isPresent()) {
-      documentNode = node.get();
-    } else {
+    if (node == null) {
       pageReadTrx.close();
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
 
-    return documentNode;
+    return node;
   }
 
   /**

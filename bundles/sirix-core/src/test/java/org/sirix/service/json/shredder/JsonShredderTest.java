@@ -12,7 +12,6 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.io.StorageType;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.service.InsertPosition;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.settings.VersioningType;
@@ -43,8 +42,9 @@ public final class JsonShredderTest {
 
   @Test
   public void test() throws IOException {
-    final var jsonStringReader = JsonShredder.createStringReader("test");
-    assertEquals("test", jsonStringReader.nextString());
+    try (final var jsonStringReader = JsonShredder.createStringReader("test")) {
+      assertEquals("test", jsonStringReader.nextString());
+    }
   }
 
   @Ignore
@@ -68,7 +68,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -77,17 +76,17 @@ public final class JsonShredderTest {
       try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                      .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                     .buildPathSummary(false)
-                                                     .storeDiffs(false)
+                                                     .buildPathSummary(true)
+                                                     .storeDiffs(true)
                                                      .storeNodeHistory(false)
-                                                     .storeChildCount(false)
-                                                     .hashKind(HashType.NONE)
+                                                     .storeChildCount(true)
+                                                     .hashKind(HashType.ROLLING)
                                                      .useTextCompression(false)
-                                                     .storageType(StorageType.FILE)
-                                                     .useDeweyIDs(false)
+                                                     .storageType(StorageType.MEMORY_MAPPED)
+                                                     .useDeweyIDs(true)
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx(10_000_000)) {
+             final var trx = manager.beginNodeTrx(5_242_880)) {
           trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
         }
       }

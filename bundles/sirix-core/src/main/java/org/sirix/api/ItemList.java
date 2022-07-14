@@ -58,7 +58,7 @@ public interface ItemList<T extends Node> {
    * @param pKey key of the item, that should be returned
    * @return item at the given index
    */
-  Optional<T> getItem(final long pKey);
+  T getItem(final long pKey);
 
   /**
    * Determines how many items are in the list.

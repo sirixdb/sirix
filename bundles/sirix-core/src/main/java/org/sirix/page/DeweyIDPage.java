@@ -166,9 +166,12 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     return false;
   }
 
-  public Optional<SirixDeweyID> getDeweyIdForNodeKey(final long nodeKey, final PageReadOnlyTrx pageReadOnlyTrx) {
-    final Optional<DeweyIDNode> node = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DEWEYID_TO_RECORDID, 0);
-    return node.map(DeweyIDNode::getDeweyID);
+  public SirixDeweyID getDeweyIdForNodeKey(final long nodeKey, final PageReadOnlyTrx pageReadOnlyTrx) {
+    final DeweyIDNode node = (DeweyIDNode) pageReadOnlyTrx.getRecord(nodeKey, IndexType.DEWEYID_TO_RECORDID, 0);
+    if (node == null) {
+      return null;
+    }
+    return node.getDeweyID();
   }
 
   public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final PageReadOnlyTrx pageReadOnlyTrx) {
@@ -177,11 +180,11 @@ public final class DeweyIDPage extends AbstractForwardingPage {
           ChronicleMap.of(SirixDeweyID.class, Long.class).name("deweyIDsToNodeKeysMap").entries(maxNodeKey).create();
       for (long i = 1, l = maxNodeKey; i < l; i += 2) {
         final long nodeKeyOfNode = i;
-        final Optional<? extends DataRecord> deweyIDNode =
+        final var deweyIDNode =
             pageReadOnlyTrx.getRecord(nodeKeyOfNode, IndexType.DEWEYID_TO_RECORDID, 0);
 
-        if (deweyIDNode.isPresent() && deweyIDNode.get().getKind() != NodeKind.DELETE) {
-          deweyIDsToNodeKeys.put(deweyIDNode.get().getDeweyID(), nodeKeyOfNode);
+        if (deweyIDNode != null && deweyIDNode.getKind() != NodeKind.DELETE) {
+          deweyIDsToNodeKeys.put(deweyIDNode.getDeweyID(), nodeKeyOfNode);
         }
       }
     }
@@ -190,8 +193,8 @@ public final class DeweyIDPage extends AbstractForwardingPage {
 
   public void setDeweyID(final SirixDeweyID deweyId, final PageTrx pageTrx) {
     final long nodeKey = maxNodeKey;
-    final DeweyIDNode node = new DeweyIDNode(maxNodeKey, deweyId);
-    pageTrx.createRecord(maxNodeKey++, node,  IndexType.DEWEYID_TO_RECORDID, 0);
+    final DeweyIDNode node = new DeweyIDNode(maxNodeKey++, deweyId);
+    pageTrx.createRecord(node,  IndexType.DEWEYID_TO_RECORDID, 0);
     deweyIDsToNodeKeys.put(deweyId, nodeKey);
   }
 }

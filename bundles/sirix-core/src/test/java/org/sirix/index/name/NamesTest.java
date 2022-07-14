@@ -31,9 +31,9 @@ public final class NamesTest {
 
     @SuppressWarnings("unchecked")
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createRecord(anyLong(), any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
+    when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashEntryNode);
-    when(pageTrx.createRecord(anyLong(), any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
+    when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashCountEntryNode);
     when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;

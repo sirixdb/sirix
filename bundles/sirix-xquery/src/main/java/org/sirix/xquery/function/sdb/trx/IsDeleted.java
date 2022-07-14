@@ -62,10 +62,8 @@ public final class IsDeleted extends AbstractFunction {
     final var mostRecentRevisionNumber = resMgr.getMostRecentRevisionNumber();
     final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resMgr, mostRecentRevisionNumber);
 
-    final Optional<RevisionReferencesNode> optionalNode =
+    final RevisionReferencesNode node =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
-
-    final RevisionReferencesNode node = optionalNode.orElse(null);
 
     if (node == null) {
       return rtxInMostRecentRevision.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;

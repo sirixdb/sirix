@@ -9,11 +9,13 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
+import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.util.Optional;
 
 /**
@@ -21,8 +23,8 @@ import java.util.Optional;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public abstract class AbstractForwardingPageReadOnlyTrx
-    extends ForwardingObject implements PageReadOnlyTrx {
+public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
+    implements PageReadOnlyTrx {
 
   /**
    * Constructor for use by subclasses.
@@ -57,8 +59,7 @@ public abstract class AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public <K, V> Optional<V> getRecord(@NonNull K key,
-      @NonNull IndexType indexType, int index) {
+  public <V extends DataRecord> V getRecord(long key, @NonNull IndexType indexType, int index) {
     return delegate().getRecord(key, indexType, index);
   }
 

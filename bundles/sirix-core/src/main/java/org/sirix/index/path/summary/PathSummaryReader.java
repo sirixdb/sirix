@@ -21,7 +21,6 @@ import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -94,10 +93,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     isClosed = false;
     this.resourceManager = resourceManager;
 
-    final Optional<? extends DataRecord> node =
-        this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
-    currentNode = (StructNode) node.orElseThrow(() -> new IllegalStateException(
-        "Node couldn't be fetched from persistent storage!"));
+    currentNode = this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
+
+    if (currentNode == null) {
+      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
+    }
 
     pathNodeMapping = new HashMap<>();
     qnmMapping = new HashMap<>();
@@ -397,20 +397,20 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     // Remember old node and fetch new one.
     final StructNode oldNode = currentNode;
-    Optional<? extends StructNode> newNode;
+    StructNode newNode;
     try {
       // Immediately return node from item list if node key negative.
       newNode = pageReadTrx.getRecord(nodeKey, IndexType.PATH_SUMMARY, 0);
     } catch (final SirixIOException e) {
-      newNode = Optional.empty();
+      newNode = null;
     }
 
-    if (newNode.isPresent()) {
-      currentNode = newNode.get();
-      return Move.moved(this);
-    } else {
+    if (newNode == null) {
       currentNode = oldNode;
       return Move.notMoved();
+    } else {
+      currentNode = newNode;
+      return Move.moved(this);
     }
   }
 
@@ -463,7 +463,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Make sure that the path summary is not yet closed when calling this method.
    */
-  final void assertNotClosed() {
+  private void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("Path summary is already closed.");
     }

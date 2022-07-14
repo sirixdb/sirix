@@ -1,6 +1,7 @@
 package org.sirix.page.interfaces;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -18,21 +19,14 @@ import org.sirix.page.PageReference;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<K, V> extends Page {
-  /**
-   * Entry set of all nodes in the page. Changes to the set are reflected in the internal data
-   * structure
-   *
-   * @return an entry set
-   */
-  Set<Entry<K, V>> entrySet();
+public interface KeyValuePage<V extends DataRecord> extends Page {
 
   /**
    * All available records.
    *
    * @return all records
    */
-  Collection<V> values();
+  <I extends Iterable<V>> I values();
 
   /**
    * Get the unique page record identifier.
@@ -47,18 +41,17 @@ public interface KeyValuePage<K, V> extends Page {
    * @param key the key
    * @return value with given key, or {@code null} if not present
    */
-  V getValue(K key);
+  V getValue(long key);
 
   /**
    * Store or overwrite a single entry. The implementation must make sure if the key must be
    * permitted, the value or none.
    *
-   * @param key key to store
    * @param value value to store
    */
-  void setRecord(K key, @NonNull V value);
+  void setRecord(@NonNull V value);
 
-  Set<Entry<K, PageReference>> referenceEntrySet();
+  Set<Entry<Long, PageReference>> referenceEntrySet();
 
   /**
    * Store or overwrite a single reference associated with a key for overlong entries. That is
@@ -68,9 +61,9 @@ public interface KeyValuePage<K, V> extends Page {
    * @param key key to store
    * @param reference reference to store
    */
-  void setPageReference(K key, @NonNull PageReference reference);
+  void setPageReference(long key, @NonNull PageReference reference);
 
-  PageReference getPageReference(K key);
+  PageReference getPageReference(long key);
 
   /**
    * Create a new instance.
@@ -80,7 +73,7 @@ public interface KeyValuePage<K, V> extends Page {
    * @param pageReadTrx transaction to read pages
    * @return a new {@link KeyValuePage} instance
    */
-  <C extends KeyValuePage<K, V>> C newInstance(@NonNegative long recordPageKey,
+  <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
 
   /**
