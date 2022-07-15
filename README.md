@@ -476,11 +476,11 @@ Core project:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.9.6-SNAPSHOT</version>
+  <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-core', version:'0.9.6-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-core', version:'0.9.7-SNAPSHOT'
 ```
 
 Brackit binding:
@@ -509,6 +509,34 @@ compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.7-SNAPSHOT'
 ```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
+
+You have to add the following JVM parameters currently:
+
+```
+-ea
+--enable-preview
+--add-modules=jdk.incubator.foreign
+--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED
+--add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED
+--add-opens=java.base/java.lang=ALL-UNNAMED
+--add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens=java.base/java.io=ALL-UNNAMED
+--add-opens=java.base/java.util=ALL-UNNAMED
+```
+
+Plus we recommend using the Shenandoah GC:
+
+```
+-XX:+UseShenandoahGC
+-Xlog:gc
+-XX:+AlwaysPreTouch
+-XX:+UseLargePages
+-XX:-UseBiasedLocking
+-XX:+DisableExplicitGC
+```
 
 ### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 
