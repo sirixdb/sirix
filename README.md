@@ -49,6 +49,7 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
     -   [Revision Histories](#revision-histories)
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
+    -   [Maven Artifacts](#maven-artifacts)
     -   [Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API](#setup-of-the-sirixdb-http-server-and-keycloak-to-use-the-rest-api)
     -   [Command line tool](#command-line-tool)
     -   [Documentation](#documentation)
