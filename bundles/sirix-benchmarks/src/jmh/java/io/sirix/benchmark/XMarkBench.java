@@ -1,4 +1,23 @@
+package io.sirix.benchmark;
 
+import org.brackit.xquery.XQuery;
+import org.brackit.xquery.node.parser.DocumentParser;
+import org.openjdk.jmh.annotations.*;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.Database;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.service.xml.shredder.XmlShredder;
+import org.sirix.xquery.SirixCompileChain;
+import org.sirix.xquery.SirixQueryContext;
+import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBCollection;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
