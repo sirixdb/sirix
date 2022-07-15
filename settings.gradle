@@ -16,4 +16,5 @@ project(':sirix-rest-api').projectDir = file('bundles/sirix-rest-api')
 project(':sirix-example').projectDir = file('bundles/sirix-examples')
 project(':sirix-kotlin-api').projectDir = file('bundles/sirix-kotlin-api')
 project(':sirix-kotlin-cli').projectDir = file('bundles/sirix-kotlin-cli')
+project(':sirix-benchmarks').projectDir = file('bundles/sirix-benchmarks')
 

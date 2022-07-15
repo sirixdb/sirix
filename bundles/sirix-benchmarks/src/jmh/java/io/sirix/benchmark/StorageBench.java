@@ -6,8 +6,8 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
-import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.page.PageReference;
@@ -62,8 +62,9 @@ public class StorageBench {
   public static class BenchState {
 
     public Database<XmlResourceManager> db;
-    public Storage storage;
+    public IOStorage storage;
     public Reader reader;
+
     public Writer writer;
     public XmlResourceManager manager;
     public PageReference uberPage;
