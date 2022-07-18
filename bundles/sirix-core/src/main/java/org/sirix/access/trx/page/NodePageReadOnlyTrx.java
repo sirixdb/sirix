@@ -486,9 +486,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   private Page readPage(final PageFragmentKey pageFragmentKey) {
-    try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.revision())) {
-      return pageReadOnlyTrx.getReader().read(new PageReference().setKey(pageFragmentKey.key()), pageReadOnlyTrx);
-    }
+    final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx(pageFragmentKey.revision());
+    return pageReadOnlyTrx.getReader().read(new PageReference().setKey(pageFragmentKey.key()), pageReadOnlyTrx);
   }
 
   static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {

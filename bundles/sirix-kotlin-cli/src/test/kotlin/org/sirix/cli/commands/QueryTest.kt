@@ -15,6 +15,68 @@ import java.io.PrintStream
 
 internal class QueryTest : CliCommandTest() {
 
+    val xmlSimple = """
+        Execute Query. Result is:
+        <rest:sequence xmlns:rest="https://sirix.io/rest">
+          <rest:item>
+            <xml rest:id="1">
+              <bar rest:id="2">
+                <hello rest:id="3">world</hello>
+                <helloo rest:id="5">true</helloo>
+              </bar>
+              <baz rest:id="7">hello</baz>
+              <foo rest:id="9">
+                <element rest:id="10">bar</element>
+                <element rest:id="12" null="true"/>
+                <element rest:id="14">2.33</element>
+              </foo>
+              <tada rest:id="16">
+                <element rest:id="17">
+                  <foo rest:id="18">bar</foo>
+                </element>
+                <element rest:id="20">
+                  <baz rest:id="21">false</baz>
+                </element>
+                <element rest:id="23">boo</element>
+                <element rest:id="25"/>
+                <element rest:id="26"/>
+              </tada>
+            </xml>
+          </rest:item>
+        </rest:sequence>
+        Query executed (123)
+    """.trimIndent();
+
+    val jsonSimple = """
+        Execute Query. Result is:
+        {
+          "foo": [
+            "bar",
+            null,
+            2.33
+          ],
+          "bar": {
+            "hello": "world",
+            "helloo": true
+          },
+          "baz": "hello",
+          "tada": [
+            {
+              "foo": "bar"
+            },
+            {
+              "baz": false
+            },
+            "boo",
+            {},
+            []
+          ]
+        }
+        Query executed (123)
+    """.trimIndent();
+
+
+
     companion object {
         @JvmField
         val LOGGER: Logger = LoggerFactory.getLogger(QueryTest::class.java)
@@ -52,10 +114,7 @@ internal class QueryTest : CliCommandTest() {
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
-        assertEquals(
-            "ExecuteQuery.Resultis:{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}Queryexecuted(123)",
-            queryResult
-        )
+        assertEquals(jsonSimple, queryResult)
     }
 
     @Test
@@ -67,10 +126,7 @@ internal class QueryTest : CliCommandTest() {
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
-        assertEquals(
-            "ExecuteQuery.Resultis:<rest:sequencexmlns:rest=\"https://sirix.io/rest\"><rest:item><xmlrest:id=\"1\"><barrest:id=\"2\"><hellorest:id=\"3\">world</hello><helloorest:id=\"5\">true</helloo></bar><bazrest:id=\"7\">hello</baz><foorest:id=\"9\"><elementrest:id=\"10\">bar</element><elementrest:id=\"12\"null=\"true\"/><elementrest:id=\"14\">2.33</element></foo><tadarest:id=\"16\"><elementrest:id=\"17\"><foorest:id=\"18\">bar</foo></element><elementrest:id=\"20\"><bazrest:id=\"21\">false</baz></element><elementrest:id=\"23\">boo</element><elementrest:id=\"25\"/><elementrest:id=\"26\"/></tada></xml></rest:item></rest:sequence>Queryexecuted(123)",
-            queryResult
-        )
+        assertEquals(xmlSimple, queryResult)
     }
 
     @Test
@@ -78,18 +134,17 @@ internal class QueryTest : CliCommandTest() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(CliOptions(sirixQueryTestFileJson, true), giveAXQueryOption()).execute()
+        Query(CliOptions(sirixQueryTestFileJson, true), giveAJSONiqQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
         assertEquals(
-            "ExecuteQuery.Resultis:{\"rest\":[{\"nodeKey\":6}]}Queryexecuted(123)",
+            "Execute Query. Result is:\n{\"rest\":[{\"nodeKey\":6}]}\nQuery executed (123)",
             queryResult
         )
     }
 
     @Test
-    @Disabled
     fun testXmlXQuery() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
@@ -99,7 +154,7 @@ internal class QueryTest : CliCommandTest() {
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
         assertEquals(
-            "ExecuteQuery.Result is:{\"rest\":[{\"nodeKey\":2}]} Query executed (123)",
+            "Execute Query. Result is:\n<result nodeKey=\"14\"/>\nQuery executed (123)",
             queryResult
         )
     }
@@ -127,6 +182,27 @@ internal class QueryTest : CliCommandTest() {
 
     private fun giveAXQueryOption() =
         QueryOptions(
+            queryStr = "let \$nodeKey := sdb:nodekey(/xml/foo/element[3]) return <result nodeKey=\"{ \$nodeKey }\"/>",
+            resource = CliCommandTestConstants.TEST_RESOURCE,
+            revision = null,
+            revisionTimestamp = null,
+            startRevision = null,
+            endRevision = null,
+            startRevisionTimestamp = null,
+            endRevisionTimestamp = null,
+            nodeId = null,
+            nextTopLevelNodes = null,
+            lastTopLevelNodeKey = null,
+            startResultSeqIndex = null,
+            endResultSeqIndex = null,
+            maxLevel = null,
+            metaData = MetaDataEnum.NONE,
+            prettyPrint = true,
+            user = null
+        )
+
+    private fun giveAJSONiqQueryOption() =
+        QueryOptions(
             queryStr = "let \$nodeKey := sdb:nodekey(.=>foo[[2]]) return {\"nodeKey\": \$nodeKey}",
             resource = CliCommandTestConstants.TEST_RESOURCE,
             revision = null,
@@ -148,7 +224,7 @@ internal class QueryTest : CliCommandTest() {
 }
 
 private fun prepareQueryResult(outputStream: OutputStream): String {
-    return outputStream.toString().replace("\\s".toRegex(), "").replace("\\d+ms".toRegex(), "123")
+    return outputStream.toString().trim().replace("\\d+ms".toRegex(), "123")
 }
 
 

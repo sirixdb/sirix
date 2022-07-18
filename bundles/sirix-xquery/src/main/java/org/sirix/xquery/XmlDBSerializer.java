@@ -37,6 +37,7 @@ import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.util.serialize.Serializer;
+import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Kind;
@@ -114,10 +115,10 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
               out.print(" ");
             }
 
-            out.print(item.toString());
+            out.print(item);
             first = false;
           } else {
-            // TODO
+            new StringSerializer(out).serialize(item);
           }
         }
       } finally {

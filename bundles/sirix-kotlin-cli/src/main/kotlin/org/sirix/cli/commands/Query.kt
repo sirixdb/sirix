@@ -79,7 +79,6 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                             val out = ByteArrayOutputStream()
 
                             PrintStream(out).use { printStream ->
-
                                 SirixCompileChain.createWithNodeStore(dbStore).use { sirixCompileChain ->
                                     if (queryOptions.startResultSeqIndex == null) {
                                         XQuery(sirixCompileChain, queryOptions.queryStr).prettyPrint().serialize(

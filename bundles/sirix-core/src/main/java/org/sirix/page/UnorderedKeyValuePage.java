@@ -23,7 +23,6 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -380,7 +379,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     }
 
     out.writeByte(indexType.getID());
-    hashCode = Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
+    hashCode = new byte[] {};//Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
     bytes = out;
   }
 
@@ -538,5 +537,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   @Override
   public int getRevision() {
     return revision;
+  }
+
+  @Override
+  public void close() {
+    pageReadOnlyTrx.close();
   }
 }

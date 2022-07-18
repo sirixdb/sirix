@@ -19,7 +19,7 @@ import org.sirix.page.PageReference;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<V extends DataRecord> extends Page {
+public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   /**
    * All available records.

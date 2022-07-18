@@ -43,7 +43,6 @@ internal class DumpResourceHistoryTest : CliCommandTest() {
             manager.use {
                 val wtx = manager.beginNodeTrx()
                 wtx.use {
-
                     wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(TEST_XML_DATA))
                     wtx.commit(TEST_COMMIT_MESSAGE)
                 }

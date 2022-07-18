@@ -32,6 +32,7 @@ import org.sirix.settings.Fixed;
 
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.math.BigInteger;
 
 /**
@@ -42,43 +43,56 @@ import java.math.BigInteger;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public class StructNodeDelegate extends AbstractForwardingNode implements StructNode {
 
-  /** Pointer to the first child of the current node. */
+  /**
+   * Pointer to the first child of the current node.
+   */
   private long firstChild;
 
-  /** Pointer to the last child of the current node. */
+  /**
+   * Pointer to the last child of the current node.
+   */
   private long lastChild;
 
-  /** Pointer to the right sibling of the current node. */
+  /**
+   * Pointer to the right sibling of the current node.
+   */
   private long rightSibling;
 
-  /** Pointer to the left sibling of the current node. */
+  /**
+   * Pointer to the left sibling of the current node.
+   */
   private long leftSibling;
 
-  /** Number of children. */
+  /**
+   * Number of children.
+   */
   private long childCount;
 
-  /** Number of descendants. */
+  /**
+   * Number of descendants.
+   */
   private long descendantCount;
 
-  /** Delegate for common node information. */
+  /**
+   * Delegate for common node information.
+   */
   private final NodeDelegate nodeDelegate;
 
   /**
    * Constructor.
    *
-   * @param nodeDelegate {@link NodeDelegate} instance
-   * @param firstChild first child key
-   * @param rightSibling right sibling key
-   * @param leftSibling left sibling key
-   * @param childCount number of children of the node
+   * @param nodeDelegate    {@link NodeDelegate} instance
+   * @param firstChild      first child key
+   * @param rightSibling    right sibling key
+   * @param leftSibling     left sibling key
+   * @param childCount      number of children of the node
    * @param descendantCount number of descendants of the node
    */
-  public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long rightSibling, final long leftSibling,
-      final @NonNegative long childCount, final @NonNegative long descendantCount) {
+  public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long rightSibling,
+      final long leftSibling, final @NonNegative long childCount, final @NonNegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     assert nodeDelegate != null : "del must not be null!";
@@ -94,16 +108,17 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   /**
    * Constructor.
    *
-   * @param nodeDelegate {@link NodeDelegate} instance
-   * @param firstChild first child key
-   * @param lastChild last child key
-   * @param rightSibling right sibling key
-   * @param leftSibling left sibling key
-   * @param childCount number of children of the node
+   * @param nodeDelegate    {@link NodeDelegate} instance
+   * @param firstChild      first child key
+   * @param lastChild       last child key
+   * @param rightSibling    right sibling key
+   * @param leftSibling     left sibling key
+   * @param childCount      number of children of the node
    * @param descendantCount number of descendants of the node
    */
-  public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild, final long rightSibling,
-      final long leftSibling, final @NonNegative long childCount, final @NonNegative long descendantCount) {
+  public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild,
+      final long rightSibling, final long leftSibling, final @NonNegative long childCount,
+      final @NonNegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     assert nodeDelegate != null : "del must not be null!";
@@ -128,8 +143,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public boolean hasLastChild() {
-    return lastChild != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty() &&
-      lastChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return lastChild != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()
+        && lastChild != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -202,21 +217,38 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public int hashCode() {
-    return ((lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) ? Objects.hashCode(
-      childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount) : Objects.hashCode(
-      childCount, nodeDelegate, firstChild, lastChild, leftSibling, rightSibling, descendantCount));
+    return ((lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty())
+        ? Objects.hashCode(childCount,
+                           nodeDelegate,
+                           firstChild,
+                           leftSibling,
+                           rightSibling,
+                           descendantCount)
+        : Objects.hashCode(childCount,
+                           nodeDelegate,
+                           firstChild,
+                           lastChild,
+                           leftSibling,
+                           rightSibling,
+                           descendantCount));
   }
 
   @Override
   public BigInteger computeHash() {
-    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) ->
-    {
-      if(lastChild != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-        into.putLong(node.getChildCount()).putLong(node.getDescendantCount()).putLong(node.getLeftSiblingKey()).putLong(
-            node.getRightSiblingKey()).putLong(node.getFirstChildKey());
+    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
+      if (lastChild != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey());
       } else {
-        into.putLong(node.getChildCount()).putLong(node.getDescendantCount()).putLong(node.getLeftSiblingKey()).putLong(
-            node.getRightSiblingKey()).putLong(node.getFirstChildKey()).putLong(node.getLastChildKey());
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey())
+            .putLong(node.getLastChildKey());
       }
     };
 
@@ -242,9 +274,11 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
     final StructNodeDelegate other = (StructNodeDelegate) obj;
 
-    return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate) && Objects.equal(
-        firstChild, other.firstChild)  && Objects.equal(lastChild, other.lastChild) && Objects.equal(
-        leftSibling, other.leftSibling) && Objects.equal(rightSibling, other.rightSibling) && Objects.equal(descendantCount, other.descendantCount);
+    return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate)
+        && Objects.equal(firstChild, other.firstChild) && Objects.equal(lastChild, other.lastChild) && Objects.equal(
+        leftSibling,
+        other.leftSibling) && Objects.equal(rightSibling, other.rightSibling) && Objects.equal(descendantCount,
+                                                                                               other.descendantCount);
   }
 
   @Override
