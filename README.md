@@ -49,6 +49,7 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
     -   [Revision Histories](#revision-histories)
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
+    -   [Maven Artifacts](#maven-artifacts)
     -   [Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API](#setup-of-the-sirixdb-http-server-and-keycloak-to-use-the-rest-api)
     -   [Command line tool](#command-line-tool)
     -   [Documentation](#documentation)
@@ -61,7 +62,7 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
 ## Keeping All Versions of Your Data By Sharing Structure
 We could write quite a bunch of stuff, why it's often of great value to keep all states of your data in a storage system. Still, recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations. The [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
 
-Our firm belief is that a temporal storage system must address the issues, which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems that do not support the storage thereof natively results in many unwanted hurdles. They waste storage space, query performance to retrieve past states of your data is not ideal, and usually, temporal operations are missing altogether.
+Our firm belief is that a temporal storage system must address the issues, which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems that do not support the storage thereof natively results in many unwanted hurdles. They waste storage space, query performance to retrieve past states of your data is not mostideal, and usually, temporal operations are missing altogether.
 
 The DBS must store data in a way that storage space is used as effectively as possible while supporting the reconstruction of each revision, as the database saw it during the commits. All this should be handled in linear time, whether it's the first revision or the most recent revision. Ideally, query time of old/past revisions and the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
@@ -467,7 +468,7 @@ repository {
 }
 ```
 
-<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.6-SNAPSHOT.</strong>
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.7-SNAPSHOT.</strong>
 
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently, the following artifacts are available:
 
