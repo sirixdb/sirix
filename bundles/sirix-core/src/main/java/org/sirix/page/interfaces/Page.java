@@ -37,7 +37,7 @@ import java.util.List;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Page {
+public interface Page extends AutoCloseable {
 
   /**
    * Serialize a page
@@ -107,4 +107,9 @@ public interface Page {
    * @return {@code true}, if the page is already full, {@code false} otherwise
    */
   boolean setOrCreateReference(int offset, PageReference pageReference);
+
+  @Override
+  default void close() {
+    // Nothing to do.
+  }
 }

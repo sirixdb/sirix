@@ -31,6 +31,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.PageFragmentKey;
 
 import org.checkerframework.checker.index.qual.NonNegative;
+
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -57,9 +58,9 @@ public enum VersioningType {
     }
 
     @Override
-    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
-        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
-        final TransactionIntentLog log) {
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
+        final List<T> pages, final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
+        final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
@@ -127,13 +128,16 @@ public enum VersioningType {
           }
         }
       }
+
+      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
+
       return returnVal;
     }
 
     @Override
-    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
-        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
-        final TransactionIntentLog log) {
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
+        final List<T> pages, final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
+        final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
@@ -198,6 +202,8 @@ public enum VersioningType {
         }
       }
 
+      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
+
       final var pageContainer = PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
       log.put(reference, pageContainer);
       return pageContainer;
@@ -259,12 +265,14 @@ public enum VersioningType {
         }
       }
 
+      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
+
       return returnVal;
     }
 
     @Override
-    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
-        final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
@@ -272,7 +280,7 @@ public enum VersioningType {
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
-          i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
+           i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
@@ -325,6 +333,8 @@ public enum VersioningType {
           }
         }
       }
+
+      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
 
       final var pageContainer = PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
       log.put(reference, pageContainer);
@@ -395,19 +405,21 @@ public enum VersioningType {
         }
       }
 
+      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
+
       return returnVal;
     }
 
     @Override
-    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(final List<T> pages,
-        final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+    public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
-          i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
+           i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
@@ -472,6 +484,8 @@ public enum VersioningType {
         }
       }
 
+      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
+
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, pageContainer);
       return pageContainer;
@@ -497,6 +511,16 @@ public enum VersioningType {
       return retVal;
     }
   };
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> void closePageReadOnlyTrxIfItIsNotCurrentTrx(
+      List<T> pages, PageReadOnlyTrx pageReadTrx) {
+    for (final T page : pages) {
+      final var trx = page.getPageReadOnlyTrx();
+      if (trx != pageReadTrx) {
+        trx.close();
+      }
+    }
+  }
 
   /**
    * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus
