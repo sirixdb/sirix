@@ -21,12 +21,8 @@
 
 package org.sirix.axis.concurrent;
 
-import static org.junit.Assert.assertEquals;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -38,10 +34,13 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.XmlNameFilter;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.*;
 
 /** Test {@link ConcurrentAxis}. */
 public final class ConcurrentAxisTest {
@@ -99,10 +98,10 @@ public final class ConcurrentAxisTest {
     final int resultNumber = 55;
     final Axis axis = new XPathAxis(holder.getXmlNodeReadTrx(), query);
     for (int i = 0; i < resultNumber; i++) {
-      assertEquals(true, axis.hasNext());
-      axis.next();
+      assertTrue(axis.hasNext());
+      axis.nextLong();
     }
-    assertEquals(false, axis.hasNext());
+    assertFalse(axis.hasNext());
   }
 
   /**
@@ -110,7 +109,7 @@ public final class ConcurrentAxisTest {
    */
   // @Bench
   @Test
-  public void testSeriellNew() throws Exception {
+  public void testSeriellNew() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var axis = new NestedAxis(new NestedAxis(
@@ -121,10 +120,10 @@ public final class ConcurrentAxisTest {
             new XmlNameFilter(holder.getXmlNodeReadTrx(), "location")));
 
     for (int i = 0; i < resultNumber; i++) {
-      assertEquals(true, axis.hasNext());
-      axis.next();
+      assertTrue(axis.hasNext());
+      axis.nextLong();
     }
-    assertEquals(false, axis.hasNext());
+    assertFalse(axis.hasNext());
   }
 
   /**
@@ -154,10 +153,10 @@ public final class ConcurrentAxisTest {
                 new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XmlNameFilter(thirdRtx, "location"))));
 
     for (int i = 0; i < resultNumber; i++) {
-      assertEquals(true, axis.hasNext());
-      axis.next();
+      assertTrue(axis.hasNext());
+      axis.nextLong();
     }
-    assertEquals(false, axis.hasNext());
+    assertFalse(axis.hasNext());
   }
 
   /**
@@ -180,10 +179,10 @@ public final class ConcurrentAxisTest {
             new XmlNameFilter(firstConcurrRtx, "location")));
 
     for (int i = 0; i < resultNumber; i++) {
-      assertEquals(true, axis.hasNext());
-      axis.next();
+      assertTrue(axis.hasNext());
+      axis.nextLong();
     }
-    assertEquals(false, axis.hasNext());
+    assertFalse(axis.hasNext());
   }
 
   /**
@@ -206,10 +205,10 @@ public final class ConcurrentAxisTest {
                 new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
 
     for (int i = 0; i < resultNumber; i++) {
-      assertEquals(true, axis.hasNext());
-      axis.next();
+      assertTrue(axis.hasNext());
+      axis.nextLong();
     }
-    assertEquals(axis.hasNext(), false);
+    assertFalse(axis.hasNext());
   }
 
   /*
@@ -250,7 +249,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -291,7 +290,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   //
@@ -332,7 +331,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -368,7 +367,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -400,7 +399,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -430,7 +429,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -460,7 +459,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   //
@@ -492,7 +491,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -523,7 +522,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -554,7 +553,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(false, axis.hasNext());
   // }
@@ -601,7 +600,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -645,7 +644,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -688,7 +687,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -730,7 +729,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -772,7 +771,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -814,7 +813,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -849,7 +848,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -879,7 +878,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -908,7 +907,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -938,7 +937,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -978,7 +977,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -1014,7 +1013,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -1048,7 +1047,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -1082,7 +1081,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //
@@ -1117,7 +1116,7 @@ public final class ConcurrentAxisTest {
   //
   // for (int i = 0; i < resultNumber; i++) {
   // assertEquals(true, axis.hasNext());
-  // axis.next();
+  // axis.nextLong()
   // }
   // assertEquals(axis.hasNext(), false);
   //

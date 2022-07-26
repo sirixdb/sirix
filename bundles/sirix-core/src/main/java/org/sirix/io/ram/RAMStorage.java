@@ -1,8 +1,11 @@
 package org.sirix.io.ram;
 
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
@@ -132,7 +135,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer write(final PageReference pageReference) throws SirixIOException {
+    public Writer write(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
@@ -141,7 +144,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
+    public Writer writeUberPageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey, page);

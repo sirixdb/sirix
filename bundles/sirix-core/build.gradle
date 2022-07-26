@@ -14,6 +14,7 @@ dependencies {
     api implLibraries.caffeine
     api implLibraries.tink
     api implLibraries.dagger
+    api implLibraries.fastUtil
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections

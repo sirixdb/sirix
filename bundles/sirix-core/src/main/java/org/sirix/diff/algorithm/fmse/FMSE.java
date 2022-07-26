@@ -159,7 +159,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param nodeComparisonFactory the node comparison factory to use
    * @return a new instance
    */
-  public static final FMSE createWithIdentifier(final QNm idName, final NodeComparisonFactory nodeComparisonFactory) {
+  public static FMSE createWithIdentifier(final QNm idName, final NodeComparisonFactory nodeComparisonFactory) {
     return new FMSE(idName, nodeComparisonFactory);
   }
 
@@ -222,7 +222,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     // 2. Iterate over new shreddered file
     for (final Axis axis =
         new LevelOrderAxis.Builder(rtx).includeSelf().includeNonStructuralNodes().build(); axis.hasNext();) {
-      axis.next();
+      axis.nextLong();
       final long nodeKey = axis.asXdmNodeReadTrx().getNodeKey();
       doFirstFSMEStep(wtx, rtx);
       axis.asXdmNodeReadTrx().moveTo(nodeKey);

@@ -25,10 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
 
@@ -338,17 +335,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int numberOfResources = database.listResources().size();
+      final var resourceFutures = new CompletableFuture[jsonReaders.size()];
+      int i = 0;
       for (final var jsonReader : jsonReaders) {
         numberOfResources++;
         final String resourceName = "resource" + numberOfResources;
-        pool.submit(() -> createResource(collName, database, jsonReader, resourceName));
+        resourceFutures[i++] = (CompletableFuture.runAsync(() -> createResource(collName, database, jsonReader, resourceName)));
       }
-      pool.shutdown();
-      pool.awaitTermination(15, TimeUnit.SECONDS);
+      CompletableFuture.allOf(resourceFutures).join();
       return new JsonDBCollection(collName, database, this);
-    } catch (final SirixRuntimeException | InterruptedException e) {
+    } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     }
   }
@@ -380,24 +377,23 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      final var resourceFutures = new ArrayList<CompletableFuture<Void>>();
       int i = database.listResources().size() + 1;
       try (jsonStrings) {
         Str string;
         while ((string = jsonStrings.next()) != null) {
           final String currentString = string.stringValue();
           final String resourceName = "resource" + i;
-          pool.submit(() -> createResource(collName,
+          CompletableFuture.runAsync(() -> createResource(collName,
                                            database,
                                            JsonShredder.createStringReader(currentString),
                                            resourceName));
           i++;
         }
       }
-      pool.shutdown();
-      pool.awaitTermination(15, TimeUnit.SECONDS);
+      CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0])).join();
       return new JsonDBCollection(collName, database, this);
-    } catch (final SirixRuntimeException | InterruptedException e) {
+    } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     }
   }
@@ -433,14 +429,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      final var resourceFutures = new ArrayList<CompletableFuture<Void>>();
       int i = database.listResources().size() + 1;
       try (paths) {
         Path path;
         while ((path = paths.next()) != null) {
           final Path currentPath = path;
           final String resourceName = "resource" + i;
-          pool.submit(() -> {
+          resourceFutures.add(CompletableFuture.runAsync(() -> {
             database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                          .storageType(storageType)
                                                          .useDeweyIDs(true)
@@ -454,15 +450,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
               collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
             }
-            return null;
-          });
+          }));
           i++;
         }
       }
-      pool.shutdown();
-      pool.awaitTermination(15, TimeUnit.SECONDS);
+      CompletableFuture.allOf(resourceFutures.toArray(new CompletableFuture[0])).join();
       return new JsonDBCollection(collName, database, this);
-    } catch (final SirixRuntimeException | InterruptedException e) {
+    } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     }
   }

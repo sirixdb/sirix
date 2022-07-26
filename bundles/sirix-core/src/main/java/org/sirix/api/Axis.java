@@ -1,5 +1,7 @@
 package org.sirix.api;
 
+import it.unimi.dsi.fastutil.longs.LongIterable;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -13,7 +15,7 @@ import com.google.common.collect.PeekingIterator;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
+public interface Axis extends LongIterable, LongIterator, SirixAxis {
   /**
    * Get the cursor associated with the axis.
    *
@@ -56,6 +58,8 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    * @return {@link IncludeSelf} value
    */
   IncludeSelf includeSelf();
+
+  long peek();
 
   /**
    * Get the start node key.

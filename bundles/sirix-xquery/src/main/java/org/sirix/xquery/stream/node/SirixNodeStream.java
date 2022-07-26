@@ -36,7 +36,7 @@ public final class SirixNodeStream implements Stream<XmlDBNode> {
   @Override
   public XmlDBNode next() throws DocumentException {
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
       return new XmlDBNode(axis.asXdmNodeReadTrx(), collection);
     }
     return null;

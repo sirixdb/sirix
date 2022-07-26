@@ -47,6 +47,10 @@ public interface Page extends AutoCloseable {
    */
   void serialize(Bytes<ByteBuffer> out, SerializationType type);
 
+  default Page clearPage() {
+    return this;
+  };
+
   /**
    * Get all page references.
    *

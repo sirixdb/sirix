@@ -1,14 +1,13 @@
 package org.sirix.service;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.*;
 import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.concurrent.Callable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -29,7 +28,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Stack for reading end element.
    */
-  protected final Deque<Long> stack;
+  protected final LongArrayList stack;
 
   /**
    * Array with versions to print.
@@ -58,7 +57,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor,
       final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
-    stack = new ArrayDeque<>();
+    stack = new LongArrayList();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
     initialize(revision, revisions);
     this.resMgr = checkNotNull(resMgr);
@@ -76,7 +75,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor, final @NonNegative long key,
       final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
-    stack = new ArrayDeque<>();
+    stack = new LongArrayList();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
     initialize(revision, revisions);
     this.resMgr = checkNotNull(resMgr);
@@ -130,17 +129,17 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
         // Iterate over all nodes of the subtree including self.
         while (descAxis.hasNext()) {
-          key = descAxis.next();
+          key = descAxis.nextLong();
 
           // Emit all pending end elements.
           if (closeElements) {
-            while (!stack.isEmpty() && stack.peek() != rtx.getLeftSiblingKey()) {
-              rtx.moveTo(stack.pop());
+            while (!stack.isEmpty() && stack.peekLong(0) != rtx.getLeftSiblingKey()) {
+              rtx.moveTo(stack.popLong());
               emitEndNode(rtx, false);
               rtx.moveTo(key);
             }
             if (!stack.isEmpty()) {
-              rtx.moveTo(stack.pop());
+              rtx.moveTo(stack.popLong());
               emitEndNode(rtx, true);
             }
             rtx.moveTo(key);
@@ -168,8 +167,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         }
 
         // Finally emit all pending end elements.
-        while (!stack.isEmpty() && stack.peek() != Constants.NULL_ID_LONG) {
-          rtx.moveTo(stack.pop());
+        while (!stack.isEmpty() && stack.peekLong(0) != Constants.NULL_ID_LONG) {
+          rtx.moveTo(stack.popLong());
           emitEndNode(rtx, false);
         }
 

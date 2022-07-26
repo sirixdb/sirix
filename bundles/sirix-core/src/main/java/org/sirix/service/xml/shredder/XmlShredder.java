@@ -74,22 +74,22 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlShredder.class));
 
   /** {@link XmlNodeTrx}. */
-  protected final XmlNodeTrx wtx;
+  private final XmlNodeTrx wtx;
 
   /** {@link XMLEventReader}. */
-  protected final XMLEventReader reader;
+  private final XMLEventReader reader;
 
   /** Determines if changes are going to be commit right after shredding. */
   private final ShredderCommit commit;
 
   /** Insertion position. */
-  protected final InsertPosition insert;
+  private final InsertPosition insert;
 
   /** Determines if comments should be included. */
-  private boolean includeComments;
+  private final boolean includeComments;
 
   /** Determines if processing instructions should be included. */
-  private boolean includePIs;
+  private final boolean includePIs;
 
   /**
    * Builder to build an {@link XmlShredder} instance.
@@ -205,7 +205,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    *
    * @throws SirixException if something went wrong while inserting
    */
-  protected void insertNewContent() {
+  private void insertNewContent() {
     try {
       boolean firstElement = true;
       int level = 0;
@@ -271,7 +271,6 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * Add a new element node.
    *
    * @param event the current event from the StAX parser
-   * @return the modified stack
    * @throws SirixException if adding {@link ElementNode} fails
    */
   private void addNewElement(final StartElement event) throws SirixException {
@@ -322,9 +321,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
           final XmlNodeTrx wtx = resMgr.beginNodeTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
-        final boolean includeCoPI = args.length == 3
-            ? Boolean.parseBoolean(args[2])
-            : false;
+        final boolean includeCoPI = args.length == 3 && Boolean.parseBoolean(args[2]);
         final XmlShredder shredder =
             new XmlShredder.Builder(wtx, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
                                                                                .includeComments(includeCoPI)

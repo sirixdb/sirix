@@ -54,11 +54,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class MMFileReader implements Reader {
 
-  static final ValueLayout.OfByte LAYOUT_BYTE =
-      ValueLayout.JAVA_BYTE.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
-  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
-  static final ValueLayout.OfLong LAYOUT_LONG =
-      ValueLayout.JAVA_LONG.withOrder(ByteOrder.BIG_ENDIAN).withBitAlignment(8);
+  static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
+  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
+  static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG;
 
   /**
    * Inflater to decompress.

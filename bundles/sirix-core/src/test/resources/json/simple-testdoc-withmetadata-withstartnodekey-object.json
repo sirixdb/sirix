@@ -1,7 +1,7 @@
 {
   "metadata": {
     "nodeKey": 4,
-    "hash": "bf4192fcdb687caace9f2055ff30202f",
+    "hash": "8db427a7fe66e47af4ebf2b9a9bf1ba1",
     "type": "OBJECT",
     "descendantCount": 6,
     "childCount": 2
@@ -11,14 +11,14 @@
       "key": "test",
       "metadata": {
         "nodeKey": 5,
-        "hash": "3766e8c04c0ae078dc3f105a060825d3",
+        "hash": "9ed7a3e16f247d2fdd1ec9305020f896",
         "type": "OBJECT_KEY",
         "descendantCount": 3
       },
       "value": {
         "metadata": {
           "nodeKey": 6,
-          "hash": "5355bf7b92f168acac0aef30336f6e3b",
+          "hash": "e85ed31cb8fbd216225ff1d1b3439e6b",
           "type": "ARRAY",
           "descendantCount": 2,
           "childCount": 2
@@ -27,7 +27,7 @@
           {
             "metadata": {
               "nodeKey": 7,
-              "hash": "603961873abb84ed27cb4dd3c04048e0",
+              "hash": "5edf9088de460f596deebfca2b560a19",
               "type": "STRING_VALUE"
             },
             "value": "it works, again"
@@ -35,7 +35,7 @@
           {
             "metadata": {
               "nodeKey": 8,
-              "hash": "86c4111d226afe47545d8b08ca7168a1",
+              "hash": "90803adeca79da96b6b9d6702724d9cb",
               "type": "BOOLEAN_VALUE"
             },
             "value": true
@@ -47,7 +47,7 @@
       "key": "superb",
       "metadata": {
         "nodeKey": 9,
-        "hash": "a05d806ade4d0b2809110fc20636bfa6",
+        "hash": "cd76791d440a30c0de86499af179c60d",
         "type": "OBJECT_KEY",
         "descendantCount": 1
       },

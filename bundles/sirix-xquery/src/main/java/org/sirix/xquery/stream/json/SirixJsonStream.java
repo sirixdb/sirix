@@ -41,7 +41,7 @@ public final class SirixJsonStream implements Stream<Item> {
   @Override
   public Item next() {
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
       return itemFactory.getSequence(axis.asJsonNodeReadTrx(), collection);
     }
     return null;

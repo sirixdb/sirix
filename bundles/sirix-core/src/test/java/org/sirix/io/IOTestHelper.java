@@ -22,12 +22,16 @@
 package org.sirix.io;
 
 import static org.junit.Assert.assertEquals;
+
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.XmlTestHelper;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
+
+import java.nio.ByteBuffer;
 
 /**
  * Helper class for testing the I/O interfaces.
@@ -47,7 +51,7 @@ public final class IOTestHelper {
    * @return a suitable {@link ResourceConfiguration}
    * @throws SirixUsageException
    */
-  public static ResourceConfiguration registerIO(final StorageType type) throws SirixException {
+  public static ResourceConfiguration registerIO(final StorageType type) {
     final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE);
     resourceConfig.storageType(type);
     return resourceConfig.build();
@@ -66,7 +70,8 @@ public final class IOTestHelper {
    * @param resourceConf {@link ResourceConfiguration} reference
    * @throws SirixException if something went wrong
    */
-  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) throws SirixException {
+  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) {
+    final Bytes<ByteBuffer> bufferedBytes = Bytes.elasticByteBuffer();
     final IOStorage fac = StorageType.getStorage(resourceConf);
     final PageReference pageRef1 = new PageReference();
     final UberPage page1 = new UberPage();
@@ -74,7 +79,7 @@ public final class IOTestHelper {
 
     // same instance check
     final Writer writer = fac.createWriter();
-    writer.writeUberPageReference(pageRef1);
+    writer.writeUberPageReference(pageRef1, bufferedBytes);
     final PageReference pageRef2 = writer.readUberPageReference();
     assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
         ((UberPage) pageRef2.getPage()).getRevisionCount());

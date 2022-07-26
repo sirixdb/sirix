@@ -131,10 +131,10 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     final var axis = new ChildAxis(rtx);
 
     for (int i = 0; i < index && axis.hasNext(); i++)
-      axis.next();
+      axis.nextLong();
 
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
 
       return jsonUtil.getSequence(rtx, collection);
     }

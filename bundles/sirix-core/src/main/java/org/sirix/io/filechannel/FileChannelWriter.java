@@ -33,6 +33,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -47,9 +48,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class FileChannelWriter extends AbstractForwardingReader implements Writer {
 
+  private static final byte UBER_PAGE_BYTE_ALIGN = 100;
   private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
-
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 64;
+  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 32;
+  public static final int FLUSH_SIZE = 64_000;
 
   /**
    * Random access to work on.
@@ -101,37 +103,48 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return this;
   }
 
-  /**
-   * Write page contained in page reference to storage.
-   *
-   * @param pageReference page reference to write
-   * @throws SirixIOException if errors during writing occur
-   */
   @Override
-  public FileChannelWriter write(final PageReference pageReference) {
+  public FileChannelWriter write(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes)
+      throws SirixIOException {
     try {
-      final long fileSize = dataFileChannel.size();
-      long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
-      return writePageReference(pageReference, offset);
+      final long offset = getOffset(bufferedBytes);
+      return writePageReference(pageReference, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
+  private long getOffset(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+    final long fileSize = dataFileChannel.size();
+    long offset;
+
+    if (fileSize == 0) {
+      offset = IOStorage.FIRST_BEACON;
+      offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
+      offset += bufferedBytes.writePosition();
+    } else {
+      offset = fileSize + bufferedBytes.writePosition();
+    }
+
+    return offset;
+  }
+
   @NotNull
-  private FileChannelWriter writePageReference(PageReference pageReference, long offset) {
+  private FileChannelWriter writePageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes,
+      long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       final Page page = pageReference.getPage();
       assert page != null;
 
+      pagePersister.serializePage(byteBufferBytes, page, type);
+      final var byteArray = byteBufferBytes.toByteArray();
+
       final byte[] serializedPage;
 
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000);
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
            final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
-        pagePersister.serializePage(byteBufferBytes, page, type);
-        final var byteArray = byteBufferBytes.toByteArray();
         dataOutput.write(byteArray);
         dataOutput.flush();
         serializedPage = output.toByteArray();
@@ -139,25 +152,37 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       byteBufferBytes.clear();
 
-      final int writtenPageLength = serializedPage.length + IOStorage.OTHER_BEACON;
-      ByteBuffer buffer = ByteBuffer.allocate(writtenPageLength);
-      buffer.putInt(serializedPage.length);
-      buffer.put(serializedPage);
-      buffer.flip();
+      int offsetToAdd = 0;
 
       // Getting actual offset and appending to the end of the current file.
       if (type == SerializationType.DATA) {
-        if (page instanceof RevisionRootPage) {
-          if (offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
-            offset += REVISION_ROOT_PAGE_BYTE_ALIGN - (offset % REVISION_ROOT_PAGE_BYTE_ALIGN);
-          }
+        if (page instanceof UberPage) {
+          offsetToAdd =
+              UBER_PAGE_BYTE_ALIGN - ((serializedPage.length + IOStorage.OTHER_BEACON) % UBER_PAGE_BYTE_ALIGN);
+        } else if (page instanceof RevisionRootPage && offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
+          offsetToAdd = (int) (REVISION_ROOT_PAGE_BYTE_ALIGN - (offset % REVISION_ROOT_PAGE_BYTE_ALIGN));
+          offset += offsetToAdd;
         } else if (offset % PAGE_FRAGMENT_BYTE_ALIGN != 0) {
-          offset += PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN);
+          offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
+          offset += offsetToAdd;
         }
       }
 
-      dataFileChannel.write(buffer, offset);
-      buffer = null;
+      if (!(page instanceof UberPage) && offsetToAdd > 0) {
+        bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+      }
+
+      bufferedBytes.writeInt(serializedPage.length);
+      bufferedBytes.write(serializedPage);
+
+      if (page instanceof UberPage && offsetToAdd > 0) {
+        final byte[] bytesToAdd = new byte[(int) offsetToAdd];
+        bufferedBytes.write(bytesToAdd);
+      }
+
+      if (bufferedBytes.writePosition() > FLUSH_SIZE) {
+        flushBuffer(bufferedBytes);
+      }
 
       // Remember page coordinates.
       switch (type) {
@@ -176,7 +201,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage revisionRootPage) {
-          buffer = ByteBuffer.allocate(16);
+          ByteBuffer buffer = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder());
           buffer.putLong(offset);
           buffer.position(8);
           buffer.putLong(revisionRootPage.getRevisionTimestamp());
@@ -194,7 +219,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
-          buffer = ByteBuffer.allocate(IOStorage.FIRST_BEACON >> 1);
+          ByteBuffer buffer = ByteBuffer.allocate(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           buffer.put(serializedPage);
           buffer.position(0);
           revisionsFileChannel.write(buffer, 0);
@@ -228,12 +253,44 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReference pageReference) {
-    isFirstUberPage = true;
-    writePageReference(pageReference, 0);
-    isFirstUberPage = false;
-    writePageReference(pageReference, 0);
+  public Writer writeUberPageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+    try {
+      if (bufferedBytes.writePosition() > 0) {
+        flushBuffer(bufferedBytes);
+      }
+
+      isFirstUberPage = true;
+      writePageReference(pageReference, bufferedBytes, 0);
+      isFirstUberPage = false;
+      writePageReference(pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+
+      final var buffer = bufferedBytes.underlyingObject().rewind();
+      buffer.limit((int) bufferedBytes.readLimit());
+      dataFileChannel.write(buffer, 0L);
+      dataFileChannel.force(false);
+      bufferedBytes.clear();
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+
     return this;
+  }
+
+  private void flushBuffer(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+    final long fileSize = dataFileChannel.size();
+    long offset;
+
+    if (fileSize == 0) {
+      offset = IOStorage.FIRST_BEACON;
+      offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
+    } else {
+      offset = fileSize;
+    }
+
+    final var buffer = bufferedBytes.underlyingObject().rewind();
+    buffer.limit((int) bufferedBytes.readLimit());
+    dataFileChannel.write(buffer, offset);
+    bufferedBytes.clear();
   }
 
   @Override
@@ -254,5 +311,36 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
 
     return this;
+  }
+
+  /** Convert the byte[] into a String to be used for logging and debugging.
+   *
+   * @param bytes the byte[] to be dumped
+   * @return the String representation
+   */
+  public static String dumpBytes(byte[] bytes) {
+    StringBuffer buffer = new StringBuffer("byte[");
+    buffer.append(bytes.length);
+    buffer.append("]: [");
+    for (int i = 0; i < bytes.length; ++i) {
+      buffer.append((int) bytes[i]);
+      buffer.append(" ");
+    }
+    buffer.append("]");
+    return buffer.toString();
+  }
+
+  /** Convert the byteBuffer into a String to be used for logging and debugging.
+   *
+   * @param byteBuffer the byteBuffer to be dumped
+   * @return the String representation
+   */
+  public static String dumpBytes(ByteBuffer byteBuffer) {
+    byteBuffer.mark();
+    int length = byteBuffer.limit() - byteBuffer.position();
+    byte[] dst = new byte[length];
+    byteBuffer.get(dst);
+    byteBuffer.reset();
+    return dumpBytes(dst);
   }
 }

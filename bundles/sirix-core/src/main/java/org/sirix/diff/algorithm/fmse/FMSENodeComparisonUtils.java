@@ -6,6 +6,8 @@ import org.sirix.access.Utils;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.xml.TextNode;
 
+import java.util.Objects;
+
 class FMSENodeComparisonUtils {
 
   /** Max length for Levenshtein comparsion. */
@@ -47,16 +49,14 @@ class FMSENodeComparisonUtils {
     final String a = getNodeValue(x, oldRtx);
     final String b = getNodeValue(y, newRtx);
 
-    return a == null
-        ? b == null
-        : a.equals(b);
+    return Objects.equals(a, b);
   }
 
   /**
    * Calculate ratio between 0 and 1 between two String values for {@code text-nodes} denoted.
    *
-   * @param pFirstNode node key of first node
-   * @param pSecondNode node key of second node
+   * @param oldValue value of first node
+   * @param newValue value of second node
    * @return ratio between 0 and 1, whereas 1 is a complete match and 0 denotes that the Strings are
    *         completely different
    */
@@ -192,21 +192,14 @@ class FMSENodeComparisonUtils {
     rtx.moveTo(nodeKey);
     final StringBuilder retVal = new StringBuilder();
     switch (rtx.getKind()) {
-      case ELEMENT:
-      case NAMESPACE:
-      case ATTRIBUTE:
-        retVal.append(Utils.buildName(rtx.getName()));
-        break;
-      case TEXT:
-      case COMMENT:
-        retVal.append(rtx.getValue());
-        break;
-      case PROCESSING_INSTRUCTION:
-        retVal.append(rtx.getName().getLocalName()).append(" ").append(rtx.getValue());
-        break;
+      case ELEMENT, NAMESPACE, ATTRIBUTE -> retVal.append(Utils.buildName(rtx.getName()));
+      case TEXT, COMMENT -> retVal.append(rtx.getValue());
+      case PROCESSING_INSTRUCTION -> retVal.append(rtx.getName().getLocalName()).append(" ").append(rtx.getValue());
+
       // $CASES-OMITTED$
-      default:
-        // Do nothing.
+      default -> {
+      }
+      // Do nothing.
     }
     return retVal.toString();
   }

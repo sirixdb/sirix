@@ -39,9 +39,9 @@ import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
 import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
 
@@ -111,7 +111,7 @@ public final class FileChannelReader implements Reader {
   public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
-      ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
+      ByteBuffer buffer = ByteBuffer.allocate(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
       final long position;
 
@@ -135,7 +135,7 @@ public final class FileChannelReader implements Reader {
       //      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
 
-      buffer = ByteBuffer.allocate(dataLength);
+      buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
 
       dataFileChannel.read(buffer, position + 4);
       buffer.position(0);
@@ -163,13 +163,13 @@ public final class FileChannelReader implements Reader {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      ByteBuffer buffer = ByteBuffer.allocate(4);
+      ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset);
       buffer.position(0);
       final int dataLength = buffer.getInt();
       final byte[] page = new byte[dataLength];
 
-      buffer = ByteBuffer.allocate(dataLength);
+      buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset + 4);
       buffer.position(0);
       buffer.get(page);
@@ -200,7 +200,7 @@ public final class FileChannelReader implements Reader {
   public RevisionFileData getRevisionFileData(int revision) {
     try {
       final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
-      final ByteBuffer buffer = ByteBuffer.allocate(16);
+      final ByteBuffer buffer = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder());
       revisionsOffsetFileChannel.read(buffer, fileOffset);
       buffer.position(8);
       revisionsOffsetFileChannel.read(buffer, fileOffset + 8);

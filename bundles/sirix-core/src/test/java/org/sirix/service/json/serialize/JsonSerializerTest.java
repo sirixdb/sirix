@@ -179,6 +179,7 @@ public final class JsonSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("document-with-metadata.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString();
+
       JSONAssert.assertEquals(expected, actual, true);
     }
   }
@@ -209,8 +210,9 @@ public final class JsonSerializerTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).build();
@@ -231,8 +233,9 @@ public final class JsonSerializerTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -240,7 +243,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-objectkey.json"),
-          StandardCharsets.UTF_8);
+                                            StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -254,8 +257,9 @@ public final class JsonSerializerTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -263,7 +267,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-object.json"),
-          StandardCharsets.UTF_8);
+                                            StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -277,8 +281,9 @@ public final class JsonSerializerTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -286,7 +291,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-array.json"),
-          StandardCharsets.UTF_8);
+                                            StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -309,7 +314,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel2.json"),
-              StandardCharsets.UTF_8);
+                           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -330,9 +335,9 @@ public final class JsonSerializerTest {
                                                                         .build();
       serializer.call();
 
-      final var expected = Files.readString(
-          JSON.resolve("test-withnodekeymetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
-          StandardCharsets.UTF_8);
+      final var expected =
+          Files.readString(JSON.resolve("test-withnodekeymetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+                           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -353,9 +358,9 @@ public final class JsonSerializerTest {
                                                                         .build();
       serializer.call();
 
-      final var expected = Files.readString(
-          JSON.resolve("test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
-          StandardCharsets.UTF_8);
+      final var expected = Files.readString(JSON.resolve(
+                                                "test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+                                            StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -377,7 +382,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel3.json"),
-              StandardCharsets.UTF_8);
+                           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -391,8 +396,9 @@ public final class JsonSerializerTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      final var shredder = new JsonShredder.Builder(trx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -401,7 +407,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"),
-              StandardCharsets.UTF_8);
+                           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       JSONAssert.assertEquals(expected, actual, true);

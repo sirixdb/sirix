@@ -2,6 +2,8 @@ package org.sirix.service.json.shredder;
 
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongStack;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -10,9 +12,9 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.json.JsonNumber;
-import org.sirix.service.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -21,8 +23,6 @@ import javax.xml.stream.XMLStreamReader;
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.concurrent.Callable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -51,7 +51,7 @@ public final class JsonShredder implements Callable<Long> {
   private final ShredderCommit commit;
 
   /** Keeps track of visited keys. */
-  private final Deque<Long> parents;
+  private final LongStack parents;
 
   /** Insertion position. */
   private InsertPosition insert;
@@ -133,7 +133,7 @@ public final class JsonShredder implements Callable<Long> {
     commit = builder.commit;
     skipRootJson = builder.skipRootJsonToken;
 
-    parents = new ArrayDeque<>();
+    parents = new LongArrayList();
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
   }
 
@@ -250,12 +250,12 @@ public final class JsonShredder implements Callable<Long> {
   @SuppressWarnings("ConstantConditions")
   private void processTrxMovement() throws IOException {
     if (!(level == 0 && skipRootJson)) {
-      parents.pop();
-      wtx.moveTo(parents.peek());
+      parents.popLong();
+      wtx.moveTo(parents.peekLong(0));
 
       if (reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT) {
-        parents.pop();
-        wtx.moveTo(parents.peek());
+        parents.popLong();
+        wtx.moveTo(parents.peekLong(0));
       }
     }
   }
@@ -272,14 +272,14 @@ public final class JsonShredder implements Callable<Long> {
 
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertStringValueAsFirstChild(value).getNodeKey();
         } else {
           key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertStringValueAsLastChild(value).getNodeKey();
         } else {
           key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
@@ -305,14 +305,14 @@ public final class JsonShredder implements Callable<Long> {
 
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertBooleanValueAsFirstChild(boolValue).getNodeKey();
         } else {
           key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertBooleanValueAsLastChild(boolValue).getNodeKey();
         } else {
           key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
@@ -340,14 +340,14 @@ public final class JsonShredder implements Callable<Long> {
 
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertNumberValueAsFirstChild(value).getNodeKey();
         } else {
           key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertNumberValueAsLastChild(value).getNodeKey();
         } else {
           key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
@@ -369,10 +369,10 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private void adaptTrxPosAndStack(final boolean nextTokenIsParent, final long key) {
-    parents.pop();
+    parents.popLong();
 
     if (nextTokenIsParent)
-      wtx.moveTo(parents.peek());
+      wtx.moveTo(parents.peekLong(0));
     else
       parents.push(key);
   }
@@ -382,14 +382,14 @@ public final class JsonShredder implements Callable<Long> {
 
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertNullValueAsFirstChild().getNodeKey();
         } else {
           key = wtx.insertNullValueAsRightSibling().getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertNullValueAsLastChild().getNodeKey();
         } else {
           key = wtx.insertNullValueAsRightSibling().getNodeKey();
@@ -414,14 +414,14 @@ public final class JsonShredder implements Callable<Long> {
     long key;
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertArrayAsFirstChild().getNodeKey();
         } else {
           key = wtx.insertArrayAsRightSibling().getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertArrayAsLastChild().getNodeKey();
         } else {
           key = wtx.insertArrayAsRightSibling().getNodeKey();
@@ -450,7 +450,7 @@ public final class JsonShredder implements Callable<Long> {
         throw new AssertionError();// Must not happen.
     }
 
-    parents.pop();
+    parents.popLong();
     parents.push(key);
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
@@ -461,14 +461,14 @@ public final class JsonShredder implements Callable<Long> {
     long key;
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertObjectAsFirstChild().getNodeKey();
         } else {
           key = wtx.insertObjectAsRightSibling().getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertObjectAsLastChild().getNodeKey();
         } else {
           key = wtx.insertObjectAsRightSibling().getNodeKey();
@@ -497,7 +497,7 @@ public final class JsonShredder implements Callable<Long> {
         throw new AssertionError();// Must not happen.
     }
 
-    parents.pop();
+    parents.popLong();
     parents.push(key);
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
@@ -513,14 +513,14 @@ public final class JsonShredder implements Callable<Long> {
 
     switch (insert) {
       case AS_FIRST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertObjectRecordAsFirstChild(name, value).getNodeKey();
         } else {
           key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
-        if (parents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = wtx.insertObjectRecordAsLastChild(name, value).getNodeKey();
         } else {
           key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
@@ -536,12 +536,12 @@ public final class JsonShredder implements Callable<Long> {
         throw new AssertionError();//Should not happen
     }
 
-    parents.pop();
+    parents.popLong();
     parents.push(wtx.getParentKey());
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
     if (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY) {
-      parents.pop();
+      parents.popLong();
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
     } else {

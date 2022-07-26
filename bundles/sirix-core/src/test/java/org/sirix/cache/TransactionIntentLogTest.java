@@ -1,5 +1,6 @@
 package org.sirix.cache;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -17,6 +18,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;

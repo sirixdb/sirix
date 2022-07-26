@@ -1,5 +1,6 @@
 package org.sirix.service.json.shredder;
 
+import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -10,12 +11,16 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
+import org.sirix.api.Axis;
 import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.PostOrderAxis;
 import org.sirix.io.StorageType;
 import org.sirix.service.InsertPosition;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.settings.VersioningType;
+import org.sirix.utils.LogWrapper;
 import org.skyscreamer.jsonassert.JSONAssert;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -24,10 +29,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 
 public final class JsonShredderTest {
+
+  /** {@link LogWrapper} reference. */
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonShredder.class));
+
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   @Before
@@ -53,7 +63,11 @@ public final class JsonShredderTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
-      final var axis = new DescendantAxis(rtx);
+      var stopWatch = new StopWatch();
+      LOGWRAPPER.info("start");
+      stopWatch.start();
+      LOGWRAPPER.info("Max node key: " + rtx.getMaxNodeKey());
+      Axis axis = new DescendantAxis(rtx);
 
       int count = 0;
 
@@ -64,36 +78,53 @@ public final class JsonShredderTest {
         count++;
       }
 
-      System.out.println("done");
+      LOGWRAPPER.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)  + " s].");
+
+      stopWatch = new StopWatch();
+      stopWatch.start();
+
+      LOGWRAPPER.info("start");
+      axis = new PostOrderAxis(rtx);
+
+      count = 0;
+
+      for (final long nodeKey : axis) {
+        if (count % 50_000_000L == 0) {
+          System.out.println(nodeKey);
+        }
+        count++;
+      }
+
+      LOGWRAPPER.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
     }
   }
 
   @Ignore
   @Test
   public void testChicago() {
-    try {
-      final var jsonPath = JSON.resolve("cityofchicago.json");
-      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                     .buildPathSummary(true)
-                                                     .storeDiffs(true)
-                                                     .storeNodeHistory(false)
-                                                     .storeChildCount(true)
-                                                     .hashKind(HashType.ROLLING)
-                                                     .useTextCompression(false)
-                                                     .storageType(StorageType.MEMORY_MAPPED)
-                                                     .useDeweyIDs(true)
-                                                     .build());
-        try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx(5_242_880)) {
-          trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
-        }
+    final var stopWatch = new StopWatch();
+    LOGWRAPPER.info("start");
+    stopWatch.start();
+    final var jsonPath = JSON.resolve("cityofchicago.json");
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                   .buildPathSummary(false)
+                                                   .storeDiffs(false)
+                                                   .storeNodeHistory(false)
+                                                   .storeChildCount(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .useTextCompression(false)
+                                                   .storageType(StorageType.MEMORY_MAPPED)
+                                                   .useDeweyIDs(false)
+                                                   .build());
+      try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx(5_242_880)) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
       }
-    } catch (Error e) {
-      e.printStackTrace();
     }
+    LOGWRAPPER.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
   }
 
   @Test
