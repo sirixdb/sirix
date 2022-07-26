@@ -186,4 +186,10 @@ public final class FullReferencesPage implements Page {
     }
     return helper.toString();
   }
+
+  @Override
+  public Page clearPage() {
+    Arrays.fill(references, null);
+    return Page.super.clearPage();
+  }
 }

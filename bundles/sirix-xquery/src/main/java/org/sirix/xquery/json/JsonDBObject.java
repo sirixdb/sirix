@@ -476,7 +476,7 @@ public final class JsonDBObject extends AbstractItem
       final var axis = new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));
 
       if (axis.hasNext()) {
-        axis.next();
+        axis.nextLong();
 
         return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
       }
@@ -517,11 +517,11 @@ public final class JsonDBObject extends AbstractItem
     final var axis = new ChildAxis(rtx);
 
     for (int i = 0; i < index && axis.hasNext(); i++) {
-      axis.next();
+      axis.nextLong();
     }
 
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
 
       return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
     }

@@ -134,7 +134,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     withInitialIndent = builder.initialIndent;
     emitXQueryResultSequence = builder.emitXQueryResultSequence;
     serializeTimestamp = builder.serializeTimestamp;
-    metaData = builder.mMetaData;
+    metaData = builder.metaData;
   }
 
   /**
@@ -320,7 +320,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
       if (serializeRestSequence || length > 1) {
         if (indent) {
-          stack.pop();
+          stack.popLong();
         }
         indent();
 
@@ -398,7 +398,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
       if (serializeRest || length > 1) {
         if (rtx.moveToDocumentRoot().trx().hasFirstChild())
-          stack.pop();
+          stack.popLong();
         indent();
         if (serializeRest) {
           write("</rest:item>");
@@ -465,7 +465,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @throws IOException if can't write to string
    * @throws UnsupportedEncodingException if unsupport encoding
    */
-  protected void write(final String value) throws UnsupportedEncodingException, IOException {
+  private void write(final String value) throws UnsupportedEncodingException, IOException {
     out.write(value.getBytes(Constants.DEFAULT_ENCODING));
   }
 
@@ -598,7 +598,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
     private boolean serializeTimestamp;
 
-    private boolean mMetaData;
+    private boolean metaData;
 
     private long maxLevel;
 
@@ -752,7 +752,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitMetaData() {
-      mMetaData = true;
+      metaData = true;
       return this;
     }
 

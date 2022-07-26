@@ -22,6 +22,7 @@
 package org.sirix.access;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.io.Reader;
@@ -40,6 +41,7 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 
 import static org.testng.AssertJUnit.*;
@@ -78,10 +80,12 @@ public final class StorageTest {
     for (final IOStorage handler : storages) {
       assertFalse("empty storage should not return true on exists", handler.exists());
 
+      final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer();
+
       try (final Writer writer = handler.createWriter()) {
         var ref = new PageReference();
         ref.setPage(new UberPage());
-        writer.writeUberPageReference(ref);
+        writer.writeUberPageReference(ref, bytes);
       }
 
       assertTrue("writing a single page should mark the Storage as existing", handler.exists());
@@ -101,10 +105,12 @@ public final class StorageTest {
         final UberPage page1 = new UberPage();
         pageRef1.setPage(page1);
 
+        final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer();
+
         // same instance check
         final PageReference pageRef2;
         try (final Writer writer = handler.createWriter()) {
-          pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
+          pageRef2 = writer.writeUberPageReference(pageRef1, bytes).readUberPageReference();
           assertEquals("Check for " + handler.getClass() + " failed.",
               ((UberPage) pageRef1.getPage()).getRevisionCount(), ((UberPage) pageRef2.getPage()).getRevisionCount());
         }

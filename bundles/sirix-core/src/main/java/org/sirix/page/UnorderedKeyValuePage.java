@@ -23,6 +23,9 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
+import com.google.common.hash.Hashing;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -86,12 +89,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   /**
    * Slots which have to be serialized.
    */
-  private final Map<Long, byte[]> slots;
+  private final Long2ObjectMap<byte[]> slots;
 
   /**
    * Dewey IDs to node key mapping.
    */
-  private Map<byte[], Long> deweyIDs;
+  private final Map<byte[], Long> deweyIDs;
 
   /**
    * Sirix {@link PageReadOnlyTrx}.
@@ -159,7 +162,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     records = new DataRecord[Constants.NDP_NODE_COUNT];
-    slots = new HashMap<>(Constants.NDP_NODE_COUNT);
+    slots = new Long2ObjectOpenHashMap(Constants.NDP_NODE_COUNT);
     this.pageReadOnlyTrx = pageReadOnlyTrx;
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
@@ -181,7 +184,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     resourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
     this.pageReadOnlyTrx = pageReadTrx;
-    slots = new HashMap<>(Constants.NDP_NODE_COUNT);
+    slots = new Long2ObjectOpenHashMap(Constants.NDP_NODE_COUNT);
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
@@ -242,15 +245,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     indexType = IndexType.getType(in.readByte());
   }
 
-  public UnorderedKeyValuePage clearBytesAndHashCode() {
-    if (bytes != null) {
-      bytes.clear();
-      bytes = null;
-    }
-    hashCode = null;
-    return this;
-  }
-
   private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId, Bytes<ByteBuffer> byteBufferBytes) {
     final long key = getVarLong(in);
     final int dataSize = in.readInt();
@@ -264,7 +258,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       recordsStored++;
     }
     records[offset] = record;
-
   }
 
   @Override
@@ -329,7 +322,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistence) {
       // Write dewey IDs.
       out.writeInt(deweyIDs.size());
-      final List<byte[]> ids = new ArrayList<>(deweyIDs.keySet());
+      var deweyIdBytes = deweyIDs.keySet();
+      List<byte[]> ids = new ArrayList<>(deweyIdBytes);
       ids.sort(Comparator.comparingInt((byte[] sirixDeweyID) -> sirixDeweyID.length));
       final var iter = Iterators.peekingIterator(ids.iterator());
       byte[] id = null;
@@ -344,10 +338,15 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
         serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }
+      deweyIdBytes = null;
+      ids = null;
     }
 
     final var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    final var entriesSortedByKey = slots.entrySet().stream().sorted(Entry.comparingByKey()).toList();
+    final var entriesSortedByKey = slots.long2ObjectEntrySet()
+                                        .stream()
+                                        .sorted(Comparator.comparingLong(Long2ObjectMap.Entry::getLongKey))
+                                        .toList();
     for (final Entry<Long, byte[]> entry : entriesSortedByKey) {
       final var pageOffset = pageReadOnlyTrx.recordPageOffset(entry.getKey());
       entriesBitmap.set(pageOffset);
@@ -379,7 +378,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     }
 
     out.writeByte(indexType.getID());
-    hashCode = new byte[] {};//Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
+    hashCode = Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
     bytes = out;
   }
 
@@ -542,5 +541,19 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   @Override
   public void close() {
     pageReadOnlyTrx.close();
+  }
+
+  @Override
+  public KeyValuePage<DataRecord> clearPage() {
+    if (bytes != null) {
+      bytes.clear();
+      bytes = null;
+    }
+    hashCode = null;
+    Arrays.fill(records, null);
+    slots.clear();
+    deweyIDs.clear();
+    references.clear();
+    return this;
   }
 }

@@ -1,6 +1,7 @@
 dependencies {
     implementation project(':sirix-core')
     implementation implLibraries.vertxAuthOauth2
+    implementation implLibraries.fastUtil
 
     testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.brackit

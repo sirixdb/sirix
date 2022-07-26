@@ -47,7 +47,7 @@ public interface IOStorage {
   /**
    * Beacon of the other references.
    */
-  int OTHER_BEACON = 4;
+  int OTHER_BEACON = Integer.SIZE / Byte.SIZE;
 
  /**
    * Getting a writer.

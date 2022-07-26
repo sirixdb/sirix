@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.nio.file.Path
 import java.time.Instant
+import java.util.*
 import javax.xml.stream.XMLEventReader
 
 enum class XmlInsertionMode {
@@ -59,7 +60,7 @@ enum class XmlInsertionMode {
     )
 
     companion object {
-        fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
+        fun getInsertionModeByName(name: String) = valueOf(name.uppercase(Locale.getDefault()))
     }
 }
 

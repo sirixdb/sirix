@@ -122,6 +122,7 @@ public final class Load extends AbstractFunction {
 
       return coll;
     } catch (final Exception e) {
+      e.printStackTrace();
       throw new QueryException(new QNm(e.getMessage()), e);
     }
   }

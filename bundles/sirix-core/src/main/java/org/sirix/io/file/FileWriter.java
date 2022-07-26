@@ -108,7 +108,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    * @throws SirixIOException if errors during writing occur
    */
   @Override
-  public FileWriter write(final PageReference pageReference) {
+  public FileWriter write(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
       long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
@@ -119,7 +119,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @NotNull
-  private FileWriter writePageReference(PageReference pageReference, long offset) {
+  private FileWriter writePageReference(final PageReference pageReference, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -224,7 +224,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReference pageReference) {
+  public Writer writeUberPageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
     writePageReference(pageReference, 0);
     isFirstUberPage = false;

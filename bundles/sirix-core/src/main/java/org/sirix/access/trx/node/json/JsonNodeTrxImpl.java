@@ -576,7 +576,11 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertObjectAsFirstChild() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
@@ -609,12 +613,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertObjectAsLastChild() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
@@ -649,12 +661,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertObjectAsLeftSibling() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
 
       if (!nodeHashing.isBulkInsert()) {
@@ -684,12 +704,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertObjectAsRightSibling() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
 
       if (!nodeHashing.isBulkInsert()) {
@@ -719,13 +747,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertObjectRecordAsFirstChild(final String key, final ObjectRecordValue<?> value) {
     checkNotNull(key);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT)
@@ -770,13 +806,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertObjectRecordAsLastChild(final String key, final ObjectRecordValue<?> value) {
     checkNotNull(key);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT)
@@ -823,7 +867,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   private void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey) {
@@ -892,7 +940,11 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertObjectRecordAsLeftSibling(final String key, final ObjectRecordValue<?> value) {
     checkNotNull(key);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY)
@@ -930,13 +982,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertObjectRecordAsRightSibling(final String key, final ObjectRecordValue<?> value) {
     checkNotNull(key);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY)
@@ -974,12 +1034,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertArrayAsFirstChild() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
         throw new SirixUsageException(
@@ -1014,12 +1082,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertArrayAsLastChild() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
         throw new SirixUsageException(
@@ -1056,12 +1132,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertArrayAsLeftSibling() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1090,12 +1174,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertArrayAsRightSibling() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1124,14 +1216,22 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx replaceObjectRecordValue(ObjectRecordValue<?> value) {
     checkNotNull(value);
 
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY)
@@ -1153,13 +1253,21 @@ final class JsonNodeTrxImpl extends
       adaptUpdateOperationsForReplace(node.getDeweyID(), oldValueNodeKey, node.getNodeKey());
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsFirstChild(final String value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1202,13 +1310,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsLastChild(final String value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1253,7 +1369,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   private long getPathNodeKey(StructNode structNode) {
@@ -1280,7 +1400,11 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertStringValueAsLeftSibling(final String value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1307,13 +1431,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsRightSibling(final String value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1340,12 +1472,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsFirstChild(boolean value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1385,12 +1525,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsLastChild(boolean value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1432,12 +1580,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsLeftSibling(boolean value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1461,12 +1617,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsRightSibling(boolean value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1490,7 +1654,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   private void checkPrecondition() {
@@ -1527,7 +1695,11 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertNumberValueAsFirstChild(Number value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1567,13 +1739,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertNumberValueAsLastChild(Number value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1615,12 +1795,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertNumberValueAsLeftSibling(Number value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1645,7 +1833,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
@@ -1655,7 +1847,11 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertNumberValueAsRightSibling(Number value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1680,12 +1876,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsFirstChild() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1722,12 +1926,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsLastChild() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final NodeKind kind = getKind();
 
       if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
@@ -1766,12 +1978,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsLeftSibling() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1796,12 +2016,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsRightSibling() {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       checkAccessAndCommit();
       checkPrecondition();
 
@@ -1826,7 +2054,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   /**
@@ -1842,7 +2074,11 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx remove() {
     checkAccessAndCommit();
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       final StructNode node = (StructNode) getCurrentNode();
       if (node.getKind() == NodeKind.JSON_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
@@ -1909,7 +2145,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   private void adaptUpdateOperationsForRemove(SirixDeweyID id, final long oldNodeKey) {
@@ -1972,7 +2212,11 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx setObjectKeyName(final String key) {
     checkNotNull(key);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       if (getKind() != NodeKind.OBJECT_KEY)
         throw new SirixUsageException("Not allowed if current node is not an object key node!");
       checkAccessAndCommit();
@@ -2012,7 +2256,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
@@ -2044,7 +2292,11 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx setStringValue(final String value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       if (getKind() != NodeKind.STRING_VALUE && getKind() != NodeKind.OBJECT_STRING_VALUE) {
         throw new SirixUsageException(
             "Not allowed if current node is not a string value and not an object string value node!");
@@ -2080,12 +2332,20 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx setBooleanValue(final boolean value) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       if (getKind() != NodeKind.BOOLEAN_VALUE && getKind() != NodeKind.OBJECT_BOOLEAN_VALUE) {
         throw new SirixUsageException("Not allowed if current node is not a boolean value node!");
       }
@@ -2118,13 +2378,21 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public JsonNodeTrx setNumberValue(final Number value) {
     checkNotNull(value);
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       if (getKind() != NodeKind.NUMBER_VALUE && getKind() != NodeKind.OBJECT_NUMBER_VALUE) {
         throw new SirixUsageException(
             "Not allowed if current node is not a number value and not an object number value node!");
@@ -2157,7 +2425,11 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   // ////////////////////////////////////////////////////////////
@@ -2278,6 +2550,12 @@ final class JsonNodeTrxImpl extends
         Files.writeString(diff, jsonDiff, CREATE);
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
+      }
+
+      if (storeDeweyIDs()) {
+        updateOperationsOrdered.clear();
+      } else {
+        updateOperationsUnordered.clear();
       }
     }
   }

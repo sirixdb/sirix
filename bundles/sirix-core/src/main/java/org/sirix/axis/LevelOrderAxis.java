@@ -20,12 +20,12 @@
  */
 package org.sirix.axis;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import java.util.ArrayDeque;
 import java.util.Deque;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -51,21 +51,21 @@ public final class LevelOrderAxis extends AbstractAxis {
   }
 
   /** {@link Deque} for remembering next nodeKey in document order. */
-  private Deque<Long> mFirstChilds;
+  private LongArrayList firstChilds;
 
   /**
    * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
    */
-  private final IncludeNodes mIncludeNodes;
+  private final IncludeNodes includeNodes;
 
   /** Determines if {@code hasNext()} is called for the first time. */
-  private boolean mFirst;
+  private boolean isFirst;
 
   /** Filter by level. */
-  private int mFilterLevel = Integer.MAX_VALUE;
+  private int filterLevel = Integer.MAX_VALUE;
 
   /** Current level. */
-  private int mLevel;
+  private int level;
 
   /**
    * Get a new builder instance.
@@ -82,16 +82,16 @@ public final class LevelOrderAxis extends AbstractAxis {
     /**
      * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
      */
-    private IncludeNodes mIncludeNodes = IncludeNodes.STRUCTURAL;
+    private IncludeNodes includeNodes = IncludeNodes.STRUCTURAL;
 
     /** Filter by level. */
-    private int mFilterLevel = Integer.MAX_VALUE;
+    private int filterLevel = Integer.MAX_VALUE;
 
     /** Sirix {@link NodeCursor}. */
     private final NodeCursor mRtx;
 
     /** Determines if current start node to traversal should be included or not. */
-    private IncludeSelf mIncludeSelf = IncludeSelf.NO;
+    private IncludeSelf includeSelf = IncludeSelf.NO;
 
     /**
      * Constructor.
@@ -108,7 +108,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder includeNonStructuralNodes() {
-      mIncludeNodes = IncludeNodes.NONSTRUCTURAL;
+      includeNodes = IncludeNodes.NONSTRUCTURAL;
       return this;
     }
 
@@ -118,7 +118,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder includeSelf() {
-      mIncludeSelf = IncludeSelf.YES;
+      includeSelf = IncludeSelf.YES;
       return this;
     }
 
@@ -130,7 +130,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      */
     public Builder filterLevel(final @NonNegative int filterLevel) {
       checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
-      mFilterLevel = filterLevel;
+      this.filterLevel = filterLevel;
       return this;
     }
 
@@ -150,24 +150,24 @@ public final class LevelOrderAxis extends AbstractAxis {
    * @param builder the builder reference
    */
   private LevelOrderAxis(final Builder builder) {
-    super(builder.mRtx, builder.mIncludeSelf);
-    mIncludeNodes = builder.mIncludeNodes;
-    mFilterLevel = builder.mFilterLevel;
+    super(builder.mRtx, builder.includeSelf);
+    includeNodes = builder.includeNodes;
+    filterLevel = builder.filterLevel;
   }
 
   @Override
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
-    mFirst = true;
-    mFirstChilds = new ArrayDeque<>();
+    isFirst = true;
+    firstChilds = new LongArrayList();
   }
 
   @Override
   protected long nextKey() {
     final NodeCursor cursor = getCursor();
     // Determines if it's the first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
+    if (isFirst) {
+      isFirst = false;
 
       if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
         return done();
@@ -190,7 +190,7 @@ public final class LevelOrderAxis extends AbstractAxis {
       processElement();
       // Add first child to queue.
       if (cursor.hasFirstChild()) {
-        mFirstChilds.add(cursor.getFirstChildKey());
+        firstChilds.add(cursor.getFirstChildKey());
       }
       return cursor.getRightSiblingKey();
     }
@@ -198,27 +198,27 @@ public final class LevelOrderAxis extends AbstractAxis {
     // Add first child to queue.
     processElement();
     if (cursor.hasFirstChild()) {
-      mFirstChilds.add(cursor.getFirstChildKey());
+      firstChilds.add(cursor.getFirstChildKey());
     }
 
     // Then follow first child on stack.
-    if (!mFirstChilds.isEmpty()) {
-      mLevel++;
+    if (!firstChilds.isEmpty()) {
+      level++;
 
       // End traversal if level is reached.
-      if (mLevel > mFilterLevel) {
+      if (level > filterLevel) {
         return done();
       }
 
-      return mFirstChilds.pollFirst();
+      return firstChilds.removeLong(0);
     }
 
     // Then follow first child if there is one.
     if (cursor.hasFirstChild()) {
-      mLevel++;
+      level++;
 
       // End traversal if level is reached.
-      if (mLevel > mFilterLevel) {
+      if (level > filterLevel) {
         return done();
       }
 
@@ -234,22 +234,22 @@ public final class LevelOrderAxis extends AbstractAxis {
    * @return the current level
    */
   public int getCurrentLevel() {
-    return mLevel;
+    return level;
   }
 
   /** Process an element node. */
   private void processElement() {
     if (getCursor() instanceof XmlNodeReadOnlyTrx) {
       final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
-      if (rtx.getKind() == NodeKind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
+      if (rtx.getKind() == NodeKind.ELEMENT && includeNodes == IncludeNodes.NONSTRUCTURAL) {
         for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
           rtx.moveToNamespace(i);
-          mFirstChilds.add(rtx.getNodeKey());
+          firstChilds.add(rtx.getNodeKey());
           rtx.moveToParent();
         }
         for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
           rtx.moveToAttribute(i);
-          mFirstChilds.add(rtx.getNodeKey());
+          firstChilds.add(rtx.getNodeKey());
           rtx.moveToParent();
         }
       }

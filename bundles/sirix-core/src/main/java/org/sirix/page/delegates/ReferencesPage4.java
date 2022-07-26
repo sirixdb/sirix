@@ -175,4 +175,11 @@ public final class ReferencesPage4 implements Page {
     }
     return helper.toString();
   }
+
+  @Override
+  public Page clearPage() {
+    offsets.clear();
+    references.clear();
+    return this;
+  }
 }

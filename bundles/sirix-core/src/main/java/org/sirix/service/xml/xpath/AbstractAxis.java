@@ -21,9 +21,7 @@
 
 package org.sirix.service.xml.xpath;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -34,6 +32,10 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
+
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  *
@@ -93,7 +95,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public final Iterator<Long> iterator() {
+  public final LongIterator iterator() {
     return this;
   }
 
@@ -159,7 +161,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public final Long next() {
+  public final long nextLong() {
     if (!hasNext) {
       throw new NoSuchElementException("No more nodes in the axis!");
     }
@@ -283,8 +285,8 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public Long peek() {
-    return null;
+  public long peek() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   /**
@@ -306,7 +308,7 @@ public abstract class AbstractAxis implements Axis {
   @Override
   public final void foreach(final XmlNodeVisitor pVisitor) {
     checkNotNull(pVisitor);
-    for (; hasNext(); next()) {
+    for (; hasNext(); nextLong()) {
       ((XmlNodeReadOnlyTrx) rtx).acceptVisitor(pVisitor);
     }
   }
@@ -316,7 +318,7 @@ public abstract class AbstractAxis implements Axis {
     synchronized (rtx) {
       long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
       if (hasNext()) {
-        retVal = next();
+        retVal = nextLong();
       }
       return retVal;
     }

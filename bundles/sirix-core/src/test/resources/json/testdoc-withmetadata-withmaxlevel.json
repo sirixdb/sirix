@@ -1,7 +1,7 @@
 {
   "metadata": {
     "nodeKey": 1,
-    "hash": "afc35014ae4a659c92ed4a99d1f35adb",
+    "hash": "2fcd1272b2d253c1cbd233faf0598508",
     "type": "OBJECT",
     "descendantCount": 24,
     "childCount": 4
@@ -11,14 +11,14 @@
       "key": "foo",
       "metadata": {
         "nodeKey": 2,
-        "hash": "f63408ac19f84f635e2140a2a38dcaa2",
+        "hash": "3c4a226fa52da6898cda0e7df27a0da0",
         "type": "OBJECT_KEY",
         "descendantCount": 4
       },
       "value": {
         "metadata": {
           "nodeKey": 3,
-          "hash": "a709e167ce057fa71d7265aa0b0442fb",
+          "hash": "bccc9eb8d5d587f223dbe9708389f9f7",
           "type": "ARRAY",
           "descendantCount": 3,
           "childCount": 3
@@ -30,14 +30,14 @@
       "key": "bar",
       "metadata": {
         "nodeKey": 7,
-        "hash": "1e18013511712fbf0c45d36e766b12b4",
+        "hash": "cf98aadee3cb370a60a406c917b23be4",
         "type": "OBJECT_KEY",
         "descendantCount": 5
       },
       "value": {
         "metadata": {
           "nodeKey": 8,
-          "hash": "377c094c796c9cfd92e827ea27036683",
+          "hash": "735a4122b8d95db082ac11f62369d8ae",
           "type": "OBJECT",
           "descendantCount": 4,
           "childCount": 2
@@ -49,7 +49,7 @@
       "key": "baz",
       "metadata": {
         "nodeKey": 13,
-        "hash": "b4dc5154b109389b469d2c1ace9337eb",
+        "hash": "be987b16591814eaa8f977822b46a915",
         "type": "OBJECT_KEY",
         "descendantCount": 1
       },
@@ -66,14 +66,14 @@
       "key": "tada",
       "metadata": {
         "nodeKey": 15,
-        "hash": "54cd18f41e0a9030143cc737cf5af063",
+        "hash": "b02f5f76590266b80e7c1db829f3e762",
         "type": "OBJECT_KEY",
         "descendantCount": 10
       },
       "value": {
         "metadata": {
           "nodeKey": 16,
-          "hash": "5a2084c5948a8239e825b5b72fb9cecf",
+          "hash": "c52a0422495ea6c6c94ab420e445e334",
           "type": "ARRAY",
           "descendantCount": 9,
           "childCount": 5

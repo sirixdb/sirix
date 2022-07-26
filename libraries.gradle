@@ -38,7 +38,8 @@ implLibraries = [
         integercompression       : 'me.lemire.integercompression:JavaFastPFOR:0.1.12',
         dagger                   : 'com.google.dagger:dagger:2.32',
         daggerCompiler           : 'com.google.dagger:dagger-compiler:2.32',
-        chronicleBytes           : 'net.openhft:chronicle-bytes:2.22.24'
+        chronicleBytes           : 'net.openhft:chronicle-bytes:2.22.24',
+        fastUtil                 : 'it.unimi.dsi:fastutil:8.5.8'
 ]
 
 testLibraries = [

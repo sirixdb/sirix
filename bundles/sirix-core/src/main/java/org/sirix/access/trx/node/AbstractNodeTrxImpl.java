@@ -1,6 +1,8 @@
 package org.sirix.access.trx.node;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
@@ -19,9 +21,6 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UberPage;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,7 +29,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
-import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -99,7 +97,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * An optional lock for all methods, if an automatic commit is issued.
    */
   @Nullable
-  private final Lock lock;
+  protected final Lock lock;
 
   /**
    * Transaction state.
@@ -277,19 +275,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
-  protected <T> T supplyLocked(final Supplier<T> supplier) {
-    if (lock != null) {
-      lock.lock();
-    }
-    try {
-      return supplier.get();
-    } finally {
-      if (lock != null) {
-        lock.unlock();
-      }
-    }
-  }
-
   @Override
   public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     nodeReadOnlyTrx.assertNotClosed();
@@ -408,36 +393,42 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public synchronized W rollback() {
-    return supplyLocked(() -> {
-      nodeReadOnlyTrx.assertNotClosed();
+    if (lock != null) {
+      lock.lock();
+    }
 
-      // Reset modification counter.
-      modificationCount = 0L;
+    nodeReadOnlyTrx.assertNotClosed();
 
-      // Close current page transaction.
-      final long trxID = getId();
-      final int revision = getRevisionNumber();
-      final int revNumber = pageTrx.getUberPage().isBootstrap() ? 0 : revision - 1;
+    // Reset modification counter.
+    modificationCount = 0L;
 
-      final UberPage uberPage = pageTrx.rollback();
+    // Close current page transaction.
+    final long trxID = getId();
+    final int revision = getRevisionNumber();
+    final int revNumber = pageTrx.getUberPage().isBootstrap() ? 0 : revision - 1;
 
-      // Remember successfully committed uber page in resource manager.
-      resourceManager.setLastCommittedUberPage(uberPage);
+    final UberPage uberPage = pageTrx.rollback();
 
-      resourceManager.closeNodePageWriteTransaction(getId());
-      nodeReadOnlyTrx.setPageReadTransaction(null);
-      removeCommitFile();
+    // Remember successfully committed uber page in resource manager.
+    resourceManager.setLastCommittedUberPage(uberPage);
 
-      pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
-      nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-      resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
+    resourceManager.closeNodePageWriteTransaction(getId());
+    nodeReadOnlyTrx.setPageReadTransaction(null);
+    removeCommitFile();
 
-      nodeFactory = reInstantiateNodeFactory(pageTrx);
+    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
+    nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
+    resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
 
-      reInstantiateIndexes();
+    nodeFactory = reInstantiateNodeFactory(pageTrx);
 
-      return self();
-    });
+    reInstantiateIndexes();
+
+    if (lock != null) {
+      lock.unlock();
+    }
+
+    return self();
   }
 
   private void removeCommitFile() {
@@ -450,7 +441,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public W revertTo(final int revision) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       nodeReadOnlyTrx.assertNotClosed();
       resourceManager.assertAccess(revision);
 
@@ -478,25 +473,45 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Move to document root.
       moveToDocumentRoot();
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
 
-      return self();
-    });
+    return self();
   }
 
   @Override
   public W addPreCommitHook(final PreCommitHook hook) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       preCommitHooks.add(checkNotNull(hook));
       return self();
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
   public W addPostCommitHook(final PostCommitHook hook) {
-    return supplyLocked(() -> {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
       postCommitHooks.add(checkNotNull(hook));
       return self();
-    });
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override
@@ -510,7 +525,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public PathSummaryReader getPathSummary() {
-    return supplyLocked(pathSummaryWriter::getPathSummary);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      return pathSummaryWriter.getPathSummary();
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override

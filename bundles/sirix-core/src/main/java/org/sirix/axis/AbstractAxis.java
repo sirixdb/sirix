@@ -23,8 +23,10 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import java.util.Iterator;
+
 import java.util.NoSuchElementException;
+
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -105,7 +107,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public final Iterator<Long> iterator() {
+  public final LongIterator iterator() {
     return this;
   }
 
@@ -213,7 +215,7 @@ public abstract class AbstractAxis implements Axis {
   protected abstract long nextKey();
 
   @Override
-  public final Long next() {
+  public final long nextLong() {
     if (!hasNext()) {
       throw new NoSuchElementException();
     }
@@ -293,7 +295,7 @@ public abstract class AbstractAxis implements Axis {
    *
    * @return key of node where transaction was before the first call of {@code hasNext()}
    */
-  private final long resetToStartKey() {
+  private long resetToStartKey() {
     // No check because of IAxis Convention 4.
     nodeCursor.moveTo(startNodeKey);
     return startNodeKey;
@@ -312,7 +314,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public final Long peek() {
+  public final long peek() {
     if (!hasNext()) {
       throw new NoSuchElementException();
     }
@@ -339,7 +341,7 @@ public abstract class AbstractAxis implements Axis {
     checkNotNull(visitor);
     if (nodeCursor instanceof XmlNodeReadOnlyTrx) {
       while (hasNext()) {
-        next();
+        nextLong();
         ((XmlNodeReadOnlyTrx) nodeCursor).acceptVisitor(visitor);
       }
     }
@@ -350,7 +352,7 @@ public abstract class AbstractAxis implements Axis {
     synchronized (nodeCursor) {
       long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
       if (hasNext()) {
-        retVal = next();
+        retVal = nextLong();
       }
       return retVal;
     }

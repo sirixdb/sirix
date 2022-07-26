@@ -64,7 +64,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -83,6 +82,8 @@ import static java.nio.file.StandardOpenOption.CREATE;
  * @author Johannes Lichtenberger
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
+
+  private final Bytes<ByteBuffer> bufferBytes = Bytes.elasticByteBuffer(64_000);
 
   /**
    * Page writer to serialize.
@@ -333,14 +334,15 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       return;
     }
 
-    final PageContainer container = log.get(reference, this);
+    PageContainer container = log.get(reference, this);
 
     log.remove(reference);
 
     Page page = null;
 
+    final var modifiedPage = container.getModified();
     if (container != null) {
-      page = container.getModified();
+      page = modifiedPage;
     }
 
     if (page == null) {
@@ -351,11 +353,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
-    storagePageReaderWriter.write(reference);
+    storagePageReaderWriter.write(reference, bufferBytes);
 
-    if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
-      unorderedKeyValuePage.clearBytesAndHashCode();
-    }
+    container.getComplete().clearPage();
+    page.clearPage();
+    page = null;
+    container = null;
 
     // Remove page reference.
     reference.setPage(null);
@@ -407,7 +410,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       uberPage.commit(this);
 
       uberPageReference.setPage(uberPage);
-      storagePageReaderWriter.writeUberPageReference(uberPageReference);
+      storagePageReaderWriter.writeUberPageReference(uberPageReference, bufferBytes);
       uberPageReference.setPage(null);
 
       if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
@@ -501,7 +504,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     assert recordPageKey >= 0;
     assert indexType != null;
 
-    final Function<IndexLogKey, PageContainer> retrieveFunction = (unused) -> {
+    final var indexLogKey = new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
+
+    var pageContainer = mostRecentPageContainers.get(indexLogKey);
+
+    if (pageContainer == null) {
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
@@ -514,7 +521,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                                                                      indexType,
                                                                      newRevisionRootPage);
 
-      PageContainer pageContainer = log.get(reference, this);
+      pageContainer = log.get(reference, this);
 
       if (pageContainer.equals(PageContainer.emptyInstance())) {
         if (reference.getKey() == Constants.NULL_ID_LONG) {
@@ -535,14 +542,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         }
       }
 
-      return pageContainer;
-    };
+      mostRecentPageContainers.put(indexLogKey, pageContainer);
 
-    return mostRecentPageContainers.computeIfAbsent(new IndexLogKey(indexType,
-                                                                    recordPageKey,
-                                                                    indexNumber,
-                                                                    newRevisionRootPage.getRevision()),
-                                                    retrieveFunction);
+      return pageContainer;
+    }
+
+    return pageContainer;
   }
 
   /**

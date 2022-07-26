@@ -236,4 +236,11 @@ public final class BitmapReferencesPage implements Page {
 
     return s.toString();
   }
+
+  @Override
+  public Page clearPage() {
+    references.clear();
+    bitmap.clear();
+    return this;
+  }
 }

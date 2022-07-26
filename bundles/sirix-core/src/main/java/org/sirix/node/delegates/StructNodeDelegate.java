@@ -217,7 +217,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public int hashCode() {
-    return ((lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty())
+    return lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()
         ? Objects.hashCode(childCount,
                            nodeDelegate,
                            firstChild,
@@ -230,7 +230,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
                            lastChild,
                            leftSibling,
                            rightSibling,
-                           descendantCount));
+                           descendantCount);
   }
 
   @Override
@@ -241,14 +241,14 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
             .putLong(node.getDescendantCount())
             .putLong(node.getLeftSiblingKey())
             .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey());
+            .putLong(node.getFirstChildKey())
+            .putLong(node.getLastChildKey());
       } else {
         into.putLong(node.getChildCount())
             .putLong(node.getDescendantCount())
             .putLong(node.getLeftSiblingKey())
             .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey())
-            .putLong(node.getLastChildKey());
+            .putLong(node.getFirstChildKey());
       }
     };
 

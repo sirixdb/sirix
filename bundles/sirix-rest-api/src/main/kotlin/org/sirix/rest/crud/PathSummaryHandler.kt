@@ -40,7 +40,7 @@ class PathSummaryHandler(private val location: Path) {
                         buffer.append("{\"pathSummary\":[")
 
                         while (pathSummaryAxis.hasNext()) {
-                            pathSummaryAxis.next()
+                            pathSummaryAxis.nextLong()
 
                             buffer.append("{")
                             buffer.append("nodeKey:")

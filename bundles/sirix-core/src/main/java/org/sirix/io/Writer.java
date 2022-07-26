@@ -21,8 +21,11 @@
 
 package org.sirix.io;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
+
+import java.nio.ByteBuffer;
 
 /**
  * Interface to provide the abstract layer related to write access of the Sirix-backend.
@@ -35,19 +38,21 @@ public interface Writer extends Reader {
    * Writing a page related to the reference.
    *
    * @param pageReference that points to a page
+   * @param bufferdBytes  the bytes to write
    * @throws SirixIOException execption to be thrown if something bad happens
    * @return this writer instance
    */
-  Writer write(PageReference pageReference) throws SirixIOException;
+  Writer write(PageReference pageReference, Bytes<ByteBuffer> bufferdBytes);
 
   /**
    * Write beacon for the first reference.
    *
    * @param pageReference that points to the beacon
+   * @param bufferedBytes  the bytes to write
    * @throws SirixIOException if an I/O error occured
    * @return this writer instance
    */
-  Writer writeUberPageReference(PageReference pageReference) throws SirixIOException;
+  Writer writeUberPageReference(PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Truncate to a specific revision.

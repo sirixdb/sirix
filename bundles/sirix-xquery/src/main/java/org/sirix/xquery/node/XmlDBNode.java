@@ -287,7 +287,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
           for (final Axis axis = new FollowingAxis(rtx); axis.hasNext();) {
-            axis.next();
+            axis.nextLong();
             if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
             }
