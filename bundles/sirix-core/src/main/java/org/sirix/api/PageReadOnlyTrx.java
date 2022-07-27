@@ -118,7 +118,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws IllegalArgumentException if {@code key} is negative
    *
    */
-  Optional<Page> getRecordPage(@NonNull IndexLogKey indexLogKey);
+  Page getRecordPage(@NonNull IndexLogKey indexLogKey);
 
   /**
    * Determines if transaction is closed or not.

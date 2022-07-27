@@ -237,7 +237,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     // $CASES-OMITTED$
     final long createdRecordKey = switch (indexType) {
       case DOCUMENT -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
-      case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
+      case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInChangedNodesIndex();
       case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
       case PATH_SUMMARY -> {
         final PathSummaryPage pathSummaryPage =
@@ -288,7 +288,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public DataRecord getRecord(@NonNull final long recordKey, @NonNull final IndexType indexType,
+  public DataRecord getRecord(final long recordKey, @NonNull final IndexType indexType,
       @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
