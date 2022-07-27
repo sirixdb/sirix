@@ -129,7 +129,7 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public Optional<Page> getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public Page getRecordPage(@NonNull IndexLogKey indexLogKey) {
     return delegate().getRecordPage(indexLogKey);
   }
 

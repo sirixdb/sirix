@@ -1,7 +1,6 @@
 package org.sirix.index.path.summary;
 
 import com.google.common.base.MoreObjects;
-import it.unimi.dsi.fastutil.longs.Long2ObjectArrayMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.brackit.xquery.atomic.QNm;
@@ -44,6 +43,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
+@SuppressWarnings({ "unused", "UnusedReturnValue" })
 public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
@@ -106,7 +106,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     qnmMapping = new HashMap<>();
     boolean first = true;
     for (final long nodeKey : new DescendantAxis(this, IncludeSelf.YES)) {
-      pathNodeMapping.put((int) nodeKey, this.getStructuralNode());
+      pathNodeMapping.put(nodeKey, this.getStructuralNode());
 
       if (first) {
         first = false;
@@ -299,7 +299,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       return null;
     }
 
-    return (PathNode) pathNodeMapping.get((int) pathNodeKey);
+    return (PathNode) pathNodeMapping.get(pathNodeKey);
   }
 
   @Override
@@ -339,7 +339,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final long nodeKey = currentNode.getNodeKey();
     moveToDocumentRoot();
     for (final Axis axis = new DescendantAxis(this); axis.hasNext(); ) {
-      axis.next();
+      axis.nextLong();
       final PathNode node = this.getPathNode();
 
       if (node == null) {
