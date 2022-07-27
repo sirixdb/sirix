@@ -99,6 +99,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Ignore
   @Test
   public void testChicago() {
     final var stopWatch = new StopWatch();
