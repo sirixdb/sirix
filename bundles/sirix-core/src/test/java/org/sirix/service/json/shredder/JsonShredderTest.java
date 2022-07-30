@@ -36,13 +36,13 @@ import static org.junit.Assert.assertEquals;
 public final class JsonShredderTest {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonShredder.class));
+  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(JsonShredder.class));
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   @Before
   public void setUp() {
-    JsonTestHelper.deleteEverything();
+    //JsonTestHelper.deleteEverything();
   }
 
   @After
@@ -64,38 +64,40 @@ public final class JsonShredderTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
       var stopWatch = new StopWatch();
-      LOGWRAPPER.info("start");
+      logger.info("start");
       stopWatch.start();
-      LOGWRAPPER.info("Max node key: " + rtx.getMaxNodeKey());
+      logger.info("Max node key: " + rtx.getMaxNodeKey());
       Axis axis = new DescendantAxis(rtx);
 
       int count = 0;
 
-      for (final long nodeKey : axis) {
+      while (axis.hasNext()) {
+        final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          System.out.println(nodeKey);
+          logger.info("nodeKey: " + nodeKey);
         }
         count++;
       }
 
-      LOGWRAPPER.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)  + " s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)  + " s].");
 
       stopWatch = new StopWatch();
       stopWatch.start();
 
-      LOGWRAPPER.info("start");
+      logger.info("start");
       axis = new PostOrderAxis(rtx);
 
       count = 0;
 
-      for (final long nodeKey : axis) {
+      while (axis.hasNext()) {
+        final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          System.out.println(nodeKey);
+          logger.info("nodeKey: " + nodeKey);
         }
         count++;
       }
 
-      LOGWRAPPER.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
     }
   }
 
@@ -103,7 +105,7 @@ public final class JsonShredderTest {
   @Test
   public void testChicago() {
     final var stopWatch = new StopWatch();
-    LOGWRAPPER.info("start");
+    logger.info("start");
     stopWatch.start();
     final var jsonPath = JSON.resolve("cityofchicago.json");
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
@@ -124,7 +126,7 @@ public final class JsonShredderTest {
         trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
       }
     }
-    LOGWRAPPER.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
   }
 
   @Test

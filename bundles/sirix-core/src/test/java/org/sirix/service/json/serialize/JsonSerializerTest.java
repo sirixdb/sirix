@@ -96,7 +96,8 @@ public final class JsonSerializerTest {
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var writer = new StringWriter();
          final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot().trx().moveToFirstChild();
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.commit();
 

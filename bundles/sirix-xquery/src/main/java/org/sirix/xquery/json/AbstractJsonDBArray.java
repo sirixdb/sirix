@@ -386,11 +386,11 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final var axis = new ChildAxis(rtx);
 
     for (int i = 0; i < index && axis.hasNext(); i++) {
-      axis.next();
+      axis.nextLong();
     }
 
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
 
       return jsonItemFactory.getSequence(rtx, collection);
     }

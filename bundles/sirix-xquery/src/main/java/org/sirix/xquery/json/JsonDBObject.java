@@ -322,18 +322,15 @@ public final class JsonDBObject extends AbstractItem
     } else if (value instanceof Bool) {
       trx.replaceObjectRecordValue(new BooleanValue(value.booleanValue()));
     } else if (value instanceof Numeric) {
-      if (value instanceof Int) {
-        trx.replaceObjectRecordValue(new NumberValue(((Int) value).intValue()));
-      } else if (value instanceof Int32) {
-        trx.replaceObjectRecordValue(new NumberValue(((Int32) value).intValue()));
-      } else if (value instanceof Int64) {
-        trx.replaceObjectRecordValue(new NumberValue(((Int64) value).longValue()));
-      } else if (value instanceof Flt) {
-        trx.replaceObjectRecordValue(new NumberValue(((Flt) value).floatValue()));
-      } else if (value instanceof Dbl) {
-        trx.replaceObjectRecordValue(new NumberValue(((Dbl) value).doubleValue()));
-      } else if (value instanceof Dec) {
-        trx.replaceObjectRecordValue(new NumberValue(((Dec) value).decimalValue()));
+      switch (value) {
+        case Int anInt -> trx.replaceObjectRecordValue(new NumberValue(anInt.intValue()));
+        case Int32 int32 -> trx.replaceObjectRecordValue(new NumberValue(int32.intValue()));
+        case Int64 int64 -> trx.replaceObjectRecordValue(new NumberValue(int64.longValue()));
+        case Flt flt -> trx.replaceObjectRecordValue(new NumberValue(flt.floatValue()));
+        case Dbl dbl -> trx.replaceObjectRecordValue(new NumberValue(dbl.doubleValue()));
+        case Dec dec -> trx.replaceObjectRecordValue(new NumberValue(dec.decimalValue()));
+        case null, default -> {
+        }
       }
     }
   }
@@ -346,7 +343,7 @@ public final class JsonDBObject extends AbstractItem
   private boolean findField(QNm field, JsonNodeTrx trx) {
     moveRtx();
     if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
-        && !hasMatchingPathNode(field)) {
+        && hasNoMatchingPathNode(field)) {
       return false;
     }
 
@@ -359,7 +356,7 @@ public final class JsonDBObject extends AbstractItem
         isFound = true;
         break;
       }
-    } while (trx.moveToRightSibling().hasMoved());
+    } while (trx.moveToRightSibling());
 
     return isFound;
   }
@@ -375,7 +372,8 @@ public final class JsonDBObject extends AbstractItem
       if (foundField) {
         trx.setObjectKeyName(newFieldName.getLocalName());
         fields.remove(field);
-        fields.put(newFieldName, jsonItemFactory.getSequence(trx.moveToFirstChild().trx(), collection));
+        trx.moveToFirstChild();
+        fields.put(newFieldName, jsonItemFactory.getSequence(trx, collection));
       }
     }
     return this;
@@ -399,26 +397,31 @@ public final class JsonDBObject extends AbstractItem
   private void insert(QNm field, Sequence value, JsonNodeTrx trx) {
     final var fieldName = field.getLocalName();
     if (value instanceof Atomic) {
-      if (value instanceof Str) {
-        trx.insertObjectRecordAsLastChild(fieldName, new StringValue(((Str) value).stringValue()));
-      } else if (value instanceof Null) {
-        trx.insertObjectRecordAsLastChild(fieldName, new NullValue());
-      } else if (value instanceof Numeric) {
-        if (value instanceof Int) {
-          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Int) value).intValue()));
-        } else if (value instanceof Int32) {
-          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Int32) value).intValue()));
-        } else if (value instanceof Int64) {
-          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Int64) value).longValue()));
-        } else if (value instanceof Flt) {
-          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Flt) value).floatValue()));
-        } else if (value instanceof Dbl) {
-          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Dbl) value).doubleValue()));
-        } else if (value instanceof Dec) {
-          trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(((Dec) value).decimalValue()));
-        }
-      } else if (value instanceof Bool) {
-        trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
+      switch (value) {
+        case Str str:
+          trx.insertObjectRecordAsLastChild(fieldName, new StringValue(str.stringValue()));
+          break;
+        case Null aNull:
+          trx.insertObjectRecordAsLastChild(fieldName, new NullValue());
+          break;
+        case Numeric numeric:
+          switch (value) {
+            case Int anInt -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(anInt.intValue()));
+            case Int32 int32 -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(int32.intValue()));
+            case Int64 int64 -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(int64.longValue()));
+            case Flt flt -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(flt.floatValue()));
+            case Dbl dbl -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(dbl.doubleValue()));
+            case Dec dec -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(dec.decimalValue()));
+            case null, default -> {
+            }
+          }
+          break;
+        case Bool bool:
+          trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
+          break;
+        case null:
+        default:
+          break;
       }
     } else {
       final Item item = ExprUtil.asItem(value);
@@ -468,7 +471,7 @@ public final class JsonDBObject extends AbstractItem
 
     return fields.computeIfAbsent(field, (unused) -> {
       if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
-          && !hasMatchingPathNode(field)) {
+          && hasNoMatchingPathNode(field)) {
         return null;
       }
 
@@ -477,15 +480,16 @@ public final class JsonDBObject extends AbstractItem
 
       if (axis.hasNext()) {
         axis.nextLong();
+        rtx.moveToFirstChild();
 
-        return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
+        return jsonItemFactory.getSequence(rtx, collection);
       }
 
       return null;
     });
   }
 
-  private boolean hasMatchingPathNode(QNm field) {
+  private boolean hasNoMatchingPathNode(QNm field) {
     rtx.moveToParent();
     final long pcr = rtx.isDocumentRoot() ? 0 : rtx.getPathNodeKey();
     rtx.moveTo(nodeKey);
@@ -501,7 +505,7 @@ public final class JsonDBObject extends AbstractItem
       }
     }
     // No matches.
-    return matches.cardinality() != 0;
+    return matches.cardinality() == 0;
   }
 
   @Override
@@ -523,7 +527,9 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.nextLong();
 
-      return jsonItemFactory.getSequence(rtx.moveToFirstChild().trx(), collection);
+      rtx.moveToFirstChild();
+
+      return jsonItemFactory.getSequence(rtx, collection);
     }
 
     return null;

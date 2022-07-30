@@ -47,6 +47,7 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
+import java.io.Serial;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -63,6 +64,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * access to this transaction.
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
+
+  /**
+   * The most recent references to leaf pages.
+   */
+  private final LinkedHashMap<IndexLogKey, PageReference> mostRecentReferencesToLeafOfSubtrees;
 
   private record RecordPage(int index, IndexType indexType, long recordPageKey, Page page) {
   }
@@ -123,11 +129,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final NamePage namePage;
 
   /**
-   * Caches the most recently read record page.
+   * The most recent page conatiners.
    */
-  private RecordPage mostRecentlyReadRecordPage;
+  private final LinkedHashMap<IndexLogKey, Page> mostRecentPages;
 
   private final ExecutorService pool;
+
+  private RecordPage mostRecentlyReadRecordPage;
 
   /**
    * Standard constructor.
@@ -161,6 +169,29 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
+    mostRecentPages = new LinkedHashMap<>(15) {
+      private static final int MAX_ENTRIES = 15;
+
+      @Serial
+      private static final long serialVersionUID = 1;
+
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<IndexLogKey, Page> eldest) {
+        return size() > MAX_ENTRIES;
+      }
+    };
+
+    mostRecentReferencesToLeafOfSubtrees = new LinkedHashMap<>(15) {
+      private static final int MAX_ENTRIES = 15;
+
+      @Serial
+      private static final long serialVersionUID = 1;
+
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageReference> eldest) {
+        return size() > MAX_ENTRIES;
+      }
+    };
   }
 
   private Page loadPage(final PageReference reference) {
@@ -382,16 +413,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final var page = pageReferenceToRecordPage.getPage();
 
+    if (page != null) {
+      mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
+                                                  indexLogKey.getIndexType(),
+                                                  indexLogKey.getRecordPageKey(),
+                                                  page);
+      return page;
+    }
+
     // Try to get from resource buffer manager.
     if (trxIntentLog == null) {
-      if (page != null) {
-        mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
-                                                    indexLogKey.getIndexType(),
-                                                    indexLogKey.getRecordPageKey(),
-                                                    page);
-        return page;
-      }
-
       final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
 
       if (recordPageFromBuffer != null) {
@@ -422,8 +453,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (trxIntentLog == null) {
       resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, completePage);
-      pageReferenceToRecordPage.setPage(completePage);
     }
+
+    pageReferenceToRecordPage.setPage(completePage);
 
     mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                                 indexLogKey.getIndexType(),
@@ -443,7 +475,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   PageReference getLeafPageReference(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
-    return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType);
+    return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, rootPage);
+  }
+
+  PageReference getLeafPageReference(final PageReference pageReferenceToSubtree, final @NonNegative long recordPageKey,
+      final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
+    return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, revisionRootPage);
   }
 
   /**
@@ -544,12 +581,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       // Try to get it from the transaction log if it's present.
       final PageContainer cont = trxIntentLog.get(reference, this);
       page = cont == null ? null : (IndirectPage) cont.getComplete();
+
+      if (page != null) {
+        return page;
+      }
     }
 
-    if (page == null) {
-      // Then try to get the in-memory reference.
-      page = (IndirectPage) reference.getPage();
-    }
+    // Then try to get the in-memory reference.
+    page = (IndirectPage) reference.getPage();
 
     if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
         || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
@@ -571,8 +610,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Nullable
   @Override
   public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final @NonNegative long pageKey,
-      final int indexNumber, final @NonNull IndexType indexType) {
+      final int indexNumber, final @NonNull IndexType indexType, final RevisionRootPage revisionRootPage) {
     assertNotClosed();
+
+    var indexLogKey = new IndexLogKey(indexType, pageKey, indexNumber, revisionRootPage.getRevision());
+    var referenceToLeafPage = mostRecentReferencesToLeafOfSubtrees.get(indexLogKey);
+
+    if (referenceToLeafPage != null) {
+      indexLogKey = null;
+      return referenceToLeafPage;
+    }
 
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(startReference);
@@ -580,7 +627,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     int offset;
     long levelKey = pageKey;
     final int[] inpLevelPageCountExp = uberPage.getPageCountExp(indexType);
-    final int maxHeight = getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber, null);
+    final int maxHeight = getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber, revisionRootPage);
 
     // Iterate through all levels.
     for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
@@ -600,6 +647,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         }
       }
     }
+
+    mostRecentReferencesToLeafOfSubtrees.put(indexLogKey, reference);
 
     // Return reference to leaf of indirect tree.
     return reference;

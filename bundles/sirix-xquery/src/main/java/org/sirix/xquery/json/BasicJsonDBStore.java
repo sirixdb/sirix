@@ -4,6 +4,8 @@ import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -15,9 +17,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.json.shredder.JsonShredder;
-
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.utils.OS;
 
 import java.io.IOException;
@@ -26,7 +25,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -341,7 +342,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
       for (final var jsonReader : jsonReaders) {
         numberOfResources++;
         final String resourceName = "resource" + numberOfResources;
-        resourceFutures[i++] = (CompletableFuture.runAsync(() -> createResource(collName, database, jsonReader, resourceName)));
+        resourceFutures[i++] =
+            (CompletableFuture.runAsync(() -> createResource(collName, database, jsonReader, resourceName)));
       }
       CompletableFuture.allOf(resourceFutures).join();
       return new JsonDBCollection(collName, database, this);
@@ -384,10 +386,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
         while ((string = jsonStrings.next()) != null) {
           final String currentString = string.stringValue();
           final String resourceName = "resource" + i;
-          CompletableFuture.runAsync(() -> createResource(collName,
-                                           database,
-                                           JsonShredder.createStringReader(currentString),
-                                           resourceName));
+          resourceFutures.add(CompletableFuture.runAsync(() -> createResource(collName,
+                                                                              database,
+                                                                              JsonShredder.createStringReader(
+                                                                                  currentString),
+                                                                              resourceName)));
           i++;
         }
       }

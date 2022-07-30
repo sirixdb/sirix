@@ -216,7 +216,7 @@ public class XmlResourceManagerTest {
     wtx.close();
 
     final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    assertEquals(false, rtx.moveTo(14L).hasMoved());
+    assertEquals(false, rtx.moveTo(14L));
     rtx.close();
     rtx.close();
     holder.getResourceManager().close();

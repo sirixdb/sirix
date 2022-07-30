@@ -23,10 +23,11 @@ package org.sirix.access.trx.node.xml;
 
 import com.google.common.base.MoreObjects;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.ItemList;
-import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
@@ -36,33 +37,19 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.immutable.xml.ImmutableAttributeNode;
-import org.sirix.node.immutable.xml.ImmutableComment;
-import org.sirix.node.immutable.xml.ImmutableElement;
-import org.sirix.node.immutable.xml.ImmutableNamespace;
-import org.sirix.node.immutable.xml.ImmutablePI;
-import org.sirix.node.immutable.xml.ImmutableText;
-import org.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
+import org.sirix.node.immutable.xml.*;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
+import org.sirix.node.xml.*;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -120,7 +107,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  public Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final int index) {
+  public boolean moveToAttribute(final int index) {
     assertNotClosed();
     final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.ELEMENT) {
@@ -128,15 +115,15 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       if (element.getAttributeCount() > index) {
         return moveTo(element.getAttributeKey(index));
       } else {
-        return Move.notMoved();
+        return false;
       }
     }
 
-    return Move.notMoved();
+    return false;
   }
 
   @Override
-  public Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(final int index) {
+  public boolean moveToNamespace(final int index) {
     assertNotClosed();
     final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.ELEMENT) {
@@ -144,11 +131,11 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       if (element.getNamespaceCount() > index) {
         return moveTo(element.getNamespaceKey(index));
       } else {
-        return Move.notMoved();
+        return false;
       }
     }
 
-    return Move.notMoved();
+    return false;
   }
 
   @Override
@@ -214,7 +201,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  public Move<? extends XmlNodeReadOnlyTrx> moveToLastChild() {
+  public boolean moveToLastChild() {
     assertNotClosed();
     if (getStructuralNode().hasFirstChild()) {
       moveToFirstChild();
@@ -223,13 +210,13 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
         moveToRightSibling();
       }
 
-      return Move.moved(thisInstance());
+      return true;
     }
-    return Move.notMoved();
+    return false;
   }
 
   @Override
-  public Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
+  public boolean moveToAttributeByName(final QNm name) {
     assertNotClosed();
     final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.ELEMENT) {
@@ -239,7 +226,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
         return moveTo(attrKey.get());
       }
     }
-    return Move.notMoved();
+    return false;
   }
 
   @Override
@@ -428,7 +415,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       SirixDeweyID deweyID = null;
       if (node.hasLeftSibling()) {
         // Left sibling node.
-        deweyID = moveTo(node.getLeftSiblingKey()).trx().getDeweyID();
+        moveTo(node.getLeftSiblingKey());
+        deweyID = getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -444,7 +432,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       SirixDeweyID deweyID = null;
       if (node.hasRightSibling()) {
         // Right sibling node.
-        deweyID = moveTo(node.getRightSiblingKey()).trx().getDeweyID();
+        moveTo(node.getRightSiblingKey());
+        deweyID = getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -460,7 +449,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       SirixDeweyID deweyID = null;
       if (currentNode.hasParent()) {
         // Parent node.
-        deweyID = moveTo(currentNode.getParentKey()).trx().getDeweyID();
+        moveTo(currentNode.getParentKey());
+        deweyID = getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -476,7 +466,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
       SirixDeweyID deweyID = null;
       if (node.hasFirstChild()) {
         // Right sibling node.
-        deweyID = moveTo(node.getFirstChildKey()).trx().getDeweyID();
+        moveTo(node.getFirstChildKey());
+        deweyID = getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;

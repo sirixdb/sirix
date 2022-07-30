@@ -22,7 +22,6 @@ import org.sirix.xquery.json.JsonDBStore;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collector;
-import java.util.stream.Collectors;
 
 abstract class AbstractJsonPathWalker extends ScopeWalker {
 
@@ -91,7 +90,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
                                                  pathSegmentNamesToArrayIndexes,
                                                  pathSummary,
                                                  pathNodeKey))
-                                             .collect(Collectors.toList());
+                                             .toList();
 
       // remove path node keys which do not belong to the query result
       pathNodeKeys.removeIf(pathNodeKeysToRemove::contains);
@@ -146,7 +145,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
   private Deque<String> toPredicateSegmentNames(final Deque<QueryPathSegment> predicateSegmentNamesToArrayIndexes) {
     return predicateSegmentNamesToArrayIndexes.stream()
-                                              .map(predicateSegmentNameToArrayIndexes -> predicateSegmentNameToArrayIndexes.pathSegmentName())
+                                              .map(QueryPathSegment::pathSegmentName)
                                               .collect(Collector.of(ArrayDeque::new, ArrayDeque::addFirst, (d1, d2) -> {
                                                 d2.addAll(d1);
                                                 return d2;
@@ -205,8 +204,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return newNode.map(unwrappedNode -> new PathData(pathSegmentNamesToArrayIndexes,
                                                      predicatePathSegmentNamesToArrayIndexes,
                                                      unwrappedNode,
-                                                     predicateLeafNode.isPresent() ? predicateLeafNode.get() : null))
-                  .orElse(null);
+                                                     predicateLeafNode.orElse(null))).orElse(null);
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,
@@ -449,7 +447,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         return currAstNode;
       }).orElse(null);
     } else if (stepNode.getType() == XQExt.IndexExpr) {
-      @SuppressWarnings("unchecked") final Deque<QueryPathSegment> currentPathSegmentNamesToArrayIndexes =
+      final Deque<QueryPathSegment> currentPathSegmentNamesToArrayIndexes =
           (Deque<QueryPathSegment>) stepNode.getProperty("pathSegmentNamesToArrayIndexes");
 
       var iter = currentPathSegmentNamesToArrayIndexes.descendingIterator();

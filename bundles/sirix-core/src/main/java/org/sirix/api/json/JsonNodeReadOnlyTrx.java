@@ -1,7 +1,6 @@
 package org.sirix.api.json;
 
 import com.google.gson.JsonObject;
-import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.ResourceManager;
@@ -31,34 +30,34 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   boolean isBooleanValue();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveTo(long nodeKey);
+  boolean moveTo(long nodeKey);
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToDocumentRoot();
+  boolean moveToDocumentRoot();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToFirstChild();
+  boolean moveToFirstChild();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToLastChild();
+  boolean moveToLastChild();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToLeftSibling();
+  boolean moveToLeftSibling();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToParent();
+  boolean moveToParent();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToRightSibling();
+  boolean moveToRightSibling();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToPrevious();
+  boolean moveToPrevious();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToNext();
+  boolean moveToNext();
 
   @Override
-  Move<? extends JsonNodeReadOnlyTrx> moveToNextFollowing();
+  boolean moveToNextFollowing();
 
   /**
    * Accept a visitor.

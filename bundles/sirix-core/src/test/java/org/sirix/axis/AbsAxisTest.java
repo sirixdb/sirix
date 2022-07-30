@@ -118,7 +118,7 @@ public class AbsAxisTest {
     final Axis axis = new DescendantAxis(holder.getXmlNodeReadTrx());
     long count = 0L;
     while (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
       count += 1;
     }
     assertEquals(10L, count);

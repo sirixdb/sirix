@@ -186,7 +186,8 @@ public class JsonNodeTrxUpdateTest {
     assert database != null;
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot().trx().moveToFirstChild();
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.moveTo(5);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
@@ -224,7 +225,8 @@ public class JsonNodeTrxUpdateTest {
     assert database != null;
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot().trx().moveToFirstChild();
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.moveTo(5);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);

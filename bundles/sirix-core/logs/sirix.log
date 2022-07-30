@@ -40,3 +40,360 @@
 931  [main] DEBUG o.s.access.AbstractResourceStore - Removed resource manager: /tmp/sirix/json-path1/resources/shredded
 932  [main] INFO  o.s.access.json.JsonResourceStore - Opened resource manager: /tmp/sirix/json-path1/resources/shredded
 939  [main] DEBUG o.s.access.AbstractResourceStore - Removed resource manager: /tmp/sirix/json-path1/resources/shredded
+269  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+21442 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+25552 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4107 ms].
+25944 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+29609 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3664 ms].
+30179 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+33417 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3237 ms].
+33683 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+36839 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3155 ms].
+37128 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+40597 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3468 ms].
+81176 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+383  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+21634 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+27228 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [5591 ms].
+27629 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+31356 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3726 ms].
+32114 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+35699 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3584 ms].
+36008 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+39651 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3642 ms].
+39956 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+43479 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3522 ms].
+85904 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+346  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+827  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+297638 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [297 s].
+131  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+305  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+257167 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [257 s].
+323  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+455  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+258333 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [258 s].
+862  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+1310 [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+329  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+265  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+273  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+249  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+263  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+264  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+242  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+269  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+256  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+260  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+344  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+289  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+211  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+259  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+281  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+273  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+244  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+315  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+229  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+280  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+274  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+232  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+283  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+221  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+20384 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+24394 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4007 ms].
+24765 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+27955 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3189 ms].
+28524 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+31618 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3093 ms].
+31872 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+34940 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3067 ms].
+35183 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+38274 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3091 ms].
+78728 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+359  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+1066 [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+131  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+315  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+162  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+351  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+119  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+276  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+118  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+246  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+120  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+264  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+128  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+268  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+438921 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [438 s].
+561  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+708  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+279326 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [278 s].
+517  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+282  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+262  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+258  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+311  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+259  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+275  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+270  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+285  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+264  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+362  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+257  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+303  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+283  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+312  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+595  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+284  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+290  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+468  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+256  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+272  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+254  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+267  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+212  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+220  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+20978 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+25021 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4042 ms].
+25515 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+28723 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3207 ms].
+29290 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+32390 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3099 ms].
+32648 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+36023 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3374 ms].
+36298 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+39493 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3194 ms].
+78505 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+114  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+283  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+204  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+336  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+300760 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [300 s].
+131  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+306  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+261283 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [261 s].
+360  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+522  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+257  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+530  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+243  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+262  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+280  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+191  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+222  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+221  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+23193 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+27266 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4071 ms].
+27591 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+31091 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3498 ms].
+31609 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+35061 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3451 ms].
+35300 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+38697 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3396 ms].
+38950 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+42385 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3435 ms].
+185  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+220  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+267  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+276  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+252  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+271  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+280  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+262  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+259  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+453  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+224  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+25258 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+29928 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4668 ms].
+30298 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+34192 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3893 ms].
+34746 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+38596 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3849 ms].
+38854 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+43054 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4200 ms].
+43318 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+47214 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3896 ms].
+275  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+248  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+216  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+23717 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+28187 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4468 ms].
+28590 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+32579 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3989 ms].
+33131 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+37026 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3894 ms].
+37293 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+41182 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3888 ms].
+41445 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+45409 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3964 ms].
+150161 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+306  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+299  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+232  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+233  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+228  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+25122 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+29818 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4694 ms].
+30206 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+34265 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4058 ms].
+34810 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+38768 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3957 ms].
+39043 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+43120 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4077 ms].
+253  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+211  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+215  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+24442 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+29242 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4798 ms].
+29644 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+33713 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4069 ms].
+34289 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+38295 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4005 ms].
+38567 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+42631 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4064 ms].
+42922 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+46965 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4042 ms].
+130390 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+282  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+695  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+235  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+206  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+213  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+23397 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+27154 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3754 ms].
+27529 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+30879 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3350 ms].
+31432 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+34667 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3234 ms].
+34966 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+38325 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3358 ms].
+38612 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+42094 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3481 ms].
+238  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+222  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+24973 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+28734 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3758 ms].
+29114 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+32393 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3278 ms].
+32930 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+36008 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3078 ms].
+36272 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+39398 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3125 ms].
+39656 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+42751 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3094 ms].
+436471 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+295  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+24134 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+28170 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4033 ms].
+28602 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+32007 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3404 ms].
+32566 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+35990 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3423 ms].
+36252 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+39695 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3442 ms].
+39979 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+43700 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3720 ms].
+454084 [Test worker] INFO  o.s.s.xml.serialize.XmlSerializer - Serializing '/tmp/sirix/path2' to '/tmp/xml/test.xml' ... 
+454100 [Test worker] INFO  o.s.s.xml.serialize.XmlSerializer -  done [14ms].
+454482 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/test.xml' to '/tmp/sirix/path2' ... 
+454499 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [16 ms].
+454861 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+455344 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [481 ms].
+455382 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+455797 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [413 ms].
+455815 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+456194 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [378 ms].
+456204 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+456550 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [346 ms].
+456602 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+456946 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [343 ms].
+457516 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/factbook.xml' to '/tmp/sirix/path1' ... 
+458193 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [677 ms].
+458586 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+458623 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [37 ms].
+458628 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+458653 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [24 ms].
+458659 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+458684 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [25 ms].
+458692 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+458715 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [22 ms].
+458720 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/enwiki-revisions-test.xml' to '/tmp/sirix/path1' ... 
+458753 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [32 ms].
+459681 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/1mb.xml' to '/tmp/sirix/path1' ... 
+460094 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [412 ms].
+275  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+274  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+269  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+243  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+255  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+248  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+249  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+209  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+226  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+23262 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+24084 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+24491 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+24851 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+25168 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+239  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+22312 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+26408 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [4093 ms].
+26756 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+29962 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3206 ms].
+30504 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+33944 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3440 ms].
+34202 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+37347 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3145 ms].
+37632 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+40740 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3108 ms].
+219  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+22336 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+26188 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3849 ms].
+26613 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+29748 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3134 ms].
+30306 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+33442 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3136 ms].
+33707 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+36801 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3094 ms].
+37098 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+40252 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [3153 ms].
+80740 [Test worker] INFO  o.s.s.xml.serialize.XmlSerializer - Serializing '/tmp/sirix/path2' to '/tmp/xml/test.xml' ... 
+80745 [Test worker] INFO  o.s.s.xml.serialize.XmlSerializer -  done [4ms].
+81066 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/test.xml' to '/tmp/sirix/path2' ... 
+81099 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [32 ms].
+81573 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+82021 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [447 ms].
+82032 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+82388 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [355 ms].
+82398 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+82731 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [332 ms].
+82740 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+83064 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [323 ms].
+83117 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/auction.xml' to '/tmp/sirix/path1' ... 
+83446 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [329 ms].
+83969 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/factbook.xml' to '/tmp/sirix/path1' ... 
+84601 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [631 ms].
+84904 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+84933 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [28 ms].
+84938 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+84957 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [19 ms].
+84964 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+84985 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [19 ms].
+84992 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/alphabet.xml' to '/tmp/sirix/path1' ... 
+85012 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [19 ms].
+85017 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/enwiki-revisions-test.xml' to '/tmp/sirix/path1' ... 
+85044 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [26 ms].
+86098 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder - Shredding '/home/johannes/data/mystuff/sirixdb/masterbranch/sirix/bundles/sirix-core/src/test/resources/1mb.xml' to '/tmp/sirix/path1' ... 
+86465 [Test worker] INFO  o.s.s.xml.shredder.XmlShredder -  done [367 ms].
+105  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+224  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+256059 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [255 s].
+193  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+334  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+336  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - Max node key: 309959516
+197  [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+328  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+331  [Test worker] INFO  o.s.s.json.shredder.JsonShredder - Max node key: 309959516
+137890 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [137 s].
+137891 [Test worker] INFO  o.s.s.json.shredder.JsonShredder - start
+313038 [Test worker] INFO  o.s.s.json.shredder.JsonShredder -  done [175 s].

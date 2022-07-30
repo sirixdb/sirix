@@ -193,7 +193,8 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
         oldRtx.moveTo(oldNodeKey);
       } else if (diff == DiffType.SAME) {
         for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
-          final long newNodeKey = newRtx.moveToNamespace(i).trx().getNodeKey();
+          newRtx.moveToNamespace(i);
+          final long newNodeKey = newRtx.getNodeKey();
           oldRtx.moveTo(newNodeKey);
 
           fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
@@ -203,7 +204,8 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
         }
 
         for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
-          final long newNodeKey = newRtx.moveToAttribute(i).trx().getNodeKey();
+          newRtx.moveToAttribute(i);
+          final long newNodeKey = newRtx.getNodeKey();
           oldRtx.moveTo(newNodeKey);
 
           fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
@@ -271,7 +273,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
     return found;
   }
 
-  protected boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
+  private boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
     return newRtx.getURIKey() == oldRtx.getURIKey()
         && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
         && newRtx.getPrefixKey() == oldRtx.getPrefixKey();

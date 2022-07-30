@@ -61,7 +61,7 @@ public final class LastExisting extends AbstractFunction {
     if (indexNode != null) {
       final var revision = indexNode.getRevisions()[indexNode.getRevisions().length - 1];
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
-      final var hasMoved = rtx.moveTo(item.getNodeKey()).hasMoved();
+      final var hasMoved = rtx.moveTo(item.getNodeKey());
 
       if (hasMoved) {
         if (revision < resourceManager.getMostRecentRevisionNumber()) {
@@ -79,7 +79,7 @@ public final class LastExisting extends AbstractFunction {
 
     for (int revisionNumber = resourceManager.getMostRecentRevisionNumber(); revisionNumber > 0; revisionNumber--) {
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
-      if (rtx.moveTo(item.getNodeKey()).hasMoved()) {
+      if (rtx.moveTo(item.getNodeKey())) {
         return new JsonItemFactory().getSequence(rtx, item.getCollection());
       } else {
         rtx.close();

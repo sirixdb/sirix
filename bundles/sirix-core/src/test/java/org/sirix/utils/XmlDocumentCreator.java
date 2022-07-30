@@ -162,13 +162,13 @@ public final class XmlDocumentCreator {
    */
   public static void createCommentPI(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
-    assertTrue(wtx.moveToDocumentRoot().hasMoved());
+    assertTrue(wtx.moveToDocumentRoot());
 
     wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
     wtx.insertNamespace(new QNm("ns", "p", "xmlns"));
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
     wtx.insertAttribute(new QNm("i"), "j");
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertCommentAsFirstChild("foo");
     wtx.insertTextAsRightSibling("oops1");
@@ -177,7 +177,7 @@ public final class XmlDocumentCreator {
 
     wtx.insertTextAsFirstChild("foo");
     wtx.insertElementAsRightSibling(new QNm("c"));
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
     assertEquals(2l, wtx.getDescendantCount());
 
     wtx.insertPIAsRightSibling("bar", "baz=\"foo\"");
@@ -185,11 +185,11 @@ public final class XmlDocumentCreator {
 
     wtx.insertElementAsRightSibling(new QNm("b"));
     wtx.insertAttribute(new QNm("ns", "p", "x"), "y");
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertElementAsFirstChild(new QNm("c"));
     wtx.insertTextAsRightSibling("bar");
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertTextAsRightSibling("oops3");
 
@@ -205,13 +205,13 @@ public final class XmlDocumentCreator {
    */
   public static void create(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
-    assertTrue(wtx.moveToDocumentRoot().hasMoved());
+    assertTrue(wtx.moveToDocumentRoot());
 
     wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
     wtx.insertNamespace(new QNm("ns", "p", ""));
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
     wtx.insertAttribute(new QNm("i"), "j");
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertTextAsFirstChild("oops1");
 
@@ -219,17 +219,17 @@ public final class XmlDocumentCreator {
 
     wtx.insertTextAsFirstChild("foo");
     wtx.insertElementAsRightSibling(new QNm("c"));
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertTextAsRightSibling("oops2");
 
     wtx.insertElementAsRightSibling(new QNm("b"));
     wtx.insertAttribute(new QNm("ns", "p", "x"), "y");
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertElementAsFirstChild(new QNm("c"));
     wtx.insertTextAsRightSibling("bar");
-    assertTrue(wtx.moveToParent().hasMoved());
+    assertTrue(wtx.moveToParent());
 
     wtx.insertTextAsRightSibling("oops3");
 
@@ -274,7 +274,9 @@ public final class XmlDocumentCreator {
       wtx.commit();
     }
 
-    wtx.moveToDocumentRoot().trx().moveToFirstChild().trx().moveToLastChild().trx();
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    wtx.moveToLastChild();
     wtx.remove();
     wtx.commit();
 

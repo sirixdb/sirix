@@ -105,7 +105,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     pathNodeMapping = new Long2ObjectOpenHashMap<>();
     qnmMapping = new HashMap<>();
     boolean first = true;
-    for (final long nodeKey : new DescendantAxis(this, IncludeSelf.YES)) {
+    var axis = new DescendantAxis(this, IncludeSelf.YES);
+    while (axis.hasNext()) {
+      final var nodeKey = axis.nextLong();
       pathNodeMapping.put(nodeKey, this.getStructuralNode());
 
       if (first) {
@@ -386,7 +388,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveTo(final long nodeKey) {
+  public boolean moveTo(final long nodeKey) {
     assertNotClosed();
 
     if (!init) {
@@ -394,7 +396,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
       if (node != null) {
         currentNode = node;
-        return Move.moved(this);
+        return true;
       }
     }
 
@@ -410,42 +412,42 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     if (newNode == null) {
       currentNode = oldNode;
-      return Move.notMoved();
+      return false;
     } else {
       currentNode = newNode;
-      return Move.moved(this);
+      return true;
     }
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToParent() {
+  public boolean moveToParent() {
     assertNotClosed();
     return moveTo(getStructuralNode().getParentKey());
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToFirstChild() {
+  public boolean moveToFirstChild() {
     assertNotClosed();
     if (!getStructuralNode().hasFirstChild()) {
-      return Move.notMoved();
+      return false;
     }
     return moveTo(getStructuralNode().getFirstChildKey());
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToLeftSibling() {
+  public boolean moveToLeftSibling() {
     assertNotClosed();
     if (!getStructuralNode().hasLeftSibling()) {
-      return Move.notMoved();
+      return false;
     }
     return moveTo(getStructuralNode().getLeftSiblingKey());
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToRightSibling() {
+  public boolean moveToRightSibling() {
     assertNotClosed();
     if (!getStructuralNode().hasRightSibling()) {
-      return Move.notMoved();
+      return false;
     }
     return moveTo(getStructuralNode().getRightSiblingKey());
   }
@@ -473,7 +475,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToDocumentRoot() {
+  public boolean moveToDocumentRoot() {
     return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
   }
 
@@ -519,7 +521,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToNextFollowing() {
+  public boolean moveToNextFollowing() {
     assertNotClosed();
     while (!getStructuralNode().hasRightSibling() && currentNode.hasParent()) {
       moveToParent();
@@ -575,7 +577,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToLastChild() {
+  public boolean moveToLastChild() {
     assertNotClosed();
     if (getStructuralNode().hasFirstChild()) {
       moveToFirstChild();
@@ -584,9 +586,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         moveToRightSibling();
       }
 
-      return Move.moved(this);
+      return true;
     }
-    return Move.notMoved();
+    return false;
   }
 
   /**
@@ -609,7 +611,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final PathNode[] paths = new PathNode[node.getLevel()];
     for (int i = node.getLevel() - 1; i >= 0; i--) {
       paths[i] = node;
-      node = moveToParent().trx().getPathNode();
+      moveToParent();
+      node = getPathNode();
     }
 
     final Path<QNm> path = new Path<>();
@@ -661,8 +664,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
     final long currNodeKey = currentNode.getNodeKey();
-    final boolean retVal = moveTo(key).hasMoved();
-    final boolean movedBack = moveTo(currNodeKey).hasMoved();
+    final boolean retVal = moveTo(key);
+    final boolean movedBack = moveTo(currNodeKey);
     assert movedBack : "moveTo(currNodeKey) must succeed!";
     return retVal;
   }
@@ -682,10 +685,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    final long nodeKey = currentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() != null;
-    moveTo(nodeKey);
-    return retVal;
+    // If it has a first child it also has a last child :)
+    return getStructuralNode().hasFirstChild();
   }
 
   @Override
@@ -798,7 +799,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public NodeKind getParentKind() {
     assertNotClosed();
     if (currentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      return NodeKind.XML_DOCUMENT;
+      final var currentStructNode = getStructuralNode();
+      moveToParent();
+      final var parentKind = currentNode.getKind();
+      currentNode = currentStructNode;
+      return parentKind;
     }
     if (currentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
@@ -834,15 +839,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToPrevious() {
+  public boolean moveToPrevious() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (node.hasLeftSibling()) {
       // Left sibling node.
-      Move<? extends PathSummaryReader> leftSiblMove = moveTo(node.getLeftSiblingKey());
+      boolean leftSiblMove = moveTo(node.getLeftSiblingKey());
       // Now move down to rightmost descendant node if it has one.
-      while (leftSiblMove.trx().hasFirstChild()) {
-        leftSiblMove = leftSiblMove.trx().moveToLastChild();
+      while (hasFirstChild()) {
+        moveToLastChild();
       }
       return leftSiblMove;
     }
@@ -851,7 +856,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToNext() {
+  public boolean moveToNext() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (node.hasRightSibling()) {
@@ -883,8 +888,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   public int getPrefixKey() {
     assertNotClosed();
-    if (currentNode instanceof NameNode) {
-      return ((NameNode) currentNode).getPrefixKey();
+    if (currentNode instanceof NameNode nameNode) {
+      return nameNode.getPrefixKey();
     }
     return -1;
   }

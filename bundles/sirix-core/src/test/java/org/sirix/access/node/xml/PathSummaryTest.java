@@ -21,11 +21,6 @@
 
 package org.sirix.access.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -35,12 +30,16 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.NodeKind;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
+
+import static org.junit.Assert.*;
 
 /**
  * Test the {@link PathSummaryReader}.
@@ -903,9 +902,9 @@ public class PathSummaryTest {
     System.out.println("nodes");
 
     OutputStream out = new ByteArrayOutputStream();
-    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceManager(), out).emitIDs().prettyPrint().build();
     serializer.call();
-    System.out.println(out.toString());
+    System.out.println(out);
 
     System.out.println("summary");
 
@@ -913,7 +912,7 @@ public class PathSummaryTest {
     Axis pathSummaryAxis = new DescendantAxis(pathSummary);
 
     while (pathSummaryAxis.hasNext()) {
-      pathSummaryAxis.next();
+      pathSummaryAxis.nextLong();
 
       System.out.println("nodeKey: " + pathSummary.getNodeKey());
       System.out.println("path: " + pathSummary.getPath());
@@ -923,9 +922,27 @@ public class PathSummaryTest {
 
     testSecondMoveToFirstChildBeforeMoveHelper(wtx.getPathSummary());
 
-    wtx.moveToParent().trx().moveToParent();
+    wtx.moveToParent();
+    wtx.moveToParent();
     wtx.moveSubtreeToRightSibling(9);
     wtx.commit();
+
+    System.out.println();
+    System.out.println();
+    System.out.println();
+    System.out.println("summary");
+
+    pathSummary = wtx.getPathSummary();
+    pathSummaryAxis = new DescendantAxis(pathSummary);
+
+    while (pathSummaryAxis.hasNext()) {
+      pathSummaryAxis.nextLong();
+
+      System.out.println("nodeKey: " + pathSummary.getNodeKey());
+      System.out.println("path: " + pathSummary.getPath());
+      System.out.println("references: " + pathSummary.getReferences());
+      System.out.println("level: " + pathSummary.getLevel());
+    }
 
     testSecondMoveToFirstChildAfterMoveHelper(wtx.getPathSummary());
 
@@ -1249,7 +1266,7 @@ public class PathSummaryTest {
    */
   private PathSummaryReader next(final Axis axis) {
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
       return (PathSummaryReader) axis.getCursor();
     }
     return null;

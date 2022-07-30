@@ -16,7 +16,6 @@ import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.json.JsonDBStore;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public final class JsonCASStep extends AbstractJsonPathWalker {
 
@@ -102,11 +101,7 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
   }
 
   private boolean checkIfDifferentPathsAreCompared(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
-    if (!(this.pathSegmentNamesToArrayIndexes.equals(pathSegmentNamesToArrayIndexes))) {
-      return true;
-    }
-
-    return false;
+    return !(this.pathSegmentNamesToArrayIndexes.equals(pathSegmentNamesToArrayIndexes));
   }
 
   @Override

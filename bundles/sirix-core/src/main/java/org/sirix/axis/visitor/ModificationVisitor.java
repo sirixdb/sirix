@@ -103,7 +103,7 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
             final QNm insert = new QNm("testInsert");
             final long key = wtx.getNodeKey();
             wtx.insertElementAsLeftSibling(insert);
-            final boolean moved = wtx.moveTo(key).hasMoved();
+            final boolean moved = wtx.moveTo(key);
             assert moved;
             return VisitResultType.CONTINUE;
           case 1:
@@ -136,15 +136,12 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
   private VisitResult delete() throws SirixException {
     try {
       final long nodeKey = wtx.getNodeKey();
-      boolean removeTextNode = false;
-      if (wtx.getLeftSiblingKind() == NodeKind.TEXT && wtx.getRightSiblingKind() == NodeKind.TEXT) {
-        removeTextNode = true;
-      }
+      boolean removeTextNode = wtx.getLeftSiblingKind() == NodeKind.TEXT && wtx.getRightSiblingKind() == NodeKind.TEXT;
       wtx.moveTo(nodeKey);
 
       // Case: Has no right and no left sibl. but the parent has a right sibl.
       if (!removeTextNode) {
-        final boolean movedToParent = wtx.moveToParent().hasMoved();
+        final boolean movedToParent = wtx.moveToParent();
         assert movedToParent;
         final long parentNodeKey = wtx.getNodeKey();
         if (wtx.getChildCount() == 1 && wtx.hasRightSibling()) {
@@ -167,7 +164,8 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
       // Case: Has right sibl. and left sibl.
       if (wtx.hasRightSibling() && wtx.hasLeftSibling()) {
         final long rightSiblKey = wtx.getRightSiblingKey();
-        final long rightRightSiblKey = wtx.moveToRightSibling().trx().getRightSiblingKey();
+        wtx.moveToRightSibling();
+        final long rightRightSiblKey = wtx.getRightSiblingKey();
         wtx.moveTo(nodeKey);
         wtx.remove();
         if (removeTextNode) {
@@ -175,7 +173,7 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
           assert wtx.getRightSiblingKey() == rightRightSiblKey;
           return VisitResultType.CONTINUE;
         } else {
-          final boolean moved = wtx.moveToLeftSibling().hasMoved();
+          final boolean moved = wtx.moveToLeftSibling();
           assert moved;
           assert wtx.getRightSiblingKey() == rightSiblKey;
           return VisitResultType.SKIPSUBTREE;

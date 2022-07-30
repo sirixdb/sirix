@@ -127,7 +127,7 @@ public final class ExcelDiffTest1 extends TestCase {
           final var pathSummaryAxis = new DescendantAxis(pathSummary);
 
           while (pathSummaryAxis.hasNext()) {
-            pathSummaryAxis.next();
+            pathSummaryAxis.nextLong();
 
             System.out.println("nodeKey: " + pathSummary.getNodeKey());
             System.out.println("path: " + pathSummary.getPath());

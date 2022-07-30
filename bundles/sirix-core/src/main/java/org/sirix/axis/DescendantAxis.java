@@ -23,6 +23,9 @@ package org.sirix.axis;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongStack;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.settings.Fixed;
@@ -36,7 +39,7 @@ import org.sirix.settings.Fixed;
 public final class DescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> rightSiblingKeyStack;
+  private LongArrayList rightSiblingKeyStack;
 
   /** Determines if it's the first call to hasNext(). */
   private boolean first;
@@ -64,7 +67,7 @@ public final class DescendantAxis extends AbstractAxis {
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     first = true;
-    rightSiblingKeyStack = new ArrayDeque<>();
+    rightSiblingKeyStack = new LongArrayList();
   }
 
   @Override
@@ -105,7 +108,7 @@ public final class DescendantAxis extends AbstractAxis {
     // Then follow right sibling on stack.
     if (rightSiblingKeyStack.size() > 0) {
       final long currKey = cursor.getNodeKey();
-      key = rightSiblingKeyStack.pop();
+      key = rightSiblingKeyStack.popLong();
       return hasNextNode(key, currKey);
     }
 

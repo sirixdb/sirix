@@ -193,7 +193,7 @@ public class VersioningTest {
         assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 5) - 1);
         try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-            assertTrue(rtx.moveToFirstChild().hasMoved());
+            assertTrue(rtx.moveToFirstChild());
           }
           move(rtx);
           move(rtx);
@@ -242,12 +242,12 @@ public class VersioningTest {
       wtx.commit();
       wtx.close();
       try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveToFirstChild().hasMoved());
+        assertTrue(rtx.moveToFirstChild());
         assertEquals(new QNm("foobar"), rtx.getName());
-        assertTrue(rtx.moveToFirstChild().hasMoved());
+        assertTrue(rtx.moveToFirstChild());
         assertEquals(new QNm("foooo"), rtx.getName());
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 4; i++) {
-          assertTrue(rtx.moveToFirstChild().hasMoved());
+          assertTrue(rtx.moveToFirstChild());
         }
         assertEquals(new QNm("baaaz"), rtx.getName());
       }
@@ -274,11 +274,11 @@ public class VersioningTest {
       wtx.commit();
       wtx.close();
       try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
-        assertTrue(rtx.moveToFirstChild().hasMoved());
-        assertTrue(rtx.moveToFirstChild().hasMoved());
-        assertTrue(rtx.moveToFirstChild().hasMoved());
-        assertTrue(rtx.moveToFirstChild().hasMoved());
-        assertTrue(rtx.moveToFirstChild().hasMoved());
+        assertTrue(rtx.moveToFirstChild());
+        assertTrue(rtx.moveToFirstChild());
+        assertTrue(rtx.moveToFirstChild());
+        assertTrue(rtx.moveToFirstChild());
+        assertTrue(rtx.moveToFirstChild());
       }
     }
   }
@@ -343,7 +343,7 @@ public class VersioningTest {
    */
   private void move(final XmlNodeReadOnlyTrx rtx) throws SirixException {
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-      assertTrue(rtx.moveToFirstChild().hasMoved());
+      assertTrue(rtx.moveToFirstChild());
     }
   }
 

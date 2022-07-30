@@ -70,7 +70,7 @@ public class CoroutineAxisTest {
 
         for (int i = 0; i < resultNumber; i++) {
             assertTrue(axis.hasNext());
-            axis.next();
+            axis.nextLong();
         }
         assertFalse(axis.hasNext());
     }
@@ -94,7 +94,7 @@ public class CoroutineAxisTest {
 
         for (int i = 0; i < resultNumber; i++) {
             assertTrue(axis.hasNext());
-            axis.next();
+            axis.nextLong();
         }
         assertFalse(axis.hasNext());
     }
@@ -118,7 +118,7 @@ public class CoroutineAxisTest {
 
         for (int i = 0; i < resultNumber; i++) {
             assertTrue(axis.hasNext());
-            axis.next();
+            axis.nextLong();
         }
         assertFalse(axis.hasNext());
     }

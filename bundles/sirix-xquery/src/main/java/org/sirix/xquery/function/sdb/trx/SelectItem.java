@@ -50,7 +50,7 @@ public final class SelectItem extends AbstractFunction {
     final NodeReadOnlyTrx rtx = item.getTrx();
     final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
-    if (rtx.moveTo(nodeKey).hasMoved()) {
+    if (rtx.moveTo(nodeKey)) {
       if (rtx instanceof XmlNodeReadOnlyTrx) {
         return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
       } else if (rtx instanceof JsonNodeReadOnlyTrx) {

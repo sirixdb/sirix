@@ -22,6 +22,9 @@
 package org.sirix.access.trx.node.xml;
 
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.trx.node.*;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.Axis;
@@ -54,10 +57,6 @@ import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
@@ -236,7 +235,7 @@ final class XmlNodeTrxImpl extends
     moveTo(node.getNodeKey());
     final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
     while (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
       for (int i = 0, attCount = getAttributeCount(); i < attCount; i++) {
         moveToAttribute(i);
         final ImmutableAttributeNode att = (ImmutableAttributeNode) getNode();
@@ -252,7 +251,8 @@ final class XmlNodeTrxImpl extends
       long pathNodeKey = -1;
       if (getNode() instanceof ValueNode && getNode().getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         final long nodeKey = getNode().getNodeKey();
-        pathNodeKey = moveToParent().trx().getNameNode().getPathNodeKey();
+        moveToParent();
+        pathNodeKey = getNameNode().getPathNodeKey();
         moveTo(nodeKey);
       } else if (getNode() instanceof NameNode) {
         pathNodeKey = getNameNode().getPathNodeKey();
@@ -309,7 +309,7 @@ final class XmlNodeTrxImpl extends
         checkAccessAndCommit();
 
         if (nodeAnchor.getRightSiblingKey() != nodeToMove.getNodeKey()) {
-          final long parentKey = toMove.getParentKey();
+          final long parentKey = nodeAnchor.getParentKey();
 
           // Adapt hashes.
           adaptHashesForMove(toMove);
@@ -992,7 +992,8 @@ final class XmlNodeTrxImpl extends
         nodeHashing.adaptHashesWithAdd();
 
         // Get the path node key.
-        final long pathNodeKey = moveToParent().trx().isElement() ? getNameNode().getPathNodeKey() : -1;
+        moveToParent();
+        final long pathNodeKey = isElement() ? getNameNode().getPathNodeKey() : -1;
         nodeReadOnlyTrx.setCurrentNode(node);
 
         // Index text value.
@@ -1061,7 +1062,8 @@ final class XmlNodeTrxImpl extends
         nodeHashing.adaptHashesWithAdd();
 
         // Get the path node key.
-        final long pathNodeKey = moveToParent().trx().isElement() ? getNameNode().getPathNodeKey() : -1;
+        moveToParent();
+        final long pathNodeKey = isElement() ? getNameNode().getPathNodeKey() : -1;
         nodeReadOnlyTrx.setCurrentNode(node);
 
         // Index text value.
@@ -1247,7 +1249,7 @@ final class XmlNodeTrxImpl extends
 
         // Remove subtree.
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext(); ) {
-          axis.next();
+          axis.nextLong();
 
           final var currentNode = axis.getCursor().getNode();
 
@@ -1278,7 +1280,7 @@ final class XmlNodeTrxImpl extends
 
         // Set current node (don't remove the moveTo(long) inside the if-clause which is needed
         // because of text merges.
-        if (nodeReadOnlyTrx.hasRightSibling() && moveTo(node.getRightSiblingKey()).hasMoved()) {
+        if (nodeReadOnlyTrx.hasRightSibling() && moveTo(node.getRightSiblingKey())) {
           // Do nothing.
         } else if (node.hasLeftSibling()) {
           moveTo(node.getLeftSiblingKey());
@@ -1318,7 +1320,7 @@ final class XmlNodeTrxImpl extends
   private void removeValue() throws SirixIOException {
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().hasMoved() ? getPathNodeKey() : -1;
+      final long pathNodeKey = moveToParent() ? getPathNodeKey() : -1;
       moveTo(nodeKey);
       indexController.notifyChange(ChangeType.DELETE, getCurrentNode(), pathNodeKey);
     }
@@ -1454,7 +1456,8 @@ final class XmlNodeTrxImpl extends
         }
 
         final long nodeKey = getNodeKey();
-        final long pathNodeKey = moveToParent().trx().getPathNodeKey();
+        moveToParent();
+        final long pathNodeKey = getPathNodeKey();
         moveTo(nodeKey);
 
         // Remove old value from indexes.
@@ -1576,8 +1579,8 @@ final class XmlNodeTrxImpl extends
     // Concatenate neighbor text nodes if they exist (the right sibling is
     // deleted afterwards).
     boolean concatenated = false;
-    if (oldNode.hasLeftSibling() && oldNode.hasRightSibling() && moveTo(oldNode.getRightSiblingKey()).hasMoved()
-        && getCurrentNode().getKind() == NodeKind.TEXT && moveTo(oldNode.getLeftSiblingKey()).hasMoved()
+    if (oldNode.hasLeftSibling() && oldNode.hasRightSibling() && moveTo(oldNode.getRightSiblingKey())
+        && getCurrentNode().getKind() == NodeKind.TEXT && moveTo(oldNode.getLeftSiblingKey())
         && getCurrentNode().getKind() == NodeKind.TEXT) {
       final StringBuilder builder = new StringBuilder(getValue());
       moveTo(oldNode.getRightSiblingKey());

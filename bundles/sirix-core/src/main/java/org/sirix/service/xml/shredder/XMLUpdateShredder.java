@@ -254,7 +254,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         if (mWtx.getKind() == NodeKind.XML_DOCUMENT) {
           // Find the start key for the update operation.
           long startkey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
-          while (!mWtx.moveTo(startkey).hasMoved()) {
+          while (!mWtx.moveTo(startkey)) {
             startkey++;
           }
         }
@@ -541,7 +541,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
       // }
       // mWtx.moveTo(mKeyMatches);
       // }
-    } while (!mFound && mWtx.moveToRightSibling().hasMoved());
+    } while (!mFound && mWtx.moveToRightSibling());
     mWtx.moveTo(mNodeKey);
   }
 
@@ -591,7 +591,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
       //
       // // If next node doesn't match/isn't the same move on.
       // if (!found) {
-      if (mWtx.moveToRightSibling().hasMoved()) {
+      if (mWtx.moveToRightSibling()) {
         mMovedToRightSibling = true;
       } else {
         mMovedToRightSibling = false;
@@ -821,7 +821,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         // Move to next node if no end tag follows (thus cursor isn't moved to
         // parent in processEndTag()).
         if (mReader.peek().getEventType() != XMLStreamConstants.END_ELEMENT) {
-          if (mWtx.moveToRightSibling().hasMoved()) {
+          if (mWtx.moveToRightSibling()) {
             mMovedToRightSibling = true;
           } else {
             mMovedToRightSibling = false;
@@ -858,7 +858,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         // Move to next node if no end tag follows (thus cursor isn't moved to
         // parent in processEndTag()).
         if (mReader.peek().getEventType() != XMLStreamConstants.END_ELEMENT) {
-          if (mWtx.moveToRightSibling().hasMoved()) {
+          if (mWtx.moveToRightSibling()) {
             mMovedToRightSibling = true;
           } else {
             mMovedToRightSibling = false;

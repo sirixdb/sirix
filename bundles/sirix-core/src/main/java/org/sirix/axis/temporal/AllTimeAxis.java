@@ -49,7 +49,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
     while (revision <= resourceManager.getMostRecentRevisionNumber()) {
       final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       revision++;
-      if (rtx.moveTo(nodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey)) {
         hasMoved = true;
         return rtx;
       } else if (hasMoved) {

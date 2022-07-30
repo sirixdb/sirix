@@ -76,22 +76,22 @@ public class ThreadTest {
 
   private class Task implements Callable<Void> {
 
-    private XmlNodeReadOnlyTrx mRTX;
+    private XmlNodeReadOnlyTrx rtx;
 
     public Task(final XmlNodeReadOnlyTrx rtx) {
-      mRTX = rtx;
+      this.rtx = rtx;
     }
 
     @Override
     public Void call() throws Exception {
-      final Axis axis = new DescendantAxis(mRTX);
+      final Axis axis = new DescendantAxis(rtx);
       while (axis.hasNext()) {
-        axis.next();
+        axis.nextLong();
       }
 
-      mRTX.moveTo(12L);
-      assertEquals("bar", mRTX.getValue());
-      mRTX.close();
+      rtx.moveTo(12L);
+      assertEquals("bar", rtx.getValue());
+      rtx.close();
       return null;
     }
   }

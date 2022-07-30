@@ -1,20 +1,16 @@
 package org.sirix.xquery.stream.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Iterator;
-import java.util.Set;
-
-import org.brackit.xquery.xdm.AbstractItem;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.node.NodeKind;
-import org.sirix.xquery.json.JsonDBArray;
 import org.sirix.xquery.json.JsonDBCollection;
-import org.sirix.xquery.json.JsonDBObject;
 import org.sirix.xquery.json.JsonItemFactory;
+
+import java.util.Iterator;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class SirixJsonItemKeyStream implements Stream<Item> {
 
@@ -38,7 +34,7 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
   @Override
   public Item next() {
     if (nodeKeys == null || !nodeKeys.hasNext()) {
-      while (iter.hasNext()) {
+      if (iter.hasNext()) {
         final NodeReferences nodeReferences = iter.next();
         nodeKeys = nodeReferences.getNodeKeys().iterator();
         return getItem();
@@ -51,7 +47,7 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
 
   @Nullable
   private Item getItem() {
-    while (nodeKeys.hasNext()) {
+    if (nodeKeys.hasNext()) {
       final long nodeKey = nodeKeys.next();
       rtx.moveTo(nodeKey);
       return itemFactory.getSequence(rtx, collection);

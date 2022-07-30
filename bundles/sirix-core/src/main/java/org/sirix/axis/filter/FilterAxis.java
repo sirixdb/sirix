@@ -82,7 +82,7 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
   @Override
   protected long nextKey() {
     while (axis.hasNext()) {
-      final long nodeKey = axis.next();
+      final long nodeKey = axis.nextLong();
       boolean filterResult = true;
       for (final Filter<R> filter : axisFilter) {
         filterResult = filterResult && filter.filter();

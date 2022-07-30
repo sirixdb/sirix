@@ -97,7 +97,7 @@ public class MultipleCommitTest {
 
     final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXdmNodeWriteTrx());
     while (postorderAxis.hasNext()) {
-      postorderAxis.next();
+      postorderAxis.nextLong();
       if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT
           && holder.getXdmNodeWriteTrx().getAttributeCount() > 0) {
         for (int i = 0, attrCount =
@@ -113,11 +113,11 @@ public class MultipleCommitTest {
     int attrTouch = 0;
     final Axis descAxis = new DescendantAxis(holder.getXdmNodeWriteTrx());
     while (descAxis.hasNext()) {
-      descAxis.next();
+      descAxis.nextLong();
       if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
         for (int i = 0, attrCount =
             holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
-          if (holder.getXdmNodeWriteTrx().moveToAttribute(i).hasMoved()) {
+          if (holder.getXdmNodeWriteTrx().moveToAttribute(i)) {
             attrTouch++;
           } else {
             throw new IllegalStateException("Should never occur!");

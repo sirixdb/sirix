@@ -43,7 +43,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
     if (first) {
       first = false;
       final R rtx = resourceManager.beginNodeReadOnlyTrx(1);
-      if (rtx.moveTo(nodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey)) {
         return rtx;
       } else {
         rtx.close();

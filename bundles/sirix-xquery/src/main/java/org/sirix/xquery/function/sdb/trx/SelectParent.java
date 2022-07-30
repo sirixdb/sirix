@@ -45,11 +45,11 @@ public final class SelectParent extends AbstractFunction {
         final NodeReadOnlyTrx rtx = item.getTrx();
 
         if (rtx instanceof XmlNodeReadOnlyTrx) {
-            if (((XmlNodeReadOnlyTrx) rtx).moveToParent().hasMoved()) {
+            if (((XmlNodeReadOnlyTrx) rtx).moveToParent()) {
                 return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
             }
         } else if (rtx instanceof JsonNodeReadOnlyTrx) {
-            if (((JsonNodeReadOnlyTrx) rtx).moveToParent().hasMoved()) {
+            if (((JsonNodeReadOnlyTrx) rtx).moveToParent()) {
                 final JsonDBItem jsonItem = (JsonDBItem) item;
                 return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
             }

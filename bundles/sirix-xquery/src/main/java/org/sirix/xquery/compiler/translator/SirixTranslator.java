@@ -648,7 +648,7 @@ public final class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final Map<Long, BitSet> mFilterMap;
+    private final Map<Long, BitSet> filterMap;
 
     /**
      * Constructor.
@@ -658,7 +658,7 @@ public final class SirixTranslator extends TopDownTranslator {
     public DescOrSelf(final Axis axis) {
       super(axis);
       self = axis == Axis.DESCENDANT_OR_SELF ? IncludeSelf.YES : IncludeSelf.NO;
-      mFilterMap = new HashMap<>();
+      filterMap = new HashMap<>();
     }
 
     @SuppressWarnings("ConstantConditions")
@@ -670,14 +670,14 @@ public final class SirixTranslator extends TopDownTranslator {
           && test.getQName() != null) {
         try {
           final long pcr = dbNode.getPCR();
-          BitSet matches = mFilterMap.get(pcr);
+          BitSet matches = filterMap.get(pcr);
           final PathSummaryReader reader = rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber());
           if (matches == null) {
             reader.moveTo(pcr);
             final int level = self == IncludeSelf.YES ? reader.getLevel() : reader.getLevel() + 1;
             final QNm name = test.getQName();
             matches = reader.match(name, level);
-            mFilterMap.put(pcr, matches);
+            filterMap.put(pcr, matches);
           }
           // No matches.
           if (matches.cardinality() == 0) {

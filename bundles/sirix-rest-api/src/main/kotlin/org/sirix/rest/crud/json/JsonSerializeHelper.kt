@@ -43,10 +43,13 @@ class JsonSerializeHelper {
         val rtx = manager.beginNodeReadOnlyTrx(revision)
 
         rtx.use {
-            val hash = if (nodeId == null)
-                rtx.moveToFirstChild().trx().hash
-            else
-                rtx.moveTo(nodeId).trx().hash
+            val hash = if (nodeId == null) {
+                rtx.moveToFirstChild();
+                rtx.hash
+            } else {
+                rtx.moveTo(nodeId);
+                rtx.hash
+            }
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
