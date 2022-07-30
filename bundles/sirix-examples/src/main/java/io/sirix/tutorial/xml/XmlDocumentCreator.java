@@ -217,7 +217,7 @@ public final class XmlDocumentCreator {
 
     wtx.insertElementAsFirstChild(new QNm("c"));
     wtx.insertTextAsRightSibling("bar");
-    wtx.moveToParent().hasMoved();
+    wtx.moveToParent();
 
     wtx.insertTextAsRightSibling("oops3");
 
@@ -260,7 +260,9 @@ public final class XmlDocumentCreator {
       wtx.commit();
     }
 
-    wtx.moveToDocumentRoot().trx().moveToFirstChild().trx().moveToLastChild().trx();
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    wtx.moveToLastChild();
     wtx.remove();
     wtx.commit();
 
