@@ -1,8 +1,8 @@
 package io.sirix.tutorial.json;
 
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -10,7 +10,7 @@ package io.sirix.tutorial.json;
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -45,53 +45,56 @@ import org.sirix.exception.SirixException;
  */
 public final class JsonDocumentCreator {
 
-    public static final String JSON = "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+  public static final String JSON =
+      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-    /**
-     * Private Constructor, not used.
-     */
-    private JsonDocumentCreator() {
-        throw new AssertionError("Not permitted to call constructor!");
-    }
+  /**
+   * Private Constructor, not used.
+   */
+  private JsonDocumentCreator() {
+    throw new AssertionError("Not permitted to call constructor!");
+  }
 
-    /**
-     * Create simple test document containing all supported node kinds.
-     *
-     * @param wtx {@link JsonNodeTrx} to write to
-     * @throws SirixException if anything weird happens
-     */
-    public static void create(final JsonNodeTrx wtx) {
-        wtx.insertObjectAsFirstChild();
+  /**
+   * Create simple test document containing all supported node kinds.
+   *
+   * @param wtx {@link JsonNodeTrx} to write to
+   * @throws SirixException if anything weird happens
+   */
+  public static void create(final JsonNodeTrx wtx) {
+    wtx.insertObjectAsFirstChild();
 
-        wtx.insertObjectRecordAsFirstChild("foo", new ArrayValue())
-           .insertStringValueAsFirstChild("bar")
-           .insertNullValueAsRightSibling()
-           .insertNumberValueAsRightSibling(2.33);
+    wtx.insertObjectRecordAsFirstChild("foo", new ArrayValue())
+       .insertStringValueAsFirstChild("bar")
+       .insertNullValueAsRightSibling()
+       .insertNumberValueAsRightSibling(2.33);
 
-        wtx.moveToParent().trx().moveToParent();
+    wtx.moveToParent();
+    wtx.moveToParent();
 
-        wtx.insertObjectRecordAsRightSibling("bar", new ObjectValue())
-           .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
-           .moveToParent();
-        wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true))
-           .moveToParent().trx().moveToParent().trx().moveToParent();
+    wtx.insertObjectRecordAsRightSibling("bar", new ObjectValue())
+       .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
+       .moveToParent();
+    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true))
+       .moveToParent();
+    wtx.moveToParent();
+    wtx.moveToParent();
 
-        wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello"))
-           .moveToParent();
+    wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello")).moveToParent();
 
-        wtx.insertObjectRecordAsRightSibling("tada", new ArrayValue())
-           .insertObjectAsFirstChild()
-           .insertObjectRecordAsFirstChild("foo", new StringValue("bar"))
-           .moveToParent().trx().moveToParent();
+    wtx.insertObjectRecordAsRightSibling("tada", new ArrayValue())
+       .insertObjectAsFirstChild()
+       .insertObjectRecordAsFirstChild("foo", new StringValue("bar"))
+       .moveToParent();
+    wtx.moveToParent();
 
-        wtx.insertObjectAsRightSibling()
-           .insertObjectRecordAsFirstChild("baz", new BooleanValue(false))
-           .moveToParent().trx().moveToParent();
+    wtx.insertObjectAsRightSibling()
+       .insertObjectRecordAsFirstChild("baz", new BooleanValue(false))
+       .moveToParent();
+    wtx.moveToParent();
 
-        wtx.insertStringValueAsRightSibling("boo")
-           .insertObjectAsRightSibling()
-           .insertArrayAsRightSibling();
+    wtx.insertStringValueAsRightSibling("boo").insertObjectAsRightSibling().insertArrayAsRightSibling();
 
-        wtx.moveToDocumentRoot();
-    }
+    wtx.moveToDocumentRoot();
+  }
 }
