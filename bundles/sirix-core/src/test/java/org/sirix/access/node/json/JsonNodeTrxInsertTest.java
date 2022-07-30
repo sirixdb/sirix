@@ -276,9 +276,9 @@ public final class JsonNodeTrxInsertTest {
 
       assertEquals(3, wtx.getChildCount());
       assertEquals(6, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
       assertEquals("foo", wtx.getName().getLocalName());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
       assertEquals("bar", wtx.getValue());
     }
   }
@@ -298,7 +298,8 @@ public final class JsonNodeTrxInsertTest {
 
       assertEquals(4, wtx.getChildCount());
       assertEquals(5, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild().trx().moveToFirstChild().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToFirstChild());
       assertEquals("foo", wtx.getValue());
     }
   }
@@ -318,10 +319,10 @@ public final class JsonNodeTrxInsertTest {
 
       assertEquals(4, wtx.getChildCount());
       assertEquals(5, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
-      assertTrue(wtx.moveToRightSibling().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToRightSibling());
       assertTrue(wtx.isArray());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
       assertEquals("foo", wtx.getValue());
     }
   }
@@ -341,12 +342,12 @@ public final class JsonNodeTrxInsertTest {
 
       assertEquals(4, wtx.getChildCount());
       assertEquals(6, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
-      assertTrue(wtx.moveToRightSibling().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToRightSibling());
       assertTrue(wtx.isObject());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
       assertEquals("foo", wtx.getName().getLocalName());
-      assertTrue(wtx.moveToFirstChild().hasMoved());
+      assertTrue(wtx.moveToFirstChild());
       assertEquals("bar", wtx.getValue());
     }
   }

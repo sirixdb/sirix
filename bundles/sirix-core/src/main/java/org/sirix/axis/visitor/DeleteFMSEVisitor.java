@@ -152,9 +152,9 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
       final long nodeKey = wtx.getNodeKey();
       boolean removeTextNode = false;
       boolean resetValue = false;
-      if (wtx.hasLeftSibling() && wtx.moveToLeftSibling().hasMoved()
-          && wtx.getKind() == NodeKind.TEXT && wtx.moveToRightSibling().hasMoved()
-          && wtx.hasRightSibling() && wtx.moveToRightSibling().hasMoved()
+      if (wtx.hasLeftSibling() && wtx.moveToLeftSibling()
+          && wtx.getKind() == NodeKind.TEXT && wtx.moveToRightSibling()
+          && wtx.hasRightSibling() && wtx.moveToRightSibling()
           && wtx.getKind() == NodeKind.TEXT) {
         final Long partner = matching.partner(wtx.getNodeKey());
         if (partner == null) {
@@ -169,7 +169,7 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
 
       // Case: Has no right and no left sibl. but the parent has a right sibl.
       if (!removeTextNode) {
-        final boolean movedToParent = wtx.moveToParent().hasMoved();
+        final boolean movedToParent = wtx.moveToParent();
         assert movedToParent;
         final long parentNodeKey = wtx.getNodeKey();
         if (wtx.getChildCount() == 1 && wtx.hasRightSibling()) {
@@ -192,9 +192,19 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
       // Case: Has right sibl. and left sibl.
       if (wtx.hasRightSibling() && wtx.hasLeftSibling()) {
         final long rightSiblKey = wtx.getRightSiblingKey();
-        final long rightRightSiblKey = wtx.moveToRightSibling().trx().getRightSiblingKey();
+        wtx.moveToRightSibling();
+        final long rightRightSiblKey = wtx.getRightSiblingKey();
         wtx.moveTo(nodeKey);
-        final String value = removeTextNode ? wtx.moveToLeftSibling().trx().getValue() : "";
+
+        final String value;
+
+        if (removeTextNode) {
+          wtx.moveToLeftSibling();
+          value = wtx.getValue();
+        } else {
+          value = "";
+        }
+
         wtx.moveTo(nodeKey);
         wtx.remove();
         if (removeTextNode) {
@@ -206,7 +216,7 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
           assert wtx.getRightSiblingKey() == rightRightSiblKey;
           return VisitResultType.CONTINUE;
         } else {
-          final boolean moved = wtx.moveToLeftSibling().hasMoved();
+          final boolean moved = wtx.moveToLeftSibling();
           assert moved;
           assert wtx.getRightSiblingKey() == rightSiblKey;
           return VisitResultType.SKIPSUBTREE;

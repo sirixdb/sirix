@@ -49,8 +49,8 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
 
   @Override
   public PageReference getReferenceToLeafOfSubtree(@NonNull PageReference startReference, @NonNegative long pageKey,
-      int indexNumber, @NonNull IndexType indexType) {
-    return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType);
+      int indexNumber, @NonNull IndexType indexType, RevisionRootPage revisionRootPage) {
+    return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType, revisionRootPage);
   }
 
   @Override

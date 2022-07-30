@@ -377,40 +377,38 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       final var lastVisitResultType =
           visitor == null ? null : ((JsonMaxLevelMaxNodesMaxChildNodesVisitor) visitor).getLastVisitResultType();
       switch (rtx.getKind()) {
-        case ARRAY:
+        case ARRAY -> {
           if (withMetaDataField()) {
             appendArrayEnd(true).appendObjectEnd(true);
           } else {
             appendArrayEnd(shouldEmitChildren(rtx.hasChildren()));
           }
-
           if (hasToAppendSeparator(rtx, lastVisitResultType, lastEndNode)) {
             appendSeparator();
           }
-          break;
-        case OBJECT:
+        }
+        case OBJECT -> {
           if (withMetaDataField()) {
             appendArrayEnd(true).appendObjectEnd(true);
           } else {
             appendObjectEnd(shouldEmitChildren(rtx.hasChildren()));
           }
-
           if (hasToAppendSeparator(rtx, lastVisitResultType, lastEndNode)) {
             appendSeparator();
           }
-          break;
-        case OBJECT_KEY:
+        }
+        case OBJECT_KEY -> {
           if ((withMetaDataField() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
               && rtx.getNodeKey() == startNodeKey)) || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
             appendObjectEnd(true);
           }
-
           if (hasToAppendSeparator(rtx, lastVisitResultType, lastEndNode)) {
             appendSeparator();
           }
-          break;
+        }
         // $CASES-OMITTED$
-        default:
+        default -> {
+        }
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -453,7 +451,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       if (length > 1) {
         if (indent) {
-          stack.pop();
+          stack.popLong();
         }
 
         appendArrayEnd(true).appendObjectEnd(true);
@@ -498,8 +496,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
 
       if (emitXQueryResultSequence || length > 1) {
-        if (rtx.moveToDocumentRoot().trx().hasFirstChild())
-          stack.pop();
+        if (rtx.moveToDocumentRoot() && rtx.hasFirstChild())
+          stack.popLong();
         appendObjectEnd(rtx.hasChildren());
 
         if (hasMoreRevisionsToSerialize(rtx))

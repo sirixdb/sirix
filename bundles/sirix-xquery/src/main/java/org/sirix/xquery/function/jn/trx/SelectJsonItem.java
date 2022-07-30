@@ -47,7 +47,7 @@ public final class SelectJsonItem extends AbstractFunction {
     final JsonNodeReadOnlyTrx rtx = node.getTrx();
     final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
-    if (rtx.moveTo(nodeKey).hasMoved()) {
+    if (rtx.moveTo(nodeKey)) {
       return new JsonItemFactory().getSequence(rtx, node.getCollection());
     } else {
       throw new QueryException(new QNm("Couldn't select node."));

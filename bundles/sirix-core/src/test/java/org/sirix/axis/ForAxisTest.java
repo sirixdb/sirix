@@ -88,16 +88,16 @@ public class ForAxisTest {
     final AbstractAxis axis =
         new XPathAxis(rtx, "for $i in (10, 20), $j in (1, 2) return ($i + $j)");
     assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     assertEquals("11.0", rtx.getValue());
     assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     assertEquals("12.0", rtx.getValue());
     assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     assertEquals("21.0", rtx.getValue());
     assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     assertEquals("22.0", rtx.getValue());
     assertEquals(false, axis.hasNext());
   }

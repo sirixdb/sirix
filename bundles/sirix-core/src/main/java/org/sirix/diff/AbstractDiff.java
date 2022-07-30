@@ -21,6 +21,8 @@
 
 package org.sirix.diff;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -33,9 +35,6 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -88,7 +87,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @see HashType
    */
-  private HashType hashKind;
+  private final HashType hashKind;
 
   /**
    * Kind of difference.
@@ -169,8 +168,8 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       oldRtx = builder.resMgr.beginNodeReadOnlyTrx(builder.oldRev);
       hashKind = builder.hashKind;
     }
-    newRtxMoved = newRtx.moveTo(builder.newStartKey).hasMoved();
-    oldRtxMoved = oldRtx.moveTo(builder.oldStartKey).hasMoved();
+    newRtxMoved = newRtx.moveTo(builder.newStartKey);
+    oldRtxMoved = oldRtx.moveTo(builder.oldStartKey);
     if (newRtx.getKind() == documentNode()) {
       newRtx.moveToFirstChild();
     }
@@ -383,25 +382,22 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     if (rtx.hasFirstChild()) {
       if (rtx.getKind() != documentNode() && ((diffKind == DiffOptimized.HASHED && diff == DiffType.SAMEHASH) || (
           oldMaxDepth > 0 && rtx.getKind() != NodeKind.OBJECT_KEY && depth.getOldDepth() + 1 >= oldMaxDepth))) {
-        moved = rtx.moveToRightSibling().hasMoved();
+        moved = rtx.moveToRightSibling();
 
         if (!moved) {
           moved = moveToFollowingNode(rtx, revision);
         }
       } else {
         final NodeKind nodeKind = rtx.getKind();
-        moved = rtx.moveToFirstChild().hasMoved();
+        moved = rtx.moveToFirstChild();
 
         if (moved && nodeKind != NodeKind.OBJECT_KEY) {
           switch (revision) {
-            case NEW:
-              depth.incrementNewDepth();
-              break;
-            case OLD:
-              depth.incrementOldDepth();
-              break;
-            default:
+            case NEW -> depth.incrementNewDepth();
+            case OLD -> depth.incrementOldDepth();
+            default -> {
               // Must not happen.
+            }
           }
         }
       }
@@ -409,7 +405,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       if (rtx.getNodeKey() == rootKey) {
         rtx.moveToDocumentRoot();
       } else {
-        moved = rtx.moveToRightSibling().hasMoved();
+        moved = rtx.moveToRightSibling();
       }
     } else {
       moved = moveToFollowingNode(rtx, revision);
@@ -427,17 +423,14 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   private boolean moveToFollowingNode(final R rtx, final Revision revision) {
     boolean moved;
     while (!rtx.hasRightSibling() && rtx.hasParent() && rtx.getNodeKey() != rootKey) {
-      moved = rtx.moveToParent().hasMoved();
+      moved = rtx.moveToParent();
       if (moved && rtx.getKind() != NodeKind.OBJECT_KEY) {
         switch (revision) {
-          case NEW:
-            depth.decrementNewDepth();
-            break;
-          case OLD:
-            depth.decrementOldDepth();
-            break;
-          default:
+          case NEW -> depth.decrementNewDepth();
+          case OLD -> depth.decrementOldDepth();
+          default -> {
             // Must not happen.
+          }
         }
       }
     }
@@ -446,7 +439,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       rtx.moveToDocumentRoot();
     }
 
-    moved = rtx.moveToRightSibling().hasMoved();
+    moved = rtx.moveToRightSibling();
     return moved;
   }
 
@@ -542,11 +535,11 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       diff = DiffType.REPLACED;
     } else {
       final long oldKey = oldRtx.getNodeKey();
-      final boolean movedOld = oldRtx.moveTo(newRtx.getNodeKey()).hasMoved();
+      final boolean movedOld = oldRtx.moveTo(newRtx.getNodeKey());
       oldRtx.moveTo(oldKey);
 
       final long newKey = newRtx.getNodeKey();
-      final boolean movedNew = newRtx.moveTo(oldRtx.getNodeKey()).hasMoved();
+      final boolean movedNew = newRtx.moveTo(oldRtx.getNodeKey());
       newRtx.moveTo(newKey);
 
       if (!movedOld) {
@@ -557,7 +550,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         // Determine if one of the right sibling matches.
         FoundMatchingNode found = FoundMatchingNode.FALSE;
 
-        while (oldRtx.hasRightSibling() && oldRtx.moveToRightSibling().hasMoved() && found == FoundMatchingNode.FALSE) {
+        while (oldRtx.hasRightSibling() && oldRtx.moveToRightSibling() && found == FoundMatchingNode.FALSE) {
           if (checkNodeNamesOrValuesAndNodeKeys(newRtx, oldRtx)) {
             found = FoundMatchingNode.TRUE;
           }
@@ -644,14 +637,14 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     boolean replaced = false;
     if (newRtx.getNodeKey() != oldRtx.getNodeKey()) {
       final long newKey = newRtx.getNodeKey();
-      boolean movedNewRtx = newRtx.moveToRightSibling().hasMoved();
+      boolean movedNewRtx = newRtx.moveToRightSibling();
       final long oldKey = oldRtx.getNodeKey();
-      boolean movedOldRtx = oldRtx.moveToRightSibling().hasMoved();
+      boolean movedOldRtx = oldRtx.moveToRightSibling();
       if (movedNewRtx && movedOldRtx && newRtx.getNodeKey() == oldRtx.getNodeKey()) {
         replaced = true;
       } else if (!movedNewRtx && !movedOldRtx && (diff == DiffType.SAME || diff == DiffType.SAMEHASH)) {
-        movedNewRtx = newRtx.moveToParent().hasMoved();
-        movedOldRtx = oldRtx.moveToParent().hasMoved();
+        movedNewRtx = newRtx.moveToParent();
+        movedOldRtx = oldRtx.moveToParent();
 
         if (movedNewRtx && movedOldRtx && newRtx.getNodeKey() == oldRtx.getNodeKey()) {
           replaced = true;
@@ -673,7 +666,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
           final Axis oldAxis = new DescendantAxis(oldRtx, IncludeSelf.YES);
           final Axis newAxis = new DescendantAxis(newRtx, IncludeSelf.YES);
           while (oldAxis.hasNext()) {
-            oldAxis.next();
+            oldAxis.nextLong();
 
             final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
 
@@ -684,7 +677,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
           }
 
           while (newAxis.hasNext()) {
-            newAxis.next();
+            newAxis.nextLong();
 
             final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
 
@@ -718,27 +711,21 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     final long nodeKey = rtx.getNodeKey();
     if (rtx.hasFirstChild()) {
       switch (revision) {
-        case NEW:
-          depth.incrementNewDepth();
-          break;
-        case OLD:
-          depth.incrementOldDepth();
-          break;
-        default:
+        case NEW -> depth.incrementNewDepth();
+        case OLD -> depth.incrementOldDepth();
+        default -> {
           // Must not happen.
+        }
       }
     } else {
       while (!rtx.hasRightSibling() && rtx.hasParent() && rtx.getNodeKey() != startNodeKey) {
         rtx.moveToParent();
         switch (revision) {
-          case NEW:
-            depth.decrementNewDepth();
-            break;
-          case OLD:
-            depth.decrementOldDepth();
-            break;
-          default:
+          case NEW -> depth.decrementNewDepth();
+          case OLD -> depth.decrementOldDepth();
+          default -> {
             // Must not happen.
+          }
         }
       }
     }

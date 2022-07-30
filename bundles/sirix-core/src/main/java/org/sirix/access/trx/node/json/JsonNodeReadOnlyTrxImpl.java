@@ -8,7 +8,6 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
@@ -88,13 +87,13 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  public Move<JsonNodeReadOnlyTrx> moveToLastChild() {
+  public boolean moveToLastChild() {
     assertNotClosed();
     if (getStructuralNode().hasLastChild()) {
       moveTo(getStructuralNode().getLastChildKey());
-      return Move.moved(thisInstance());
+      return true;
     }
-    return Move.notMoved();
+    return false;
   }
 
   @Override

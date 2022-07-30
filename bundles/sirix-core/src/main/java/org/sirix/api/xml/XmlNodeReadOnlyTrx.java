@@ -137,28 +137,25 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * Move cursor to attribute by its index.
    *
    * @param index index of attribute to move to
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(@NonNegative int index);
+  boolean moveToAttribute(@NonNegative int index);
 
   /**
    * Move cursor to attribute by its name key.
    *
    * @param name {@link QNm} of attribute
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(QNm name);
+  boolean moveToAttributeByName(QNm name);
 
   /**
    * Move cursor to namespace declaration by its index.
    *
    * @param index index of attribute to move to
-   * @return {@link Moved} instance if the namespace node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@NonNegative int index);
+  boolean moveToNamespace(@NonNegative int index);
 
   // --- Node Getters
   // ----------------------------------------------------------
@@ -210,7 +207,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   boolean isClosed();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToNextFollowing();
+  boolean moveToNextFollowing();
 
   /**
    * Get the left {@link SirixDeweyID} of the currently selected node.
@@ -438,31 +435,31 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   String getNamespaceURI();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveTo(long nodeKey);
+  boolean moveTo(long nodeKey);
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToDocumentRoot();
+  boolean moveToDocumentRoot();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToFirstChild();
+  boolean moveToFirstChild();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToLastChild();
+  boolean moveToLastChild();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToLeftSibling();
+  boolean moveToLeftSibling();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToParent();
+  boolean moveToParent();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToRightSibling();
+  boolean moveToRightSibling();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToPrevious();
+  boolean moveToPrevious();
 
   @Override
-  Move<? extends XmlNodeReadOnlyTrx> moveToNext();
+  boolean moveToNext();
 
   /**
    * Determines if current node is an {@link ElementNode}.
@@ -515,14 +512,14 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   boolean isPI();
 
   /**
-   * Get the current node as a {@link ImmutableNameNode}. First check with {@link#isNameNode()}.
+   * Get the current node as a {@link ImmutableNameNode}.
    *
    * @return the current node, casted to a {@link ImmutableNameNode}
    */
   ImmutableNameNode getNameNode();
 
   /**
-   * Get the current node as a {@link ImmutableValueNode}. First check with {@link#isValueNode()}.
+   * Get the current node as a {@link ImmutableValueNode}.
    *
    * @return the current node, casted to a {@link ImmutableValueNode}
    */

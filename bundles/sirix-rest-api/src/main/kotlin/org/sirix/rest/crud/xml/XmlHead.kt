@@ -49,7 +49,7 @@ class XmlHead(private val location: Path) {
 
                     rtx.use {
                         if (nodeId != null) {
-                            if (!rtx.moveTo(nodeId.toLong()).hasMoved()) {
+                            if (!rtx.moveTo(nodeId.toLong())) {
                                 throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
                             } else {
                                 writeResponse(ctx, rtx)

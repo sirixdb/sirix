@@ -24,8 +24,12 @@ package org.sirix.access.trx.node.json;
 import com.google.common.hash.HashFunction;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Item;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.*;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
@@ -34,6 +38,7 @@ import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
+import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
@@ -60,10 +65,6 @@ import org.sirix.service.json.shredder.JsonItemShredder;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -356,20 +357,13 @@ final class JsonNodeTrxImpl extends
         moveTo(nodeKey);
 
         switch (insertionPosition) {
-          case AS_FIRST_CHILD:
-            moveToFirstChild();
-            break;
-          case AS_LAST_CHILD:
-            moveToLastChild();
-            break;
-          case AS_LEFT_SIBLING:
-            moveToLeftSibling();
-            break;
-          case AS_RIGHT_SIBLING:
-            moveToRightSibling();
-            break;
-          default:
+          case AS_FIRST_CHILD -> moveToFirstChild();
+          case AS_LAST_CHILD -> moveToLastChild();
+          case AS_LEFT_SIBLING -> moveToLeftSibling();
+          case AS_RIGHT_SIBLING -> moveToRightSibling();
+          default -> {
             // May not happen.
+          }
         }
 
         adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
@@ -538,20 +532,13 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       switch (insertionPosition) {
-        case AS_FIRST_CHILD:
-          moveToFirstChild();
-          break;
-        case AS_LAST_CHILD:
-          moveToLastChild();
-          break;
-        case AS_LEFT_SIBLING:
-          moveToLeftSibling();
-          break;
-        case AS_RIGHT_SIBLING:
-          moveToRightSibling();
-          break;
-        default:
+        case AS_FIRST_CHILD -> moveToFirstChild();
+        case AS_LAST_CHILD -> moveToLastChild();
+        case AS_LEFT_SIBLING -> moveToLeftSibling();
+        case AS_RIGHT_SIBLING -> moveToRightSibling();
+        default -> {
           // May not happen.
+        }
       }
 
       adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
@@ -2094,13 +2081,13 @@ final class JsonNodeTrxImpl extends
 
       canRemoveValue = false;
 
-      if (getParentKind() != NodeKind.OBJECT_KEY) {
+      if (parentNodeKind != NodeKind.OBJECT_KEY) {
         adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
       }
 
       // Remove subtree.
       for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
-        axis.next();
+        axis.nextLong();
 
         final var currentNode = axis.getCursor().getNode();
 
@@ -2175,18 +2162,20 @@ final class JsonNodeTrxImpl extends
 
       final long pathNodeKey;
 
-      assert moveToParent().hasMoved();
+      moveToParent();
 
-      if (getNode().getKind() == NodeKind.ARRAY) {
-        pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
-      } else if (getNode().getKind() == NodeKind.OBJECT_KEY) {
-        pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
+      final var node = getNode();
+
+      if (node.getKind() == NodeKind.ARRAY) {
+        pathNodeKey = ((ImmutableArrayNode) node).getPathNodeKey();
+      } else if (node.getKind() == NodeKind.OBJECT_KEY) {
+        pathNodeKey = ((ImmutableObjectKeyNode) node).getPathNodeKey();
       } else {
         pathNodeKey = -1;
       }
 
       moveTo(nodeKey);
-      indexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
+      indexController.notifyChange(ChangeType.DELETE, node, pathNodeKey);
     }
   }
 
@@ -2204,7 +2193,39 @@ final class JsonNodeTrxImpl extends
 
       assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (buildPathSummary) {
+        System.out.println(node.getNodeKey());
+        final var pathSummary = pathSummaryWriter.getPathSummary();
+
+        pathSummary.moveToDocumentRoot();
+        var pathSummaryAxis = new DescendantAxis(pathSummary);
+
+        while (pathSummaryAxis.hasNext()) {
+          pathSummaryAxis.nextLong();
+
+          System.out.println("nodeKey: " + pathSummary.getNodeKey());
+          System.out.println("path: " + pathSummary.getPath());
+          System.out.println("name:" + pathSummary.getName());
+          System.out.println("references: " + pathSummary.getReferences());
+          System.out.println("level: " + pathSummary.getLevel());
+        }
+
         pathSummaryWriter.remove(node, nodeKind, page);
+
+        System.out.println("");
+        System.out.println("");
+        System.out.println("");
+
+        pathSummary.moveToDocumentRoot();
+        pathSummaryAxis = new DescendantAxis(pathSummary);
+
+        while (pathSummaryAxis.hasNext()) {
+          pathSummaryAxis.nextLong();
+
+          System.out.println("nodeKey: " + pathSummary.getNodeKey());
+          System.out.println("path: " + pathSummary.getPath());
+          System.out.println("references: " + pathSummary.getReferences());
+          System.out.println("level: " + pathSummary.getLevel());
+        }
       }
     }
   }
@@ -2353,7 +2374,8 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
 
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().trx().getPathNodeKey();
+      moveToParent();
+      final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
       // Remove old value from indexes.
@@ -2400,7 +2422,8 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
 
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().trx().getPathNodeKey();
+      moveToParent();
+      final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
       // Remove old value from indexes.

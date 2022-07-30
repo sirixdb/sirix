@@ -10,7 +10,6 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -53,16 +52,14 @@ public final class GetPath extends AbstractFunction {
     if (rtx.getResourceManager().getResourceConfig().withPathSummary) {
       try (final PathSummaryReader pathSummaryReader = rtx.getResourceManager()
                                                           .openPathSummary(rtx.getRevisionNumber())) {
-        if (!pathSummaryReader.moveTo(rtx.getPathNodeKey()).hasMoved()) {
+        if (!pathSummaryReader.moveTo(rtx.getPathNodeKey())) {
           return null;
         }
         assert pathSummaryReader.getPathNode() != null;
         final var path = pathSummaryReader.getPathNode().getPath(pathSummaryReader);
 
-        if (!(rtx instanceof JsonNodeReadOnlyTrx))
+        if (!(rtx instanceof final JsonNodeReadOnlyTrx trx))
           return new Str(path.toString());
-
-        final var trx = (JsonNodeReadOnlyTrx) rtx;
 
         if (!path.toString().contains("[]"))
           return new Str(path.toString());
@@ -83,12 +80,9 @@ public final class GetPath extends AbstractFunction {
 
         var stringPath = path.toString();
 
-        final var positionsIter = positions.iterator();
-
-        while (positionsIter.hasNext()) {
-          final var pos = positionsIter.next();
+        for (Integer pos : positions) {
           positions.remove();
-          stringPath = stringPath.replaceFirst("/\\[\\]", "/[" + pos + "]");
+          stringPath = stringPath.replaceFirst("/\\[]", "/[" + pos + "]");
         }
 
         return new Str(stringPath);

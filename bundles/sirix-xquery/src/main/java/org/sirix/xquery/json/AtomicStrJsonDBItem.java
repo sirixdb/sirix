@@ -1,7 +1,6 @@
 package org.sirix.xquery.json;
 
 import com.google.common.base.Preconditions;
-import org.brackit.xquery.atomic.Bool;
 import org.brackit.xquery.atomic.Str;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceManager;

@@ -315,7 +315,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
   @NotNull
   private VisitResultType adaptCurrentChildNodesAndLevelAndReturnSkipSiblingsResultType(ImmutableStructNode node) {
     final var nodeKey = rtx.getNodeKey();
-    if (!(rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.moveToParent().trx().hasRightSibling())) {
+    if (!(rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.moveToParent() && rtx.hasRightSibling())) {
       adaptCurrentChildNodes();
       ancestorLevel(node);
     }

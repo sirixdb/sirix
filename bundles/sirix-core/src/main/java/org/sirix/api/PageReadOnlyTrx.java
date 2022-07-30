@@ -116,7 +116,6 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws NullPointerException     if {@code key} is {@code null}
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
-   *
    */
   Page getRecordPage(@NonNull IndexLogKey indexLogKey);
 
@@ -200,17 +199,18 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
    *
-   * @param startReference the start reference (for instance to the indirect tree or the root-node of
-   *                       a BPlusTree)
-   * @param pageKey        the unique key of the page to search for
-   * @param indexNumber    the index number or {@code -1}
-   * @param indexType      the index type
+   * @param startReference   the start reference (for instance to the indirect tree or the root-node of
+   *                         a BPlusTree)
+   * @param pageKey          the unique key of the page to search for
+   * @param indexNumber      the index number or {@code -1}
+   * @param indexType        the index type
+   * @param revisionRootPage the revision root page (may be {@code null})
    * @return {@link PageReference} instance pointing to the page denoted by {@code key}
    * @throws SirixIOException         if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} &lt; 0
    */
   PageReference getReferenceToLeafOfSubtree(PageReference startReference, @NonNegative long pageKey, int indexNumber,
-      @NonNull IndexType indexType);
+      @NonNull IndexType indexType, RevisionRootPage revisionRootPage);
 
   /**
    * Get the {@link Reader} to read a page from persistent storage if needed.

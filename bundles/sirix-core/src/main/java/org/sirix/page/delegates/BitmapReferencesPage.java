@@ -190,16 +190,18 @@ public final class BitmapReferencesPage implements Page {
   }
 
   private int index(final int offset) {
-    final BitSet offsetBitmap = new BitSet(bitmap.size());
+    BitSet offsetBitmap = new BitSet(bitmap.size());
 
     offsetBitmap.set(offset);
 
-    // Flip 0 to offset.
+    // Flip from 0 to offset.
     offsetBitmap.flip(0, offset + 1);
 
     offsetBitmap.and(bitmap);
 
-    return offsetBitmap.cardinality();
+    final var cardinality =  offsetBitmap.cardinality();
+    offsetBitmap = null;
+    return cardinality;
   }
 
   /**

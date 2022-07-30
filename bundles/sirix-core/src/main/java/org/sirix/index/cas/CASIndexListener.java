@@ -35,7 +35,7 @@ public final class CASIndexListener {
   }
 
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
-    assert pathSummaryReader.moveTo(pathNodeKey).hasMoved();
+    assert pathSummaryReader.moveTo(pathNodeKey);
     switch (type) {
       case INSERT:
         if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {

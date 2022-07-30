@@ -112,17 +112,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     return pageReadOnlyTrx.getActualRevisionRootPage().getUser();
   }
 
-  @SuppressWarnings("unchecked")
   @Override
-  public Move<T> moveToPrevious() {
+  public boolean moveToPrevious() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (node.hasLeftSibling()) {
       // Left sibling node.
-      Move<T> leftSiblMove = moveTo(node.getLeftSiblingKey());
+      boolean leftSiblMove = moveTo(node.getLeftSiblingKey());
       // Now move down to rightmost descendant node if it has one.
-      while (leftSiblMove.trx().hasFirstChild()) {
-        leftSiblMove = (Move<T>) leftSiblMove.trx().moveToLastChild();
+      while (hasFirstChild()) {
+        leftSiblMove = moveToLastChild();
       }
       return leftSiblMove;
     }
@@ -156,11 +155,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public Move<T> moveToLeftSibling() {
+  public boolean moveToLeftSibling() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (!node.hasLeftSibling()) {
-      return Move.notMoved();
+      return false;
     }
     return moveTo(node.getLeftSiblingKey());
   }
@@ -215,29 +214,29 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public Move<T> moveToDocumentRoot() {
+  public boolean moveToDocumentRoot() {
     assertNotClosed();
     return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
   }
 
   @Override
-  public Move<T> moveToParent() {
+  public boolean moveToParent() {
     assertNotClosed();
     return moveTo(currentNode.getParentKey());
   }
 
   @Override
-  public Move<T> moveToFirstChild() {
+  public boolean moveToFirstChild() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (!node.hasFirstChild()) {
-      return Move.notMoved();
+      return false;
     }
     return moveTo(node.getFirstChildKey());
   }
 
   @Override
-  public Move<T> moveTo(final long nodeKey) {
+  public boolean moveTo(final long nodeKey) {
     assertNotClosed();
 
     // Remember old node and fetch new one.
@@ -260,19 +259,19 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     if (newNode == null) {
       setCurrentNode(oldNode);
-      return Move.notMoved();
+      return false;
     } else {
       setCurrentNode((N) newNode);
-      return Move.moved(thisInstance());
+      return true;
     }
   }
 
   @Override
-  public Move<T> moveToRightSibling() {
+  public boolean moveToRightSibling() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (!node.hasRightSibling()) {
-      return Move.notMoved();
+      return false;
     }
     return moveTo(node.getRightSiblingKey());
   }
@@ -345,7 +344,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public Move<T> moveToNextFollowing() {
+  public boolean moveToNextFollowing() {
     assertNotClosed();
     while (!getStructuralNode().hasRightSibling() && currentNode.hasParent()) {
       moveToParent();
@@ -357,7 +356,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
     final long nodeKey = currentNode.getNodeKey();
-    final boolean retVal = !moveTo(key).equals(Move.notMoved());
+    final boolean retVal = moveTo(key);
     moveTo(nodeKey);
     return retVal;
   }
@@ -413,7 +412,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public Move<T> moveToNext() {
+  public boolean moveToNext() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (node.hasRightSibling()) {
@@ -430,7 +429,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public boolean hasLastChild() {
     assertNotClosed();
     final long nodeKey = currentNode.getNodeKey();
-    final boolean retVal = moveToLastChild().hasMoved();
+    final boolean retVal = moveToLastChild();
     moveTo(nodeKey);
     return retVal;
   }

@@ -21,10 +21,9 @@
 
 package org.sirix.access.node.xml;
 
-import java.util.Random;
-import junit.framework.TestCase;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
@@ -33,23 +32,25 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
+import java.util.Random;
+
 /** Test a bunch of modification methods. */
-public final class OverallTest extends TestCase {
+public final class OverallTest {
 
   /** Used for random number generator. */
-  private static int NUM_CHARS = 3;
+  private static final int NUM_CHARS = 3;
 
   /** Modification number of nodes. */
-  private static int ELEMENTS = 1000;
+  private static final int ELEMENTS = 1000;
 
   /** Percentage of commits. */
-  private static int COMMITPERCENTAGE = 20;
+  private static final int COMMITPERCENTAGE = 20;
 
   /** Percentage of nodes to remove. */
-  private static int REMOVEPERCENTAGE = 20;
+  private static final int REMOVEPERCENTAGE = 20;
 
   /** Random number generator. */
-  private static final Random ran = new Random(0l);
+  private static final Random ran = new Random(0L);
 
   /** Some characters. */
   public static String chars = "abcdefghijklm";
@@ -57,7 +58,6 @@ public final class OverallTest extends TestCase {
   /** {@link Holder} instance. */
   private Holder holder;
 
-  @Override
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
@@ -71,30 +71,24 @@ public final class OverallTest extends TestCase {
     for (int i = 0; i < ELEMENTS; i++) {
       if (ran.nextBoolean()) {
         switch (holder.getXdmNodeWriteTrx().getKind()) {
-          case ELEMENT:
-            holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
-            break;
-          case ATTRIBUTE:
+          case ELEMENT -> holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
+          case ATTRIBUTE -> {
             holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
             holder.getXdmNodeWriteTrx().setValue(getString());
-            break;
-          case NAMESPACE:
-            holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
-            break;
-          case PROCESSING_INSTRUCTION:
-          case TEXT:
-          case COMMENT:
-            holder.getXdmNodeWriteTrx().setValue(getString());
-            break;
+          }
+          case NAMESPACE -> holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
+          case PROCESSING_INSTRUCTION, TEXT, COMMENT -> holder.getXdmNodeWriteTrx().setValue(getString());
+
           // $CASES-OMITTED$
-          default:
+          default -> {
+          }
         }
       } else {
         if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
           if (holder.getXdmNodeWriteTrx()
                     .getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-            assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild().hasMoved());
-            assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild().hasMoved());
+            Assert.assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild());
+            Assert.assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild());
           }
           if (ran.nextBoolean()) {
             holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm(getString()));
@@ -145,7 +139,6 @@ public final class OverallTest extends TestCase {
     holder.getXdmNodeWriteTrx().close();
   }
 
-  @Override
   @After
   public void tearDown() throws SirixException {
     holder.close();

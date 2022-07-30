@@ -65,7 +65,7 @@ public final class JsonDocumentCreator {
    */
   public static void create(final JsonNodeTrx wtx) {
     assertNotNull(wtx);
-    assertTrue(wtx.moveToDocumentRoot().hasMoved());
+    assertTrue(wtx.moveToDocumentRoot());
 
     wtx.insertObjectAsFirstChild();
 
@@ -74,7 +74,8 @@ public final class JsonDocumentCreator {
        .insertNullValueAsRightSibling()
        .insertNumberValueAsRightSibling(2.33);
 
-    wtx.moveToParent().trx().moveToParent();
+    wtx.moveToParent();
+    wtx.moveToParent();
 
     assert wtx.isObjectKey();
 
@@ -82,32 +83,28 @@ public final class JsonDocumentCreator {
        .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
        .moveToParent();
     wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true))
-       .moveToParent()
-       .trx()
-       .moveToParent()
-       .trx()
        .moveToParent();
+    wtx.moveToParent();
+    wtx.moveToParent();
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello")).moveToParent().trx();
+    wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello")).moveToParent();
 
     assert wtx.isObjectKey();
 
     wtx.insertObjectRecordAsRightSibling("tada", new ArrayValue())
        .insertObjectAsFirstChild()
        .insertObjectRecordAsFirstChild("foo", new StringValue("bar"))
-       .moveToParent()
-       .trx()
        .moveToParent();
+    wtx.moveToParent();
 
     assert wtx.isObject();
 
     wtx.insertObjectAsRightSibling()
        .insertObjectRecordAsFirstChild("baz", new BooleanValue(false))
-       .moveToParent()
-       .trx()
        .moveToParent();
+    wtx.moveToParent();
 
     assert wtx.isObject();
 

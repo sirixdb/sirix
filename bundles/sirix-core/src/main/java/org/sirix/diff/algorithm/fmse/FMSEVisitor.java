@@ -107,7 +107,7 @@ public final class FMSEVisitor extends AbstractXmlNodeVisitor {
         if (rtx.getKind() == NodeKind.ELEMENT) {
           descendants += 1;
         }
-      } while (rtx.hasRightSibling() && rtx.moveToRightSibling().hasMoved());
+      } while (rtx.hasRightSibling() && rtx.moveToRightSibling());
     }
     rtx.moveTo(nodeKey);
     inOrder.put(rtx.getNodeKey(), false);

@@ -31,10 +31,14 @@ import org.sirix.settings.Fixed;
  */
 public final class PostOrderAxis extends AbstractAxis {
 
-  /** Determines if transaction moved to the parent before. */
+  /**
+   * Determines if transaction moved to the parent before.
+   */
   private boolean movedToParent;
 
-  /** Determines if current key is the start node key before the traversal. */
+  /**
+   * Determines if current key is the start node key before the traversal.
+   */
   private boolean isStartKey;
 
   /**
@@ -79,8 +83,7 @@ public final class PostOrderAxis extends AbstractAxis {
     final long currKey = cursor.getNodeKey();
 
     // Move down in the tree if it hasn't moved down before.
-    if ((!movedToParent && cursor.hasFirstChild()) || (cursor.hasRightSibling() && (cursor.moveToRightSibling()
-                                                                                          .hasMoved()))) {
+    if ((!movedToParent && cursor.hasFirstChild()) || (cursor.hasRightSibling() && (cursor.moveToRightSibling()))) {
       while (cursor.hasFirstChild()) {
         cursor.moveToFirstChild();
       }

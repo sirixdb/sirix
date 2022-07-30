@@ -342,7 +342,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       ids = null;
     }
 
-    final var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+    var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
     final var entriesSortedByKey = slots.long2ObjectEntrySet()
                                         .stream()
                                         .sorted(Comparator.comparingLong(Long2ObjectMap.Entry::getLongKey))
@@ -352,14 +352,16 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       entriesBitmap.set(pageOffset);
     }
     SerializationType.serializeBitSet(out, entriesBitmap);
+    entriesBitmap = null;
 
-    final var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+    var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
     final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Entry.comparingByKey()).toList();
     for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
       final var pageOffset = pageReadOnlyTrx.recordPageOffset(entry.getKey());
       overlongEntriesBitmap.set(pageOffset);
     }
     SerializationType.serializeBitSet(out, overlongEntriesBitmap);
+    overlongEntriesBitmap = null;
 
     // Write normal entries.
     out.writeInt(entriesSortedByKey.size());

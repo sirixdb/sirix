@@ -118,7 +118,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                 val wtx = manager.beginNodeTrx()
 
                 wtx.use {
-                    if (wtx.moveTo(nodeId).hasMoved()) {
+                    if (wtx.moveTo(nodeId)) {
                         if (hashType(manager) != HashType.NONE && !wtx.isDocumentRoot) {
                             val hashCode = routingCtx.request().getHeader(HttpHeaders.ETAG)
                                 ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")

@@ -4,8 +4,6 @@ import com.google.gson.JsonObject;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.api.Move;
-import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -300,52 +298,52 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveTo(long key) {
+  default boolean moveTo(long key) {
     return nodeReadOnlyTrxDelegate().moveTo(key);
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToDocumentRoot() {
+  default boolean moveToDocumentRoot() {
     return nodeReadOnlyTrxDelegate().moveToDocumentRoot();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToFirstChild() {
+  default boolean moveToFirstChild() {
     return nodeReadOnlyTrxDelegate().moveToFirstChild();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToLastChild() {
+  default boolean moveToLastChild() {
     return nodeReadOnlyTrxDelegate().moveToLastChild();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToLeftSibling() {
+  default boolean moveToLeftSibling() {
     return nodeReadOnlyTrxDelegate().moveToLeftSibling();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToNext() {
+  default boolean moveToNext() {
     return nodeReadOnlyTrxDelegate().moveToNext();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToNextFollowing() {
+  default boolean moveToNextFollowing() {
     return nodeReadOnlyTrxDelegate().moveToNextFollowing();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToParent() {
+  default boolean moveToParent() {
     return nodeReadOnlyTrxDelegate().moveToParent();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToPrevious() {
+  default boolean moveToPrevious() {
     return nodeReadOnlyTrxDelegate().moveToPrevious();
   }
 
   @Override
-  default Move<? extends JsonNodeReadOnlyTrx> moveToRightSibling() {
+  default boolean moveToRightSibling() {
     return nodeReadOnlyTrxDelegate().moveToRightSibling();
   }
 }

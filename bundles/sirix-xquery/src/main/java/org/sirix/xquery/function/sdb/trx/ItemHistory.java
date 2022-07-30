@@ -69,7 +69,7 @@ public final class ItemHistory extends AbstractFunction {
       Item previousItem = null;
       for (int revision = 1; revision <= resourceManager.getMostRecentRevisionNumber(); revision++) {
         final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
-        if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
+        if (rtxInRevision.moveTo(item.getNodeKey())) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
             assert item instanceof XmlDBNode;
             final var xmlDBNode = new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
@@ -117,7 +117,7 @@ public final class ItemHistory extends AbstractFunction {
       for (final int revision : revisions) {
         final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
 
-        if (rtxInRevision.moveTo(item.getNodeKey()).hasMoved()) {
+        if (rtxInRevision.moveTo(item.getNodeKey())) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
             assert item instanceof XmlDBNode;
             sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));

@@ -79,39 +79,39 @@ public class AttributeAxisTest {
     wtx.moveTo(nodeKey);
     wtx.insertAttribute(new QNm("foo2"), "2");
 
-    Assert.assertEquals(true, wtx.moveTo(nodeKey).hasMoved());
+    Assert.assertEquals(true, wtx.moveTo(nodeKey));
 
-    Assert.assertEquals(true, wtx.moveToAttribute(0).hasMoved());
+    Assert.assertEquals(true, wtx.moveToAttribute(0));
     Assert.assertEquals("0", wtx.getValue());
     Assert.assertEquals(new QNm("foo0"), wtx.getName());
 
-    Assert.assertEquals(true, wtx.moveToParent().hasMoved());
-    Assert.assertEquals(true, wtx.moveToAttribute(1).hasMoved());
+    Assert.assertEquals(true, wtx.moveToParent());
+    Assert.assertEquals(true, wtx.moveToAttribute(1));
     Assert.assertEquals("1", wtx.getValue());
     Assert.assertEquals(new QNm("foo1"), wtx.getName());
 
-    Assert.assertEquals(true, wtx.moveToParent().hasMoved());
-    Assert.assertEquals(true, wtx.moveToAttribute(2).hasMoved());
+    Assert.assertEquals(true, wtx.moveToParent());
+    Assert.assertEquals(true, wtx.moveToAttribute(2));
     Assert.assertEquals("2", wtx.getValue());
     Assert.assertEquals(new QNm("foo2"), wtx.getName());
 
-    Assert.assertEquals(true, wtx.moveTo(nodeKey).hasMoved());
+    Assert.assertEquals(true, wtx.moveTo(nodeKey));
     final AbstractAxis axis = new AttributeAxis(wtx);
 
     Assert.assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     Assert.assertEquals(nodeKey + 1, wtx.getNodeKey());
     Assert.assertEquals(new QNm("foo0"), wtx.getName());
     Assert.assertEquals("0", wtx.getValue());
 
     Assert.assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     Assert.assertEquals(nodeKey + 2, wtx.getNodeKey());
     Assert.assertEquals(new QNm("foo1"), wtx.getName());
     Assert.assertEquals("1", wtx.getValue());
 
     Assert.assertEquals(true, axis.hasNext());
-    axis.next();
+    axis.nextLong();
     Assert.assertEquals(nodeKey + 3, wtx.getNodeKey());
     Assert.assertEquals(new QNm("foo2"), wtx.getName());
     Assert.assertEquals("2", wtx.getValue());

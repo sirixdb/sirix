@@ -1,7 +1,8 @@
 package org.sirix.index.redblacktree;
 
 import com.google.common.collect.AbstractIterator;
-import org.sirix.api.Move;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -15,15 +16,12 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.redblacktree.interfaces.References;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
-import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.PrintStream;
 import java.util.ArrayDeque;
 import java.util.Comparator;
@@ -193,7 +191,6 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   RBNode<K, V> getCurrentNode() {
     assertNotClosed();
     if (currentNode.getKind() != NodeKind.XML_DOCUMENT && currentNode.getKind() != NodeKind.JSON_DOCUMENT) {
-      @SuppressWarnings("unchecked")
       final RBNode<K, V> node = (RBNode<K, V>) currentNode;
       return node;
     }
@@ -206,7 +203,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * @param node the node to set
    * @return {@link RBNode} instance
    */
-  RBNode<K, V> setCurrentAVLNode(final RBNode<K, V> node) {
+  RBNode<K, V> setCurrentNode(final RBNode<K, V> node) {
     assertNotClosed();
     currentNode = node;
     return node;
@@ -223,7 +220,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   public Optional<V> get(final long startNodeKey, final K key, final SearchMode mode) {
     assertNotClosed();
-    final boolean movedToStartNode = moveTo(startNodeKey).hasMoved();
+    final boolean movedToStartNode = moveTo(startNodeKey);
     if (!movedToStartNode) {
       return Optional.empty();
     }
@@ -248,7 +245,6 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           currentNode = node;
           moved = true;
         } else if (node.hasLeftChild()) {
-          //noinspection unchecked
           node = pageReadOnlyTrx instanceof PageTrx
               ? null
               : (RBNode<K, V>) cache.get(new RBIndexKey(node.getLeftChildKey(),
@@ -257,7 +253,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
                                                         indexNumber));
 
           if (node == null) {
-            moved = moveToFirstChild().hasMoved();
+            moved = moveToFirstChild();
             if (moved) {
               node = getCurrentNode();
             }
@@ -274,7 +270,6 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           currentNode = node;
           moved = true;
         } else if (node.hasRightChild()) {
-          //noinspection unchecked
           node = pageReadOnlyTrx instanceof PageTrx
               ? null
               : (RBNode<K, V>) cache.get(new RBIndexKey(node.getRightChildKey(),
@@ -283,7 +278,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
                                                         indexNumber));
 
           if (node == null) {
-            moved = moveToLastChild().hasMoved();
+            moved = moveToLastChild();
             if (moved) {
               node = getCurrentNode();
             }
@@ -333,7 +328,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   public Optional<RBNode<K, V>> getCurrentNode(final long startNodeKey, final K key, final SearchMode mode) {
     assertNotClosed();
-    final boolean movedToStartNode = moveTo(startNodeKey).hasMoved();
+    final boolean movedToStartNode = moveTo(startNodeKey);
     if (!movedToStartNode) {
       return Optional.empty();
     }
@@ -353,7 +348,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           return Optional.ofNullable(node);
         }
       }
-      final boolean moved = c < 0 ? moveToFirstChild().hasMoved() : moveToLastChild().hasMoved();
+      final boolean moved = c < 0 ? moveToFirstChild() : moveToLastChild();
       if (moved) {
         node = getCurrentNode();
       } else {
@@ -403,7 +398,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
       if (mode.compare(key, node.getKey(), comp) == 0) {
         return Optional.ofNullable(node);
       }
-      final boolean moved = c < 0 ? moveToFirstChild().hasMoved() : moveToLastChild().hasMoved();
+      final boolean moved = c < 0 ? moveToFirstChild() : moveToLastChild();
       if (moved) {
         node = getCurrentNode();
       } else {
@@ -419,7 +414,8 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * @return number of index entries
    */
   public long size() {
-    return ((StructNode) moveToDocumentRoot().trx().getNode()).getDescendantCount();
+    moveToDocumentRoot();
+    return getStructuralNode().getDescendantCount();
   }
 
   @Override
@@ -430,7 +426,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   /**
    * Make sure that the path summary is not yet closed when calling this method.
    */
-  final void assertNotClosed() {
+  void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("AVL tree reader is already closed.");
     }
@@ -454,9 +450,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   public boolean hasNode(final long key) {
     assertNotClosed();
     final long currKey = currentNode.getNodeKey();
-    final boolean moved = moveTo(key).hasMoved();
-    final Move<RBTreeReader<K, V>> movedCursor = moveTo(currKey);
-    assert movedCursor.hasMoved() : "Must be movable back!";
+    final boolean moved = moveTo(key);
+    final boolean movedCursor = moveTo(currKey);
+    assert movedCursor : "Must be movable back!";
     return moved;
   }
 
@@ -494,11 +490,11 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveTo(final long nodeKey) {
+  public boolean moveTo(final long nodeKey) {
     assertNotClosed();
 
     if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return Move.notMoved();
+      return false;
     }
 
     // Remember old node and fetch new one.
@@ -506,42 +502,41 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     Node newNode;
     try {
       // Immediately return node from item list if node key negative.
-      newNode = (Node) pageReadOnlyTrx.getRecord(nodeKey, indexType, index);
+      newNode = pageReadOnlyTrx.getRecord(nodeKey, indexType, index);
     } catch (final SirixIOException e) {
       newNode = null;
     }
 
     if (newNode == null) {
       currentNode = oldNode;
-      return Move.notMoved();
+      return false;
     } else {
       currentNode = newNode;
-      return Move.moved(this);
+      return true;
     }
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveToDocumentRoot() {
+  public boolean moveToDocumentRoot() {
     assertNotClosed();
     return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveToParent() {
+  public boolean moveToParent() {
     assertNotClosed();
     return moveTo(currentNode.getParentKey());
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveToFirstChild() {
+  public boolean moveToFirstChild() {
     assertNotClosed();
     if (currentNode instanceof RBNode) {
       final RBNode<K, V> node = getCurrentNode();
       if (!node.hasLeftChild()) {
-        return Move.notMoved();
+        return false;
       }
       final var move = moveTo(node.getLeftChildKey());
-      @SuppressWarnings("unchecked")
       final var currentNode = (RBNode<K, V>) this.currentNode;
       node.setLeftChild(currentNode);
       currentNode.setParent(node);
@@ -551,34 +546,32 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveToLastChild() {
+  public boolean moveToLastChild() {
     assertNotClosed();
     if (currentNode instanceof RBNode) {
       final RBNode<K, V> node = getCurrentNode();
       if (!node.hasRightChild()) {
-        return Move.notMoved();
+        return false;
       }
       final var move = moveTo(node.getRightChildKey());
-      @SuppressWarnings("unchecked")
       final var currentNode = (RBNode<K, V>) this.currentNode;
       node.setRightChild(currentNode);
       currentNode.setParent(node);
       return move;
     }
-    return Move.notMoved();
+    return false;
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToPrevious() {
+  public boolean moveToPrevious() {
     assertNotClosed();
     return moveToParent();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToNext() {
+  public boolean moveToNext() {
     assertNotClosed();
     if (currentNode instanceof RBNode) {
-      @SuppressWarnings("unchecked")
       final RBNode<K, V> node = (RBNode<K, V>) currentNode;
       if (node.hasLeftChild()) {
         moveToFirstChild();
@@ -590,29 +583,26 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         } while (getNode() instanceof RBNode && !hasLastChild());
 
         if (getNode() instanceof RBNode) {
-          return Move.moved(moveToLastChild().trx());
+          moveToLastChild();
+          return true;
         } else {
-          return Move.notMoved();
+          return false;
         }
       }
     }
-    if (moveToFirstChild().hasMoved()) {
-      return Move.moved(this);
-    } else {
-      return Move.notMoved();
-    }
+    return moveToFirstChild();
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveToLeftSibling() {
+  public boolean moveToLeftSibling() {
     assertNotClosed();
-    return Move.notMoved();
+    return false;
   }
 
   @Override
-  public Move<RBTreeReader<K, V>> moveToRightSibling() {
+  public boolean moveToRightSibling() {
     assertNotClosed();
-    return Move.notMoved();
+    return false;
   }
 
   @Override
@@ -637,7 +627,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   public NodeKind getFirstChildKind() {
     assertNotClosed();
     final NodeKind firstChildKind;
-    if (moveToFirstChild().hasMoved()) {
+    if (moveToFirstChild()) {
       firstChildKind = getNode().getKind();
       moveToParent();
     } else {
@@ -650,7 +640,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   public NodeKind getLastChildKind() {
     assertNotClosed();
     final NodeKind lastChildKind;
-    if (moveToLastChild().hasMoved()) {
+    if (moveToLastChild()) {
       lastChildKind = getNode().getKind();
       moveToParent();
     } else {
@@ -664,7 +654,8 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     assertNotClosed();
     if (hasParent()) {
       final long nodeKey = currentNode.getNodeKey();
-      final NodeKind parentKind = moveToParent().trx().getKind();
+      moveToParent();
+      final NodeKind parentKind = getKind();
       moveTo(nodeKey);
       return parentKind;
     }
@@ -684,7 +675,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToNextFollowing() {
+  public boolean moveToNextFollowing() {
     throw new UnsupportedOperationException();
   }
 
@@ -706,7 +697,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
 
     final long firstChildKey;
 
-    if (moveToFirstChild().hasMoved()) {
+    if (moveToFirstChild()) {
       firstChildKey = getNodeKey();
       moveToParent();
     } else {
@@ -721,7 +712,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     assertNotClosed();
     final long lastChildKey;
 
-    if (moveToLastChild().hasMoved()) {
+    if (moveToLastChild()) {
       lastChildKey = getNodeKey();
       moveToParent();
     } else {
@@ -776,7 +767,8 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
       if (!first) {
         if (!keys.isEmpty()) {
           // Subsequent results.
-          final RBNode<K, V> node = moveTo(keys.pop()).trx().getCurrentNode();
+          moveTo(keys.pop());
+          final RBNode<K, V> node = getCurrentNode();
           stackOperation(node);
           return node;
         }
@@ -785,9 +777,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
 
       // First search.
       first = false;
-      boolean moved = moveTo(key).hasMoved();
+      boolean moved = moveTo(key);
       if (key == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        moved = moveToFirstChild().hasMoved();
+        moved = moveToFirstChild();
       }
       if (moved) {
         final RBNode<K, V> node = getCurrentNode();
@@ -799,12 +791,14 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
 
     private void stackOperation(final RBNode<K, V> node) {
       if (node.hasRightChild()) {
-        final RBNode<K, V> right = moveToLastChild().trx().getCurrentNode();
+        moveToLastChild();
+        final RBNode<K, V> right = getCurrentNode();
         keys.push(right.getNodeKey());
       }
       moveTo(node.getNodeKey());
       if (node.hasLeftChild()) {
-        final RBNode<K, V> left = moveToFirstChild().trx().getCurrentNode();
+        moveToFirstChild();
+        final RBNode<K, V> left = getCurrentNode();
         keys.push(left.getNodeKey());
       }
     }

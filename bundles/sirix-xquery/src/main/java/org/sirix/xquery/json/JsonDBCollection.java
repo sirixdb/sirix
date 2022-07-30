@@ -281,7 +281,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         final JsonResourceManager resource = database.openResourceManager(resourceName);
         final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
 
-        if (rtx.moveToFirstChild().hasMoved()) {
+        if (rtx.moveToFirstChild()) {
           if (rtx.isObject())
             documents.add(new JsonDBObject(rtx, this));
           else if (rtx.isArray())
@@ -302,6 +302,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     return add(JsonShredder.createStringReader(json), null, null);
   }
 
+  @SuppressWarnings("SameParameterValue")
   private JsonDBItem add(final JsonReader reader, final String commitMessage, final Instant commitTimestamp) {
     try {
       final String resourceName = "resource" + (database.listResources().size() + 1);

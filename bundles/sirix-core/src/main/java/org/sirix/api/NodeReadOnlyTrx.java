@@ -79,7 +79,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    * @param key the nodeKey of the node to move to
    * @return this transaction instance
    */
-  Move<? extends NodeCursor> moveTo(long key);
+  boolean moveTo(long key);
 
   /**
    * Get the underlying page transaction.

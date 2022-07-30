@@ -186,19 +186,19 @@ public final class IndexExpr implements Expr {
           rtx.moveToFirstChild();
           sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
         } else if (arrayIndexes.getFirst() == Integer.MIN_VALUE) {
-          if (rtx.moveToFirstChild().hasMoved()) {
+          if (rtx.moveToFirstChild()) {
             do {
               sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
-            } while (rtx.moveToRightSibling().hasMoved());
+            } while (rtx.moveToRightSibling());
           }
         } else {
           var index = arrayIndexes.getFirst();
           index = index < 0 ? (int) (rtx.getChildCount() + index) : index;
-          boolean hasMoved = rtx.moveToFirstChild().hasMoved();
+          boolean hasMoved = rtx.moveToFirstChild();
           assert hasMoved;
           int k = 1;
           for (; k <= index; k++) {
-            hasMoved = rtx.moveToRightSibling().hasMoved();
+            hasMoved = rtx.moveToRightSibling();
             assert hasMoved;
           }
           sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
@@ -238,21 +238,14 @@ public final class IndexExpr implements Expr {
   }
 
   private SearchMode getSearchMode(String comparisonType) {
-    final SearchMode searchMode;
-
-    if ("ValueCompGT".equals(comparisonType) || "GeneralCompGT".equals(comparisonType)) {
-      searchMode = SearchMode.GREATER;
-    } else if ("ValueCompLT".equals(comparisonType) || "GeneralCompLT".equals(comparisonType)) {
-      searchMode = SearchMode.LOWER;
-    } else if ("ValueCompEQ".equals(comparisonType) || "GeneralCompEQ".equals(comparisonType)) {
-      searchMode = SearchMode.EQUAL;
-    } else if ("ValueCompGE".equals(comparisonType) || "GeneralCompGE".equals(comparisonType)) {
-      searchMode = SearchMode.GREATER_OR_EQUAL;
-    } else if ("ValueCompLE".equals(comparisonType) || "GeneralCompLE".equals(comparisonType)) {
-      searchMode = SearchMode.LOWER_OR_EQUAL;
-    } else {
-      throw new IllegalStateException("Unexpected value: " + comparisonType);
-    }
+    final SearchMode searchMode = switch (comparisonType) {
+      case "ValueCompGT", "GeneralCompGT" -> SearchMode.GREATER;
+      case "ValueCompLT", "GeneralCompLT" -> SearchMode.LOWER;
+      case "ValueCompEQ", "GeneralCompEQ" -> SearchMode.EQUAL;
+      case "ValueCompGE", "GeneralCompGE" -> SearchMode.GREATER_OR_EQUAL;
+      case "ValueCompLE", "GeneralCompLE" -> SearchMode.LOWER_OR_EQUAL;
+      case null, default -> throw new IllegalStateException("Unexpected value: " + comparisonType);
+    };
 
     return searchMode;
   }
@@ -334,10 +327,10 @@ public final class IndexExpr implements Expr {
                     if (index != Integer.MIN_VALUE) {
                       index = index < 0 ? (int) (rtx.getChildCount() + index) : index;
                       if (currentIndex == steps.size() - 1) {
-                        boolean hasMoved = rtx.moveToFirstChild().hasMoved();
+                        boolean hasMoved = rtx.moveToFirstChild();
                         int k = 0;
                         for (; k <= index && hasMoved; k++) {
-                          hasMoved = rtx.moveToRightSibling().hasMoved();
+                          hasMoved = rtx.moveToRightSibling();
                         }
                         if (k - 1 != index) {
                           currNodeKeys.remove(nodeKey);
@@ -346,7 +339,7 @@ public final class IndexExpr implements Expr {
                       } else {
                         boolean hasMoved = true;
                         for (int k = 0; k < index && hasMoved; k++) {
-                          hasMoved = rtx.moveToLeftSibling().hasMoved();
+                          hasMoved = rtx.moveToLeftSibling();
                         }
                         if (!hasMoved || rtx.hasLeftSibling()) {
                           currNodeKeys.remove(nodeKey);

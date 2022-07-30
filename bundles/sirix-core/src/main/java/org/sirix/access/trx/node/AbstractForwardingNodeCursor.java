@@ -1,6 +1,5 @@
 package org.sirix.access.trx.node;
 
-import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -46,7 +45,7 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToNextFollowing() {
+  public boolean moveToNextFollowing() {
     return delegate().moveToNextFollowing();
   }
 
@@ -121,47 +120,47 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   }
 
   @Override
-  public Move<? extends NodeCursor> moveTo(final long key) {
+  public boolean moveTo(final long key) {
     return delegate().moveTo(key);
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToDocumentRoot() {
+  public boolean moveToDocumentRoot() {
     return delegate().moveToDocumentRoot();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToFirstChild() {
+  public boolean moveToFirstChild() {
     return delegate().moveToFirstChild();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToLastChild() {
+  public boolean moveToLastChild() {
     return delegate().moveToLastChild();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToLeftSibling() {
+  public boolean moveToLeftSibling() {
     return delegate().moveToLeftSibling();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToNext() {
+  public boolean moveToNext() {
     return delegate().moveToNext();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToParent() {
+  public boolean moveToParent() {
     return delegate().moveToParent();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToPrevious() {
+  public boolean moveToPrevious() {
     return delegate().moveToParent();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToRightSibling() {
+  public boolean moveToRightSibling() {
     return delegate().moveToRightSibling();
   }
 }

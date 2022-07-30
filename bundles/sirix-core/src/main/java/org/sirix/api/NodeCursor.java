@@ -17,79 +17,71 @@ public interface NodeCursor extends AutoCloseable {
    * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
    * @param key key of node to select
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveTo(long key);
+  boolean moveTo(long key);
 
   /**
    * Move to the next following node, that is the next node on the XPath {@code following::-axis},
    * that is the next node which is not a descendant of the current node.
    *
-   * @return {@link Moved} instance if the next following node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToNextFollowing();
+  boolean moveToNextFollowing();
 
   /**
    * Move cursor to document root node. Check the postcondition with {@code Moved#hasMoved()} or get
    * the current cursor instance with{Moved#get()}. In case the node does not exist
    * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToDocumentRoot();
+  boolean moveToDocumentRoot();
 
   /**
    * Move cursor to parent node of currently selected node. Check the postcondition with
    * {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}. In case the node
    * does not exist {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToParent();
+  boolean moveToParent();
 
   /**
    * Move cursor to first child node of currently selected node. Check the postcondition with
    * {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}. In case the node
    * does not exist {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToFirstChild();
+  boolean moveToFirstChild();
 
   /**
    * Move cursor to last child node of currently selected node. Check the postcondition with
    * {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}. In case the node
    * does not exist {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToLastChild();
+  boolean moveToLastChild();
 
   /**
    * Move cursor to left sibling node of the currently selected node. Check the postcondition with
    * {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}. In case the node
    * does not exist {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToLeftSibling();
+  boolean moveToLeftSibling();
 
   /**
    * Move cursor to right sibling node of the currently selected node. Check the postcondition with
    * {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}. In case the node
    * does not exist {@code Moved#hasMoved()} returns false and the cursor has not been moved.
    *
-   * @return {@link Moved} instance if the right sibling node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToRightSibling();
+  boolean moveToRightSibling();
 
   /**
    * Move cursor to the previous node of the currently selected node in document order. Check the
@@ -97,10 +89,9 @@ public interface NodeCursor extends AutoCloseable {
    * In case the node does not exist {@code Moved#hasMoved()} returns false and the cursor has not
    * been moved.
    *
-   * @return {@link Moved} instance if the previous node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToPrevious();
+  boolean moveToPrevious();
 
   /**
    * Move cursor to the next node of the currently selected node in document order. Check the
@@ -108,15 +99,15 @@ public interface NodeCursor extends AutoCloseable {
    * In case the node does not exist {@code Moved#hasMoved()} returns false and the cursor has not
    * been moved.
    *
-   * @return {@link Moved} instance if the next node is selected, {@code NotMoved} instance otherwise
+   * @return {@code true} if the node is selected, {@code false} otherwise
    */
-  Move<? extends NodeCursor> moveToNext();
+  boolean moveToNext();
 
   /**
    * Determines if a node with the given key exists.
    *
    * @param key unique key of node
-   * @return {@code true} if the node with the key {@code pKey} exists, {@code false} otherwise
+   * @return {@code true} if the node with the key {@code key} exists, {@code false} otherwise
    */
   boolean hasNode(long key);
 

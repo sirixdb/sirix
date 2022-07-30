@@ -25,6 +25,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   /** Constructor for use by subclasses. */
   protected AbstractForwardingPathSummaryReader() {}
 
+  @SuppressWarnings("NullableProblems")
   @Override
   protected abstract PathSummaryReader delegate();
 
@@ -109,52 +110,52 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveTo(final long key) {
+  public boolean moveTo(final long key) {
     return delegate().moveTo(key);
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToDocumentRoot() {
+  public boolean moveToDocumentRoot() {
     return delegate().moveToDocumentRoot();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToFirstChild() {
+  public boolean moveToFirstChild() {
     return delegate().moveToFirstChild();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToLeftSibling() {
+  public boolean moveToLeftSibling() {
     return delegate().moveToLeftSibling();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToNextFollowing() {
+  public boolean moveToNextFollowing() {
     return delegate().moveToNextFollowing();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToParent() {
+  public boolean moveToParent() {
     return delegate().moveToParent();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToRightSibling() {
+  public boolean moveToRightSibling() {
     return delegate().moveToRightSibling();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToLastChild() {
+  public boolean moveToLastChild() {
     return delegate().moveToLastChild();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToPrevious() {
+  public boolean moveToPrevious() {
     return delegate().moveToPrevious();
   }
 
   @Override
-  public Move<? extends PathSummaryReader> moveToNext() {
+  public boolean moveToNext() {
     return delegate().moveToNext();
   }
 

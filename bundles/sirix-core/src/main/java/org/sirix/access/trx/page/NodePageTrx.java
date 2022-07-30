@@ -288,8 +288,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public DataRecord getRecord(final long recordKey, @NonNull final IndexType indexType,
-      @NonNegative final int index) {
+  public DataRecord getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -298,7 +297,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     // Calculate page.
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
 
-    final PageContainer pageCont = prepareRecordPage(recordPageKey, index, indexType);
+    final PageContainer pageCont = getPageContainer(recordPageKey, index, indexType);
+
     if (pageCont.equals(PageContainer.emptyInstance())) {
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
@@ -490,6 +490,23 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     return null;
   }
 
+  private PageContainer getPageContainer(final @NonNegative long recordPageKey, final int indexNumber,
+      final IndexType indexType) {
+    var indexLogKey = new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
+    var pageContainer = mostRecentPageContainers.get(indexLogKey);
+
+    if (pageContainer == null) {
+      final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
+      final var leafPageReference =
+          pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
+      indexLogKey = null;
+      return log.get(leafPageReference, this);
+    }
+
+    indexLogKey = null;
+    return pageContainer;
+  }
+
   /**
    * Prepare record page.
    *
@@ -504,8 +521,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     assert recordPageKey >= 0;
     assert indexType != null;
 
-    final var indexLogKey = new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
-
+    var indexLogKey = new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
     var pageContainer = mostRecentPageContainers.get(indexLogKey);
 
     if (pageContainer == null) {
@@ -547,6 +563,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       return pageContainer;
     }
 
+    indexLogKey = null;
     return pageContainer;
   }
 

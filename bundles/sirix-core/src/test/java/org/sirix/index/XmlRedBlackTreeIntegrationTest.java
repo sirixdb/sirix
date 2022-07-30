@@ -1,6 +1,5 @@
 package org.sirix.index;
 
-import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -58,7 +57,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     final IndexDef idxDef =
         IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/@foobar")), 0, IndexDef.DbType.XML);
 
-    indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
+    indexController.createIndexes(Set.of(idxDef), wtx);
 
     wtx.insertElementAsFirstChild(new QNm("bla"));
     wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
@@ -81,19 +80,20 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"), false);
 
-    assertEquals(ImmutableSet.of(3L, 8L), pathNodeKeys);
+    assertEquals(Set.of(3L, 8L), pathNodeKeys);
 
     final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
     assertTrue(fooRefs.isEmpty());
     final Optional<NodeReferences> bazRefs1 = reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
-    check(bazRefs1, ImmutableSet.of(3L));
+    check(bazRefs1, Set.of(3L));
     final Optional<NodeReferences> bazRefs2 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
-    check(bazRefs2, ImmutableSet.of(8L));
+    check(bazRefs2, Set.of(8L));
 
     wtx.moveTo(1);
     wtx.insertElementAsFirstChild(new QNm("bla"));
     wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
-    final var secondNodeKey = wtx.moveToAttributeByName(new QNm("foobar")).trx().getNodeKey();
+    wtx.moveToAttributeByName(new QNm("foobar"));
+    final var secondNodeKey = wtx.getNodeKey();
     wtx.commit();
 
     reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
@@ -103,7 +103,7 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     final Optional<NodeReferences> bazRefs3 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
-    check(bazRefs3, ImmutableSet.of(8L, 10L));
+    check(bazRefs3, Set.of(8L, 10L));
 
     wtx.moveTo(secondNodeKey);
     wtx.remove();
@@ -116,7 +116,7 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     final Optional<NodeReferences> bazRefs4 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
-    check(bazRefs4, ImmutableSet.of(8L));
+    check(bazRefs4, Set.of(8L));
 
     wtx.moveTo(nodeKey);
     wtx.remove();
@@ -129,7 +129,7 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
 
-    check(bazRefs5, ImmutableSet.of());
+    check(bazRefs5, Set.of());
 
     //    try (final var printStream = new PrintStream(new BufferedOutputStream(System.out))) {
     //      reader.dump(printStream);
@@ -146,7 +146,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     final IndexDef idxDef =
         IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse("//bla/blabla")), 0, IndexDef.DbType.XML);
 
-    indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
+    indexController.createIndexes(Set.of(idxDef), wtx);
 
     final long blaNodeKey = wtx.insertElementAsFirstChild(new QNm("bla")).getNodeKey();
     wtx.insertTextAsFirstChild("tadaaaa");
@@ -164,7 +164,7 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, ImmutableSet.of(4L));
+    check(blablaRefs, Set.of(4L));
 
     wtx.moveTo(nodeKey);
     wtx.remove();
@@ -176,9 +176,9 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, ImmutableSet.of());
+    check(blablaRefs, Set.of());
 
-    assertTrue(wtx.moveTo(blablaNodeKey).hasMoved());
+    assertTrue(wtx.moveTo(blablaNodeKey));
     wtx.insertTextAsFirstChild("törööö");
     wtx.moveTo(blaNodeKey);
     wtx.remove();
@@ -191,7 +191,7 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, ImmutableSet.of());
+    check(blablaRefs, Set.of());
 
     final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"), false);
 

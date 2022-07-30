@@ -66,13 +66,13 @@ public final class IsDeleted extends AbstractFunction {
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (node == null) {
-      return rtxInMostRecentRevision.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;
+      return rtxInMostRecentRevision.moveTo(item.getNodeKey()) ? Bool.FALSE : Bool.TRUE;
     } else {
       final var revisions = node.getRevisions();
       final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
       final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
 
-      return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()).hasMoved() ? Bool.FALSE : Bool.TRUE;
+      return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()) ? Bool.FALSE : Bool.TRUE;
     }
   }
 

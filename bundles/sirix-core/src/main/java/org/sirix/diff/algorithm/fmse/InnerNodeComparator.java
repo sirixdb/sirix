@@ -24,25 +24,25 @@ final class InnerNodeComparator implements NodeComparator<Long> {
   private static final double FMESTHRESHOLD = 0.5;
 
   /** {@link Matching} reference. */
-  private final Matching mMatching;
+  private final Matching matching;
 
-  private final XmlNodeReadOnlyTrx mOldRtx;
+  private final XmlNodeReadOnlyTrx oldRtx;
 
-  private final XmlNodeReadOnlyTrx mNewRtx;
+  private final XmlNodeReadOnlyTrx newRtx;
 
-  private final QNm mIdName;
+  private final QNm idName;
 
-  private final FMSENodeComparisonUtils mNodeComparisonUtils;
+  private final FMSENodeComparisonUtils nodeComparisonUtils;
 
   /**
    * Number of descendants in subtree of node on old revision.
    */
-  private Map<Long, Long> mDescendantsOldRev;
+  private final Map<Long, Long> descendantsOldRev;
 
   /**
    * Number of descendants in subtree of node on new revision.
    */
-  private Map<Long, Long> mDescendantsNewRev;
+  private final Map<Long, Long> descendantsNewRev;
 
   /**
    * Constructor.
@@ -50,8 +50,8 @@ final class InnerNodeComparator implements NodeComparator<Long> {
    * @param idName the name of an id-attribute, which has a unique value for a specific element node,
    *        might be {@code null}
    * @param matching {@link Matching} reference
-   * @param wtx the transactional cursor on the old revision
-   * @param rtx the transactional cursor on the new revision
+   * @param oldRtx the transactional cursor on the old revision
+   * @param newRtx the transactional cursor on the new revision
    * @param nodeComparisonUtils comparison utils which might be used to compare nodes
    * @param descendantsOldRev number of descendants per node in old revision
    * @param descendantsNewRev number of descendants per node in new revision
@@ -65,13 +65,13 @@ final class InnerNodeComparator implements NodeComparator<Long> {
     assert nodeComparisonUtils != null;
     assert descendantsOldRev != null;
     assert descendantsNewRev != null;
-    mIdName = idName;
-    mMatching = matching;
-    mOldRtx = oldRtx;
-    mNewRtx = newRtx;
-    mNodeComparisonUtils = nodeComparisonUtils;
-    mDescendantsOldRev = descendantsOldRev;
-    mDescendantsNewRev = descendantsNewRev;
+    this.idName = idName;
+    this.matching = matching;
+    this.oldRtx = oldRtx;
+    this.newRtx = newRtx;
+    this.nodeComparisonUtils = nodeComparisonUtils;
+    this.descendantsOldRev = descendantsOldRev;
+    this.descendantsNewRev = descendantsNewRev;
   }
 
   @Override
@@ -79,34 +79,31 @@ final class InnerNodeComparator implements NodeComparator<Long> {
     assert firstNode != null;
     assert secondNode != null;
 
-    mOldRtx.moveTo(firstNode);
-    mNewRtx.moveTo(secondNode);
+    oldRtx.moveTo(firstNode);
+    newRtx.moveTo(secondNode);
 
-    assert mOldRtx.getKind() == mNewRtx.getKind();
+    assert oldRtx.getKind() == newRtx.getKind();
 
     boolean retVal = false;
 
-    if (mIdName != null && mOldRtx.isElement() && mNewRtx.isElement()
-        && mOldRtx.moveToAttributeByName(mIdName).hasMoved() && mNewRtx.moveToAttributeByName(mIdName).hasMoved()) {
-      if (mNewRtx.getValue().equals(mOldRtx.getValue()))
-        retVal = true;
-      else
-        retVal = false;
-    } else if ((mOldRtx.hasFirstChild() || mOldRtx.hasAttributes() || mOldRtx.hasNamespaces())
-        && (mNewRtx.hasFirstChild() || mNewRtx.hasAttributes() || mNewRtx.hasNamespaces())) {
-      final long common = mMatching.containedDescendants(firstNode, secondNode);
-      final long maxFamilySize = Math.max(mDescendantsOldRev.get(firstNode), mDescendantsNewRev.get(secondNode));
+    if (idName != null && oldRtx.isElement() && newRtx.isElement()
+        && oldRtx.moveToAttributeByName(idName) && newRtx.moveToAttributeByName(idName)) {
+      retVal = newRtx.getValue().equals(oldRtx.getValue());
+    } else if ((oldRtx.hasFirstChild() || oldRtx.hasAttributes() || oldRtx.hasNamespaces())
+        && (newRtx.hasFirstChild() || newRtx.hasAttributes() || newRtx.hasNamespaces())) {
+      final long common = matching.containedDescendants(firstNode, secondNode);
+      final long maxFamilySize = Math.max(descendantsOldRev.get(firstNode), descendantsNewRev.get(secondNode));
       if (common == 0 && maxFamilySize == 1) {
-        retVal = mOldRtx.getName().equals(mNewRtx.getName());
+        retVal = oldRtx.getName().equals(newRtx.getName());
       } else {
         retVal = ((double) common / (double) maxFamilySize) >= FMESTHRESHOLD;
       }
     } else {
-      final QNm oldName = mOldRtx.getName();
-      final QNm newName = mNewRtx.getName();
+      final QNm oldName = oldRtx.getName();
+      final QNm newName = newRtx.getName();
       if (oldName.getNamespaceURI().equals(newName.getNamespaceURI())
-          && mNodeComparisonUtils.calculateRatio(oldName.getLocalName(), newName.getLocalName()) > 0.7) {
-        retVal = mNodeComparisonUtils.checkAncestors(mOldRtx.getNodeKey(), mNewRtx.getNodeKey());
+          && nodeComparisonUtils.calculateRatio(oldName.getLocalName(), newName.getLocalName()) > 0.7) {
+        retVal = nodeComparisonUtils.checkAncestors(oldRtx.getNodeKey(), newRtx.getNodeKey());
       }
     }
 

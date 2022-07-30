@@ -46,7 +46,7 @@ public final class PreviousAxis<R extends NodeReadOnlyTrx & NodeCursor, W extend
     if (revision > 0 && first) {
       first = false;
       final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
-      if (rtx.moveTo(nodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey)) {
         return rtx;
       } else {
         rtx.close();

@@ -1,10 +1,11 @@
 package org.sirix.access.trx.node.xml;
 
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.ItemList;
-import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -17,8 +18,6 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
@@ -120,67 +119,67 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveTo(final long key) {
+  default boolean moveTo(final long key) {
     return nodeReadOnlyTrxDelegate().moveTo(key);
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final @NonNegative int index) {
+  default boolean moveToAttribute(final @NonNegative int index) {
     return nodeReadOnlyTrxDelegate().moveToAttribute(index);
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
+  default boolean moveToAttributeByName(final QNm name) {
     return nodeReadOnlyTrxDelegate().moveToAttributeByName(name);
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToDocumentRoot() {
+  default boolean moveToDocumentRoot() {
     return nodeReadOnlyTrxDelegate().moveToDocumentRoot();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToFirstChild() {
+  default boolean moveToFirstChild() {
     return nodeReadOnlyTrxDelegate().moveToFirstChild();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToLeftSibling() {
+  default boolean moveToLeftSibling() {
     return nodeReadOnlyTrxDelegate().moveToLeftSibling();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@NonNegative final int index) {
+  default boolean moveToNamespace(@NonNegative final int index) {
     return nodeReadOnlyTrxDelegate().moveToNamespace(index);
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToNextFollowing() {
+  default boolean moveToNextFollowing() {
     return nodeReadOnlyTrxDelegate().moveToNextFollowing();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToParent() {
+  default boolean moveToParent() {
     return nodeReadOnlyTrxDelegate().moveToParent();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToRightSibling() {
+  default boolean moveToRightSibling() {
     return nodeReadOnlyTrxDelegate().moveToRightSibling();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToLastChild() {
+  default boolean moveToLastChild() {
     return nodeReadOnlyTrxDelegate().moveToLastChild();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToPrevious() {
+  default boolean moveToPrevious() {
     return nodeReadOnlyTrxDelegate().moveToPrevious();
   }
 
   @Override
-  default Move<? extends XmlNodeReadOnlyTrx> moveToNext() {
+  default boolean moveToNext() {
     return nodeReadOnlyTrxDelegate().moveToNext();
   }
 

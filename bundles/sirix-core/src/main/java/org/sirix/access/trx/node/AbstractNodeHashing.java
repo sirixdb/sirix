@@ -73,14 +73,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
   public void adaptHashesWithAdd() {
     if (!bulkInsert || autoCommit) {
       switch (hashType) {
-        case ROLLING:
-          rollingAdd();
-          break;
-        case POSTORDER:
-          postorderAdd();
-          break;
-        case NONE:
-        default:
+        case ROLLING -> rollingAdd();
+        case POSTORDER -> postorderAdd();
+        case NONE, default -> {
+        }
       }
     }
   }
@@ -93,14 +89,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
   public void adaptHashesWithRemove() {
     if (!bulkInsert || autoCommit) {
       switch (hashType) {
-        case ROLLING:
-          rollingRemove();
-          break;
-        case POSTORDER:
-          postorderRemove();
-          break;
-        case NONE:
-        default:
+        case ROLLING -> rollingRemove();
+        case POSTORDER -> postorderRemove();
+        case NONE, default -> {
+        }
       }
     }
   }
@@ -114,14 +106,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
   public void adaptHashedWithUpdate(final BigInteger oldHash) {
     if (!bulkInsert || autoCommit) {
       switch (hashType) {
-        case ROLLING:
-          rollingUpdate(oldHash);
-          break;
-        case POSTORDER:
-          postorderAdd();
-          break;
-        case NONE:
-        default:
+        case ROLLING -> rollingUpdate(oldHash);
+        case POSTORDER -> postorderAdd();
+        case NONE, default -> {
+        }
       }
     }
   }
@@ -175,17 +163,17 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
       }
 
       // Caring about the children of a node
-      if (nodeReadOnlyTrx.moveTo(getStructuralNode().getFirstChildKey()).hasMoved()) {
+      if (nodeReadOnlyTrx.moveTo(getStructuralNode().getFirstChildKey())) {
         do {
           hashCodeForParent = getCurrentNode().getHash().add(hashCodeForParent.multiply(PRIME));
-        } while (nodeReadOnlyTrx.moveTo(getStructuralNode().getRightSiblingKey()).hasMoved());
+        } while (nodeReadOnlyTrx.moveTo(getStructuralNode().getRightSiblingKey()));
         nodeReadOnlyTrx.moveTo(getStructuralNode().getParentKey());
       }
 
       // setting hash and resetting hash
       cursorToRoot.setHash(hashCodeForParent);
       hashCodeForParent = BigInteger.ZERO;
-    } while (nodeReadOnlyTrx.moveTo(cursorToRoot.getParentKey()).hasMoved());
+    } while (nodeReadOnlyTrx.moveTo(cursorToRoot.getParentKey()));
 
     setCurrentNode(startNode);
   }
@@ -218,7 +206,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(hash.multiply(PRIME)));
       }
       node.setHash(resultNew);
-    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()).hasMoved());
+    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
 
     setCurrentNode(newNode);
   }
@@ -251,7 +239,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
       }
       node.setHash(newHash);
       hashToAdd = newHash;
-    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()).hasMoved());
+    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
 
     setCurrentNode(startNode);
   }
@@ -314,7 +302,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         setAddDescendants(startNode, node, descendantCount);
       }
       node.setHash(newHash);
-    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()).hasMoved());
+    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
     setCurrentNode(startNode);
   }
 
@@ -346,7 +334,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    */
   public void addHashAndDescendantCount() {
     switch (hashType) {
-      case ROLLING:
+      case ROLLING -> {
         // Setup.
         final var startNode = getCurrentNode();
         final long oldDescendantCount = getStructuralNode().getDescendantCount();
@@ -369,14 +357,11 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
 
           setAddDescendants(startNode, node, descendantCount);
         }
-
         setCurrentNode(startNode);
-        break;
-      case POSTORDER:
-        postorderAdd();
-        break;
-      case NONE:
-      default:
+      }
+      case POSTORDER -> postorderAdd();
+      case NONE, default -> {
+      }
     }
   }
 

@@ -4,16 +4,15 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -58,7 +57,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * Level of this path node.
    */
-  private int level;
+  private final int level;
 
   /**
    * Constructor.
@@ -97,7 +96,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     final PathNode[] pathNodes = new PathNode[level];
     for (int i = level - 1; i >= 0; i--) {
       pathNodes[i] = node;
-      node = reader.moveToParent().trx().getPathNode();
+      reader.moveToParent();
+      node = reader.getPathNode();
     }
 
     final Path<QNm> path = new Path<>();
@@ -237,8 +237,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof PathNode) {
-      final PathNode other = (PathNode) obj;
+    if (obj instanceof PathNode other) {
       return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameNodeDel, other.nameNodeDel);
     }
     return false;

@@ -62,7 +62,7 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
     if (revision <= resourceManager.getMostRecentRevisionNumber()) {
       final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       revision++;
-      if (rtx.moveTo(nodeKey).hasMoved()) {
+      if (rtx.moveTo(nodeKey)) {
         return rtx;
       } else {
         rtx.close();

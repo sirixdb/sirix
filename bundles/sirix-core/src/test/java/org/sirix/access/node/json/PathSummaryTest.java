@@ -32,7 +32,7 @@ public class PathSummaryTest {
       final var pathSummaryAxis = new DescendantAxis(pathSummary);
 
       while (pathSummaryAxis.hasNext()) {
-        pathSummaryAxis.next();
+        pathSummaryAxis.nextLong();
 
         System.out.println("nodeKey: " + pathSummary.getNodeKey());
         System.out.println("path: " + pathSummary.getPath());
@@ -173,7 +173,7 @@ public class PathSummaryTest {
    */
   private PathSummaryReader next(final Axis axis) {
     if (axis.hasNext()) {
-      axis.next();
+      axis.nextLong();
       return (PathSummaryReader) axis.getCursor();
     }
     return null;
