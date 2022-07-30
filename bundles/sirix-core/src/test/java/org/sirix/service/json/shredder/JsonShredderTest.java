@@ -42,7 +42,7 @@ public final class JsonShredderTest {
 
   @Before
   public void setUp() {
-    //JsonTestHelper.deleteEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @After
