@@ -1,10 +1,16 @@
 package org.sirix.node.json;
 
+import com.google.common.hash.Funnel;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.PrimitiveSink;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
+import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 
 import java.math.BigInteger;
 
@@ -27,19 +33,34 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
 
   @Override
   public BigInteger computeHash() {
-    BigInteger result = BigInteger.ONE;
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+    final HashFunction hashFunction = nodeDelegate.getHashFunction();
 
-    result = BIG_INT_31.add(structNodeDelegate.getNodeDelegate().computeHash());
-    if (structNodeDelegate.isNotEmpty()) {
-      var multiplyBigInt = BIG_INT_31.multiply(result);
-      result = multiplyBigInt.add(structNodeDelegate.computeHash());
-      multiplyBigInt = null;
-    }
-    var multiplyBigInt = BIG_INT_31.multiply(result);
-    result = multiplyBigInt.add(boolValue ? BIG_INT_TRUE : BIG_INT_FALSE);
-    multiplyBigInt = null;
+    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
+      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey())
+            .putLong(node.getLastChildKey());
+      } else {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey());
+      }
+
+      into.putBoolean(boolValue);
+    };
+
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
+                                                            nodeDelegate.getHashFunction()
+                                                                        .hashObject(this, nodeFunnel)
+                                                                        .asBytes()));
   }
 
   @Override

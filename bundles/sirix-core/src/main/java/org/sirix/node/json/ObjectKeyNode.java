@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,6 +22,9 @@
 package org.sirix.node.json;
 
 import java.math.BigInteger;
+
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import com.google.common.hash.HashFunction;
@@ -32,7 +35,9 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
@@ -40,9 +45,9 @@ import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.hash.HashCode;
+import org.sirix.settings.Fixed;
 
 /**
- *
  * <p>
  * Node representing an XML element.
  * </p>
@@ -51,7 +56,9 @@ import com.google.common.hash.HashCode;
  */
 public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode, ImmutableNameNode {
 
-  /** {@link StructNodeDelegate} reference. */
+  /**
+   * {@link StructNodeDelegate} reference.
+   */
   private final StructNodeDelegate structNodeDel;
 
   private int nameKey;
@@ -66,7 +73,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
    * Constructor
    *
    * @param structDel {@link StructNodeDelegate} to be set
-   * @param name the key name
+   * @param name      the key name
    */
   public ObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
@@ -81,14 +88,14 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   /**
    * Constructor
    *
-   * @param hashCode the hash code
-   * @param structDel {@link StructNodeDelegate} to be set
-   * @param nameKey the key of the name
-   * @param name the String name
+   * @param hashCode    the hash code
+   * @param structDel   {@link StructNodeDelegate} to be set
+   * @param nameKey     the key of the name
+   * @param name        the String name
    * @param pathNodeKey the path node key
    */
-  public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
-      final long pathNodeKey) {
+  public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey,
+      final String name, final long pathNodeKey) {
     hash = hashCode;
     assert structDel != null;
     structNodeDel = structDel;
@@ -104,15 +111,35 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public BigInteger computeHash() {
-    final HashFunction hashFunction = structNodeDel.getNodeDelegate().getHashFunction();
+    final var nodeDelegate = structNodeDel.getNodeDelegate();
+    final HashFunction hashFunction = nodeDelegate.getHashFunction();
     assert name != null;
-    final HashCode hashCode = hashFunction.hashString(name, Constants.DEFAULT_ENCODING);
 
-    var result = BIG_INT_31.add(structNodeDel.getNodeDelegate().computeHash());
-    result = BIG_INT_31.multiply(result).add(structNodeDel.computeHash());
-    result = BIG_INT_31.multiply(result).add(new BigInteger(1, hashCode.asBytes()));
+    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
+      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey())
+            .putLong(node.getLastChildKey());
+      } else {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey());
+      }
+
+      into.putString(name, Constants.DEFAULT_ENCODING);
+    };
+
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
+                                                            nodeDelegate.getHashFunction()
+                                                                        .hashObject(this, nodeFunnel)
+                                                                        .asBytes()));
   }
 
   @Override
@@ -161,8 +188,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     if (!(obj instanceof final ObjectKeyNode other))
       return false;
 
-    return Objects.equal(name, other.name) && nameKey == other.nameKey
-        && Objects.equal(delegate(), other.delegate());
+    return Objects.equal(name, other.name) && nameKey == other.nameKey && Objects.equal(delegate(), other.delegate());
   }
 
   @Override
@@ -180,15 +206,18 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return this;
   }
 
-  @Override public int getLocalNameKey() {
+  @Override
+  public int getLocalNameKey() {
     return nameKey;
   }
 
-  @Override public int getPrefixKey() {
+  @Override
+  public int getPrefixKey() {
     throw new UnsupportedOperationException();
   }
 
-  @Override public int getURIKey() {
+  @Override
+  public int getURIKey() {
     throw new UnsupportedOperationException();
   }
 
