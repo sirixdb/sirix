@@ -43,7 +43,7 @@ import com.google.common.base.Objects;
 public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNode {
 
   /** Delegate for common node information. */
-  private NodeDelegate nodeDelegate;
+  private final NodeDelegate nodeDelegate;
 
   /** Storing the value. */
   private byte[] value;
@@ -104,9 +104,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public void setValue(final byte[] value) {
-    compressed = new String(value).length() > 10
-        ? true
-        : false;
+    compressed = new String(value).length() > 10;
     this.value = compressed
         ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
         : value;
@@ -137,10 +135,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof ValueNodeDelegate))
+    if (!(obj instanceof final ValueNodeDelegate other))
       return false;
 
-    final ValueNodeDelegate other = (ValueNodeDelegate) obj;
     return Objects.equal(nodeDelegate, other.nodeDelegate) && Arrays.equals(value, other.value);
   }
 
