@@ -2,14 +2,14 @@
   "key": "head",
   "metadata": {
     "nodeKey": 3,
-    "hash": "e9fc789f8dcf8436f897626ffca96248",
+    "hash": "0ba401b946f74e99cf8e6c80cf4363f1",
     "type": "OBJECT_KEY",
     "descendantCount": 7
   },
   "value": {
     "metadata": {
       "nodeKey": 4,
-      "hash": "8db427a7fe66e47af4ebf2b9a9bf1ba1",
+      "hash": "7b65ec6b814d8bf4b043e834569d6906",
       "type": "OBJECT",
       "descendantCount": 6,
       "childCount": 2
@@ -19,14 +19,14 @@
         "key": "test",
         "metadata": {
           "nodeKey": 5,
-          "hash": "9ed7a3e16f247d2fdd1ec9305020f896",
+          "hash": "4a2526f9e2b406d790190289e6396999",
           "type": "OBJECT_KEY",
           "descendantCount": 3
         },
         "value": {
           "metadata": {
             "nodeKey": 6,
-            "hash": "e85ed31cb8fbd216225ff1d1b3439e6b",
+            "hash": "25a60faa7a3f8f432e4eda6f2dadb0d7",
             "type": "ARRAY",
             "descendantCount": 2,
             "childCount": 2
@@ -35,7 +35,7 @@
             {
               "metadata": {
                 "nodeKey": 7,
-                "hash": "5edf9088de460f596deebfca2b560a19",
+                "hash": "ee3e26e3ce26c2cbe3470d13cfe929aa",
                 "type": "STRING_VALUE"
               },
               "value": "it works, again"
@@ -43,7 +43,7 @@
             {
               "metadata": {
                 "nodeKey": 8,
-                "hash": "90803adeca79da96b6b9d6702724d9cb",
+                "hash": "de77fdde7db055240ba0926e781b64cf",
                 "type": "BOOLEAN_VALUE"
               },
               "value": true
@@ -55,14 +55,14 @@
         "key": "superb",
         "metadata": {
           "nodeKey": 9,
-          "hash": "cd76791d440a30c0de86499af179c60d",
+          "hash": "3223a33866b6ec3ad7a1b1055f5dd044",
           "type": "OBJECT_KEY",
           "descendantCount": 1
         },
         "value": {
           "metadata": {
             "nodeKey": 10,
-            "hash": "7989222c4ffe8e59e11f78d9c5b5125f",
+            "hash": "220f70e28eba522f4f34ed28da1a5543",
             "type": "OBJECT_NUMBER_VALUE"
           },
           "value": 100

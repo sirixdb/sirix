@@ -1,13 +1,18 @@
 package org.sirix.node.json;
 
+import com.google.common.hash.Funnel;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.PrimitiveSink;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 
 import java.math.BigInteger;
 
@@ -26,13 +31,35 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
 
   @Override
   public BigInteger computeHash() {
-    var result = BIG_INT_31.add(structNodeDelegate.getNodeDelegate().computeHash());
-    if (structNodeDelegate.isNotEmpty()) {
-      result = BIG_INT_31.multiply(result).add(structNodeDelegate.computeHash());
-    }
-    result = BIG_INT_31.multiply(result).add(valueNodeDelegate.computeHash());
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+    final HashFunction hashFunction = nodeDelegate.getHashFunction();
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
+      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
+
+      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey())
+            .putLong(node.getLastChildKey());
+      } else {
+        into.putLong(node.getChildCount())
+            .putLong(node.getDescendantCount())
+            .putLong(node.getLeftSiblingKey())
+            .putLong(node.getRightSiblingKey())
+            .putLong(node.getFirstChildKey());
+      }
+
+      into.putString(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING),
+                     Constants.DEFAULT_ENCODING);
+    };
+
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
+                                                            nodeDelegate.getHashFunction()
+                                                                        .hashObject(this, nodeFunnel)
+                                                                        .asBytes()));
   }
 
   @Override
