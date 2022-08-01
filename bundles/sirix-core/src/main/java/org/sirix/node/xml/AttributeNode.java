@@ -116,11 +116,9 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
     final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
 
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(nodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(nameDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
+    var result = BIG_INT_31.add(nodeDel.computeHash());
+    result = BIG_INT_31.multiply(result).add(nameDel.computeHash());
+    result = BIG_INT_31.multiply(result).add(valueBigInteger);
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }

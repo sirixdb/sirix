@@ -233,6 +233,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
                            descendantCount);
   }
 
+  @SuppressWarnings("UnstableApiUsage")
   @Override
   public BigInteger computeHash() {
     final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
@@ -252,9 +253,10 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
       }
     };
 
-    final BigInteger hash = new BigInteger(1, nodeDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
-
-    return Node.to128BitsAtMaximumBigInteger(hash);
+    BigInteger hash = new BigInteger(1, nodeDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
+    final var to128BitsAtMaximumBigInteger = Node.to128BitsAtMaximumBigInteger(hash);
+    hash = null;
+    return to128BitsAtMaximumBigInteger;
   }
 
   @Override
@@ -269,10 +271,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof StructNodeDelegate))
+    if (!(obj instanceof final StructNodeDelegate other))
       return false;
-
-    final StructNodeDelegate other = (StructNodeDelegate) obj;
 
     return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate)
         && Objects.equal(firstChild, other.firstChild) && Objects.equal(lastChild, other.lastChild) && Objects.equal(

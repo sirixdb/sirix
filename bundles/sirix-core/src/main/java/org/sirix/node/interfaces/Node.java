@@ -68,6 +68,8 @@ public interface Node extends ImmutableNode {
   void setParentKey(long nodeKey);
 
   static BigInteger to128BitsAtMaximumBigInteger(BigInteger hash) {
-    return hash.mod(MAX_POSITIVE_VALUE_128_BIT);
+    final var bigInteger = hash.mod(MAX_POSITIVE_VALUE_128_BIT);
+    hash = null;
+    return bigInteger;
   }
 }

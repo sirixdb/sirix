@@ -28,15 +28,17 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
   public BigInteger computeHash() {
     final HashCode valueHashCode = structNodeDelegate.getNodeDelegate().getHashFunction().hashInt(number.hashCode());
 
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.getNodeDelegate().computeHash());
+    var result = BIG_INT_31.add(structNodeDelegate.getNodeDelegate().computeHash());
 
     if (structNodeDelegate.isNotEmpty()) {
-      result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+      var multiplyBigInt = BIG_INT_31.multiply(result);
+      result = multiplyBigInt.add(structNodeDelegate.computeHash());
+      multiplyBigInt = null;
     }
 
-    result = BigInteger.valueOf(31).multiply(result).add(new BigInteger(1, valueHashCode.asBytes()));
+    var multiplyBigInt = BIG_INT_31.multiply(result);
+    result = multiplyBigInt.add(new BigInteger(1, valueHashCode.asBytes()));
+    multiplyBigInt = null;
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }

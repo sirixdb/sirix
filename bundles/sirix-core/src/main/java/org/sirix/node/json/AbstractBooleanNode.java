@@ -10,6 +10,10 @@ import java.math.BigInteger;
 
 public abstract class AbstractBooleanNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
+  private static final BigInteger BIG_INT_TRUE = BigInteger.valueOf(Boolean.hashCode(true));
+
+  private static final BigInteger BIG_INT_FALSE = BigInteger.valueOf(Boolean.hashCode(false));
+
   private StructNodeDelegate structNodeDelegate;
 
   private boolean boolValue;
@@ -25,11 +29,15 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.getNodeDelegate().computeHash());
+    result = BIG_INT_31.add(structNodeDelegate.getNodeDelegate().computeHash());
     if (structNodeDelegate.isNotEmpty()) {
-      result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+      var multiplyBigInt = BIG_INT_31.multiply(result);
+      result = multiplyBigInt.add(structNodeDelegate.computeHash());
+      multiplyBigInt = null;
     }
-    result = BigInteger.valueOf(31).multiply(result).add(BigInteger.valueOf(Boolean.hashCode(boolValue)));
+    var multiplyBigInt = BIG_INT_31.multiply(result);
+    result = multiplyBigInt.add(boolValue ? BIG_INT_TRUE : BIG_INT_FALSE);
+    multiplyBigInt = null;
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }

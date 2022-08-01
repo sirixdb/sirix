@@ -101,7 +101,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     final var stopWatch = new StopWatch();
@@ -112,11 +111,11 @@ public final class JsonShredderTest {
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                    .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                   .buildPathSummary(false)
-                                                   .storeDiffs(false)
+                                                   .buildPathSummary(true)
+                                                   .storeDiffs(true)
                                                    .storeNodeHistory(false)
-                                                   .storeChildCount(false)
-                                                   .hashKind(HashType.NONE)
+                                                   .storeChildCount(true)
+                                                   .hashKind(HashType.ROLLING)
                                                    .useTextCompression(false)
                                                    .storageType(StorageType.MEMORY_MAPPED)
                                                    .useDeweyIDs(false)

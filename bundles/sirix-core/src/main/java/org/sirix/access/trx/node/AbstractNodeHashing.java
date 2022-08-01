@@ -11,6 +11,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.xml.ElementNode;
 
 import org.checkerframework.checker.index.qual.NonNegative;
+
 import java.math.BigInteger;
 
 public abstract class AbstractNodeHashing<N extends ImmutableNode> {
@@ -251,9 +252,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    */
   private void setRemoveDescendants(final ImmutableNode startNode) {
     assert startNode != null;
-    if (startNode instanceof StructNode) {
+    if (startNode instanceof StructNode startNodeAsStructNode) {
       final StructNode node = getStructuralNode();
-      node.setDescendantCount(node.getDescendantCount() - ((StructNode) startNode).getDescendantCount() - 1);
+      node.setDescendantCount(node.getDescendantCount() - startNodeAsStructNode.getDescendantCount() - 1);
     }
   }
 
@@ -273,10 +274,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
     BigInteger newHash;
     BigInteger possibleOldHash = BigInteger.ZERO;
 
-    if (startNode.getKind() == NodeKind.STRING_VALUE || startNode.getKind() == NodeKind.OBJECT_STRING_VALUE
-        || startNode.getKind() == NodeKind.BOOLEAN_VALUE || startNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || startNode.getKind() == NodeKind.NUMBER_VALUE || startNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || startNode.getKind() == NodeKind.NULL_VALUE || startNode.getKind() == NodeKind.OBJECT_NULL_VALUE) {
+    if (isValueNode(startNode)) {
       nodeReadOnlyTrx.moveTo(startNode.getParentKey());
     }
 
@@ -302,8 +300,16 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         setAddDescendants(startNode, node, descendantCount);
       }
       node.setHash(newHash);
+      newHash = null;
     } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
     setCurrentNode(startNode);
+  }
+
+  private boolean isValueNode(N startNode) {
+    return startNode.getKind() == NodeKind.STRING_VALUE || startNode.getKind() == NodeKind.OBJECT_STRING_VALUE
+        || startNode.getKind() == NodeKind.BOOLEAN_VALUE || startNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
+        || startNode.getKind() == NodeKind.NUMBER_VALUE || startNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || startNode.getKind() == NodeKind.NULL_VALUE || startNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
   }
 
   /**
@@ -314,12 +320,17 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
   public void addParentHash(final ImmutableNode startNode) {
     switch (hashType) {
       case ROLLING:
-        final BigInteger hashToAdd = startNode.computeHash();
-        final Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-        node.setHash(node.getHash().add(hashToAdd.multiply(PRIME)));
-        if (startNode instanceof StructNode) {
-          ((StructNode) node).setDescendantCount(
-              ((StructNode) node).getDescendantCount() + ((StructNode) startNode).getDescendantCount() + 1);
+        BigInteger hashToAdd = startNode.computeHash();
+        final Node parentNode =
+            pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+        var hash = parentNode.getHash();
+        parentNode.setHash(hash.add(hashToAdd.multiply(PRIME)));
+        hash = null;
+        hashToAdd = null;
+        if (startNode instanceof StructNode startAsStructNode) {
+          final StructNode parentNodeAsStructNode = (StructNode) parentNode;
+          parentNodeAsStructNode.setDescendantCount(
+              parentNodeAsStructNode.getDescendantCount() + startAsStructNode.getDescendantCount() + 1);
         }
         break;
       case POSTORDER:
@@ -341,7 +352,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
 
         // Set start node.
-        final BigInteger hashToAdd = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
+        BigInteger hashToAdd = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
             ? startNode.computeHash()
             : startNode.getHash().add(startNode.computeHash());
         Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
@@ -351,13 +362,16 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         if (startNode.hasParent()) {
           nodeReadOnlyTrx.moveTo(startNode.getParentKey());
           node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-          final BigInteger hash =
-              node.getHash() == null || BigInteger.ZERO.equals(node.getHash()) ? node.computeHash() : node.getHash();
+          final var currentNodeHash = node.getHash();
+          BigInteger hash =
+              currentNodeHash == null || BigInteger.ZERO.equals(currentNodeHash) ? node.computeHash() : currentNodeHash;
           node.setHash(hash.add(hashToAdd.multiply(PRIME)));
+          hash = null;
 
           setAddDescendants(startNode, node, descendantCount);
         }
         setCurrentNode(startNode);
+        hashToAdd = null;
       }
       case POSTORDER -> postorderAdd();
       case NONE, default -> {

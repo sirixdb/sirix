@@ -2,6 +2,8 @@ package org.sirix.node.interfaces;
 
 import org.sirix.node.SirixDeweyID;
 
+import java.math.BigInteger;
+
 /**
  * Base interface for all records.
  * 
@@ -9,6 +11,9 @@ import org.sirix.node.SirixDeweyID;
  * 
  */
 public interface DataRecord {
+
+  BigInteger BIG_INT_31 = BigInteger.valueOf(31);
+
   /**
    * Get unique node key.
    * 

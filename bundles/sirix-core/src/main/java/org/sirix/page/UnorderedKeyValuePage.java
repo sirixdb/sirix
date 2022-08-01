@@ -24,8 +24,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
 import com.google.common.hash.Hashing;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -89,7 +87,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   /**
    * Slots which have to be serialized.
    */
-  private final Long2ObjectMap<byte[]> slots;
+  private final byte[][] slots;
 
   /**
    * Dewey IDs to node key mapping.
@@ -162,7 +160,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     records = new DataRecord[Constants.NDP_NODE_COUNT];
-    slots = new Long2ObjectOpenHashMap(Constants.NDP_NODE_COUNT);
+    slots = new byte[Constants.NDP_NODE_COUNT][];
     this.pageReadOnlyTrx = pageReadOnlyTrx;
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
@@ -184,7 +182,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     resourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
     this.pageReadOnlyTrx = pageReadTrx;
-    slots = new Long2ObjectOpenHashMap(Constants.NDP_NODE_COUNT);
+    slots = new byte[Constants.NDP_NODE_COUNT][];
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
@@ -306,6 +304,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     return hashCode;
   }
 
+  @SuppressWarnings("UnstableApiUsage")
   @Override
   public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
     if (bytes != null) {
@@ -343,16 +342,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     }
 
     var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    final var entriesSortedByKey = slots.long2ObjectEntrySet()
-                                        .stream()
-                                        .sorted(Comparator.comparingLong(Long2ObjectMap.Entry::getLongKey))
-                                        .toList();
-    for (final Entry<Long, byte[]> entry : entriesSortedByKey) {
-      final var pageOffset = pageReadOnlyTrx.recordPageOffset(entry.getKey());
-      entriesBitmap.set(pageOffset);
+    for (int i = 0; i < slots.length; i++) {
+      if (slots[i] != null) {
+        entriesBitmap.set(i);
+      }
     }
     SerializationType.serializeBitSet(out, entriesBitmap);
-    entriesBitmap = null;
 
     var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
     final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Entry.comparingByKey()).toList();
@@ -364,12 +359,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     overlongEntriesBitmap = null;
 
     // Write normal entries.
-    out.writeInt(entriesSortedByKey.size());
-    for (final var entry : entriesSortedByKey) {
-      final byte[] data = entry.getValue();
-      final int length = data.length;
-      out.writeInt(length);
-      out.write(data);
+    out.writeInt(entriesBitmap.cardinality());
+    for (final byte[] data : slots) {
+      if (data != null) {
+        final int length = data.length;
+        out.writeInt(length);
+        out.write(data);
+      }
     }
 
     // Write overlong entries.
@@ -387,13 +383,15 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   private void serializeDeweyRecord(byte[] id, Bytes<ByteBuffer> out) {
     final long recordKey = deweyIDs.get(id);
     putVarLong(out, recordKey);
-    final byte[] data = slots.get(recordKey);
+    final var offset = pageReadOnlyTrx.recordPageOffset(recordKey);
+    final byte[] data = slots[offset];
     final int length = data.length;
     out.writeInt(length);
     out.write(data);
-    slots.remove(recordKey);
+    slots[offset] = null;
   }
 
+  @SuppressWarnings("rawtypes")
   @Override
   public <I extends Iterable<DataRecord>> I values() {
     return (I) new ArrayIterator(records, records.length);
@@ -472,7 +470,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
         continue;
       }
       final var recordID = record.getNodeKey();
-      if (slots.get(recordID) == null) {
+      final var offset = pageReadOnlyTrx.recordPageOffset(recordID);
+      if (slots[offset] == null) {
         // Must be either a normal record or one which requires an overflow page.
         recordPersister.serialize(out, record, pageReadOnlyTrx);
         final var data = out.toByteArray();
@@ -482,7 +481,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
           reference.setPage(new OverflowPage(data));
           references.put(recordID, reference);
         } else {
-          slots.put(recordID, data);
+          slots[offset] = data;
         }
       }
     }
@@ -553,7 +552,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     }
     hashCode = null;
     Arrays.fill(records, null);
-    slots.clear();
+    Arrays.fill(slots, null);
     deweyIDs.clear();
     references.clear();
     return this;

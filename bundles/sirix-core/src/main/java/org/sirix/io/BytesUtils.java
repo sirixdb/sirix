@@ -9,13 +9,13 @@ public final class BytesUtils {
     throw new AssertionError();
   }
 
-  public static void doWrite(Bytes bytes, ByteBuffer toWrite) {
+  public static void doWrite(Bytes<?> bytes, ByteBuffer toWrite) {
     // No garbage when writing to Bytes from ByteBuffer.
     bytes.clear();
     bytes.write(bytes.writePosition(), toWrite, toWrite.position(), toWrite.limit());
   }
 
-  public static void doWrite(Bytes bytes, byte[] toWrite) {
+  public static void doWrite(Bytes<?> bytes, byte[] toWrite) {
     bytes.clear();
     bytes.write(toWrite);
   }

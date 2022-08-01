@@ -214,15 +214,18 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
+    final var modifiedPage = cont.getModifiedAsUnorderedKeyValuePage();
 
-    DataRecord record = ((UnorderedKeyValuePage) cont.getModified()).getValue(recordKey);
+    DataRecord record = modifiedPage.getValue(recordKey);
     if (record == null) {
-      final DataRecord oldRecord = ((UnorderedKeyValuePage) cont.getComplete()).getValue(recordKey);
+      final DataRecord oldRecord = cont.getCompleteAsUnorderedKeyValuePage().getValue(recordKey);
       if (oldRecord == null) {
-        throw new SirixIOException("Cannot retrieve record from cache!");
+        throw new SirixIOException(
+            "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
+                + index + ")");
       }
       record = oldRecord;
-      ((UnorderedKeyValuePage) cont.getModified()).setRecord(record);
+      modifiedPage.setRecord(record);
     }
 
     return record;
