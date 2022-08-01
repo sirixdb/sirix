@@ -113,8 +113,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       if (first) {
         first = false;
       } else {
-        final Set<PathNode> pathNodes =
-            qnmMapping.get(this.getName()) == null ? new HashSet<>() : qnmMapping.get(this.getName());
+        final var pathNodes = qnmMapping.getOrDefault(this.getName(), new HashSet<>());
         pathNodes.add(this.getPathNode());
         qnmMapping.put(this.getName(), pathNodes);
       }

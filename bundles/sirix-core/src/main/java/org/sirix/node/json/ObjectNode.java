@@ -77,10 +77,8 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
 
   @Override
   public BigInteger computeHash() {
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
+    var result = BIG_INT_31.add(structNodeDel.getNodeDelegate().computeHash());
+    result = BIG_INT_31.multiply(result).add(structNodeDel.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }

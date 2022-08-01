@@ -507,7 +507,6 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     test(storeQuery, updateQuery1, query, assertion);
   }
 
-  @Ignore
   @Test
   public void testTimeTravelQuery() throws IOException {
     final String storeQuery = """

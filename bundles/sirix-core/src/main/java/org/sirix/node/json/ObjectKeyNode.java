@@ -108,11 +108,9 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     assert name != null;
     final HashCode hashCode = hashFunction.hashString(name, Constants.DEFAULT_ENCODING);
 
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(new BigInteger(1, hashCode.asBytes()));
+    var result = BIG_INT_31.add(structNodeDel.getNodeDelegate().computeHash());
+    result = BIG_INT_31.multiply(result).add(structNodeDel.computeHash());
+    result = BIG_INT_31.multiply(result).add(new BigInteger(1, hashCode.asBytes()));
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
@@ -160,10 +158,9 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode))
+    if (!(obj instanceof final ObjectKeyNode other))
       return false;
 
-    final ObjectKeyNode other = (ObjectKeyNode) obj;
     return Objects.equal(name, other.name) && nameKey == other.nameKey
         && Objects.equal(delegate(), other.delegate());
   }

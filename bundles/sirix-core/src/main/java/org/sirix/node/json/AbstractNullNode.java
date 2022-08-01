@@ -19,11 +19,11 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
 
   @Override
   public BigInteger computeHash() {
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.getNodeDelegate().computeHash());
+    var result = BIG_INT_31.add(structNodeDelegate.getNodeDelegate().computeHash());
     if (structNodeDelegate.isNotEmpty()) {
-      result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+      var multiplyBigInt = BIG_INT_31.multiply(result);
+      result = multiplyBigInt.add(structNodeDelegate.computeHash());
+      multiplyBigInt = null;
     }
     return Node.to128BitsAtMaximumBigInteger(result);
   }

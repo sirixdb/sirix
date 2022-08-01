@@ -62,7 +62,7 @@ public final class PageContainer {
    *
    * @return the empty instance
    */
-  public static final PageContainer emptyInstance() {
+  public static PageContainer emptyInstance() {
     return EMPTY_INSTANCE;
   }
 
@@ -72,7 +72,7 @@ public final class PageContainer {
    * @param complete to be used as a base for this container
    * @param modifying to be used as a base for this container
    */
-  public static final PageContainer getInstance(final Page complete, final Page modifying) {
+  public static PageContainer getInstance(final Page complete, final Page modifying) {
     // Assertions as it's not part of the public API.
     assert complete != null;
     assert modifying != null;
@@ -108,6 +108,14 @@ public final class PageContainer {
     return modified;
   }
 
+  public UnorderedKeyValuePage getCompleteAsUnorderedKeyValuePage() {
+    return (UnorderedKeyValuePage) complete;
+  }
+
+  public UnorderedKeyValuePage getModifiedAsUnorderedKeyValuePage() {
+    return (UnorderedKeyValuePage) modified;
+  }
+
   @Override
   public int hashCode() {
     return Objects.hashCode(complete, modified);
@@ -115,10 +123,9 @@ public final class PageContainer {
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof PageContainer))
+    if (!(obj instanceof PageContainer other))
       return false;
 
-    final PageContainer other = (PageContainer) obj;
     return Objects.equal(complete, other.complete) && Objects.equal(modified, other.modified);
   }
 
