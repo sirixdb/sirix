@@ -142,7 +142,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * Hashes nodes.
    */
-  protected AbstractNodeHashing<N> nodeHashing;
+  protected AbstractNodeHashing<N, R> nodeHashing;
 
   /**
    * The transaction states.
@@ -160,7 +160,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   protected AbstractNodeTrxImpl(final ThreadFactory threadFactory, final HashType hashType, final IN nodeReadOnlyTrx,
       final R typeSpecificTrx, final InternalResourceManager<R, W> resourceManager,
-      final AfterCommitState afterCommitState, final AbstractNodeHashing<N> nodeHashing,
+      final AfterCommitState afterCommitState, final AbstractNodeHashing<N, R> nodeHashing,
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
       final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
       final Duration afterCommitDelay, @NonNegative final int maxNodeCount) {
@@ -373,7 +373,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     reInstantiateIndexes();
   }
 
-  protected abstract AbstractNodeHashing<N> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx);
+  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx);
 
   protected abstract NF reInstantiateNodeFactory(PageTrx pageTrx);
 

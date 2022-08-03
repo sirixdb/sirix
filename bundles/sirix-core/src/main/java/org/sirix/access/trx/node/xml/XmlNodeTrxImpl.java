@@ -1945,7 +1945,7 @@ final class XmlNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableXmlNode> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx) {
     return new XmlNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
   }
 
