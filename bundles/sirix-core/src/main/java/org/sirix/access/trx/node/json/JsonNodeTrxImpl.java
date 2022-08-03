@@ -24,7 +24,6 @@ package org.sirix.access.trx.node.json;
 import com.google.common.hash.HashFunction;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Item;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -38,7 +37,6 @@ import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
@@ -2193,39 +2191,7 @@ final class JsonNodeTrxImpl extends
 
       assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (buildPathSummary) {
-        System.out.println(node.getNodeKey());
-        final var pathSummary = pathSummaryWriter.getPathSummary();
-
-        pathSummary.moveToDocumentRoot();
-        var pathSummaryAxis = new DescendantAxis(pathSummary);
-
-        while (pathSummaryAxis.hasNext()) {
-          pathSummaryAxis.nextLong();
-
-          System.out.println("nodeKey: " + pathSummary.getNodeKey());
-          System.out.println("path: " + pathSummary.getPath());
-          System.out.println("name:" + pathSummary.getName());
-          System.out.println("references: " + pathSummary.getReferences());
-          System.out.println("level: " + pathSummary.getLevel());
-        }
-
         pathSummaryWriter.remove(node, nodeKind, page);
-
-        System.out.println("");
-        System.out.println("");
-        System.out.println("");
-
-        pathSummary.moveToDocumentRoot();
-        pathSummaryAxis = new DescendantAxis(pathSummary);
-
-        while (pathSummaryAxis.hasNext()) {
-          pathSummaryAxis.nextLong();
-
-          System.out.println("nodeKey: " + pathSummary.getNodeKey());
-          System.out.println("path: " + pathSummary.getPath());
-          System.out.println("references: " + pathSummary.getReferences());
-          System.out.println("level: " + pathSummary.getLevel());
-        }
       }
     }
   }
@@ -2589,7 +2555,7 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableNode> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx) {
     return new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
   }
 

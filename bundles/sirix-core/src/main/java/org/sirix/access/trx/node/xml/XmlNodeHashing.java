@@ -3,10 +3,11 @@ package org.sirix.access.trx.node.xml;
 import org.sirix.access.trx.node.AbstractNodeHashing;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode> {
+final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> {
 
   private final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
 

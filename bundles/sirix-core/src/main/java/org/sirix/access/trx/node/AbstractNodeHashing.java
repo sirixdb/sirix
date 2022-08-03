@@ -1,5 +1,7 @@
 package org.sirix.access.trx.node;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
@@ -10,11 +12,9 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.xml.ElementNode;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-
 import java.math.BigInteger;
 
-public abstract class AbstractNodeHashing<N extends ImmutableNode> {
+public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends NodeCursor & NodeReadOnlyTrx> {
 
   /**
    * Prime for computing the hash.
@@ -29,7 +29,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
   /**
    * The node read-only trx.
    */
-  protected final NodeReadOnlyTrx nodeReadOnlyTrx;
+  protected final T nodeReadOnlyTrx;
 
   /**
    * The page write trx.
@@ -50,18 +50,18 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    * @param nodeReadOnlyTrx the internal read-only node trx
    * @param pageTrx         the page trx
    */
-  public AbstractNodeHashing(final HashType hashType, final NodeReadOnlyTrx nodeReadOnlyTrx, final PageTrx pageTrx) {
+  public AbstractNodeHashing(final HashType hashType, final T nodeReadOnlyTrx, final PageTrx pageTrx) {
     this.hashType = hashType;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
     this.pageTrx = pageTrx;
   }
 
-  public AbstractNodeHashing<N> setBulkInsert(final boolean value) {
+  public AbstractNodeHashing<N, T> setBulkInsert(final boolean value) {
     this.bulkInsert = value;
     return this;
   }
 
-  public AbstractNodeHashing<N> setAutoCommit(final boolean value) {
+  public AbstractNodeHashing<N, T> setAutoCommit(final boolean value) {
     this.autoCommit = value;
     return this;
   }
@@ -200,11 +200,11 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
     do {
       final Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       if (node.getNodeKey() == newNode.getNodeKey()) {
-        resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash));
-        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(hash));
+        resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash).add(hash));
       } else {
-        resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash.multiply(PRIME)));
-        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(hash.multiply(PRIME)));
+        resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash()
+                                                          .subtract(oldHash.multiply(PRIME))
+                                                          .add(hash.multiply(PRIME)));
       }
       node.setHash(resultNew);
     } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
@@ -217,7 +217,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
    */
   private void rollingRemove() {
     final var startNode = getCurrentNode();
-    BigInteger hashToRemove = startNode.getHash();
+    BigInteger hashToRemove = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
+        ? startNode.computeHash()
+        : startNode.getHash();
     BigInteger hashToAdd = BigInteger.ZERO;
     BigInteger newHash;
     // go the path to the root
@@ -233,8 +235,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         setRemoveDescendants(startNode);
       } else {
         // the ancestors are all touched regarding the modification
-        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(hashToRemove.multiply(PRIME)));
-        newHash = Node.to128BitsAtMaximumBigInteger(newHash.add(hashToAdd.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash()
+                                                        .subtract(hashToRemove.multiply(PRIME))
+                                                        .add(hashToAdd.multiply(PRIME)));
         hashToRemove = node.getHash();
         setRemoveDescendants(startNode);
       }
@@ -286,15 +289,21 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode> {
         newHash = hashToAdd;
       } else if (node.getNodeKey() == startNode.getParentKey()) {
         // at the parent level, just add the node
+        var newMultipliedHash = hashToAdd.multiply(PRIME);
         possibleOldHash = node.getHash();
-        newHash = Node.to128BitsAtMaximumBigInteger(possibleOldHash.add(hashToAdd.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(possibleOldHash.add(newMultipliedHash));
+        newMultipliedHash = null;
         hashToAdd = newHash;
         setAddDescendants(startNode, node, descendantCount);
       } else {
-        // at the rest, remove the existing old key for this element
-        // and add the new one
-        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(possibleOldHash.multiply(PRIME)));
-        newHash = Node.to128BitsAtMaximumBigInteger(newHash.add(hashToAdd.multiply(PRIME)));
+        // at the rest, remove the existing old key for this element and add the new one
+        var oldMultipliedHash = possibleOldHash.multiply(PRIME);
+        var newMultipliedHash = hashToAdd.multiply(PRIME);
+        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash()
+                                                        .subtract(oldMultipliedHash)
+                                                        .add(newMultipliedHash));
+        oldMultipliedHash = null;
+        newMultipliedHash = null;
         hashToAdd = newHash;
         possibleOldHash = node.getHash();
         setAddDescendants(startNode, node, descendantCount);

@@ -22,7 +22,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
- * Test the JSON streamin shredder (indirectly also the JSON serializer).
+ * Test the JSON streaming shredder (indirectly also the JSON serializer).
  */
 class JsonStreamingShredderTest {
 

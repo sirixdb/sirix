@@ -21,9 +21,6 @@
 
 package org.sirix.access.node.xml;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import java.math.BigInteger;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -34,7 +31,12 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 
-public class HashTest {
+import java.math.BigInteger;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+
+public final class HashTest {
 
   private final static String NAME1 = "a";
   private final static String NAME2 = "b";
@@ -94,10 +96,7 @@ public class HashTest {
    *  '-a (3(x))
    *    '-attr(4(x))
    * </pre>
-   *
-   * @param wtx
    */
-  @Ignore
   private void testHashTreeWithInsertAndRemove(final XmlNodeTrx wtx) {
 
     // inserting a element as root
@@ -119,9 +118,9 @@ public class HashTest {
     final BigInteger thirdRootHash = wtx.getHash();
 
     // Checking that all hashes are different
-    assertFalse(firstRootHash.equals(secondRootHash));
-    assertFalse(firstRootHash.equals(thirdRootHash));
-    assertFalse(secondRootHash.equals(thirdRootHash));
+    assertNotEquals(firstRootHash, secondRootHash);
+    assertNotEquals(firstRootHash, thirdRootHash);
+    assertNotEquals(secondRootHash, thirdRootHash);
 
     // removing the second element
     wtx.moveToFirstChild();
@@ -187,8 +186,8 @@ public class HashTest {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     final BigInteger hashRoot2 = wtx.getHash();
-    assertFalse(hashRoot1.equals(hashRoot2));
-    assertFalse(hashLeaf1.equals(hashLeaf2));
+    assertNotEquals(hashRoot1, hashRoot2);
+    assertNotEquals(hashLeaf1, hashLeaf2);
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
     wtx.setName(new QNm(NAME1));
@@ -204,12 +203,12 @@ public class HashTest {
     wtx.moveToFirstChild();
     wtx.setName(new QNm(NAME2));
     final BigInteger hashRoot4 = wtx.getHash();
-    assertFalse(hashRoot4.equals(hashRoot2));
-    assertFalse(hashRoot4.equals(hashRoot1));
-    assertFalse(hashRoot4.equals(hashRoot3));
-    assertFalse(hashRoot4.equals(hashLeaf1));
-    assertFalse(hashRoot4.equals(hashLeaf2));
-    assertFalse(hashRoot4.equals(hashLeaf3));
+    assertNotEquals(hashRoot4, hashRoot2);
+    assertNotEquals(hashRoot4, hashRoot1);
+    assertNotEquals(hashRoot4, hashRoot3);
+    assertNotEquals(hashRoot4, hashLeaf1);
+    assertNotEquals(hashRoot4, hashLeaf2);
+    assertNotEquals(hashRoot4, hashLeaf3);
   }
 
   private XmlNodeTrx createWtx() throws SirixException {
