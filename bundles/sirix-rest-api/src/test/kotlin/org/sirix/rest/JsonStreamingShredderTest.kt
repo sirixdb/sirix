@@ -87,29 +87,32 @@ class JsonStreamingShredderTest {
         database.use {
             database.createResource(ResourceConfiguration.Builder("shredded").build())
             val manager = database.openResourceManager("shredded")
-            val wtx = manager.beginNodeTrx()
 
-            wtx.use {
-                val parser = JsonParser.newParser()
-                val shredder =
-                    KotlinJsonStreamingShredder(wtx, parser)
-                shredder.call()
-                parser.handle(
-                    Buffer.buffer(
-                        json
+            manager.use {
+                val wtx = manager.beginNodeTrx()
+
+                wtx.use {
+                    val parser = JsonParser.newParser()
+                    val shredder =
+                        KotlinJsonStreamingShredder(wtx, parser)
+                    shredder.call()
+                    parser.handle(
+                        Buffer.buffer(
+                            json
+                        )
                     )
-                )
-                parser.end()
-                wtx.commit()
-            }
+                    parser.end()
+                    wtx.commit()
+                }
 
-            val writer = StringWriter()
-            writer.use {
-                val serializer = JsonSerializer.Builder(manager, writer).build()
-                serializer.call()
+                val writer = StringWriter()
+                writer.use {
+                    val serializer = JsonSerializer.Builder(manager, writer).build()
+                    serializer.call()
+                }
+                val actual = writer.toString()
+                JSONAssert.assertEquals(json, actual, true)
             }
-            val actual = writer.toString()
-            JSONAssert.assertEquals(json, actual, true)
         }
     }
 }
