@@ -1,16 +1,22 @@
 package org.sirix.access;
 
+import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
 import org.sirix.api.*;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
+import org.slf4j.LoggerFactory;
 
+import javax.crypto.Cipher;
+import javax.crypto.NoSuchPaddingException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -23,6 +29,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  */
 public final class Databases {
+
+  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(Databases.class));
 
   /**
    * DI component that manages the database.
@@ -64,6 +72,15 @@ public final class Databases {
   }
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
+    com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
+    try {
+      if (Cipher.getInstance("AES/GCM/NoPadding").getProvider().getName().equals(AmazonCorrettoCryptoProvider.PROVIDER_NAME)) {
+        // Successfully installed
+        logger.info("Successfully installed Amazon Corretto Crypto Provider.");
+      }
+    } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
+      throw new IllegalStateException(e);
+    }
     boolean returnVal = true;
     // if file is existing, skipping
     if (Files.exists(dbConfig.getDatabaseFile())) {
@@ -182,7 +199,6 @@ public final class Databases {
    * @return A new admin user.
    */
   private static User createAdminUser() {
-
     return new User("admin", UUID.randomUUID());
   }
 
@@ -209,6 +225,7 @@ public final class Databases {
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
+    com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
     final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file);
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");

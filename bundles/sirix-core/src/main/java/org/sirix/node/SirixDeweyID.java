@@ -21,10 +21,10 @@
  */
 package org.sirix.node;
 
-import java.util.Arrays;
-
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.SimpleDeweyID;
+
+import java.util.Arrays;
 
 /**
  * @author Michael Haustein
@@ -118,9 +118,9 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     // now initialize the binaryTreeSuffixInit(this is the first Division
     // for the corresponding row)
     int maxBitStringLength = 0;
-    for (int i = 0; i < bitStringAsBoolean.length; i++) {
-      if (bitStringAsBoolean[i].length > maxBitStringLength) {
-        maxBitStringLength = bitStringAsBoolean[i].length;
+    for (boolean[] booleans : bitStringAsBoolean) {
+      if (booleans.length > maxBitStringLength) {
+        maxBitStringLength = booleans.length;
       }
     }
 
@@ -168,6 +168,8 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     }
 
   }
+
+  private byte[] bytes;
 
   private int[] parseDivisionValues(String divisionPart) {
     if (divisionPart.charAt(divisionPart.length() - 1) != '.')
@@ -423,7 +425,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   /**
-   * Calculates the number of bits, that are needed to store the choosen
+   * Calculates the number of bits, that are needed to store the chosen
    * division-value
    */
   private int getDivisionBits(int division) {
@@ -474,17 +476,18 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     }
 
     // set the prefixbits
-    for (int i = 0; i < prefix.length; i++) {
-      if (prefix[i]) {
+    for (boolean b : prefix) {
+      if (b) {
         byteArray[bitIndex / 8] |= (int) Math.pow(2, 7 - (bitIndex % 8));
       }
       bitIndex++;
     }
 
     // calculate the rest of the bits
-    for (int i = 1; i <= divisionSize - prefix.length; i++) {
+    int rest = divisionSize - prefix.length;
+    for (int i = 1; i <= rest; i++) {
       int k = 1;
-      k = k << divisionSize - prefix.length - i;
+      k = k << rest - i;
       if (suffix >= k) {
         suffix -= k;
         byteArray[bitIndex / 8] |= (int) Math.pow(2, 7 - (bitIndex % 8));
@@ -505,6 +508,9 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   private byte[] toBytes(int[] divisionValues) {
+    if (bytes != null) {
+      return bytes;
+    }
     // calculate needed bits for deweyID
     int numberOfDivisionBits = 0;
 
@@ -538,9 +544,11 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     }
 
     int bitIndex = 0;
-    for (int i = 1; i < this.divisionValues.length; i++) {
+    for (int i = 1; i < divisionValues.length; i++) {
       bitIndex = setDivisionBitArray(divisionValues, deweyIDbytes, i, bitIndex);
     }
+
+    bytes = deweyIDbytes;
 
     return deweyIDbytes;
   }
@@ -817,9 +825,9 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
    * DeweyID as prefix (or whether the ancestor is itself a prefix of the given DeweyID). If the
    * prefix condition is not satisfied, null is returned.
    *
-   * @param level
-   * @param requiredPrefix
-   * @return
+   * @param level the level of the ancestor to be returned
+   * @param requiredPrefix the prefix of the ancestor to be returned
+   * @return the ancestor Dewey-ID
    */
   public SirixDeweyID getAncestor(int level, SirixDeweyID requiredPrefix) {
     if (this.level < level) {

@@ -21,6 +21,8 @@ dependencies {
     implementation implLibraries.chronicleMap
     implementation implLibraries.integercompression
     implementation implLibraries.chronicleBytes
+    implementation implLibraries.amazonCorettoCryptoProvider
+    implementation implLibraries.libjMath
 
     annotationProcessor implLibraries.daggerCompiler
 
