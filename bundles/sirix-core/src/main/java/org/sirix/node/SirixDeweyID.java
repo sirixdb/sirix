@@ -457,44 +457,84 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   private int setDivisionBitArray(int[] divisionValues, byte[] byteArray, int division,
       int bitIndex) {
     int divisionSize = getDivisionBits(division);
+    int prefixLength;
     int suffix;
     boolean[] prefix;
 
-    prefix = bitStringAsBoolean[divisionLengthArray.length - 1];
-    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length - 2] - 1;
+    if (divisionValues[division] <= maxDivisionValue[0]) {
+      prefixLength = divisionLengthArray[0];
+      prefix = bitStringAsBoolean[0];
 
-    for (int i = 0; i < divisionLengthArray.length - 2; i++) {
-      if (divisionValues[division] <= maxDivisionValue[i]) {
-        prefix = bitStringAsBoolean[i];
-        if (i != 0) {
-          suffix = divisionValues[division] - maxDivisionValue[i - 1] - 1;
-        } else {
-          suffix = divisionValues[division] + 1;
-        }
-        break;
-      }
+      // the first row can't begin with 000, when prefix is false
+      // suffix=this.divisionValues[division];
+      // because Division-value 0 is allowed
+      suffix = divisionValues[division] + 1;
+    } else if (divisionValues[division] <= maxDivisionValue[1]) {
+      prefixLength = divisionLengthArray[1];
+      prefix = bitStringAsBoolean[1];
+      suffix = divisionValues[division] - maxDivisionValue[0] - 1;
+    } else if (divisionValues[division] <= maxDivisionValue[2]) {
+      prefixLength = divisionLengthArray[2];
+      prefix = bitStringAsBoolean[2];
+      suffix = divisionValues[division] - maxDivisionValue[1] - 1;
+    } else if (divisionValues[division] <= maxDivisionValue[3]) {
+      prefixLength = divisionLengthArray[3];
+      prefix = bitStringAsBoolean[3];
+      suffix = divisionValues[division] - maxDivisionValue[2] - 1;
+    } else if (divisionValues[division] <= maxDivisionValue[4]) {
+      prefixLength = divisionLengthArray[4];
+      prefix = bitStringAsBoolean[4];
+      suffix = divisionValues[division] - maxDivisionValue[3] - 1;
+    } else if (divisionValues[division] <= maxDivisionValue[5]) {
+      prefixLength = divisionLengthArray[5];
+      prefix = bitStringAsBoolean[5];
+      suffix = divisionValues[division] - maxDivisionValue[4] - 1;
+    } else if (divisionValues[division] <= maxDivisionValue[6]) {
+      prefixLength = divisionLengthArray[6];
+      prefix = bitStringAsBoolean[6];
+      suffix = divisionValues[division] - maxDivisionValue[5] - 1;
+    } else if (divisionValues[division] <= maxDivisionValue[7]) {
+      prefixLength = divisionLengthArray[7];
+      prefix = bitStringAsBoolean[7];
+      suffix = divisionValues[division] - maxDivisionValue[6] - 1;
+    } else {
+      prefixLength = divisionLengthArray[8];
+      prefix = bitStringAsBoolean[8];
+      suffix = divisionValues[division] - maxDivisionValue[7] - 1;
     }
 
     // set the prefixbits
-    for (boolean b : prefix) {
-      if (b) {
-        byteArray[bitIndex / 8] |= (int) Math.pow(2, 7 - (bitIndex % 8));
+    for (int i = 0; i < prefix.length; i++) {
+      if (prefix[i]) {
+        setByteArrayValueAtBitIndex(byteArray, bitIndex);
       }
       bitIndex++;
     }
 
     // calculate the rest of the bits
-    int rest = divisionSize - prefix.length;
-    for (int i = 1; i <= rest; i++) {
+    for (int i = 1; i <= divisionSize - prefix.length; i++) {
       int k = 1;
-      k = k << rest - i;
+      k = k << divisionSize - prefix.length - i;
       if (suffix >= k) {
         suffix -= k;
-        byteArray[bitIndex / 8] |= (int) Math.pow(2, 7 - (bitIndex % 8));
+        setByteArrayValueAtBitIndex(byteArray, bitIndex);
       }
       bitIndex++;
     }
     return bitIndex;
+  }
+
+  private void setByteArrayValueAtBitIndex(byte[] byteArray, int bitIndex) {
+    switch (bitIndex % 8) {
+      case 0 -> byteArray[bitIndex / 8] |= 128;
+      case 1 -> byteArray[bitIndex / 8] |= 64;
+      case 2 -> byteArray[bitIndex / 8] |= 32;
+      case 3 -> byteArray[bitIndex / 8] |= 16;
+      case 4 -> byteArray[bitIndex / 8] |= 8;
+      case 5 -> byteArray[bitIndex / 8] |= 4;
+      case 6 -> byteArray[bitIndex / 8] |= 2;
+      case 7 -> byteArray[bitIndex / 8] |= 1;
+    }
   }
 
   public byte[] toBytes() {
