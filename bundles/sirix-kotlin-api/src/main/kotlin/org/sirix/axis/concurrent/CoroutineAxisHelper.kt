@@ -1,6 +1,7 @@
 package org.sirix.axis.concurrent
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import org.sirix.api.Axis
 import org.sirix.settings.Fixed
@@ -14,7 +15,7 @@ class CoroutineAxisHelper(
     private val channel: Channel<Long>
 ) {
     /** Logger  */
-    private val LOGGER = LogWrapper(LoggerFactory.getLogger(CoroutineAxisHelper::class.java))
+    private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineAxisHelper::class.java))
 
     @InternalCoroutinesApi
     suspend fun produce() {
@@ -26,12 +27,12 @@ class CoroutineAxisHelper(
     private suspend fun produceAll() {
         // Compute all results of the given axis
         while (NonCancellable.isActive && axis.hasNext()) {
-            val nodeKey = axis.next()
+            val nodeKey = axis.nextLong()
             try {
                 // Send result to consumer
                 channel.send(nodeKey)
             } catch (e: InterruptedException) {
-                LOGGER.error(e.message, e)
+                logger.error(e.message, e)
             }
         }
     }
@@ -44,7 +45,7 @@ class CoroutineAxisHelper(
                 channel.send(Fixed.NULL_NODE_KEY.standardProperty)
             }
         } catch (e: InterruptedException) {
-            LOGGER.error(e.message, e)
+            logger.error(e.message, e)
         }
     }
 }

@@ -13,61 +13,61 @@ class QuerySubCommand :
     AbstractUserCommand("query", "Querys the Database") {
 
     val resource by option(ArgType.String, "resource", "r", "The name of the resource.").required()
-    val revision by option(ArgType.Int, "revision", "rev", "The revions to query")
-    val revisionTimestamp by option(
+    private val revision by option(ArgType.Int, "revision", "rev", "The revions to query")
+    private val revisionTimestamp by option(
         CliArgType.Timestamp(),
         "revision-timestamp",
         "rt",
         "The revision timestamp"
     )
-    val startRevision by option(ArgType.Int, "start-revision", "sr", "The start revision");
-    val endRevision by option(ArgType.Int, "end-revision", "er", "The end revision");
-    val startRevisionTimestamp by option(
+    private val startRevision by option(ArgType.Int, "start-revision", "sr", "The start revision")
+    private val endRevision by option(ArgType.Int, "end-revision", "er", "The end revision")
+    private val startRevisionTimestamp by option(
         CliArgType.Timestamp(),
         "start-revision-timestamp",
         "srt",
         "The start revision timestamp"
     )
-    val endRevisionTimestamp by option(
+    private val endRevisionTimestamp by option(
         CliArgType.Timestamp(),
         "end-revision-timestamp",
         "ert",
         "The end revision timestamp"
     )
-    val nodeId by option(CliArgType.Long(), "node-id", "nid", "The node id")
-    val nextTopLevelNodes by option(
+    private val nodeId by option(CliArgType.Long(), "node-id", "nid", "The node id")
+    private val nextTopLevelNodes by option(
         ArgType.Int,
         "next-top-level-nodes",
         "ntln",
         "The next top level Node. Ignored for XML Databases"
     )
-    val lastTopLevelNodeKey by option(
+    private val lastTopLevelNodeKey by option(
         CliArgType.Long(),
         "last-top-level-node-key",
         "ltlnk",
         "The last top level Node Key"
     )
-    val startResultSeqIndex by option(
+    private val startResultSeqIndex by option(
         CliArgType.Long(),
         "start-result-sequence-index",
         "srsi",
         "The start Result Sequence Index"
     )
-    val endResultSeqIndex by option(
+    private val endResultSeqIndex by option(
         CliArgType.Long(),
         "end-result-sequence-index",
         "ersi",
         "The end Result Sequence Index"
     )
-    val maxLevel by option(CliArgType.Long(), "max-level", "ml", "The max Level")
-    val metaData by option(
+    private val maxLevel by option(CliArgType.Long(), "max-level", "ml", "The max Level")
+    private val metaData by option(
         ArgType.Choice(listOf("nodeKeyAndChildCount", "nodeKey", "all")),
         "meta-data",
         "md",
         "Print out meta data with the result. Ignored for XML Databases"
     )
-    val prettyPrint by option(ArgType.Boolean, "pretty-print", "pp", "Print out formated result")
-    val queryStr by argument(ArgType.String, description = "The Query String").optional()
+    private val prettyPrint by option(ArgType.Boolean, "pretty-print", "pp", "Print out formated result")
+    private val queryStr by argument(ArgType.String, description = "The Query String").optional()
 
     override fun createCliCommand(options: CliOptions): CliCommand {
         return Query(

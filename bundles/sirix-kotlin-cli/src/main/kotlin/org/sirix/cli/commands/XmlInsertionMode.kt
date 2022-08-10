@@ -1,6 +1,7 @@
 package org.sirix.cli.commands
 
 import org.sirix.api.xml.XmlNodeTrx
+import java.util.*
 import javax.xml.stream.XMLEventReader
 
 enum class XmlInsertionMode {
@@ -28,6 +29,6 @@ enum class XmlInsertionMode {
     abstract fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader)
 
     companion object {
-        fun getInsertionModeByName(name: String) = valueOf(name.replace('-', '_').toUpperCase())
+        fun getInsertionModeByName(name: String) = valueOf(name.replace('-', '_').uppercase(Locale.getDefault()))
     }
 }

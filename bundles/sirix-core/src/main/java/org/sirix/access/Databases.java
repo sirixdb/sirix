@@ -32,6 +32,10 @@ public final class Databases {
 
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(Databases.class));
 
+  static {
+    com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
+  }
+
   /**
    * DI component that manages the database.
    */
@@ -72,7 +76,6 @@ public final class Databases {
   }
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
-    com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
     try {
       if (Cipher.getInstance("AES/GCM/NoPadding").getProvider().getName().equals(AmazonCorrettoCryptoProvider.PROVIDER_NAME)) {
         // Successfully installed

@@ -87,15 +87,5 @@ class RevisionsHelper {
 
             return (firstRevisionNumber..lastRevisionNumber).toSet().toTypedArray()
         }
-
-        private fun parseTimestampRevisions(
-            startRevision: String,
-            endRevision: String
-        ): Pair<LocalDateTime, LocalDateTime> {
-            val firstRevisionDateTime = LocalDateTime.parse(startRevision)
-            val lastRevisionDateTime = LocalDateTime.parse(endRevision)
-
-            return Pair(firstRevisionDateTime, lastRevisionDateTime)
-        }
     }
 }

@@ -11,7 +11,6 @@ import javax.xml.stream.XMLEventReader
 class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions?) :
     AbstractCreate(options, dataOptions) {
 
-
     override fun createDatabase(): Boolean {
         return Databases.createXmlDatabase(DatabaseConfiguration(Paths.get(options.location)))
     }
@@ -32,7 +31,6 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
         }
     }
 
-
     private fun eventStream(): XMLEventReader {
         if (dataOptions!!.data.isNotEmpty()) {
             return XmlShredder.createStringReader(dataOptions.data)
@@ -41,6 +39,4 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
         }
         throw IllegalStateException("At least data or datafile has to be set!")
     }
-
-
 }
