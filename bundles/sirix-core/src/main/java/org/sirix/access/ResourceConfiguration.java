@@ -25,6 +25,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
@@ -36,8 +37,6 @@ import org.sirix.node.NodeSerializerImpl;
 import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
-
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -256,12 +255,12 @@ public final class ResourceConfiguration {
   /**
    * The name of the resource.
    */
-  private String resourceName;
+  private final String resourceName;
 
   /**
    * Determines whether resource child count should be tracked
    */
-  private boolean storeChildCount;
+  private final boolean storeChildCount;
 
   /**
    * Determines if diffs are going to be stored or not.
@@ -363,10 +362,9 @@ public final class ResourceConfiguration {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ResourceConfiguration))
+    if (!(obj instanceof final ResourceConfiguration other))
       return false;
 
-    final ResourceConfiguration other = (ResourceConfiguration) obj;
     return Objects.equals(storageType, other.storageType) && Objects.equals(versioningType, other.versioningType)
         && Objects.equals(hashType, other.hashType) && Objects.equals(resourcePath, other.resourcePath)
         && Objects.equals(databaseConfig, other.databaseConfig);
@@ -527,7 +525,7 @@ public final class ResourceConfiguration {
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
-        @SuppressWarnings("unchecked") final Class<ByteHandler> clazzName =
+        final Class<ByteHandler> clazzName =
             (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
@@ -547,11 +545,8 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[6]);
 
       final HashFunction hashFunction;
-      switch (jsonReader.nextString()) {
-        case "Hashing.sha256()":
-          break;
-        default:
-          throw new IllegalStateException("Hashing function not supported.");
+      if (!"Hashing.sha256()".equals(jsonReader.nextString())) {
+        throw new IllegalStateException("Hashing function not supported.");
       }
       // Text compression.
       name = jsonReader.nextName();
@@ -632,7 +627,7 @@ public final class ResourceConfiguration {
     /**
      * Hashing function for hashing nodes.
      */
-    private HashFunction hashFunction = Hashing.sha256();
+    private final HashFunction hashFunction = Hashing.sha256();
 
     /**
      * Type of Storage (File, Berkeley).
@@ -677,7 +672,7 @@ public final class ResourceConfiguration {
     /**
      * Determines if DeweyIDs should be used or not.
      */
-    private boolean useDeweyIDs;
+    private boolean useDeweyIDs = false;
 
     /**
      * Determines if a path summary should be build or not.

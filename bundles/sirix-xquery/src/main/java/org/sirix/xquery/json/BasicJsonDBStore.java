@@ -70,9 +70,19 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final Path location;
 
   /**
-   * Determines if a path summary should be built.
+   * Determines if a path summary should be built for resources.
    */
   private final boolean buildPathSummary;
+
+  /**
+   * Determines if DeweyIDs should be generated for resources.
+   */
+  private final boolean useDeweyIDs;
+
+  /**
+   * Determines the hash type to use (default: rolling).
+   */
+  private final HashType hashType;
 
   /**
    * Get a new builder instance.
@@ -97,9 +107,19 @@ public final class BasicJsonDBStore implements JsonDBStore {
     private Path location = LOCATION;
 
     /**
-     * Determines if for resources a path summary should be build.
+     * Determines if a path summary should be build for resources.
      */
     private boolean buildPathSummary = true;
+
+    /**
+     * Determines if DeweyIDs should be generated for resources.
+     */
+    private boolean useDeweyIDs = false;
+
+    /**
+     * Determines the hash type to use (default: rolling).
+     */
+    private HashType hashType = HashType.ROLLING;
 
     /**
      * Set the storage type (default: file backend).
@@ -124,6 +144,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
+     * Set if Dewey-IDs should be generated for resources.
+     *
+     * @param useDeweyIDs {@code true} if dewey-IDs should be generated, {@code false} otherwise
+     * @return this builder instance
+     */
+    public Builder useDeweyIDs(final boolean useDeweyIDs) {
+      this.useDeweyIDs = useDeweyIDs;
+      return this;
+    }
+
+    /**
      * Set the location where to store the created databases/collections.
      *
      * @param location the location
@@ -131,6 +162,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
      */
     public Builder location(final Path location) {
       this.location = checkNotNull(location);
+      return this;
+    }
+
+    /**
+     * Determines the hash type to use (default: rolling).
+     *
+     * @param hashType the hash type
+     * @return this builder instance
+     */
+    public Builder hashType(final HashType hashType) {
+      this.hashType = checkNotNull(hashType);
       return this;
     }
 
@@ -155,6 +197,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
+    useDeweyIDs = builder.useDeweyIDs;
+    hashType = builder.hashType;
   }
 
   /**
@@ -302,12 +346,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
 
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                   .useDeweyIDs(true)
-                                                   .useTextCompression(true)
+                                                   .useTextCompression(false)
                                                    .buildPathSummary(buildPathSummary)
                                                    .customCommitTimestamps(commitTimestamp != null)
                                                    .storageType(storageType)
-                                                   .hashKind(HashType.ROLLING)
+                                                   .useDeweyIDs(useDeweyIDs)
+                                                   .hashKind(hashType)
                                                    .build());
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
@@ -405,10 +449,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final String resourceName) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .storageType(storageType)
-                                                 .useDeweyIDs(true)
-                                                 .useTextCompression(true)
-                                                 .buildPathSummary(true)
-                                                 .hashKind(HashType.ROLLING)
+                                                 .useTextCompression(false)
+                                                 .buildPathSummary(buildPathSummary)
+                                                 .hashKind(hashType)
+                                                 .useDeweyIDs(useDeweyIDs)
                                                  .build());
     try (final JsonResourceManager manager = database.openResourceManager(resourceName);
          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
@@ -442,10 +486,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
           resourceFutures.add(CompletableFuture.runAsync(() -> {
             database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                          .storageType(storageType)
-                                                         .useDeweyIDs(true)
-                                                         .useTextCompression(true)
+                                                         .useDeweyIDs(useDeweyIDs)
+                                                         .useTextCompression(false)
                                                          .buildPathSummary(true)
-                                                         .hashKind(HashType.ROLLING)
+                                                         .hashKind(hashType)
                                                          .build());
             try (final JsonResourceManager manager = database.openResourceManager(resourceName);
                  final JsonNodeTrx wtx = manager.beginNodeTrx()) {

@@ -1,6 +1,7 @@
 package org.sirix.index.path.summary;
 
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.access.trx.node.xml.InsertPos;
@@ -26,8 +27,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.page.NamePage;
 import org.sirix.settings.Fixed;
-
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import javax.xml.namespace.QName;
 
@@ -99,6 +98,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private final R nodeRtx;
 
   /**
+   * Determines if number of children is stored or not.
+   */
+  private final boolean storeChildCount;
+
+  /**
    * Constructor.
    *
    * @param pageTrx     Sirix {@link PageTrx}
@@ -112,6 +116,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);
     nodeRtx = checkNotNull(rtx);
     this.nodeFactory = checkNotNull(nodeFactory);
+    storeChildCount = resMgr.getResourceConfig().storeChildCount();
   }
 
   /**
@@ -218,7 +223,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     if (newNode instanceof StructNode strucNode) {
       final StructNode parent = pageTrx.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
-      parent.incrementChildCount();
+      if (storeChildCount) {
+        parent.incrementChildCount();
+      }
       parent.setFirstChildKey(newNode.getNodeKey());
       pathSummaryReader.putMapping(parent.getNodeKey(), parent);
 
@@ -658,7 +665,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!pathSummaryReader.hasLeftSibling()) {
       parent.setFirstChildKey(pathSummaryReader.getRightSiblingKey());
     }
-    parent.decrementChildCount();
+    if (storeChildCount) {
+      parent.decrementChildCount();
+    }
     pathSummaryReader.putMapping(parent.getNodeKey(), parent);
 
     // Remove node.

@@ -84,7 +84,7 @@ public final class DiffTest {
 
       try (final var out = new ByteArrayOutputStream()) {
         new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
-        final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final var content = out.toString(StandardCharsets.UTF_8);
         assertEquals(Files.readString(JSON.resolve("diff.json"), StandardCharsets.UTF_8), content);
       }
 
@@ -97,7 +97,7 @@ public final class DiffTest {
 
       try (final var out = new ByteArrayOutputStream()) {
         new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
-        final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final var content = out.toString(StandardCharsets.UTF_8);
         assertEquals(Files.readString(JSON.resolve("diff-with-startnodekey.json"), StandardCharsets.UTF_8), content);
       }
 
@@ -110,7 +110,7 @@ public final class DiffTest {
 
       try (final var out = new ByteArrayOutputStream()) {
         new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
-        final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final var content = out.toString(StandardCharsets.UTF_8);
         System.out.println(content);
         assertEquals(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8), content);
       }
