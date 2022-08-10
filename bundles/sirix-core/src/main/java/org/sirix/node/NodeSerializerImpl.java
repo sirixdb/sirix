@@ -67,10 +67,10 @@ public final class NodeSerializerImpl implements NodePersistenter {
         final byte[] deweyIDBytes = deweyID;
         final byte[] nextDeweyIDBytes = nextDeweyID;
 
-        assert deweyIDBytes.length <= nextDeweyIDBytes.length;
+        //assert deweyIDBytes.length <= nextDeweyIDBytes.length;
 
         int i = 0;
-        for (; i < deweyIDBytes.length; i++) {
+        for (; i < deweyIDBytes.length && i < nextDeweyIDBytes.length; i++) {
           if (deweyIDBytes[i] != nextDeweyIDBytes[i]) {
             break;
           }
