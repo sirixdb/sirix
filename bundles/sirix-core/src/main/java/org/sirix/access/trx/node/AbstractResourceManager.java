@@ -1,6 +1,9 @@
 package org.sirix.access.trx.node;
 
 import org.brackit.xquery.xdm.DocumentException;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
@@ -31,10 +34,6 @@ import org.sirix.settings.Fixed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -59,11 +58,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceManager.class);
-
-  /**
-   * Thread pool.
-   */
-  final ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
   /**
    * Write lock to assure only one exclusive write transaction exists.
@@ -251,10 +245,18 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     checkArgument(fromRevision > toRevision);
 
-    final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
+    final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
 
     for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
-      revisionInfos.add(threadPool.submit(new RevisionInfoRunnable(this, revision)));
+      int finalRevision = revision;
+      revisionInfos.add(CompletableFuture.supplyAsync(() -> {
+        try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
+          final CommitCredentials commitCredentials = rtx.getCommitCredentials();
+
+          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
+                                  commitCredentials.getMessage());
+        }
+      }));
     }
 
     return getResult(revisionInfos);
@@ -264,26 +266,26 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     checkArgument(revisions > 0);
 
     final int lastCommittedRevision = getMostRecentRevisionNumber();
-    final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
+    final var revisionInfos = new ArrayList<CompletableFuture<RevisionInfo>>();
 
     for (int revision = lastCommittedRevision;
          revision > 0 && revision > lastCommittedRevision - revisions; revision--) {
-      revisionInfos.add(threadPool.submit(new RevisionInfoRunnable(this, revision)));
+      int finalRevision = revision;
+      revisionInfos.add(CompletableFuture.supplyAsync(() -> {
+        try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
+          final CommitCredentials commitCredentials = rtx.getCommitCredentials();
+
+          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
+                                  commitCredentials.getMessage());
+        }
+      }));
     }
 
     return getResult(revisionInfos);
   }
 
-  private List<RevisionInfo> getResult(final List<Future<RevisionInfo>> revisionInfos) {
-    return revisionInfos.stream().map(this::getFromFuture).collect(Collectors.toList());
-  }
-
-  private RevisionInfo getFromFuture(Future<RevisionInfo> revisionInfo) {
-    try {
-      return revisionInfo.get();
-    } catch (InterruptedException | ExecutionException e) {
-      throw new IllegalStateException(e);
-    }
+  private List<RevisionInfo> getResult(final List<CompletableFuture<RevisionInfo>> revisionInfos) {
+    return revisionInfos.stream().map(CompletableFuture::join).collect(Collectors.toList());
   }
 
   @Override
@@ -325,7 +327,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
-    @SuppressWarnings("unchecked") final Node node =
+    final Node node =
         pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node == null) {
       pageReadTrx.close();
@@ -381,7 +383,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return beginNodeTrx(0, maxTime, timeUnit, afterCommitState);
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   public synchronized W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
       final @NonNull TimeUnit timeUnit, final @NonNull AfterCommitState afterCommitState) {
@@ -427,13 +428,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
-      threadPool.shutdown();
-      try {
-        threadPool.awaitTermination(5, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        throw new IllegalStateException(e);
-      }
-
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
         if (rtx instanceof XmlNodeTrx) {
@@ -705,7 +699,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   //    return nodeTrxMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
   //  }
 
-  @SuppressWarnings("unchecked")
   @Override
   public synchronized Optional<W> getNodeTrx() {
     assertNotClosed();
