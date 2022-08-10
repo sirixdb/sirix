@@ -34,6 +34,7 @@ import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.io.BytesUtils;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.RecordSerializer;
@@ -92,7 +93,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   /**
    * Dewey IDs to node key mapping.
    */
-  private final Map<byte[], Long> deweyIDs;
+  private final Map<SirixDeweyID, Long> deweyIDs;
 
   /**
    * Sirix {@link PageReadOnlyTrx}.
@@ -321,23 +322,27 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistence) {
       // Write dewey IDs.
       out.writeInt(deweyIDs.size());
-      var deweyIdBytes = deweyIDs.keySet();
-      List<byte[]> ids = new ArrayList<>(deweyIdBytes);
-      ids.sort(Comparator.comparingInt((byte[] sirixDeweyID) -> sirixDeweyID.length));
+      var deweyIds = new ArrayList<>(deweyIDs.keySet());
+      deweyIds.sort(null);
+      List<byte[]> ids = new ArrayList<>(deweyIds.size());
+      for (var deweyId : deweyIds) {
+        ids.add(deweyId.toBytes());
+      }
       final var iter = Iterators.peekingIterator(ids.iterator());
       byte[] id = null;
+      final Iterator<SirixDeweyID> deweyIdIterator = deweyIds.iterator();
       if (iter.hasNext()) {
         id = iter.next();
         persistence.serializeDeweyID(out, id, null, resourceConfig);
-        serializeDeweyRecord(id, out);
+        serializeDeweyRecord(deweyIdIterator.next(), out);
       }
       while (iter.hasNext()) {
         final var nextDeweyID = iter.next();
         persistence.serializeDeweyID(out, id, nextDeweyID, resourceConfig);
-        serializeDeweyRecord(nextDeweyID, out);
+        serializeDeweyRecord(deweyIdIterator.next(), out);
         id = nextDeweyID;
       }
-      deweyIdBytes = null;
+      deweyIds = null;
       ids = null;
     }
 
@@ -380,7 +385,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     bytes = out;
   }
 
-  private void serializeDeweyRecord(byte[] id, Bytes<ByteBuffer> out) {
+  private void serializeDeweyRecord(SirixDeweyID id, Bytes<ByteBuffer> out) {
     final long recordKey = deweyIDs.get(id);
     putVarLong(out, recordKey);
     final var offset = pageReadOnlyTrx.recordPageOffset(recordKey);
@@ -451,8 +456,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       if (storeDeweyIDs && recordPersister instanceof NodePersistenter) {
         processEntries(records);
         for (final var record : records) {
-          if (record != null && record.getDeweyIDAsBytes() != null && record.getNodeKey() != 0) {
-            deweyIDs.put(record.getDeweyIDAsBytes(), record.getNodeKey());
+          if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
+            deweyIDs.put(record.getDeweyID(), record.getNodeKey());
           }
         }
       } else {
