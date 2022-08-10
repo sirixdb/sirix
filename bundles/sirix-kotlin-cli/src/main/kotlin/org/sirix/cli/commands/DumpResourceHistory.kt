@@ -4,7 +4,7 @@ import org.sirix.access.User
 import org.sirix.cli.CliOptions
 import org.sirix.service.json.serialize.StringValue
 
-class DumpResourceHistory(options: CliOptions, val resourceName: String, private val user: User?): CliCommand(options) {
+class DumpResourceHistory(options: CliOptions, private val resourceName: String, private val user: User?): CliCommand(options) {
 
     override fun execute() {
         val database = openDatabase(user)
@@ -14,7 +14,7 @@ class DumpResourceHistory(options: CliOptions, val resourceName: String, private
             val manager = database.openResourceManager(resourceName)
 
             manager.use {
-                val historyList = manager.getHistory()
+                val historyList = manager.history
 
                 buffer.append("{\"history\":[")
 

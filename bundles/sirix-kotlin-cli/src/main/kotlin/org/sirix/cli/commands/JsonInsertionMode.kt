@@ -6,6 +6,7 @@ import org.sirix.access.trx.node.json.objectvalue.*
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.service.json.JsonNumber
 import java.io.IOException
+import java.util.*
 
 enum class JsonInsertionMode {
     AS_FIRST_CHILD {
@@ -72,10 +73,8 @@ enum class JsonInsertionMode {
     };
 
     @Throws(IOException::class)
-    fun getObjectRecordValue(jsonReader: JsonReader): ObjectRecordValue<*>? {
-        val nextToken: JsonToken = jsonReader.peek()
-        val value: ObjectRecordValue<*>
-        value = when (nextToken) {
+    fun getObjectRecordValue(jsonReader: JsonReader): ObjectRecordValue<*> {
+        val value: ObjectRecordValue<*> = when (jsonReader.peek()) {
             JsonToken.BEGIN_OBJECT -> {
                 jsonReader.beginObject()
                 ObjectValue()
@@ -119,6 +118,6 @@ enum class JsonInsertionMode {
     abstract fun insertObjectRecord(wtx: JsonNodeTrx, jsonReader: JsonReader)
 
     companion object {
-        fun getInsertionModeByName(name: String) = valueOf(name.replace('-', '_').toUpperCase())
+        fun getInsertionModeByName(name: String) = valueOf(name.replace('-', '_').uppercase(Locale.getDefault()))
     }
 }

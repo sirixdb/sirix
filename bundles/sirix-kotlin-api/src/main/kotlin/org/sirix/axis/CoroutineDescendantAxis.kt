@@ -60,7 +60,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     private var left = true
 
     /** Capacity of the results queue.  */
-    private val M_CAPACITY = 200
+    private val CAPACITY = 200
 
     /**
      * Constructor initializing internal state.
@@ -129,7 +129,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
         }
 
         // Follow right page when coroutine is enabled.
-        if (producer.running && !left) {
+        if (producer.running) {
 
             // Then follow right sibling on from coroutine.
             runBlocking { key = producer.receive() }
@@ -208,7 +208,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
          * Channel that stores result keys already computed by the producer. End of the result sequence is
          * marked by the NULL_NODE_KEY.
          */
-        private var results: Channel<Long> = Channel(M_CAPACITY)
+        private var results: Channel<Long> = Channel(CAPACITY)
          /**
          * Actual coroutine job
          */
@@ -225,7 +225,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
             producingTask?.cancel()
             results.close()
             running = false
-            results = Channel(M_CAPACITY)
+            results = Channel(CAPACITY)
             cursor.close()
         }
         suspend fun receive(): Long {

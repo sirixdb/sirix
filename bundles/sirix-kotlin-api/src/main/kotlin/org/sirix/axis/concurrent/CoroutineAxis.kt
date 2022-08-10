@@ -35,7 +35,7 @@ import kotlin.coroutines.CoroutineContext
 
 class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineScope where R : NodeCursor, R : NodeReadOnlyTrx {
     /** Logger.  */
-    private val LOGGER = LogWrapper(LoggerFactory.getLogger(CoroutineAxis::class.java))
+    private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineAxis::class.java))
 
     /** Axis that is running in coroutine and produces results for this axis.  */
     private var producerAxis: Axis?
@@ -56,8 +56,8 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
      */
     private var producingTask: Job? = null
 
-    /** Capacity of the mResults queue.  */
-    private val M_CAPACITY = 200
+    /** Capacity of the results queue.  */
+    private val CAPACITY = 200
 
     /** Has axis already been called?  */
     private var first: Boolean
@@ -68,7 +68,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
     init {
         require(rtx.id != childAxis.getTrx<R>().id) { "The filter must be bound to another transaction but on the same revision/node!" }
         producerAxis = Preconditions.checkNotNull(childAxis)
-        results = Channel(M_CAPACITY)
+        results = Channel(CAPACITY)
         producer = CoroutineAxisHelper(producerAxis!!, results)
         first = true
         finished = false
@@ -86,7 +86,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
         producerAxis?.let { producerAxis ->
             producerAxis.reset(nodeKey)
             results.close()
-            results = Channel(M_CAPACITY)
+            results = Channel(CAPACITY)
             producer = CoroutineAxisHelper(producerAxis, results)
         }
     }
@@ -129,7 +129,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
             // Get result from producer as soon as it is available.
             runBlocking { result = results.receive() }
         } catch (e: InterruptedException) {
-            LOGGER.warn(e.message, e)
+            logger.warn(e.message, e)
         }
         return result
     }
@@ -162,7 +162,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
      *
      * @return `true`, if axis still has results left, `false` otherwise
      */
-    fun isFinished(): Boolean {
+    private fun isFinished(): Boolean {
         return finished
     }
 }

@@ -12,5 +12,4 @@ class DumpResourceHistorySubCommand : AbstractUserCommand("resource-history", "P
     override fun createCliCommand(options: CliOptions): CliCommand {
         return DumpResourceHistory(options, resourceName, user)
     }
-
 }

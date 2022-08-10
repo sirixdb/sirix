@@ -11,5 +11,4 @@ class CliPrinter(private val verbose: Boolean) {
             prnLn(message)
         }
     }
-
 }

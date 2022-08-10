@@ -6,7 +6,6 @@ import org.sirix.access.DatabaseType
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.RevisionsHelper.Companion.getRevisionsToSerialize
@@ -60,8 +59,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                         manager
                     )
 
-                    val trx: XmlNodeReadOnlyTrx
-                    trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
+                    val trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
                     trx.use {
                         if (queryOptions.nodeId == null)

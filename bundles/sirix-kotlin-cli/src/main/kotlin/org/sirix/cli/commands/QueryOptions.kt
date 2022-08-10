@@ -23,7 +23,5 @@ data class QueryOptions(
     val prettyPrint: Boolean,
     val user: User?
 ) {
-
     fun hasQueryStr(): Boolean = queryStr != null && queryStr.isNotEmpty()
-
 }

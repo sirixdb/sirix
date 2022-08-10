@@ -10,17 +10,16 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
 import java.io.StringWriter
 
-class SerializerAdapter {
+class SerializerAdapter(manager: ResourceManager<*, *>, nextTopLevelNodes: Int?) {
 
-    var jsonSerializerBuilder: JsonSerializer.Builder? = null
-    var jsonRecordSerializer: JsonRecordSerializer.Builder? = null
-    var xmlSerializerBuilder: XmlSerializer.XmlSerializerBuilder? = null
+    private var jsonSerializerBuilder: JsonSerializer.Builder? = null
+    private var jsonRecordSerializer: JsonRecordSerializer.Builder? = null
+    private var xmlSerializerBuilder: XmlSerializer.XmlSerializerBuilder? = null
 
-    var outWriter: StringWriter? = null
-    var outStream: ByteArrayOutputStream? = null
+    private var outWriter: StringWriter? = null
+    private var outStream: ByteArrayOutputStream? = null
 
-    constructor(manager: ResourceManager<*, *>, nextTopLevelNodes: Int?) {
-
+    init {
         when (manager) {
             is JsonResourceManager -> {
                 outWriter = StringWriter()
@@ -131,10 +130,10 @@ class SerializerAdapter {
         } else {
             xmlSerializerBuilder!!.emitIDs().emitRESTful().emitRESTSequence().build().call()
         }
-        if (outWriter != null) {
-            return outWriter.toString()
+        return if (outWriter != null) {
+            outWriter.toString()
         } else {
-            return outStream.toString()
+            outStream.toString()
         }
     }
 

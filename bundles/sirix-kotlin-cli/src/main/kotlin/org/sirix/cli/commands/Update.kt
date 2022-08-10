@@ -7,7 +7,6 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.cli.CliOptions
 import org.sirix.service.json.shredder.JsonShredder
 import org.sirix.service.xml.shredder.XmlShredder
-import java.math.BigInteger
 
 class Update(
     options: CliOptions,
