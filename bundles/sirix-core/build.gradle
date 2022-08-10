@@ -15,13 +15,13 @@ dependencies {
     api implLibraries.tink
     api implLibraries.dagger
     api implLibraries.fastUtil
+    api implLibraries.amazonCorettoCryptoProvider
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.chronicleMap
     implementation implLibraries.integercompression
     implementation implLibraries.chronicleBytes
-    implementation implLibraries.amazonCorettoCryptoProvider
     implementation implLibraries.libjMath
 
     annotationProcessor implLibraries.daggerCompiler
