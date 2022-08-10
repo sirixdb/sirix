@@ -250,12 +250,16 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
       int finalRevision = revision;
       revisionInfos.add(CompletableFuture.supplyAsync(() -> {
+        RevisionInfo revisionInfo;
         try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
           final CommitCredentials commitCredentials = rtx.getCommitCredentials();
 
-          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-                                  commitCredentials.getMessage());
+          revisionInfo = new RevisionInfo(commitCredentials.getUser(),
+                                          rtx.getRevisionNumber(),
+                                          rtx.getRevisionTimestamp(),
+                                          commitCredentials.getMessage());
         }
+        return revisionInfo;
       }));
     }
 
@@ -272,12 +276,16 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
          revision > 0 && revision > lastCommittedRevision - revisions; revision--) {
       int finalRevision = revision;
       revisionInfos.add(CompletableFuture.supplyAsync(() -> {
+        RevisionInfo revisionInfo;
         try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
           final CommitCredentials commitCredentials = rtx.getCommitCredentials();
 
-          return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-                                  commitCredentials.getMessage());
+          revisionInfo = new RevisionInfo(commitCredentials.getUser(),
+                                          rtx.getRevisionNumber(),
+                                          rtx.getRevisionTimestamp(),
+                                          commitCredentials.getMessage());
         }
+        return revisionInfo;
       }));
     }
 
@@ -327,8 +335,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
-    final Node node =
-        pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
+    final Node node = pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node == null) {
       pageReadTrx.close();
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
