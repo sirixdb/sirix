@@ -651,7 +651,7 @@ public enum NodeKind implements NodePersistenter {
 
     @Override
     public void serialize(final Bytes<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
-      @SuppressWarnings("unchecked") final RBNode<CASValue, NodeReferences> node =
+      final RBNode<CASValue, NodeReferences> node =
           (RBNode<CASValue, NodeReferences>) record;
       final CASValue key = node.getKey();
       final byte[] textValue = key.getValue();
@@ -735,7 +735,7 @@ public enum NodeKind implements NodePersistenter {
 
     @Override
     public void serialize(final Bytes<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
-      @SuppressWarnings("unchecked") final RBNode<Long, NodeReferences> node = (RBNode<Long, NodeReferences>) record;
+      final RBNode<Long, NodeReferences> node = (RBNode<Long, NodeReferences>) record;
       putVarLong(sink, node.getKey());
       final NodeReferences value = node.getValue();
       final Set<Long> nodeKeys = value.getNodeKeys();
@@ -797,7 +797,7 @@ public enum NodeKind implements NodePersistenter {
 
     @Override
     public void serialize(final Bytes<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
-      @SuppressWarnings("unchecked") final RBNode<QNm, NodeReferences> node = (RBNode<QNm, NodeReferences>) record;
+      final RBNode<QNm, NodeReferences> node = (RBNode<QNm, NodeReferences>) record;
       final byte[] nspBytes = node.getKey().getNamespaceURI().getBytes();
       sink.writeInt(nspBytes.length);
       sink.write(nspBytes);
