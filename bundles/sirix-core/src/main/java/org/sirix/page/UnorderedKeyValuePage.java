@@ -266,11 +266,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public DataRecord getValue(final @NonNull PageReadOnlyTrx pageReadOnlyTrx, final long key) {
-    assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
+  public DataRecord getValue(final @Nullable PageReadOnlyTrx pageReadOnlyTrx, final long key) {
     final var offset = PageReadOnlyTrx.recordPageOffset(key);
     DataRecord record = records[offset];
-    if (record == null) {
+    if (record == null && pageReadOnlyTrx != null) {
       byte[] data;
       try {
         final PageReference reference = references.get(key);
