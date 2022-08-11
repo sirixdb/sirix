@@ -1,13 +1,10 @@
 package org.sirix.cache;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.IndexType;
 import org.sirix.page.*;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.*;
 
 /**
@@ -37,6 +34,8 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   private int logKey;
 
+  private PageReadOnlyTrx pageReadOnlyTrx;
+
   /**
    * Creates a new transaction intent log.
    *
@@ -44,7 +43,8 @@ public final class TransactionIntentLog implements AutoCloseable {
    *                            gets removed from the first one.
    * @param maxInMemoryCapacity the maximum size of the in-memory map
    */
-  public TransactionIntentLog(final PersistentFileCache secondCache, final int maxInMemoryCapacity) {
+  public TransactionIntentLog(final PersistentFileCache secondCache,
+      final int maxInMemoryCapacity) {
     // Assertion instead of checkNotNull(...).
     assert secondCache != null;
     logKey = 0;
@@ -54,7 +54,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final Map.@Nullable Entry<PageReference, PageContainer> eldest) {
+      protected boolean removeEldestEntry(final Map.Entry<PageReference, PageContainer> eldest) {
         if (size() > maxInMemoryCapacity) {
           int i = 0;
           final var iter = map.entrySet().iterator();
@@ -72,7 +72,7 @@ public final class TransactionIntentLog implements AutoCloseable {
 
             if (value != null) {
               iter.remove();
-              TransactionIntentLog.this.secondCache.put(key, value);
+              TransactionIntentLog.this.secondCache.put(pageReadOnlyTrx, key, value);
               //noinspection UnusedAssignment
               value = null;
               mapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
@@ -87,13 +87,17 @@ public final class TransactionIntentLog implements AutoCloseable {
         if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
             || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
           return true;
-        } else if (page instanceof UnorderedKeyValuePage) {
-          var dataPage = (UnorderedKeyValuePage) page;
+        } else if (page instanceof UnorderedKeyValuePage dataPage) {
           return dataPage.getIndexType() != IndexType.DOCUMENT;
         }
         return false;
       }
     };
+  }
+
+  public TransactionIntentLog setPageReadOnlyTrx(PageReadOnlyTrx pageReadOnlyTrx) {
+    this.pageReadOnlyTrx = pageReadOnlyTrx;
+    return this;
   }
 
   /**
@@ -111,7 +115,7 @@ public final class TransactionIntentLog implements AutoCloseable {
         if (persistentKey != null)
           key.setPersistentLogKey(persistentKey);
       }
-      value = secondCache.get(key, pageRtx);
+      value = secondCache.get(pageRtx, key);
       if (value != null && !PageContainer.emptyInstance().equals(value)) {
         mapToPersistentLogKey.remove(key.getLogKey());
         key.setPersistentLogKey(Constants.NULL_ID_LONG);
@@ -173,11 +177,6 @@ public final class TransactionIntentLog implements AutoCloseable {
   public Collection<Map.Entry<? super PageReference, ? super PageContainer>> getAll() {
     return new ArrayList<>(map.entrySet());
   }
-
-  //  @Override
-  //  public String toString() {
-  //    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
-  //  }
 
   /**
    * Get a view of the underlying map.

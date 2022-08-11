@@ -1,61 +1,79 @@
 package org.sirix.io.ram;
 
-import java.nio.ByteBuffer;
-import java.time.Instant;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
+
+import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * In memory storage.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class RAMStorage implements IOStorage {
 
-  /** Storage, mapping a resource to the pageKey/page mapping. */
+  /**
+   * Storage, mapping a resource to the pageKey/page mapping.
+   */
   private final ConcurrentMap<String, ConcurrentMap<Long, Page>> mDataStorage;
 
-  /** Storage, mapping a resource to the revision/revision root page mapping. */
+  /**
+   * Storage, mapping a resource to the revision/revision root page mapping.
+   */
   private final ConcurrentMap<String, ConcurrentMap<Integer, RevisionRootPage>> mRevisionRootsStorage;
 
-  /** Mapping pageKey to the page. */
+  /**
+   * Mapping pageKey to the page.
+   */
   private ConcurrentMap<Long, Page> mResourceFileStorage;
 
-  /** Mapping revision to the page. */
+  /**
+   * Mapping revision to the page.
+   */
   private ConcurrentMap<Integer, RevisionRootPage> mResourceRevisionRootsStorage;
 
-  /** The uber page key. */
+  /**
+   * The uber page key.
+   */
   private final ConcurrentMap<Integer, Long> mUberPageKey;
 
-  /** {@link ByteHandlePipeline} reference. */
+  /**
+   * {@link ByteHandlePipeline} reference.
+   */
   private final ByteHandlePipeline mHandler;
 
-  /** {@link RAMAccess} reference. */
+  /**
+   * {@link RAMAccess} reference.
+   */
   private final RAMAccess mAccess;
 
-  /** Determines if the storage already exists or not. */
+  /**
+   * Determines if the storage already exists or not.
+   */
   private boolean mExists;
 
-  /** The unique page key. */
+  /**
+   * The unique page key.
+   */
   private long mPageKey;
 
-  /** The resource configuration. */
+  /**
+   * The resource configuration.
+   */
   private final ResourceConfiguration mResourceConfiguration;
 
   /**
@@ -97,7 +115,8 @@ public final class RAMStorage implements IOStorage {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 
   @Override
   public ByteHandlePipeline getByteHandler() {
@@ -109,7 +128,9 @@ public final class RAMStorage implements IOStorage {
     return mExists;
   }
 
-  /** Provides RAM access. */
+  /**
+   * Provides RAM access.
+   */
   public class RAMAccess implements Writer {
 
     @Override
@@ -135,7 +156,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer write(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+    public Writer write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
@@ -144,7 +165,8 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer writeUberPageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+    public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+        final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey, page);
@@ -166,7 +188,8 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public void close() throws SirixIOException {}
+    public void close() throws SirixIOException {
+    }
 
     @Override
     public Writer truncateTo(int revision) {

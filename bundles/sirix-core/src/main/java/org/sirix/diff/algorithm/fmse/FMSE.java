@@ -20,25 +20,13 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.axis.AbstractAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.LevelOrderAxis;
-import org.sirix.axis.PostOrderAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.visitor.DeleteFMSEVisitor;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.diff.algorithm.ImportDiff;
@@ -50,6 +38,10 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
 import org.slf4j.LoggerFactory;
+
+import java.util.*;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Provides the fast match / edit script (fmes) tree to tree correction algorithm as described in
@@ -66,7 +58,7 @@ import org.slf4j.LoggerFactory;
 public final class FMSE implements ImportDiff, AutoCloseable {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(FMSE.class));
+  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(FMSE.class));
 
   /** Determines if a reverse lookup has to be made. */
   enum ReverseMap {
@@ -84,53 +76,53 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * Used by emitInsert: when inserting a whole subtree - keep track that nodes are not inserted
    * multiple times.
    */
-  private Map<Long, Boolean> mAlreadyInserted;
+  private Map<Long, Boolean> alreadyInserted;
 
   /**
    * This is the total matching M' between nodes as described in the paper.
    */
-  private transient Matching mTotalMatching;
+  private transient Matching totalMatching;
 
   /**
    * Stores the in-order property for each node for old revision.
    */
-  private Map<Long, Boolean> mInOrderOldRev;
+  private Map<Long, Boolean> inOrderOldRev;
 
   /**
    * Stores the in-order property for each node for new revision.
    */
-  private Map<Long, Boolean> mInOrderNewRev;
+  private Map<Long, Boolean> inOrderNewRev;
 
   /**
    * Number of descendants in subtree of node on old revision.
    */
-  private Map<Long, Long> mDescendantsOldRev;
+  private Map<Long, Long> descendantsOldRev;
 
   /**
    * Number of descendants in subtree of node on new revision.
    */
-  private Map<Long, Long> mDescendantsNewRev;
+  private Map<Long, Long> descendantsNewRev;
 
   /** {@link XmlNodeVisitor} implementation to collect label/nodes on old revision. */
-  private LabelFMSEVisitor mLabelOldRevVisitor;
+  private LabelFMSEVisitor labelOldRevVisitor;
 
   /** {@link XmlNodeVisitor} implementation to collect label/nodes on new revision. */
-  private LabelFMSEVisitor mLabelNewRevVisitor;
+  private LabelFMSEVisitor labelNewRevVisitor;
 
   /** Sirix {@link XmlNodeTrx}. */
   private XmlNodeTrx wtx;
 
   /** Sirix {@link XmlNodeReadOnlyTrx}. */
-  private XmlNodeReadOnlyTrx mRtx;
+  private XmlNodeReadOnlyTrx rtx;
 
   /** Start key of old revision. */
-  private long mOldStartKey;
+  private long oldStartKey;
 
   /** Start key of new revision. */
-  private long mNewStartKey;
+  private long newStartKey;
 
   /** Unique identifier for elements. */
-  private final QNm mIdName;
+  private final QNm idName;
 
   /** Path summary reader for the old revision. */
   private PathSummaryReader oldPathSummary;
@@ -139,7 +131,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private PathSummaryReader newPathSummary;
 
   /** The node comparison factory to check leaf/inner nodes for a matching candidate. */
-  private final NodeComparisonFactory mNodeComparisonFactory;
+  private final NodeComparisonFactory nodeComparisonFactory;
 
   /**
    * Private constructor.
@@ -148,8 +140,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param nodeComparisonFactory the node comparison factory to use
    */
   private FMSE(final QNm idName, final NodeComparisonFactory nodeComparisonFactory) {
-    mIdName = idName;
-    mNodeComparisonFactory = checkNotNull(nodeComparisonFactory);
+    this.idName = idName;
+    this.nodeComparisonFactory = checkNotNull(nodeComparisonFactory);
   }
 
   /**
@@ -176,33 +168,33 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   @Override
   public void diff(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     this.wtx = checkNotNull(wtx);
-    mRtx = checkNotNull(rtx);
-    mOldStartKey = this.wtx.getNodeKey();
-    mNewStartKey = mRtx.getNodeKey();
-    mDescendantsOldRev = new HashMap<>();
-    mDescendantsNewRev = new HashMap<>();
-    mInOrderOldRev = new HashMap<>();
-    mInOrderNewRev = new HashMap<>();
-    mAlreadyInserted = new HashMap<>();
+    this.rtx = checkNotNull(rtx);
+    oldStartKey = this.wtx.getNodeKey();
+    newStartKey = this.rtx.getNodeKey();
+    descendantsOldRev = new HashMap<>();
+    descendantsNewRev = new HashMap<>();
+    inOrderOldRev = new HashMap<>();
+    inOrderNewRev = new HashMap<>();
+    alreadyInserted = new HashMap<>();
 
     oldPathSummary = this.wtx.getPathSummary();
-    newPathSummary = mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber());
+    newPathSummary = this.rtx.getResourceManager().openPathSummary(this.rtx.getRevisionNumber());
 
-    final var oldRevVisitor = new FMSEVisitor(this.wtx, mInOrderOldRev, mDescendantsOldRev);
-    final var newRevVisitor = new FMSEVisitor(mRtx, mInOrderNewRev, mDescendantsNewRev);
+    final var oldRevVisitor = new FMSEVisitor(this.wtx, inOrderOldRev, descendantsOldRev);
+    final var newRevVisitor = new FMSEVisitor(this.rtx, inOrderNewRev, descendantsNewRev);
 
-    mLabelOldRevVisitor = new LabelFMSEVisitor(this.wtx);
-    mLabelNewRevVisitor = new LabelFMSEVisitor(mRtx);
+    labelOldRevVisitor = new LabelFMSEVisitor(this.wtx);
+    labelNewRevVisitor = new LabelFMSEVisitor(this.rtx);
     init(this.wtx, oldRevVisitor);
-    init(mRtx, newRevVisitor);
+    init(this.rtx, newRevVisitor);
 
-    final var fastMatching = fastMatch(this.wtx, mRtx);
-    mTotalMatching = new Matching(fastMatching);
-    firstFMESStep(this.wtx, mRtx);
+    final var fastMatching = fastMatch(this.wtx, this.rtx);
+    totalMatching = new Matching(fastMatching);
+    firstFMESStep(this.wtx, this.rtx);
     try {
-      secondFMESStep(this.wtx, mRtx);
+      secondFMESStep(this.wtx, this.rtx);
     } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      logger.error(e.getMessage(), e);
     }
   }
 
@@ -216,8 +208,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert wtx != null;
     assert rtx != null;
 
-    wtx.moveTo(mOldStartKey);
-    rtx.moveTo(mNewStartKey);
+    wtx.moveTo(oldStartKey);
+    rtx.moveTo(newStartKey);
 
     // 2. Iterate over new shreddered file
     for (final Axis axis =
@@ -241,7 +233,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert rtx != null;
 
     final FMSENodeComparisonUtils nodeComparisonUtils =
-        new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, this.wtx, mRtx);
+        new FMSENodeComparisonUtils(oldStartKey, newStartKey, this.wtx, this.rtx);
 
     // 2(a) - Parent of x.
     final long key = rtx.getNodeKey();
@@ -249,15 +241,15 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.moveToParent();
     final long y = rtx.getNodeKey();
 
-    final Long z = mTotalMatching.reversePartner(y);
-    Long w = mTotalMatching.reversePartner(x);
+    final Long z = totalMatching.reversePartner(y);
+    Long w = totalMatching.reversePartner(x);
 
-    wtx.moveTo(mOldStartKey);
+    wtx.moveTo(oldStartKey);
     // 2(b) - insert
     if (w == null) {
       // x has no partner.
       assert z != null;
-      mInOrderNewRev.put(x, true);
+      inOrderNewRev.put(x, true);
       final int k = findPos(x, wtx, rtx);
       assert k > -1;
       w = emitInsert(x, z, k, wtx, rtx);
@@ -273,17 +265,17 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       wtx.moveTo(w);
       wtx.moveToParent();
       final long v = wtx.getNodeKey();
-      if (!mTotalMatching.contains(v, y) && wtx.moveTo(w) && rtx.moveTo(x)) {
+      if (!totalMatching.contains(v, y) && wtx.moveTo(w) && rtx.moveTo(x)) {
         assert z != null;
-        mInOrderNewRev.put(x, true);
+        inOrderNewRev.put(x, true);
         rtx.moveTo(x);
         if (rtx.isNamespace() || rtx.isAttribute()) {
           wtx.moveTo(w);
           try {
-            mTotalMatching.remove(w);
+            totalMatching.remove(w);
             wtx.remove();
           } catch (final SirixException e) {
-            LOGWRAPPER.error(e.getMessage(), e);
+            logger.error(e.getMessage(), e);
           }
           w = emitInsert(x, z, -1, wtx, rtx);
         } else {
@@ -307,12 +299,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private void secondFMESStep(final XmlNodeTrx wtx, final NodeReadOnlyTrx rtx) throws SirixException {
     assert wtx != null;
     assert rtx != null;
-    wtx.moveTo(mOldStartKey);
+    wtx.moveTo(oldStartKey);
     //noinspection StatementWithEmptyBody
     for (@SuppressWarnings("unused")
     final long nodeKey : VisitorDescendantAxis.newBuilder(wtx)
                                               .includeSelf()
-                                              .visitor(new DeleteFMSEVisitor(wtx, mTotalMatching, mOldStartKey))
+                                              .visitor(new DeleteFMSEVisitor(wtx, totalMatching, oldStartKey))
                                               .build());
   }
 
@@ -334,26 +326,26 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.moveTo(x);
 
     // Mark all children of w and all children of x "out of order".
-    markOutOfOrder(wtx, mInOrderOldRev);
-    markOutOfOrder(rtx, mInOrderNewRev);
+    markOutOfOrder(wtx, inOrderOldRev);
+    markOutOfOrder(rtx, inOrderNewRev);
 
     // 2
     final List<Long> first = commonChildren(w, x, wtx, rtx, ReverseMap.FALSE);
     final List<Long> second = commonChildren(x, w, rtx, wtx, ReverseMap.TRUE);
     // 3 && 4
     final List<Pair<Long, Long>> s =
-        Util.longestCommonSubsequence(first, second, (pX, pY) -> mTotalMatching.contains(pX, pY));
+        Util.longestCommonSubsequence(first, second, (pX, pY) -> totalMatching.contains(pX, pY));
     // 5
     final Map<Long, Long> seen = new HashMap<>();
     for (final Pair<Long, Long> p : s) {
-      mInOrderOldRev.put(p.getFirst(), true);
-      mInOrderNewRev.put(p.getSecond(), true);
+      inOrderOldRev.put(p.getFirst(), true);
+      inOrderNewRev.put(p.getSecond(), true);
       seen.put(p.getFirst(), p.getSecond());
     }
     // 6
     for (final long a : first) {
       wtx.moveTo(a);
-      final Long b = mTotalMatching.partner(a);
+      final Long b = totalMatching.partner(a);
       // assert b != null;
       if (seen.get(a) == null && wtx.moveTo(a) && b != null && rtx.moveTo(b)) { // (a,
         // b)
@@ -363,10 +355,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         // !seen.get(a).equals(b))
         // && mInOrderOldRev.get(a) != null && !mInOrderOldRev.get(a)) { // (a,
         // b) \notIn S
-        mInOrderOldRev.put(a, true);
-        mInOrderNewRev.put(b, true);
+        inOrderOldRev.put(a, true);
+        inOrderNewRev.put(b, true);
         final int k = findPos(b, wtx, rtx);
-        LOGWRAPPER.debug("Move in align children: " + k);
+        logger.debug("Move in align children: " + k);
         emitMove(a, w, k, wtx, rtx);
       }
     }
@@ -410,9 +402,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       do {
         Long partner;
         if (reverse == ReverseMap.TRUE) {
-          partner = mTotalMatching.reversePartner(firstRtx.getNodeKey());
+          partner = totalMatching.reversePartner(firstRtx.getNodeKey());
         } else {
-          partner = mTotalMatching.partner(firstRtx.getNodeKey());
+          partner = totalMatching.partner(firstRtx.getNodeKey());
         }
 
         if (partner != null) {
@@ -457,7 +449,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       if (pos == 0) {
         assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.XML_DOCUMENT;
         if (wtx.getFirstChildKey() == child) {
-          LOGWRAPPER.error("Something went wrong: First child and child may never be the same!");
+          logger.error("Something went wrong: First child and child may never be the same!");
         } else {
           if (wtx.moveTo(child)) {
             boolean isTextKind = wtx.getKind() == NodeKind.TEXT;
@@ -468,7 +460,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               if (wtx.hasFirstChild()) {
                 wtx.moveToFirstChild();
                 if (wtx.getKind() == NodeKind.TEXT) {
-                  mTotalMatching.remove(wtx.getNodeKey());
+                  totalMatching.remove(wtx.getNodeKey());
                   wtx.remove();
                 }
                 wtx.moveTo(parent);
@@ -500,14 +492,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         wtx.moveTo(nodeKey);
         if (wtx.getKind() == NodeKind.TEXT && wtx.moveTo(child) && wtx.getKind() == NodeKind.TEXT) {
           wtx.moveTo(nodeKey);
-          mTotalMatching.remove(wtx.getNodeKey());
+          totalMatching.remove(wtx.getNodeKey());
         }
         wtx.moveTo(nodeKey);
         if (wtx.moveToRightSibling()) {
           final long rightNodeKey = wtx.getNodeKey();
           if (wtx.getKind() == NodeKind.TEXT && wtx.moveTo(child) && wtx.getKind() == NodeKind.TEXT) {
             wtx.moveTo(rightNodeKey);
-            mTotalMatching.remove(wtx.getNodeKey());
+            totalMatching.remove(wtx.getNodeKey());
           }
           wtx.moveToLeftSibling();
         }
@@ -520,7 +512,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         wtx.moveTo(wtx.moveSubtreeToRightSibling(child).getNodeKey());
       }
     } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      logger.error(e.getMessage(), e);
     }
   }
 
@@ -544,7 +536,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
             moved = wtx.moveToLeftSibling();
             assert moved;
           }
-          mTotalMatching.remove(wtx.getNodeKey());
+          totalMatching.remove(wtx.getNodeKey());
         }
         wtx.moveToLeftSibling();
       }
@@ -588,7 +580,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         }
       }
     } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      logger.error(e.getMessage(), e);
     }
   }
 
@@ -611,7 +603,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert rtx != null;
 
     // Determines if node has been already inserted (for subtrees).
-    if (mAlreadyInserted.get(child) != null) {
+    if (alreadyInserted.get(child) != null) {
       return child; // actually child'
     }
 
@@ -624,7 +616,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           try {
             wtx.insertAttribute(rtx.getName(), rtx.getValue());
           } catch (final SirixUsageException e) {
-            mTotalMatching.remove(wtx.getNodeKey());
+            totalMatching.remove(wtx.getNodeKey());
             if (!rtx.getValue().isEmpty())
               wtx.setValue(rtx.getValue());
           }
@@ -636,7 +628,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
             final QNm qName = rtx.getName();
             wtx.insertNamespace(new QNm(qName.getNamespaceURI(), qName.getPrefix(), qName.getLocalName()));
           } catch (final SirixUsageException e) {
-            mTotalMatching.remove(wtx.getNodeKey());
+            totalMatching.remove(wtx.getNodeKey());
           }
           process(wtx.getNodeKey(), rtx.getNodeKey());
         }
@@ -652,7 +644,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                 if (wtx.hasFirstChild()) {
                   wtx.moveToFirstChild();
                   if (wtx.getKind() == NodeKind.TEXT) {
-                    mTotalMatching.remove(wtx.getNodeKey());
+                    totalMatching.remove(wtx.getNodeKey());
                     wtx.remove();
                   }
                   wtx.moveTo(parent);
@@ -736,7 +728,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         }
       }
     } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      logger.error(e.getMessage(), e);
     }
 
     return wtx.getNodeKey();
@@ -754,7 +746,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       final long nodeKey = wtx.getNodeKey();
       wtx.moveToRightSibling();
       if (wtx.getKind() == NodeKind.TEXT) {
-        mTotalMatching.remove(wtx.getNodeKey());
+        totalMatching.remove(wtx.getNodeKey());
         wtx.remove();
       }
       wtx.moveTo(nodeKey);
@@ -768,19 +760,19 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param newKey {@link Node} in new revision
    */
   private void process(final long oldKey, final long newKey) {
-    mAlreadyInserted.put(newKey, true);
-    final Long partner = mTotalMatching.partner(oldKey);
+    alreadyInserted.put(newKey, true);
+    final Long partner = totalMatching.partner(oldKey);
     if (partner != null) {
-      mTotalMatching.remove(oldKey);
+      totalMatching.remove(oldKey);
     }
-    final Long reversePartner = mTotalMatching.reversePartner(newKey);
+    final Long reversePartner = totalMatching.reversePartner(newKey);
     if (reversePartner != null) {
-      mTotalMatching.remove(reversePartner);
+      totalMatching.remove(reversePartner);
     }
-    assert !mTotalMatching.contains(oldKey, newKey);
-    mTotalMatching.add(oldKey, newKey);
-    mInOrderOldRev.put(oldKey, true);
-    mInOrderNewRev.put(newKey, true);
+    assert !totalMatching.contains(oldKey, newKey);
+    totalMatching.add(oldKey, newKey);
+    inOrderOldRev.put(oldKey, true);
+    inOrderNewRev.put(newKey, true);
   }
 
   /**
@@ -814,7 +806,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         rtx.moveToFirstChild();
 
         final long v = rtx.getNodeKey();
-        if (mInOrderNewRev.get(v) != null && mInOrderNewRev.get(v) && v == x) {
+        if (inOrderNewRev.get(v) != null && inOrderNewRev.get(v) && v == x) {
           return 0;
         }
       }
@@ -829,20 +821,20 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       rtx.moveToLeftSibling();
       long v = rtx.getNodeKey();
       while (rtx.hasLeftSibling()
-          && (mInOrderNewRev.get(v) == null || (mInOrderNewRev.get(v) != null && !mInOrderNewRev.get(v)))) {
+          && (inOrderNewRev.get(v) == null || (inOrderNewRev.get(v) != null && !inOrderNewRev.get(v)))) {
         rtx.moveToLeftSibling();
         v = rtx.getNodeKey();
       }
 
       // Step 2 states that in ``in order'' node exists, but this is not
       // true.
-      if (mInOrderNewRev.get(v) == null) {
+      if (inOrderNewRev.get(v) == null) {
         // Assume it is the first node (undefined in the paper).
         return 0;
       }
 
       // 4 - Let u be the partner of v in T1
-      Long u = mTotalMatching.reversePartner(v);
+      Long u = totalMatching.reversePartner(v);
       int i = -1;
       if (u != null) {
         final boolean moved = wtx.moveTo(u);
@@ -876,33 +868,35 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert rtx != null;
 
     final FMSENodeComparisonUtils nodeComparisonUtils =
-        new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, wtx, rtx);
+        new FMSENodeComparisonUtils(oldStartKey, newStartKey, wtx, rtx);
 
     // Chain all nodes with a given label l in tree T together.
-    getLabels(wtx, mLabelOldRevVisitor);
-    getLabels(rtx, mLabelNewRevVisitor);
+    getLabels(wtx, labelOldRevVisitor);
+    getLabels(rtx, labelNewRevVisitor);
 
     // Do the matching job on the leaf nodes.
     final Matching matching = new Matching(wtx, rtx);
     matching.reset();
-    match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching,
-        new LeafNodeComparator(mIdName, this.wtx, mRtx, oldPathSummary, newPathSummary, nodeComparisonUtils));
+    match(labelOldRevVisitor.getLeafLabels(), labelNewRevVisitor.getLeafLabels(), matching,
+          new LeafNodeComparator(idName, this.wtx, this.rtx, oldPathSummary, newPathSummary, nodeComparisonUtils));
 
     // Remove roots ('/') from labels and append them to mapping.
-    final Map<NodeKind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
-    final Map<NodeKind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
+    final Map<NodeKind, List<Long>> oldLabels = labelOldRevVisitor.getLabels();
+    final Map<NodeKind, List<Long>> newLabels = labelNewRevVisitor.getLabels();
     oldLabels.remove(NodeKind.XML_DOCUMENT);
     newLabels.remove(NodeKind.XML_DOCUMENT);
 
-    wtx.moveTo(mOldStartKey);
-    rtx.moveTo(mNewStartKey);
+    wtx.moveTo(oldStartKey);
+    rtx.moveTo(newStartKey);
     wtx.moveToParent();
     rtx.moveToParent();
     matching.add(wtx.getNodeKey(), rtx.getNodeKey());
 
     final NodeComparator<Long> innerNodeComparator =
-        mNodeComparisonFactory.createInnerNodeEqualityChecker(mIdName, matching, wtx, rtx,
-            new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, wtx, rtx), mDescendantsOldRev, mDescendantsNewRev);
+        nodeComparisonFactory.createInnerNodeEqualityChecker(idName, matching, wtx, rtx,
+                                                             new FMSENodeComparisonUtils(oldStartKey,
+                                                                                          newStartKey, wtx, rtx),
+                                                             descendantsOldRev, descendantsNewRev);
 
     match(oldLabels, newLabels, matching, innerNodeComparator);
 

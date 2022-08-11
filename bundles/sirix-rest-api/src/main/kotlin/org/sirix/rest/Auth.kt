@@ -3,16 +3,17 @@ package org.sirix.rest
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
-import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.AuthorizationProvider
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.json.json
 import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 
@@ -55,6 +56,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
     }
 
     companion object {
+        @OptIn(DelicateCoroutinesApi::class)
         fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: AuthRole, authz: AuthorizationProvider) {
             GlobalScope.launch(dispatcher) {
                 authz.getAuthorizations(user).await()

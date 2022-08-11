@@ -20,9 +20,10 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.HashMap;
 import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Stores whether two objects have a (unidirectional) connection. /!\ The identities of the objects
@@ -35,13 +36,13 @@ public final class ConnectionMap<T> {
   /**
    * First, we search the first node in the map, then the second in the returned map.
    */
-  private final Map<T, HashMap<T, Boolean>> mMap;
+  private final Map<T, HashMap<T, Boolean>> map;
 
   /**
    * Creates a new connection map.
    */
   public ConnectionMap() {
-    mMap = new HashMap<>();
+    map = new HashMap<>();
   }
 
   /**
@@ -50,7 +51,7 @@ public final class ConnectionMap<T> {
    * @param map the original {@link ConnectionMap}
    */
   public ConnectionMap(final ConnectionMap<T> map) {
-    mMap = new HashMap<>(map.mMap);
+    this.map = new HashMap<>(map.map);
   }
 
   /**
@@ -62,10 +63,10 @@ public final class ConnectionMap<T> {
    */
   public void set(final T origin, final T destination, final boolean bool) {
     checkNotNull(destination);
-    if (!mMap.containsKey(checkNotNull(origin))) {
-      mMap.put(origin, new HashMap<T, Boolean>());
+    if (!map.containsKey(checkNotNull(origin))) {
+      map.put(origin, new HashMap<>());
     }
-    mMap.get(origin).put(destination, bool);
+    map.get(origin).put(destination, bool);
   }
 
   /**
@@ -77,15 +78,15 @@ public final class ConnectionMap<T> {
    * @return true, iff there is a connection from a to b
    */
   public boolean get(final T origin, final T destination) {
-    if (!mMap.containsKey(origin)) {
+    if (!map.containsKey(origin)) {
       return false;
     }
-    final Boolean bool = mMap.get(origin).get(destination);
+    final Boolean bool = map.get(origin).get(destination);
     return bool != null && bool;
   }
 
   /** Reset datastructure. */
   public void reset() {
-    mMap.clear();
+    map.clear();
   }
 }

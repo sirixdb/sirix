@@ -2,6 +2,7 @@ package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -11,7 +12,6 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -20,17 +20,22 @@ import java.util.Map;
  * Page to hold references to a path summary.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public final class PathSummaryPage extends AbstractForwardingPage {
 
-  /** The references page instance. */
+  /**
+   * The references page instance.
+   */
   private Page delegate;
 
-  /** Maximum node keys. */
+  /**
+   * Maximum node keys.
+   */
   private final Map<Integer, Long> maxNodeKeys;
 
-  /** Current maximum levels of indirect pages in the tree. */
+  /**
+   * Current maximum levels of indirect pages in the tree.
+   */
   private final Map<Integer, Integer> currentMaxLevelsOfIndirectPages;
 
   /**
@@ -57,7 +62,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  protected PathSummaryPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  PathSummaryPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
     maxNodeKeys = new HashMap<>(size);
@@ -72,7 +77,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   }
 
   @Override
-  public String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this).add("mDelegate", delegate).toString();
   }
 
@@ -89,18 +94,16 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * @param index        the index number
    * @param log          the transaction intent log
    */
-  public void createPathSummaryTree(final DatabaseType databaseType,
-                                    final PageReadOnlyTrx pageReadTrx,
-                                    final int index,
-                                    final TransactionIntentLog log) {
+  public void createPathSummaryTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx, final int index,
+      final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
       reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT
-            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+        && reference.getLogKey() == Constants.NULL_ID_INT
+        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
       PageUtils.createTree(databaseType, reference, IndexType.PATH_SUMMARY, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);
@@ -112,9 +115,10 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+      final SerializationType type) {
     out.writeByte((byte) 0);
-    super.serialize(out, type);
+    super.serialize(pageReadOnlyTrx, out, type);
     final int size = maxNodeKeys.size();
     out.writeInt(size);
     for (int i = 0; i < size; i++) {
@@ -132,8 +136,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return currentMaxLevelsOfIndirectPages.merge(
-        index, 1, Integer::sum);
+    return currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
   }
 
   /**

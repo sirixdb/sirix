@@ -1,16 +1,5 @@
 package org.sirix.page;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import static org.testng.AssertJUnit.assertArrayEquals;
-import static org.testng.AssertJUnit.assertTrue;
-
-import java.io.IOException;
-import java.nio.ByteBuffer;
-
 import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -30,6 +19,14 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+
+import java.nio.ByteBuffer;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.testng.AssertJUnit.assertArrayEquals;
 
 /**
  * Test class for all classes implementing the {@link Page} interface.
@@ -65,16 +62,14 @@ public class PageTest {
   }
 
   @Test(dataProvider = "instantiatePages")
-  public void testByteRepresentation(final Page[] handlers) throws IOException {
+  public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
       final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
-      handler.serialize(data, SerializationType.DATA);
+      handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
-      final Page serializedPage = PageKind.getKind(handler.getClass())
-                                          .deserializePage(data,
-                                                           pageReadTrx,
-                                                           SerializationType.DATA);
-      serializedPage.serialize(data, SerializationType.DATA);
+      final Page serializedPage =
+          PageKind.getKind(handler.getClass()).deserializePage(pageReadTrx, data, SerializationType.DATA);
+      serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
     }
@@ -119,10 +114,8 @@ public class PageTest {
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     final PageTrx pageTrx = mock(PageTrx.class);
-    when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
-        hashEntryNode);
-    when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
-        hashCountEntryNode);
+    when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
+    when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
     when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
     return pageTrx;
   }

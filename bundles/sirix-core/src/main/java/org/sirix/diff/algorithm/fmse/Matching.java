@@ -20,15 +20,17 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Map;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.NodeKind;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Keeps track of nodes in a matching.
@@ -39,22 +41,22 @@ import org.sirix.node.NodeKind;
 public final class Matching {
 
   /** Forward matching. */
-  private final Map<Long, Long> mMapping;
+  private final Map<Long, Long> mapping;
 
   /** Backward machting. */
-  private final Map<Long, Long> mReverseMapping;
+  private final Map<Long, Long> reverseMapping;
 
   /**
    * Tracks the (grand-)parent-child relation of nodes. We use this to speed up the calculation of the
    * number of nodes in the subtree of two nodes that are in the matching.
    */
-  private final ConnectionMap<Long> mIsInSubtree;
+  private final ConnectionMap<Long> isInSubtree;
 
   /** {@link XmlNodeReadOnlyTrx} reference on old revision. */
-  private final XmlNodeReadOnlyTrx mRtxOld;
+  private final XmlNodeReadOnlyTrx rtxOld;
 
   /** {@link XmlNodeReadOnlyTrx} reference on new revision. */
-  private final XmlNodeReadOnlyTrx mRtxNew;
+  private final XmlNodeReadOnlyTrx rtxNew;
 
   /**
    * Creates a new matching.
@@ -63,11 +65,11 @@ public final class Matching {
    * @param rtxNew {@link XmlNodeReadOnlyTrx} reference on new revision.
    */
   public Matching(final XmlNodeReadOnlyTrx rtxOld, final XmlNodeReadOnlyTrx rtxNew) {
-    mMapping = new HashMap<>();
-    mReverseMapping = new HashMap<>();
-    mIsInSubtree = new ConnectionMap<>();
-    mRtxOld = checkNotNull(rtxOld);
-    mRtxNew = checkNotNull(rtxNew);
+    mapping = new HashMap<>();
+    reverseMapping = new HashMap<>();
+    isInSubtree = new ConnectionMap<>();
+    this.rtxOld = checkNotNull(rtxOld);
+    this.rtxNew = checkNotNull(rtxNew);
   }
 
   /**
@@ -76,11 +78,11 @@ public final class Matching {
    * @param match the original {@link Matching} reference
    */
   public Matching(final Matching match) {
-    mMapping = new HashMap<>(match.mMapping);
-    mReverseMapping = new HashMap<>(match.mReverseMapping);
-    mIsInSubtree = new ConnectionMap<>(match.mIsInSubtree);
-    mRtxOld = match.mRtxOld;
-    mRtxNew = match.mRtxNew;
+    mapping = new HashMap<>(match.mapping);
+    reverseMapping = new HashMap<>(match.reverseMapping);
+    isInSubtree = new ConnectionMap<>(match.isInSubtree);
+    rtxOld = match.rtxOld;
+    rtxNew = match.rtxNew;
   }
 
   /**
@@ -90,15 +92,15 @@ public final class Matching {
    * @param nodeY partner of nodeX (in new revision)
    */
   public void add(final @NonNegative long nodeX, final @NonNegative long nodeY) {
-    mRtxOld.moveTo(nodeX);
-    mRtxNew.moveTo(nodeY);
-    if (mRtxOld.getKind() != mRtxNew.getKind()) {
+    rtxOld.moveTo(nodeX);
+    rtxNew.moveTo(nodeY);
+    if (rtxOld.getKind() != rtxNew.getKind()) {
       throw new AssertionError();
     }
-    mMapping.put(nodeX, nodeY);
-    mReverseMapping.put(nodeY, nodeX);
-    updateSubtreeMap(nodeX, mRtxOld);
-    updateSubtreeMap(nodeY, mRtxNew);
+    mapping.put(nodeX, nodeY);
+    reverseMapping.put(nodeY, nodeX);
+    updateSubtreeMap(nodeX, rtxOld);
+    updateSubtreeMap(nodeY, rtxNew);
   }
 
   /**
@@ -107,10 +109,8 @@ public final class Matching {
    * @param nodeX source node for which to remove the connection
    */
   public boolean remove(final @NonNegative long nodeX) {
-    mReverseMapping.remove(mMapping.get(nodeX));
-    return mMapping.remove(nodeX) == null
-        ? false
-        : true;
+    reverseMapping.remove(mapping.get(nodeX));
+    return mapping.remove(nodeX) != null;
   }
 
   /**
@@ -123,12 +123,12 @@ public final class Matching {
     assert key >= 0;
     assert rtx != null;
 
-    mIsInSubtree.set(key, key, true);
+    isInSubtree.set(key, key, true);
     rtx.moveTo(key);
     if (rtx.hasParent()) {
       while (rtx.hasParent()) {
         rtx.moveToParent();
-        mIsInSubtree.set(rtx.getNodeKey(), key, true);
+        isInSubtree.set(rtx.getNodeKey(), key, true);
       }
       rtx.moveTo(key);
     }
@@ -142,9 +142,7 @@ public final class Matching {
    * @return true iff add(x, y) was invoked first
    */
   public boolean contains(final @NonNegative long nodeX, final @NonNegative long nodeY) {
-    return mMapping.get(nodeX) == null
-        ? false
-        : mMapping.get(nodeX).equals(nodeY);
+    return mapping.get(nodeX) != null && mapping.get(nodeX).equals(nodeY);
   }
 
   /**
@@ -157,26 +155,26 @@ public final class Matching {
   public long containedDescendants(final @NonNegative long nodeX, final @NonNegative long nodeY) {
     long retVal = 0;
 
-    mRtxOld.moveTo(nodeX);
-    for (final Axis axis = new DescendantAxis(mRtxOld, IncludeSelf.YES); axis.hasNext();) {
-      axis.next();
-      retVal += mIsInSubtree.get(nodeY, partner(mRtxOld.getNodeKey()))
+    rtxOld.moveTo(nodeX);
+    for (final Axis axis = new DescendantAxis(rtxOld, IncludeSelf.YES); axis.hasNext();) {
+      axis.nextLong();
+      retVal += isInSubtree.get(nodeY, partner(rtxOld.getNodeKey()))
           ? 1
           : 0;
-      if (mRtxOld.getKind() == NodeKind.ELEMENT) {
-        for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
-          mRtxOld.moveToNamespace(i);
-          retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))
+      if (rtxOld.getKind() == NodeKind.ELEMENT) {
+        for (int i = 0, nspCount = rtxOld.getNamespaceCount(); i < nspCount; i++) {
+          rtxOld.moveToNamespace(i);
+          retVal += isInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))
               ? 1
               : 0;
-          mRtxOld.moveToParent();
+          rtxOld.moveToParent();
         }
-        for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
-          mRtxOld.moveToAttribute(i);
-          retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))
+        for (int i = 0, attCount = rtxOld.getAttributeCount(); i < attCount; i++) {
+          rtxOld.moveToAttribute(i);
+          retVal += isInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))
               ? 1
               : 0;
-          mRtxOld.moveToParent();
+          rtxOld.moveToParent();
         }
       }
     }
@@ -191,7 +189,7 @@ public final class Matching {
    * @return the {@code nodeKey} of the other node or {@code null}
    */
   public Long partner(final @NonNegative long node) {
-    return mMapping.get(node);
+    return mapping.get(node);
   }
 
   /**
@@ -202,13 +200,13 @@ public final class Matching {
    * @return x iff add(x, node) was called before
    */
   public Long reversePartner(final @NonNegative long node) {
-    return mReverseMapping.get(node);
+    return reverseMapping.get(node);
   }
 
   /** Reset internal datastructures. */
   public void reset() {
-    mMapping.clear();
-    mReverseMapping.clear();
-    mIsInSubtree.reset();
+    mapping.clear();
+    reverseMapping.clear();
+    isInSubtree.reset();
   }
 }

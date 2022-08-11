@@ -186,7 +186,7 @@ public final class FileChannelReader implements Reader {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
     BytesUtils.doWrite(input, inputStream.readAllBytes());
-    final var deserializedPage = pagePersiter.deserializePage(input, pageReadTrx, type);
+    final var deserializedPage = pagePersiter.deserializePage(pageReadTrx, input, type);
     input.clear();
     return deserializedPage;
   }

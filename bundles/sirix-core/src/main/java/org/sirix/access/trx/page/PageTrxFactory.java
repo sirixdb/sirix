@@ -28,6 +28,7 @@
 package org.sirix.access.trx.page;
 
 import org.brackit.xquery.xdm.DocumentException;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
@@ -43,12 +44,10 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.IndexType;
 import org.sirix.io.Writer;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import javax.inject.Inject;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -106,7 +105,7 @@ public final class PageTrxFactory {
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
     final TransactionIntentLog log = logFactory.createTrxIntentLog(resourceManager.getResourceConfig());
 
-    // Create revision tree if needed.
+    // Create revision tree if needed. Note: This must happen before the page read trx is created.
     if (uberPage.isBootstrap()) {
       uberPage.createRevisionTree(log);
     }
@@ -117,9 +116,12 @@ public final class PageTrxFactory {
                                                                 uberPage,
                                                                 representRevision,
                                                                 writer,
-                                                                log,
                                                                 bufferManager,
-                                                                new RevisionRootPageReader());
+                                                                new RevisionRootPageReader(),
+                                                                log);
+
+    // Set page read trx for trx intent log.
+    log.setPageReadOnlyTrx(pageRtx);
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);

@@ -25,6 +25,7 @@ import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -32,7 +33,6 @@ import org.sirix.index.IndexType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -68,9 +68,9 @@ public final class UberPage implements Page {
   /**
    * Read uber page.
    *
-   * @param in   input bytes
+   * @param in input bytes
    */
-  protected UberPage(final Bytes<ByteBuffer> in) {
+  UberPage(final Bytes<ByteBuffer> in) {
     revisionCount = in.readInt();
     isBootstrap = false;
     rootPage = null;
@@ -79,7 +79,7 @@ public final class UberPage implements Page {
   /**
    * Clone constructor.
    *
-   * @param committedUberPage   page to clone
+   * @param committedUberPage page to clone
    */
   public UberPage(final UberPage committedUberPage) {
     if (committedUberPage.isBootstrap()) {
@@ -120,9 +120,9 @@ public final class UberPage implements Page {
     return isBootstrap;
   }
 
-
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+      final SerializationType type) {
     out.writeInt(revisionCount);
     isBootstrap = false;
   }

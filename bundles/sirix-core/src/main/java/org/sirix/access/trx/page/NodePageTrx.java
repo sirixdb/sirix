@@ -25,6 +25,7 @@ import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -216,9 +217,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final var modifiedPage = cont.getModifiedAsUnorderedKeyValuePage();
 
-    DataRecord record = modifiedPage.getValue(recordKey);
+    DataRecord record = modifiedPage.getValue(this, recordKey);
     if (record == null) {
-      final DataRecord oldRecord = cont.getCompleteAsUnorderedKeyValuePage().getValue(recordKey);
+      final DataRecord oldRecord = cont.getCompleteAsUnorderedKeyValuePage().getValue(this, recordKey);
       if (oldRecord == null) {
         throw new SirixIOException(
             "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
@@ -305,9 +306,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (pageCont.equals(PageContainer.emptyInstance())) {
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
-      DataRecord node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(recordKey);
+      DataRecord node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(this, recordKey);
       if (node == null) {
-        node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(recordKey);
+        node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(this, recordKey);
       }
       return pageRtx.checkItemIfDeleted(node);
     }
@@ -356,7 +357,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
-    storagePageReaderWriter.write(reference, bufferBytes);
+    storagePageReaderWriter.write(this, reference, bufferBytes);
 
     container.getComplete().clearPage();
     page.clearPage();
@@ -406,14 +407,14 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .forEach(page -> {
            assert page instanceof UnorderedKeyValuePage;
            Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(10_000);
-           page.serialize(bytes, SerializationType.DATA);
+           page.serialize(this, bytes, SerializationType.DATA);
          });
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);
 
       uberPageReference.setPage(uberPage);
-      storagePageReaderWriter.writeUberPageReference(uberPageReference, bufferBytes);
+      storagePageReaderWriter.writeUberPageReference(this, uberPageReference, bufferBytes);
       uberPageReference.setPage(null);
 
       if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
@@ -589,7 +590,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  protected PageReadOnlyTrx delegate() {
+  protected @NotNull PageReadOnlyTrx delegate() {
     return pageRtx;
   }
 

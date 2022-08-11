@@ -66,6 +66,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   private final int revision;
 
   /**
+   * Determines if DeweyIDs are stored or not.
+   */
+  private final boolean areDeweyIDsStored;
+
+  /**
    * Determines if references to {@link OverflowPage}s have been added or not.
    */
   private boolean addedReferences;
@@ -94,11 +99,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
    * Dewey IDs to node key mapping.
    */
   private final Map<SirixDeweyID, Long> deweyIDs;
-
-  /**
-   * Sirix {@link PageReadOnlyTrx}.
-   */
-  private final PageReadOnlyTrx pageReadOnlyTrx;
 
   /**
    * The index type.
@@ -136,12 +136,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     records = pageToClone.records;
     slots = pageToClone.slots;
     deweyIDs = pageToClone.deweyIDs;
-    this.pageReadOnlyTrx = pageReadOnlyTrx;
     indexType = pageToClone.indexType;
     recordPersister = pageToClone.recordPersister;
     resourceConfig = pageToClone.resourceConfig;
     revision = pageToClone.revision;
     recordsStored = pageToClone.recordsStored;
+    areDeweyIDsStored = pageToClone.areDeweyIDsStored;
   }
 
   /**
@@ -162,27 +162,27 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     this.recordPageKey = recordPageKey;
     records = new DataRecord[Constants.NDP_NODE_COUNT];
     slots = new byte[Constants.NDP_NODE_COUNT][];
-    this.pageReadOnlyTrx = pageReadOnlyTrx;
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
     deweyIDs = new HashMap<>(Constants.NDP_NODE_COUNT);
     this.revision = pageReadOnlyTrx.getRevisionNumber();
     recordsStored = 0;
+    areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
   }
 
   /**
    * Constructor which reads the {@link UnorderedKeyValuePage} from the storage.
    *
-   * @param in          input bytes to read page from
-   * @param pageReadTrx {@link PageReadOnlyTrx} implementation
+   * @param in              input bytes to read page from
+   * @param pageReadOnlyTrx {@link PageReadOnlyTrx} implementation
    */
-  UnorderedKeyValuePage(final Bytes<ByteBuffer> in, final PageReadOnlyTrx pageReadTrx) {
+  UnorderedKeyValuePage(final Bytes<ByteBuffer> in, final PageReadOnlyTrx pageReadOnlyTrx) {
     recordPageKey = getVarLong(in);
     revision = in.readInt();
-    resourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
+    resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
+    areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
     recordPersister = resourceConfig.recordPersister;
-    this.pageReadOnlyTrx = pageReadTrx;
     slots = new byte[Constants.NDP_NODE_COUNT][];
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
@@ -198,7 +198,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
         optionalDeweyId = deweyID;
 
         if (deweyID != null) {
-          deserializeRecordAndPutIntoMap(in, deweyID, byteBufferBytes);
+          deserializeRecordAndPutIntoMap(in, deweyID, byteBufferBytes, pageReadOnlyTrx);
         }
       }
 
@@ -223,9 +223,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       final byte[] data = new byte[dataSize];
       in.read(data);
       BytesUtils.doWrite(byteBufferBytes, data);
-      final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, null, this.pageReadOnlyTrx);
+      final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, null, pageReadOnlyTrx);
       byteBufferBytes.clear();
-      final var offset = pageReadOnlyTrx.recordPageOffset(key);
+      final var offset = PageReadOnlyTrx.recordPageOffset(key);
       records[offset] = record;
       recordsStored++;
     }
@@ -244,7 +244,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     indexType = IndexType.getType(in.readByte());
   }
 
-  private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId, Bytes<ByteBuffer> byteBufferBytes) {
+  private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId, Bytes<ByteBuffer> byteBufferBytes,
+      PageReadOnlyTrx pageReadOnlyTrx) {
     final long key = getVarLong(in);
     final int dataSize = in.readInt();
     final byte[] data = new byte[dataSize];
@@ -252,7 +253,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     BytesUtils.doWrite(byteBufferBytes, data);
     final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, deweyId, pageReadOnlyTrx);
     byteBufferBytes.clear();
-    final var offset = pageReadOnlyTrx.recordPageOffset(key);
+    final var offset = PageReadOnlyTrx.recordPageOffset(key);
     if (records[offset] == null) {
       recordsStored++;
     }
@@ -265,8 +266,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public DataRecord getValue(final long key) {
-    final var offset = pageReadOnlyTrx.recordPageOffset(key);
+  public DataRecord getValue(final @NonNull PageReadOnlyTrx pageReadOnlyTrx, final long key) {
+    assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
+    final var offset = PageReadOnlyTrx.recordPageOffset(key);
     DataRecord record = records[offset];
     if (record == null) {
       byte[] data;
@@ -293,7 +295,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
-    final var offset = pageReadOnlyTrx.recordPageOffset(record.getNodeKey());
+    final var offset = PageReadOnlyTrx.recordPageOffset(record.getNodeKey());
     if (records[offset] == null) {
       recordsStored++;
     }
@@ -307,13 +309,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
   @SuppressWarnings("UnstableApiUsage")
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+      final SerializationType type) {
     if (bytes != null) {
       out.write(bytes);
       return;
     }
     // Add references to overflow pages if necessary.
-    addReferences();
+    addReferences(pageReadOnlyTrx);
     // Write page key.
     putVarLong(out, recordPageKey);
     // Write revision number.
@@ -357,7 +360,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
     final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Entry.comparingByKey()).toList();
     for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
-      final var pageOffset = pageReadOnlyTrx.recordPageOffset(entry.getKey());
+      final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
       overlongEntriesBitmap.set(pageOffset);
     }
     SerializationType.serializeBitSet(out, overlongEntriesBitmap);
@@ -388,7 +391,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   private void serializeDeweyRecord(SirixDeweyID id, Bytes<ByteBuffer> out) {
     final long recordKey = deweyIDs.get(id);
     putVarLong(out, recordKey);
-    final var offset = pageReadOnlyTrx.recordPageOffset(recordKey);
+    final var offset = PageReadOnlyTrx.recordPageOffset(recordKey);
     final byte[] data = slots[offset];
     final int length = data.length;
     out.writeInt(length);
@@ -438,7 +441,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
   @Override
   public void commit(@NonNull PageTrx pageWriteTrx) {
-    addReferences();
+    addReferences(pageWriteTrx);
 
     for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -449,33 +452,31 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   }
 
   // Add references to OverflowPages.
-  private void addReferences() {
+  private void addReferences(final PageReadOnlyTrx pageReadOnlyTrx) {
     if (!addedReferences) {
-      final var storeDeweyIDs = pageReadOnlyTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
-
-      if (storeDeweyIDs && recordPersister instanceof NodePersistenter) {
-        processEntries(records);
+      if (areDeweyIDsStored && recordPersister instanceof NodePersistenter) {
+        processEntries(pageReadOnlyTrx, records);
         for (final var record : records) {
           if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
             deweyIDs.put(record.getDeweyID(), record.getNodeKey());
           }
         }
       } else {
-        processEntries(records);
+        processEntries(pageReadOnlyTrx, records);
       }
 
       addedReferences = true;
     }
   }
 
-  private void processEntries(final DataRecord[] records) {
+  private void processEntries(final PageReadOnlyTrx pageReadOnlyTrx, final DataRecord[] records) {
     var out = Bytes.elasticByteBuffer(30);
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
       }
       final var recordID = record.getNodeKey();
-      final var offset = pageReadOnlyTrx.recordPageOffset(recordID);
+      final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
       if (slots[offset] == null) {
         // Must be either a normal record or one which requires an overflow page.
         recordPersister.serialize(out, record, pageReadOnlyTrx);
@@ -501,11 +502,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   @Override
   public boolean setOrCreateReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public PageReadOnlyTrx getPageReadOnlyTrx() {
-    return pageReadOnlyTrx;
   }
 
   @Override
@@ -546,7 +542,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
   @Override
   public void close() {
-    pageReadOnlyTrx.close();
   }
 
   @Override

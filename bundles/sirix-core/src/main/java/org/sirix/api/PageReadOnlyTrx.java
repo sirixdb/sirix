@@ -11,6 +11,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
 
 import java.util.Optional;
 
@@ -139,7 +140,9 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @param key record key to find offset for
    * @return offset into record page
    */
-  int recordPageOffset(long key);
+  static int recordPageOffset(long key) {
+    return (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+  }
 
   /**
    * Calculate record page key from a given record key.

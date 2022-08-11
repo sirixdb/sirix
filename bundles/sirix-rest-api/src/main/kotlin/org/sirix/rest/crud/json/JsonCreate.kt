@@ -30,7 +30,7 @@ import java.nio.file.Path
 
 private const val MAX_NODES_TO_SERIALIZE = 5000
 
-private val LOGGER = LogWrapper(LoggerFactory.getLogger(DatabasesInternals::class.java))
+private val logger = LogWrapper(LoggerFactory.getLogger(DatabasesInternals::class.java))
 
 class JsonCreate(
     private val location: Path,
@@ -230,7 +230,7 @@ class JsonCreate(
         database: Database<JsonResourceManager>,
         resConfig: ResourceConfiguration?,
     ): Boolean {
-        LOGGER.debug("Try to create resource: $resConfig")
+        logger.debug("Try to create resource: $resConfig")
         return database.createResource(resConfig)
     }
 

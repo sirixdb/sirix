@@ -59,14 +59,12 @@ class Revisions {
         }
 
         fun parseRevisionTimestamp(revision: String): ZonedDateTime {
-            var revisionDateTime: LocalDateTime
-            try {
-                revisionDateTime = LocalDateTime.parse(revision)
+            val revisionDateTime = try {
+                LocalDateTime.parse(revision)
             } catch (e: DateTimeParseException) {
-                revisionDateTime = LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+                LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
             }
-            val zdt = revisionDateTime.atZone(ZoneOffset.UTC)
-            return zdt
+            return revisionDateTime.atZone(ZoneOffset.UTC)
         }
 
         private fun <R, W> getRevisionNumbers(

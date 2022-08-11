@@ -136,7 +136,7 @@ public final class FileReader implements Reader {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
     BytesUtils.doWrite(input, inputStream.readAllBytes());
-    final var deserializedPage = pagePersiter.deserializePage(input, pageReadTrx, serializationType);
+    final var deserializedPage = pagePersiter.deserializePage(pageReadTrx, input, serializationType);
     input.clear();
     return deserializedPage;
   }
@@ -175,10 +175,11 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final Bytes<ByteBuffer> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
+      final Bytes<ByteBuffer> input =
+          Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
-      return (RevisionRootPage) pagePersiter.deserializePage(input, pageReadTrx, serializationType);
+      return (RevisionRootPage) pagePersiter.deserializePage(pageReadTrx, input, serializationType);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }

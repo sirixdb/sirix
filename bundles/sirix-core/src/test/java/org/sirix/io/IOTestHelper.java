@@ -21,8 +21,6 @@
 
 package org.sirix.io;
 
-import static org.junit.Assert.assertEquals;
-
 import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.XmlTestHelper;
 import org.sirix.access.ResourceConfiguration;
@@ -32,6 +30,8 @@ import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
 import java.nio.ByteBuffer;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Helper class for testing the I/O interfaces.
@@ -79,7 +79,7 @@ public final class IOTestHelper {
 
     // same instance check
     final Writer writer = fac.createWriter();
-    writer.writeUberPageReference(pageRef1, bufferedBytes);
+    writer.writeUberPageReference(null, pageRef1, bufferedBytes);
     final PageReference pageRef2 = writer.readUberPageReference();
     assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
         ((UberPage) pageRef2.getPage()).getRevisionCount());
