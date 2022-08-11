@@ -17,8 +17,8 @@ public class ForEach extends RecursiveAction {
   private final TransactionIntentLog log;
   private final PageReadOnlyTrx pageTrx;
   private final PageReference[] array;
-  private int from;
-  private int to;
+  private final int from;
+  private final int to;
 
   public ForEach(TransactionIntentLog log, PageReadOnlyTrx pageTrx, PageReference[] array, int from, int to) {
     this.log = log;
@@ -53,7 +53,7 @@ public class ForEach extends RecursiveAction {
 
         if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
           final var byteBufferBytes = Bytes.elasticHeapByteBuffer();
-          unorderedKeyValuePage.serialize(byteBufferBytes, SerializationType.DATA);
+          unorderedKeyValuePage.serialize(pageTrx, byteBufferBytes, SerializationType.DATA);
         }
       }
     }

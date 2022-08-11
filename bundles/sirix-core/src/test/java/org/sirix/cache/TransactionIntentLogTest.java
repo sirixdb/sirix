@@ -1,6 +1,5 @@
 package org.sirix.cache;
 
-import net.openhft.chronicle.bytes.Bytes;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -10,7 +9,6 @@ import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.io.file.FileReader;
 import org.sirix.io.file.FileWriter;
-import org.sirix.page.PageKind;
 import org.sirix.page.PagePersister;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
@@ -18,8 +16,6 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 
@@ -59,6 +55,7 @@ public class TransactionIntentLogTest {
 
       final var persistentCache = new PersistentFileCache(fileWriter);
       final var trxIntentLog = new TransactionIntentLog(persistentCache, 1);
+      trxIntentLog.setPageReadOnlyTrx(pageReadOnlyTrx);
 
       final var firstCompletePage = new UnorderedKeyValuePage(1, IndexType.DOCUMENT, pageReadOnlyTrx);
       final var firstDeltaPage = new UnorderedKeyValuePage(1, IndexType.DOCUMENT, pageReadOnlyTrx);

@@ -22,6 +22,7 @@
 package org.sirix.io;
 
 import net.openhft.chronicle.bytes.Bytes;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 
@@ -42,7 +43,7 @@ public interface Writer extends Reader {
    * @throws SirixIOException execption to be thrown if something bad happens
    * @return this writer instance
    */
-  Writer write(PageReference pageReference, Bytes<ByteBuffer> bufferdBytes);
+  Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferdBytes);
 
   /**
    * Write beacon for the first reference.
@@ -52,7 +53,7 @@ public interface Writer extends Reader {
    * @throws SirixIOException if an I/O error occured
    * @return this writer instance
    */
-  Writer writeUberPageReference(PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
+  Writer writeUberPageReference(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Truncate to a specific revision.

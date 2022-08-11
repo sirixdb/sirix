@@ -21,6 +21,7 @@
 
 package org.sirix.settings;
 
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -29,8 +30,6 @@ import org.sirix.page.PageFragmentKeyImpl;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.PageFragmentKey;
-
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -112,7 +111,7 @@ public enum VersioningType {
       if (pages.size() == 2) {
         for (final V record : fullDump.values()) {
           final var recordKey = record.getNodeKey();
-          if (returnVal.getValue(recordKey) == null) {
+          if (returnVal.getValue(pageReadTrx, recordKey) == null) {
             returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               break;
@@ -128,8 +127,6 @@ public enum VersioningType {
           }
         }
       }
-
-      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
 
       return returnVal;
     }
@@ -169,11 +166,11 @@ public enum VersioningType {
         // Iterate through the full dump.
         for (final V record : fullDump.values()) {
           final var nodeKey = record.getNodeKey();
-          if (returnVal.get(0).getValue(nodeKey) == null) {
+          if (returnVal.get(0).getValue(pageReadTrx, nodeKey) == null) {
             returnVal.get(0).setRecord(record);
           }
 
-          if (isFullDump && returnVal.get(1).getValue(nodeKey) == null) {
+          if (isFullDump && returnVal.get(1).getValue(pageReadTrx, nodeKey) == null) {
             returnVal.get(1).setRecord(record);
           }
 
@@ -201,8 +198,6 @@ public enum VersioningType {
           }
         }
       }
-
-      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
 
       final var pageContainer = PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
       log.put(reference, pageContainer);
@@ -233,7 +228,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal =
-          firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), firstPage.getPageReadOnlyTrx());
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -243,7 +238,7 @@ public enum VersioningType {
         }
         for (final V record : page.values()) {
           final long recordKey = record.getNodeKey();
-          if (returnVal.getValue(recordKey) == null) {
+          if (returnVal.getValue(pageReadTrx, recordKey) == null) {
             returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
@@ -264,8 +259,6 @@ public enum VersioningType {
           }
         }
       }
-
-      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
 
       return returnVal;
     }
@@ -300,10 +293,10 @@ public enum VersioningType {
         for (final V record : page.values()) {
           // Caching the complete page.
           final long recordKey = record.getNodeKey();
-          if (returnVal.get(0).getValue(recordKey) == null) {
+          if (returnVal.get(0).getValue(pageReadTrx, recordKey) == null) {
             returnVal.get(0).setRecord(record);
 
-            if (returnVal.get(1).getValue(recordKey) == null && isFullDump) {
+            if (returnVal.get(1).getValue(pageReadTrx, recordKey) == null && isFullDump) {
               returnVal.get(1).setRecord(record);
             }
 
@@ -333,8 +326,6 @@ public enum VersioningType {
           }
         }
       }
-
-      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
 
       final var pageContainer = PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
       log.put(reference, pageContainer);
@@ -373,7 +364,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal =
-          firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), firstPage.getPageReadOnlyTrx());
+          firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -383,7 +374,7 @@ public enum VersioningType {
         }
         for (final V record : page.values()) {
           final long recordKey = record.getNodeKey();
-          if (returnVal.getValue(recordKey) == null) {
+          if (returnVal.getValue(pageReadTrx, recordKey) == null) {
             returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
@@ -404,8 +395,6 @@ public enum VersioningType {
           }
         }
       }
-
-      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
 
       return returnVal;
     }
@@ -445,11 +434,11 @@ public enum VersioningType {
             pageWithRecordsInSlidingWindow.setRecord(record);
           }
 
-          if (completePage.getValue(recordKey) == null) {
+          if (completePage.getValue(pageReadTrx, recordKey) == null) {
             completePage.setRecord(record);
           }
 
-          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(recordKey) == null) {
+          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(pageReadTrx, recordKey) == null) {
             modifyingPage.setRecord(record);
           }
 
@@ -484,8 +473,6 @@ public enum VersioningType {
         }
       }
 
-      closePageReadOnlyTrxIfItIsNotCurrentTrx(pages, pageReadTrx);
-
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, pageContainer);
       return pageContainer;
@@ -511,16 +498,6 @@ public enum VersioningType {
       return retVal;
     }
   };
-
-  private static <V extends DataRecord, T extends KeyValuePage<V>> void closePageReadOnlyTrxIfItIsNotCurrentTrx(
-      List<T> pages, PageReadOnlyTrx pageReadTrx) {
-    for (final T page : pages) {
-      final var trx = page.getPageReadOnlyTrx();
-      if (trx != pageReadTrx) {
-        trx.close();
-      }
-    }
-  }
 
   /**
    * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus

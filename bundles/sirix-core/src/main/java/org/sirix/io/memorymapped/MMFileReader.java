@@ -42,7 +42,6 @@ import org.sirix.page.interfaces.Page;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.time.Instant;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -77,7 +76,7 @@ public final class MMFileReader implements Reader {
    * Used to serialize/deserialize pages.
    */
   private final PagePersister pagePersitenter;
-  private MemorySegment dataFileSegment;
+  private final MemorySegment dataFileSegment;
 
   private final MemorySegment revisionsOffsetFileSegment;
 
@@ -179,7 +178,7 @@ public final class MMFileReader implements Reader {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
     BytesUtils.doWrite(input, inputStream.readAllBytes());
-    final var deserializedPage = pagePersitenter.deserializePage(input, pageReadTrx, type);
+    final var deserializedPage = pagePersitenter.deserializePage(pageReadTrx, input, type);
     input.clear();
     return deserializedPage;
   }

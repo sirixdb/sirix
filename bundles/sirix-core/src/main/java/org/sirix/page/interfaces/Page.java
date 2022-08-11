@@ -22,6 +22,7 @@ package org.sirix.page.interfaces;
 
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
@@ -45,7 +46,7 @@ public interface Page extends AutoCloseable {
    * @param out  {@link DataOutput} to serialize to
    * @param type serialization type (currently transaction intent log or normal commit)
    */
-  void serialize(Bytes<ByteBuffer> out, SerializationType type);
+  void serialize(PageReadOnlyTrx pageReadOnlyTrx, Bytes<ByteBuffer> out, SerializationType type);
 
   default Page clearPage() {
     return this;

@@ -23,22 +23,16 @@ package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
-import org.sirix.api.PageTrx;
-import org.sirix.cache.PageContainer;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.DeserializedReferencesPage4Tuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import java.io.DataInput;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Class to provide basic reference handling functionality.
@@ -149,15 +143,8 @@ public final class ReferencesPage4 implements Page {
     return true;
   }
 
-  /**
-   * Serialize page references into output.
-   *
-   * @param out  output stream
-   * @param type the type to serialize (transaction intent log or the data file
-   *             itself).
-   */
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
     assert out != null;
     assert type != null;
 

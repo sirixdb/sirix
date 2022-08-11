@@ -1,6 +1,8 @@
 package org.sirix.access.trx.page;
 
 import com.google.common.collect.ForwardingObject;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
@@ -12,11 +14,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-
-import java.util.Optional;
 
 /**
  * Forwards all methods to the delegate.
@@ -35,11 +32,6 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   @Override
   public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
     return delegate().dereferenceIndirectPageReference(indirectPageReference);
-  }
-
-  @Override
-  public int recordPageOffset(long key) {
-    return delegate().recordPageOffset(key);
   }
 
   @Override
@@ -154,5 +146,5 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  protected abstract PageReadOnlyTrx delegate();
+  protected abstract @NonNull PageReadOnlyTrx delegate();
 }

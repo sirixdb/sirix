@@ -25,8 +25,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.io.Reader;
 import org.sirix.io.IOStorage;
+import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
@@ -85,7 +85,7 @@ public final class StorageTest {
       try (final Writer writer = handler.createWriter()) {
         var ref = new PageReference();
         ref.setPage(new UberPage());
-        writer.writeUberPageReference(ref, bytes);
+        writer.writeUberPageReference(null, ref, bytes);
       }
 
       assertTrue("writing a single page should mark the Storage as existing", handler.exists());
@@ -110,7 +110,7 @@ public final class StorageTest {
         // same instance check
         final PageReference pageRef2;
         try (final Writer writer = handler.createWriter()) {
-          pageRef2 = writer.writeUberPageReference(pageRef1, bytes).readUberPageReference();
+          pageRef2 = writer.writeUberPageReference(null, pageRef1, bytes).readUberPageReference();
           assertEquals("Check for " + handler.getClass() + " failed.",
               ((UberPage) pageRef1.getPage()).getRevisionCount(), ((UberPage) pageRef2.getPage()).getRevisionCount());
         }

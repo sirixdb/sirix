@@ -45,46 +45,74 @@ import java.util.Map;
  */
 public final class NamePage extends AbstractForwardingPage {
 
-  /** Offset of reference to attributes index-tree. */
+  /**
+   * Offset of reference to attributes index-tree.
+   */
   public static final int ATTRIBUTES_REFERENCE_OFFSET = 0;
 
-  /** Offset of reference to elements index-tree. */
+  /**
+   * Offset of reference to elements index-tree.
+   */
   public static final int ELEMENTS_REFERENCE_OFFSET = 1;
 
-  /** Offset of reference to namespace index-tree. */
+  /**
+   * Offset of reference to namespace index-tree.
+   */
   public static final int NAMESPACE_REFERENCE_OFFSET = 2;
 
-  /** Offset of reference to processing instruction index-tree. */
+  /**
+   * Offset of reference to processing instruction index-tree.
+   */
   public static final int PROCESSING_INSTRUCTION_REFERENCE_OFFSET = 3;
 
-  /** Offset of reference to processing instruction index-tree. */
+  /**
+   * Offset of reference to processing instruction index-tree.
+   */
   public static final int JSON_OBJECT_KEY_REFERENCE_OFFSET = 0;
 
-  /** Attribute names. */
+  /**
+   * Attribute names.
+   */
   private Names attributes;
 
-  /** Element names. */
+  /**
+   * Element names.
+   */
   private Names elements;
 
-  /** Namespace URIs. */
+  /**
+   * Namespace URIs.
+   */
   private Names namespaces;
 
-  /** Processing instruction names. */
+  /**
+   * Processing instruction names.
+   */
   private Names processingInstructions;
 
-  /** JSON Object key names. */
+  /**
+   * JSON Object key names.
+   */
   private Names jsonObjectKeys;
 
-  /** The references page delegate instance. */
+  /**
+   * The references page delegate instance.
+   */
   private Page delegate;
 
-  /** The number of arrays stored. */
+  /**
+   * The number of arrays stored.
+   */
   private final int numberOfArrays;
 
-  /** Maximum node keys. */
+  /**
+   * Maximum node keys.
+   */
   private final Map<Integer, Long> maxNodeKeys;
 
-  /** Current maximum levels of indirect pages in the tree. */
+  /**
+   * Current maximum levels of indirect pages in the tree.
+   */
   private final Map<Integer, Integer> currentMaxLevelsOfIndirectPages;
 
   /**
@@ -285,12 +313,11 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Create name key given a name.
    *
-   * @param name name to create key for
+   * @param name     name to create key for
    * @param nodeKind kind of node
    * @return the created key
    */
-  public int setName(final String name, final NodeKind nodeKind,
-      final PageTrx pageTrx) {
+  public int setName(final String name, final NodeKind nodeKind, final PageTrx pageTrx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
@@ -337,13 +364,14 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+      final SerializationType type) {
     if (delegate instanceof ReferencesPage4) {
       out.writeByte((byte) 0);
     } else if (delegate instanceof BitmapReferencesPage) {
       out.writeByte((byte) 1);
     }
-    super.serialize(out, type);
+    super.serialize(pageReadOnlyTrx, out, type);
     final int size = maxNodeKeys.size();
     out.writeInt(size);
     for (int i = 0; i < size; i++) {
@@ -367,7 +395,7 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   @Override
-  public String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("elements", elements)
                       .add("attributes", attributes)
@@ -381,8 +409,7 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final NodeKind nodeKind,
-      final PageTrx pageTrx) {
+  public void removeName(final int key, final NodeKind nodeKind, final PageTrx pageTrx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
@@ -436,18 +463,16 @@ public final class NamePage extends AbstractForwardingPage {
    * @param index        the index number
    * @param log          the transaction intent log
    */
-  public void createNameIndexTree(final DatabaseType databaseType,
-                                  final PageReadOnlyTrx pageReadTrx,
-                                  final int index,
-                                  final TransactionIntentLog log) {
+  public void createNameIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx, final int index,
+      final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
       reference = delegate.getOrCreateReference(index);
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT
-            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+        && reference.getLogKey() == Constants.NULL_ID_INT
+        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
       PageUtils.createTree(databaseType, reference, IndexType.NAME, pageReadTrx, log);
       if (maxNodeKeys.get(index) == null) {
         maxNodeKeys.put(index, 0L);

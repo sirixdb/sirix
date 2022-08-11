@@ -23,7 +23,7 @@ import java.nio.file.Path
 /**
  * [LogWrapper] reference.
  */
-private val LOGGER = LogWrapper(LoggerFactory.getLogger(DiffHandler::class.java))
+private val logger = LogWrapper(LoggerFactory.getLogger(DiffHandler::class.java))
 
 class DiffHandler(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -35,7 +35,7 @@ class DiffHandler(private val location: Path) {
             throw IllegalArgumentException("Database name and resource name must be in the URL path.")
         }
 
-        LOGGER.debug("Open databases before: ${DatabasesInternals.getOpenDatabases()}")
+        logger.debug("Open databases before: ${DatabasesInternals.getOpenDatabases()}")
         
         val database = openDatabase(databaseName)
 
@@ -98,7 +98,7 @@ class DiffHandler(private val location: Path) {
             resultPromise.complete(diffString)
         }.await()
 
-        LOGGER.debug("Open databases after: ${DatabasesInternals.getOpenDatabases()}")
+        logger.debug("Open databases after: ${DatabasesInternals.getOpenDatabases()}")
 
         val res = ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")

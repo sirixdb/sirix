@@ -1,17 +1,14 @@
 package org.sirix.page.interfaces;
 
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Set;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.IndexType;
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+
+import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * Key/Value page.
@@ -38,10 +35,11 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
   /**
    * Get value with the specified key.
    *
+   * @param pageReadOnlyTrx the page read only transaction
    * @param key the key
    * @return value with given key, or {@code null} if not present
    */
-  V getValue(long key);
+  V getValue(@NonNull PageReadOnlyTrx pageReadOnlyTrx, long key);
 
   /**
    * Store or overwrite a single entry. The implementation must make sure if the key must be
@@ -77,13 +75,6 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
 
   /**
-   * Get the {@link PageReadOnlyTrx}.
-   *
-   * @return page reading transaction
-   */
-  PageReadOnlyTrx getPageReadOnlyTrx();
-
-  /**
    * Get the index type.
    *
    * @return index type
@@ -96,13 +87,6 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    * @return number of entries/slots/page references filled
    */
   int size();
-
-//  /**
-//   * Get the optional {@link PageReference}s pointing to the previous versions / page fragments of the page
-//   *
-//   * @return optional {@link PageReference} pointing to the previous versions / page fragments of the page
-//   */
-//  List<PageFragmentKey> getPreviousReferenceKeys();
 
   int getRevision();
 }

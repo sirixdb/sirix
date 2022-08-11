@@ -16,7 +16,7 @@ public final class PersistentFileCache implements AutoCloseable {
     this.writer = checkNotNull(writer);
   }
 
-  public PageContainer get(PageReference reference, final PageReadOnlyTrx pageReadTrx) {
+  public PageContainer get(final PageReadOnlyTrx pageReadTrx, PageReference reference) {
     checkNotNull(pageReadTrx);
 
     if (reference.getPersistentLogKey() < 0)
@@ -37,15 +37,15 @@ public final class PersistentFileCache implements AutoCloseable {
     return PageContainer.getInstance(completePage, modifiedPage);
   }
 
-  public PersistentFileCache put(PageReference reference, PageContainer container) {
+  public PersistentFileCache put(final PageReadOnlyTrx pageReadTrx, PageReference reference, PageContainer container) {
     reference.setPage(container.getModified());
-    writer.write(reference, null);
+    writer.write(pageReadTrx, reference, null);
 
     if (container.getModified() instanceof KeyValuePage) {
       final long offset = reference.getPersistentLogKey();
 //      int length = reference.getLength();
       reference.setPage(container.getComplete());
-      writer.write(reference, null);
+      writer.write(pageReadTrx, reference, null);
 //      length += reference.getLength();
       reference.setPersistentLogKey(offset);
 //      reference.setLength(length);

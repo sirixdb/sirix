@@ -3,8 +3,6 @@ package org.sirix.rest.crud
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.core.net.closeAwait
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases.*
@@ -31,7 +29,7 @@ class PathSummaryHandler(private val location: Path) {
                 val manager = database.openResourceManager(resourceName)
 
                 manager.use {
-                    if (manager.getResourceConfig().withPathSummary) {
+                    if (manager.resourceConfig.withPathSummary) {
                         val revision = ctx.queryParam("revision")[0]
 
                         val pathSummary = manager.openPathSummary(revision.toInt())

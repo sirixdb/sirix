@@ -22,13 +22,13 @@
 package org.sirix.page;
 
 import net.openhft.chronicle.bytes.Bytes;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.FullReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 /**
@@ -104,7 +104,8 @@ public final class IndirectPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(Bytes<ByteBuffer> out, SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+      final SerializationType type) {
     if (delegate instanceof ReferencesPage4) {
       out.writeByte((byte) 0);
     } else if (delegate instanceof BitmapReferencesPage) {
@@ -112,6 +113,6 @@ public final class IndirectPage extends AbstractForwardingPage {
     } else if (delegate instanceof FullReferencesPage) {
       out.writeByte((byte) 2);
     }
-    super.serialize(out, type);
+    super.serialize(pageReadOnlyTrx, out, type);
   }
 }

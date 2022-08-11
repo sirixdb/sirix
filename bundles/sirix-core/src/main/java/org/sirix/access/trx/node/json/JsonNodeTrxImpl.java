@@ -1058,7 +1058,7 @@ final class JsonNodeTrxImpl extends
 
       indexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && nodeHashing.isBulkInsert()) {
+      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 
@@ -1108,7 +1108,7 @@ final class JsonNodeTrxImpl extends
 
       indexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && nodeHashing.isBulkInsert()) {
+      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
       }
 

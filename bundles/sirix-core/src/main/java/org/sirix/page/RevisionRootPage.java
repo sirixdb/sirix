@@ -36,7 +36,6 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.Optional;
@@ -393,9 +392,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
     revisionTimestamp = commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
-    delegate.serialize(checkNotNull(out), checkNotNull(type));
+    delegate.serialize(pageReadOnlyTrx, out, type);
     out.writeInt(revision);
     out.writeLong(maxNodeKeyInDocumentIndex);
     out.writeLong(maxNodeKeyInChangedNodesIndex);

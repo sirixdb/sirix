@@ -14,9 +14,9 @@ import org.sirix.service.InsertPosition
 import org.sirix.settings.Fixed
 
 class KotlinJsonStreamingShredder(
-    val wtx: JsonNodeTrx,
-    val parser: JsonParser,
-    var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD
+    private val wtx: JsonNodeTrx,
+    private val parser: JsonParser,
+    private var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD
 ) {
     private val parents = LongArrayList()
 
@@ -53,6 +53,7 @@ class KotlinJsonStreamingShredder(
 
                 // Iterate over all nodes.
                 parser.handler { event ->
+                    @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA")
                     when (event.type()) {
                         JsonEventType.START_OBJECT -> {
                             level++
@@ -94,10 +95,10 @@ class KotlinJsonStreamingShredder(
                             }
                             val value = event.value()
                             if (name != null) {
-                                if (value == null) {
-                                    keyValue = KeyValue(name, NullValue())
+                                keyValue = if (value == null) {
+                                    KeyValue(name, NullValue())
                                 } else {
-                                    keyValue = KeyValue(name, value)
+                                    KeyValue(name, value)
                                 }
                             } else if (value is Number) {
                                 val insertedNumberValueNodeKey = insertNumberValue(value)
@@ -194,24 +195,23 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun insertStringValue(stringValue: String): Long {
-        val value = stringValue
         val key = when (insert) {
             InsertPosition.AS_FIRST_CHILD -> {
                 if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
-                    wtx.insertStringValueAsFirstChild(value).nodeKey
+                    wtx.insertStringValueAsFirstChild(stringValue).nodeKey
                 } else {
-                    wtx.insertStringValueAsRightSibling(value).nodeKey
+                    wtx.insertStringValueAsRightSibling(stringValue).nodeKey
                 }
             }
             InsertPosition.AS_LAST_CHILD -> {
                 if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
-                    wtx.insertStringValueAsLastChild(value).nodeKey
+                    wtx.insertStringValueAsLastChild(stringValue).nodeKey
                 } else {
-                    wtx.insertStringValueAsRightSibling(value).nodeKey
+                    wtx.insertStringValueAsRightSibling(stringValue).nodeKey
                 }
             }
-            InsertPosition.AS_LEFT_SIBLING -> wtx.insertStringValueAsLeftSibling(value).nodeKey
-            InsertPosition.AS_RIGHT_SIBLING -> wtx.insertStringValueAsRightSibling(value).nodeKey
+            InsertPosition.AS_LEFT_SIBLING -> wtx.insertStringValueAsLeftSibling(stringValue).nodeKey
+            InsertPosition.AS_RIGHT_SIBLING -> wtx.insertStringValueAsRightSibling(stringValue).nodeKey
         }
 
         adaptTrxPosAndStack(false, key)
@@ -266,7 +266,7 @@ class KotlinJsonStreamingShredder(
         return key
     }
 
-    fun adaptTrxPosAndStack(nextTokenIsParent: Boolean, key: Long) {
+    private fun adaptTrxPosAndStack(nextTokenIsParent: Boolean, key: Long) {
         parents.popLong()
 
         if (nextTokenIsParent)

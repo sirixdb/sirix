@@ -24,6 +24,7 @@ package org.sirix.io.file;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import net.openhft.chronicle.bytes.Bytes;
 import org.jetbrains.annotations.NotNull;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.*;
 import org.sirix.page.*;
@@ -108,18 +109,20 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    * @throws SirixIOException if errors during writing occur
    */
   @Override
-  public FileWriter write(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+  public FileWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+      final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
       long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
-      return writePageReference(pageReference, offset);
+      return writePageReference(pageReadOnlyTrx, pageReference, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @NotNull
-  private FileWriter writePageReference(final PageReference pageReference, long offset) {
+  private FileWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+      long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -130,7 +133,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000);
            final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
-        pagePersister.serializePage(byteBufferBytes, page, type);
+        pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, type);
         final var byteArray = byteBufferBytes.toByteArray();
         dataOutput.write(byteArray);
         dataOutput.flush();
@@ -161,14 +164,11 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       // Remember page coordinates.
       switch (type) {
-        case DATA:
-          pageReference.setKey(offset);
-          break;
-        case TRANSACTION_INTENT_LOG:
-          pageReference.setPersistentLogKey(offset);
-          break;
-        default:
-          // Must not happen.
+        case DATA -> pageReference.setKey(offset);
+        case TRANSACTION_INTENT_LOG -> pageReference.setPersistentLogKey(offset);
+        default -> {
+        }
+        // Must not happen.
       }
 
       if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
@@ -224,11 +224,12 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+      final Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(pageReference, 0);
+    writePageReference(pageReadOnlyTrx, pageReference, 0);
     isFirstUberPage = false;
-    writePageReference(pageReference, 100);
+    writePageReference(pageReadOnlyTrx, pageReference, 100);
     return this;
   }
 

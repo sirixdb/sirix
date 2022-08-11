@@ -653,9 +653,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
                                                                     lastCommittedUberPage.get(),
                                                                     revision,
                                                                     storage.createReader(),
-                                                                    null,
                                                                     bufferManager,
-                                                                    new RevisionRootPageReader());
+                                                                    new RevisionRootPageReader(),
+                                                                    null);
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {

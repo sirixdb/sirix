@@ -36,7 +36,7 @@ class HistoryHandler(private val location: Path) {
 
                     val historyList = if (numberOfRevisions.isEmpty()) {
                         if (startRevision.isEmpty() && endRevision.isEmpty()) {
-                            manager.getHistory()
+                            manager.history
                         } else {
                             val startRevisionAsInt = startRevision[0].toInt()
                             val endRevisionAsInt = endRevision[0].toInt()

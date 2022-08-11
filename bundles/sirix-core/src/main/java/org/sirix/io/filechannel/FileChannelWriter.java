@@ -24,6 +24,7 @@ package org.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import net.openhft.chronicle.bytes.Bytes;
 import org.jetbrains.annotations.NotNull;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.*;
 import org.sirix.page.*;
@@ -104,11 +105,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public FileChannelWriter write(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes)
-      throws SirixIOException {
+  public FileChannelWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+      final Bytes<ByteBuffer> bufferedBytes) throws SirixIOException {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageReference, bufferedBytes, offset);
+      return writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -130,15 +131,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @NotNull
-  private FileChannelWriter writePageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes,
-      long offset) {
+  private FileChannelWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+      final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       final Page page = pageReference.getPage();
       assert page != null;
 
-      pagePersister.serializePage(byteBufferBytes, page, type);
+      pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, type);
       final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
@@ -253,16 +254,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+      final Bytes<ByteBuffer> bufferedBytes) {
     try {
       if (bufferedBytes.writePosition() > 0) {
         flushBuffer(bufferedBytes);
       }
 
       isFirstUberPage = true;
-      writePageReference(pageReference, bufferedBytes, 0);
+      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, 0);
       isFirstUberPage = false;
-      writePageReference(pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
       final var buffer = bufferedBytes.underlyingObject().rewind();
       buffer.limit((int) bufferedBytes.readLimit());
@@ -313,24 +315,26 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return this;
   }
 
-  /** Convert the byte[] into a String to be used for logging and debugging.
+  /**
+   * Convert the byte[] into a String to be used for logging and debugging.
    *
    * @param bytes the byte[] to be dumped
    * @return the String representation
    */
   public static String dumpBytes(byte[] bytes) {
-    StringBuffer buffer = new StringBuffer("byte[");
+    StringBuilder buffer = new StringBuilder("byte[");
     buffer.append(bytes.length);
     buffer.append("]: [");
-    for (int i = 0; i < bytes.length; ++i) {
-      buffer.append((int) bytes[i]);
+    for (byte aByte : bytes) {
+      buffer.append(aByte);
       buffer.append(" ");
     }
     buffer.append("]");
     return buffer.toString();
   }
 
-  /** Convert the byteBuffer into a String to be used for logging and debugging.
+  /**
+   * Convert the byteBuffer into a String to be used for logging and debugging.
    *
    * @param byteBuffer the byteBuffer to be dumped
    * @return the String representation

@@ -2,6 +2,7 @@ package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -11,7 +12,6 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -79,7 +79,7 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   @Override
-  public String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this).add("mDelegate", delegate).toString();
   }
 
@@ -118,13 +118,13 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
     if (delegate instanceof ReferencesPage4) {
       out.writeByte((byte) 0);
     } else if (delegate instanceof BitmapReferencesPage) {
       out.writeByte((byte) 1);
     }
-    super.serialize(out, type);
+    super.serialize(pageReadOnlyTrx, out, type);
     final int maxNodeKeySize = maxNodeKeys.size();
     out.writeInt(maxNodeKeySize);
     for (int i = 0; i < maxNodeKeySize; i++) {

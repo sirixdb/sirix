@@ -25,6 +25,7 @@ import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
@@ -164,15 +165,8 @@ public final class FullReferencesPage implements Page {
     }
   }
 
-  /**
-   * Serialize page references into output.
-   *
-   * @param out  output stream
-   * @param type the type to serialize (transaction intent log or the data file
-   *             itself).
-   */
   @Override
-  public void serialize(final Bytes<ByteBuffer> out, final SerializationType type) {
+  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
     assert out != null;
     assert type != null;
     type.serializeFullReferencesPage(out, references);
