@@ -111,7 +111,7 @@ public enum VersioningType {
       if (pages.size() == 2) {
         for (final V record : fullDump.values()) {
           final var recordKey = record.getNodeKey();
-          if (returnVal.getValue(pageReadTrx, recordKey) == null) {
+          if (returnVal.getValue(null, recordKey) == null) {
             returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               break;
@@ -166,11 +166,11 @@ public enum VersioningType {
         // Iterate through the full dump.
         for (final V record : fullDump.values()) {
           final var nodeKey = record.getNodeKey();
-          if (returnVal.get(0).getValue(pageReadTrx, nodeKey) == null) {
+          if (returnVal.get(0).getValue(null, nodeKey) == null) {
             returnVal.get(0).setRecord(record);
           }
 
-          if (isFullDump && returnVal.get(1).getValue(pageReadTrx, nodeKey) == null) {
+          if (isFullDump && returnVal.get(1).getValue(null, nodeKey) == null) {
             returnVal.get(1).setRecord(record);
           }
 
@@ -238,7 +238,7 @@ public enum VersioningType {
         }
         for (final V record : page.values()) {
           final long recordKey = record.getNodeKey();
-          if (returnVal.getValue(pageReadTrx, recordKey) == null) {
+          if (returnVal.getValue(null, recordKey) == null) {
             returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
@@ -293,10 +293,10 @@ public enum VersioningType {
         for (final V record : page.values()) {
           // Caching the complete page.
           final long recordKey = record.getNodeKey();
-          if (returnVal.get(0).getValue(pageReadTrx, recordKey) == null) {
+          if (returnVal.get(0).getValue(null, recordKey) == null) {
             returnVal.get(0).setRecord(record);
 
-            if (returnVal.get(1).getValue(pageReadTrx, recordKey) == null && isFullDump) {
+            if (returnVal.get(1).getValue(null, recordKey) == null && isFullDump) {
               returnVal.get(1).setRecord(record);
             }
 
@@ -374,7 +374,7 @@ public enum VersioningType {
         }
         for (final V record : page.values()) {
           final long recordKey = record.getNodeKey();
-          if (returnVal.getValue(pageReadTrx, recordKey) == null) {
+          if (returnVal.getValue(null, recordKey) == null) {
             returnVal.setRecord(record);
             if (returnVal.size() == Constants.NDP_NODE_COUNT) {
               filledPage = true;
@@ -434,11 +434,11 @@ public enum VersioningType {
             pageWithRecordsInSlidingWindow.setRecord(record);
           }
 
-          if (completePage.getValue(pageReadTrx, recordKey) == null) {
+          if (completePage.getValue(null, recordKey) == null) {
             completePage.setRecord(record);
           }
 
-          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(pageReadTrx, recordKey) == null) {
+          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getValue(null, recordKey) == null) {
             modifyingPage.setRecord(record);
           }
 

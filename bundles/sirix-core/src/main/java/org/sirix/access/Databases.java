@@ -79,7 +79,7 @@ public final class Databases {
     try {
       if (Cipher.getInstance("AES/GCM/NoPadding").getProvider().getName().equals(AmazonCorrettoCryptoProvider.PROVIDER_NAME)) {
         // Successfully installed
-        logger.info("Successfully installed Amazon Corretto Crypto Provider.");
+        logger.debug("Successfully installed Amazon Corretto Crypto Provider.");
       }
     } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
       throw new IllegalStateException(e);
