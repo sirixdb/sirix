@@ -119,10 +119,10 @@ public final class JsonShredderTest {
                                                    .hashKind(HashType.ROLLING)
                                                    .useTextCompression(false)
                                                    .storageType(StorageType.MEMORY_MAPPED)
-                                                   .useDeweyIDs(false)
+                                                   .useDeweyIDs(true)
                                                    .build());
       try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx(5_242_880)) {
+           final var trx = manager.beginNodeTrx(262_144)) {
         trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
       }
     }
