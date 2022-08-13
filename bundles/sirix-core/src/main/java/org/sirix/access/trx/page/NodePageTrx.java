@@ -405,9 +405,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .map(PageContainer::getModified)
          .filter(page -> page instanceof UnorderedKeyValuePage)
          .forEach(page -> {
-           assert page instanceof UnorderedKeyValuePage;
            Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(10_000);
            page.serialize(this, bytes, SerializationType.DATA);
+           bytes = null;
          });
 
       // Recursively write indirectly referenced pages.

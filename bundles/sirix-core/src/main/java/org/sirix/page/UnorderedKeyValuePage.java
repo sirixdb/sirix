@@ -24,8 +24,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
 import com.google.common.hash.Hashing;
+import it.unimi.dsi.fastutil.objects.Object2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
-import it.unimi.dsi.fastutil.objects.Object2LongRBTreeMap;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -167,7 +167,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
-    deweyIDs = new Object2LongRBTreeMap<>();
+    deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
     this.revision = pageReadOnlyTrx.getRevisionNumber();
     recordsStored = 0;
     areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -189,7 +189,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
-      deweyIDs = new Object2LongRBTreeMap<>();
+      deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
       var byteBufferBytes = Bytes.elasticByteBuffer();
@@ -207,7 +207,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       byteBufferBytes.clear();
       byteBufferBytes = null;
     } else {
-      deweyIDs = new Object2LongRBTreeMap<>();
+      deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
       records = new DataRecord[Constants.NDP_NODE_COUNT];
     }
 
@@ -326,25 +326,19 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistence) {
       // Write dewey IDs.
       out.writeInt(deweyIDs.size());
-      List<byte[]> ids = new ArrayList<>(deweyIDs.size());
-      for (var deweyId : deweyIDs.keySet()) {
-        ids.add(deweyId.toBytes());
-      }
-      final var iter = Iterators.peekingIterator(ids.iterator());
-      byte[] id = null;
-      final Iterator<SirixDeweyID> deweyIdIterator = deweyIDs.keySet().iterator();
+      final var iter = Iterators.peekingIterator(deweyIDs.keySet().iterator());
+      SirixDeweyID id = null;
       if (iter.hasNext()) {
         id = iter.next();
-        persistence.serializeDeweyID(out, id, null, resourceConfig);
-        serializeDeweyRecord(deweyIdIterator.next(), out);
+        persistence.serializeDeweyID(out, id.toBytes(), null, resourceConfig);
+        serializeDeweyRecord(id, out);
       }
       while (iter.hasNext()) {
         final var nextDeweyID = iter.next();
-        persistence.serializeDeweyID(out, id, nextDeweyID, resourceConfig);
-        serializeDeweyRecord(deweyIdIterator.next(), out);
+        persistence.serializeDeweyID(out, id.toBytes(), nextDeweyID.toBytes(), resourceConfig);
+        serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }
-      ids = null;
     }
 
     var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
