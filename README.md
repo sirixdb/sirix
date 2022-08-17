@@ -37,7 +37,7 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
 
 **Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project.**
 
-**Note: Work on a frontend built with [SolidJS](https://solidjs.com), [D3.js](https://d3js), and Typescript has just begun.**
+**Note: Let us know if you'd like to build a brand-new frontend with for instance [SolidJS](https://solidjs.com), [D3.js](https://d3js), and Typescript.**
 
 **Discuss it in the [Community Forum](https://sirix.discourse.group).**
 
