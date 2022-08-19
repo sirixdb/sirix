@@ -220,7 +220,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     for (int index = 0; index < normalEntrySize; index++) {
       setBit = entriesBitmap.nextSetBit(setBit + 1);
       assert setBit >= 0;
-      final long key = recordPageKey * Constants.NDP_NODE_COUNT + setBit;
+      final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.read(data);
@@ -238,7 +238,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     for (int index = 0; index < overlongEntrySize; index++) {
       setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
       assert setBit >= 0;
-      final long key = recordPageKey * Constants.NDP_NODE_COUNT + setBit;
+      //recordPageKey * Constants.NDP_NODE_COUNT + setBit;
+      final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
       final PageReference reference = new PageReference();
       reference.setKey(in.readLong());
       references.put(key, reference);

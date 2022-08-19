@@ -12,12 +12,10 @@ import org.sirix.dagger.ResourceManagerScope;
  * @author Joao Sousa
  */
 @ResourceManagerScope
-@Subcomponent(modules = {JsonResourceManagerModule.class, ResourceManagerModule.class})
+@Subcomponent(modules = { JsonResourceManagerModule.class, ResourceManagerModule.class })
 public interface JsonResourceManagerComponent extends GenericResourceManagerComponent<JsonResourceManager> {
-    
-    @Subcomponent.Builder
-    interface Builder extends GenericResourceManagerComponent.Builder<Builder, JsonResourceManager,
-            JsonResourceManagerComponent> {
-
-    }
+  @Subcomponent.Builder
+  interface Builder
+      extends GenericResourceManagerComponent.Builder<Builder, JsonResourceManager, JsonResourceManagerComponent> {
+  }
 }

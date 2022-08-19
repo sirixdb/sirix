@@ -9,21 +9,20 @@ import org.sirix.api.ResourceManager;
  *
  * @author Joao Sousa
  */
-public interface GenericLocalDatabaseComponent<R extends ResourceManager<?, ?>,
-        C extends GenericResourceManagerComponent.Builder<C, R, ?>> {
+public interface GenericLocalDatabaseComponent<R extends ResourceManager<?, ?>, C extends GenericResourceManagerComponent.Builder<C, R, ?>> {
 
-    Database<R> database();
+  Database<R> database();
 
-    C resourceManagerBuilder();
+  C resourceManagerBuilder();
 
-    interface Builder<B extends Builder<B>> {
+  interface Builder<B extends Builder<B>> {
 
-        @BindsInstance
-        B databaseConfiguration(DatabaseConfiguration configuration);
+    @BindsInstance
+    B databaseConfiguration(DatabaseConfiguration configuration);
 
-        @BindsInstance
-        B user(User user);
+    @BindsInstance
+    B user(User user);
 
-        GenericLocalDatabaseComponent build();
-    }
+    GenericLocalDatabaseComponent build();
+  }
 }

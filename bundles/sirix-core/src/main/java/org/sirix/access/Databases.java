@@ -26,7 +26,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @author Johannes Lichtenberger
  * @author Sebastian Graf, University of Konstanz
- *
  */
 public final class Databases {
 
@@ -77,7 +76,10 @@ public final class Databases {
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     try {
-      if (Cipher.getInstance("AES/GCM/NoPadding").getProvider().getName().equals(AmazonCorrettoCryptoProvider.PROVIDER_NAME)) {
+      if (Cipher.getInstance("AES/GCM/NoPadding")
+                .getProvider()
+                .getName()
+                .equals(AmazonCorrettoCryptoProvider.PROVIDER_NAME)) {
         // Successfully installed
         logger.debug("Successfully installed Amazon Corretto Crypto Provider.");
       }
@@ -159,8 +161,8 @@ public final class Databases {
    * @param file determines where the database is located
    * @param user user used to open the database
    * @return {@link Database} instance.
-   * @throws SirixIOException if an I/O exception occurs
-   * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixIOException     if an I/O exception occurs
+   * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file, final User user) {
@@ -174,8 +176,8 @@ public final class Databases {
    * @param file determines where the database is located
    * @param user the user who interacts with the db
    * @return {@link Database} instance.
-   * @throws SirixIOException if an I/O exception occurs
-   * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixIOException     if an I/O exception occurs
+   * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file, final User user) {
@@ -188,8 +190,8 @@ public final class Databases {
    *
    * @param file determines where the database is located
    * @return {@link Database} instance.
-   * @throws SirixIOException if an I/O exception occurs
-   * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixIOException     if an I/O exception occurs
+   * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file) {
@@ -211,24 +213,20 @@ public final class Databases {
    *
    * @param file determines where the database is located
    * @return {@link Database} instance.
-   * @throws SirixIOException if an I/O exception occurs
-   * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixIOException     if an I/O exception occurs
+   * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
     return openDatabase(file, createAdminUser(), DatabaseType.XML);
   }
 
-  private static <M extends ResourceManager<R, W>,
-          R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
-          final Path file,
-          final User user,
-          final DatabaseType databaseType) {
+  private static <M extends ResourceManager<R, W>, R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
+      final Path file, final User user, final DatabaseType databaseType) {
     checkNotNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
-    com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
     final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file);
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
