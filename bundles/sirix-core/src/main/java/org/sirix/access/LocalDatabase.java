@@ -8,16 +8,8 @@ import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
-
-import java.time.Instant;
-
-import org.sirix.api.Database;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.Transaction;
-import org.sirix.api.TransactionManager;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.sirix.api.*;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
@@ -29,12 +21,11 @@ import org.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -45,7 +36,7 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
+public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
     implements Database<T> {
 
   /**
@@ -61,27 +52,31 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   /**
    * The transaction manager.
    */
-  protected final TransactionManager transactionManager;
+  private final TransactionManager transactionManager;
 
   /**
    * Determines if the database instance is in the closed state or not.
    */
-  protected volatile boolean isClosed;
+  private volatile boolean isClosed;
 
   /**
    * Buffers / page cache for each resource.
    */
-  protected final ConcurrentMap<Path, BufferManager> bufferManagers;
+  private static final ConcurrentMap<Path, BufferManager> BUFFER_MANAGERS;
+
+  static {
+    BUFFER_MANAGERS = new ConcurrentHashMap<>();
+  }
 
   /**
    * Central repository of all resource-ID/resource-name tuples.
    */
-  protected final BiMap<Long, String> resourceIDsToResourceNames;
+  private final BiMap<Long, String> resourceIDsToResourceNames;
 
   /**
    * DatabaseConfiguration with fixed settings.
    */
-  protected final DatabaseConfiguration dbConfig;
+  private final DatabaseConfiguration dbConfig;
 
   /**
    * The session management instance.
@@ -95,7 +90,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   /**
    * The resource store to open/close resource-managers.
    */
-  protected final ResourceStore<T> resourceStore;
+  private final ResourceStore<T> resourceStore;
 
   private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
 
@@ -117,7 +112,6 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
       final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
-
     this.transactionManager = transactionManager;
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
@@ -125,16 +119,15 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
     this.resourceManagers = resourceManagers;
     this.writeLocks = writeLocks;
     resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
-    bufferManagers = new ConcurrentHashMap<>();
 
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
   }
 
   private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
     if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000_000));
+      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000_000));
     } else {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000_000));
+      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000_000));
     }
   }
 
@@ -142,31 +135,32 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   public T openResourceManager(final String resourceName) {
     assertNotClosed();
 
-    final Path resourceFile =
+    final Path resourcePath =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
 
-    if (!Files.exists(resourceFile)) {
+    if (!Files.exists(resourcePath)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
-                                    resourceFile.toString());
+                                    resourcePath.toString());
     }
 
-    if (resourceStore.hasOpenResourceManager(resourceFile)) {
-      return resourceStore.getOpenResourceManager(resourceFile);
+    if (resourceStore.hasOpenResourceManager(resourcePath)) {
+      return resourceStore.getOpenResourceManager(resourcePath);
     }
 
-    final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
+    final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
 
-    // Resource of must be associated to this database.
+    // Resource must be associated with this database.
     assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getDatabaseFile());
 
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    if (!bufferManagers.containsKey(resourceFile)) {
-      addResourceToBufferManagerMapping(resourceFile, resourceConfig);
+    // Add resource to buffer manager mapping.
+    if (!BUFFER_MANAGERS.containsKey(resourcePath)) {
+      addResourceToBufferManagerMapping(resourcePath, resourceConfig);
     }
 
-    return resourceStore.openResource(resourceConfig, bufferManagers.get(resourceFile), resourceFile);
+    return resourceStore.openResource(resourceConfig, BUFFER_MANAGERS.get(resourcePath), resourcePath);
   }
 
   @Override
@@ -175,14 +169,14 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized boolean createResource(final ResourceConfiguration resConfig) {
+  public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
     assertNotClosed();
 
     boolean returnVal = true;
-    resConfig.setDatabaseConfiguration(dbConfig);
+    resourceConfig.setDatabaseConfiguration(dbConfig);
     final Path path = dbConfig.getDatabaseFile()
                               .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                              .resolve(resConfig.resourcePath);
+                              .resolve(resourceConfig.resourcePath);
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;
@@ -203,7 +197,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
               Files.createDirectory(toCreate);
 
               if (resourcePath == ResourceConfiguration.ResourcePaths.ENCRYPTION_KEY)
-                createAndStoreKeysetIfNeeded(resConfig, toCreate);
+                createAndStoreKeysetIfNeeded(resourceConfig, toCreate);
             } else {
               Files.createFile(toCreate);
             }
@@ -222,16 +216,20 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
 
       // Serialization of the config.
       resourceID.set(dbConfig.getMaxResourceID());
-      ResourceConfiguration.serialize(resConfig.setID(resourceID.getAndIncrement()));
+      ResourceConfiguration.serialize(resourceConfig.setID(resourceID.getAndIncrement()));
       dbConfig.setMaximumResourceID(resourceID.get());
-      resourceIDsToResourceNames.forcePut(resourceID.get(), resConfig.getResource().getFileName().toString());
+      resourceIDsToResourceNames.forcePut(resourceID.get(), resourceConfig.getResource().getFileName().toString());
 
-      returnVal = bootstrapResource(resConfig);
+      returnVal = bootstrapResource(resourceConfig);
     }
 
     if (!returnVal) {
       // If something was not correct, delete the partly created substructure.
-      SirixFiles.recursiveRemove(resConfig.resourcePath);
+      SirixFiles.recursiveRemove(resourceConfig.resourcePath);
+    }
+
+    if (!BUFFER_MANAGERS.containsKey(path)) {
+      addResourceToBufferManagerMapping(path, resourceConfig);
     }
 
     return returnVal;
@@ -291,7 +289,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
 
       this.writeLocks.removeWriteLock(resourceFile);
 
-      bufferManagers.remove(resourceFile);
+      BUFFER_MANAGERS.remove(resourceFile);
     }
 
     return this;
@@ -310,7 +308,7 @@ public class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, 
     return resourceIDsToResourceNames.inverse().get(checkNotNull(name));
   }
 
-  protected void assertNotClosed() {
+  private void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("Database is already closed.");
     }

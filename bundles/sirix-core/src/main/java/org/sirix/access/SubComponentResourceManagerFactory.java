@@ -14,26 +14,23 @@ import java.nio.file.Path;
  *
  * @author Joao Sousa
  */
-public class SubComponentResourceManagerFactory<B extends GenericResourceManagerComponent.Builder<B, R, ?>,
-        R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
-        implements ResourceManagerFactory<R> {
+public class SubComponentResourceManagerFactory<B extends GenericResourceManagerComponent.Builder<B, R, ?>, R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
+    implements ResourceManagerFactory<R> {
 
-    private final Provider<B> subComponentBuilder;
+  private final Provider<B> subComponentBuilder;
 
-    public SubComponentResourceManagerFactory(final Provider<B> subComponentBuilder) {
-        this.subComponentBuilder = subComponentBuilder;
-    }
+  public SubComponentResourceManagerFactory(final Provider<B> subComponentBuilder) {
+    this.subComponentBuilder = subComponentBuilder;
+  }
 
-    @Override
-    public R create(final ResourceConfiguration resourceConfig,
-                    final BufferManager bufferManager,
-                    final Path resourceFile) {
-
-        return this.subComponentBuilder.get()
-                .resourceConfig(resourceConfig)
-                .bufferManager(bufferManager)
-                .resourceFile(resourceFile)
-                .build()
-                .resourceManager();
-    }
+  @Override
+  public R create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+      final Path resourceFile) {
+    return this.subComponentBuilder.get()
+                                   .resourceConfig(resourceConfig)
+                                   .bufferManager(bufferManager)
+                                   .resourceFile(resourceFile)
+                                   .build()
+                                   .resourceManager();
+  }
 }

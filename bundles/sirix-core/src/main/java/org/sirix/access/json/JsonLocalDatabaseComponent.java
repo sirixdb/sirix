@@ -13,13 +13,13 @@ import org.sirix.dagger.DatabaseScope;
  */
 @DatabaseScope
 @Subcomponent(modules = JsonLocalDatabaseModule.class)
-public interface JsonLocalDatabaseComponent extends GenericLocalDatabaseComponent<JsonResourceManager,
-        JsonResourceManagerComponent.Builder> {
+public interface JsonLocalDatabaseComponent
+    extends GenericLocalDatabaseComponent<JsonResourceManager, JsonResourceManagerComponent.Builder> {
 
-    @Subcomponent.Builder
-    interface Builder extends GenericLocalDatabaseComponent.Builder<Builder> {
+  @Subcomponent.Builder
+  interface Builder extends GenericLocalDatabaseComponent.Builder<Builder> {
 
-        @Override
-        JsonLocalDatabaseComponent build();
-    }
+    @Override
+    JsonLocalDatabaseComponent build();
+  }
 }

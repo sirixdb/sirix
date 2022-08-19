@@ -21,13 +21,14 @@
 
 package org.sirix.api;
 
-import java.nio.file.Path;
-import java.util.List;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+
+import java.nio.file.Path;
+import java.util.List;
 
 /**
  * <p>
@@ -41,12 +42,16 @@ import org.sirix.exception.SirixIOException;
  * of a database cannot be changed.
  * </p>
  *
- *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
 public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     extends AutoCloseable {
+  /**
+   * Determines if the database is open.
+   *
+   * @return {@code true}, if it's open, {@code false} otherwise
+   */
   boolean isOpen();
 
   /**
@@ -134,6 +139,7 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
 
   /**
    * Get the database name.
+   *
    * @return the database name
    */
   String getName();

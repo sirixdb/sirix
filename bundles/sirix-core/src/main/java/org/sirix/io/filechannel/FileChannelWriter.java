@@ -50,8 +50,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public final class FileChannelWriter extends AbstractForwardingReader implements Writer {
 
   private static final byte UBER_PAGE_BYTE_ALIGN = 100;
-  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 32;
+  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
+  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
   public static final int FLUSH_SIZE = 64_000;
 
   /**
@@ -121,7 +121,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     if (fileSize == 0) {
       offset = IOStorage.FIRST_BEACON;
-      offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
+      offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN -1 )));
       offset += bufferedBytes.writePosition();
     } else {
       offset = fileSize + bufferedBytes.writePosition();
@@ -161,10 +161,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           offsetToAdd =
               UBER_PAGE_BYTE_ALIGN - ((serializedPage.length + IOStorage.OTHER_BEACON) % UBER_PAGE_BYTE_ALIGN);
         } else if (page instanceof RevisionRootPage && offset % REVISION_ROOT_PAGE_BYTE_ALIGN != 0) {
-          offsetToAdd = (int) (REVISION_ROOT_PAGE_BYTE_ALIGN - (offset % REVISION_ROOT_PAGE_BYTE_ALIGN));
+          offsetToAdd = (int) (REVISION_ROOT_PAGE_BYTE_ALIGN - (offset & (REVISION_ROOT_PAGE_BYTE_ALIGN - 1)));
           offset += offsetToAdd;
         } else if (offset % PAGE_FRAGMENT_BYTE_ALIGN != 0) {
-          offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
+          offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)));//(offset % PAGE_FRAGMENT_BYTE_ALIGN));
           offset += offsetToAdd;
         }
       }

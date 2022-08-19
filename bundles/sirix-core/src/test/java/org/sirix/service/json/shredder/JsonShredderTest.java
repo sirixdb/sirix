@@ -12,6 +12,8 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
+import org.sirix.api.Database;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.io.StorageType;
@@ -101,31 +103,51 @@ public final class JsonShredderTest {
     }
   }
 
+  // TODO: JMH test
+  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:-UseBiasedLocking -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining
   @Ignore
   @Test
   public void testChicago() {
-    final var stopWatch = new StopWatch();
     logger.info("start");
-    stopWatch.start();
     final var jsonPath = JSON.resolve("cityofchicago.json");
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                   .buildPathSummary(true)
-                                                   .storeDiffs(true)
-                                                   .storeNodeHistory(false)
-                                                   .storeChildCount(true)
-                                                   .hashKind(HashType.ROLLING)
-                                                   .useTextCompression(false)
-                                                   .storageType(StorageType.MEMORY_MAPPED)
-                                                   .useDeweyIDs(true)
-                                                   .build());
-      try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx(262_144)) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
-      }
+      createResource(jsonPath, database);
+      database.removeResource(JsonTestHelper.RESOURCE);
+
+      createResource(jsonPath, database);
+      database.removeResource(JsonTestHelper.RESOURCE);
+
+      createResource(jsonPath, database);
+      database.removeResource(JsonTestHelper.RESOURCE);
+
+      createResource(jsonPath, database);
+      database.removeResource(JsonTestHelper.RESOURCE);
+
+      createResource(jsonPath, database);
+      database.removeResource(JsonTestHelper.RESOURCE);
     }
+  }
+
+  private void createResource(Path jsonPath, Database<JsonResourceManager> database) {
+    var stopWatch = new StopWatch();
+    stopWatch.start();
+    database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                 .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                 .buildPathSummary(true)
+                                                 .storeDiffs(true)
+                                                 .storeNodeHistory(false)
+                                                 .storeChildCount(true)
+                                                 .hashKind(HashType.ROLLING)
+                                                 .useTextCompression(false)
+                                                 .storageType(StorageType.MEMORY_MAPPED)
+                                                 .useDeweyIDs(false)
+                                                 .build());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx(262_144 << 1)) {
+      trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+    }
+
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
   }
 

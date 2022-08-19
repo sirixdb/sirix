@@ -2,15 +2,7 @@ package org.sirix.access.json;
 
 import dagger.Module;
 import dagger.Provides;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalDatabase;
-import org.sirix.access.LocalDatabaseModule;
-import org.sirix.access.PathBasedPool;
-import org.sirix.access.ResourceManagerFactory;
-import org.sirix.access.ResourceStore;
-import org.sirix.access.ResourceStoreImpl;
-import org.sirix.access.SubComponentResourceManagerFactory;
-import org.sirix.access.WriteLocksRegistry;
+import org.sirix.access.*;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.TransactionManager;
@@ -27,38 +19,32 @@ import javax.inject.Provider;
 @Module(includes = LocalDatabaseModule.class)
 public interface JsonLocalDatabaseModule {
 
-    @DatabaseScope
-    @Provides
-    static ResourceManagerFactory<JsonResourceManager> resourceManagerFactory(
-            final Provider<JsonResourceManagerComponent.Builder> subComponentBuilder) {
+  @DatabaseScope
+  @Provides
+  static ResourceManagerFactory<JsonResourceManager> resourceManagerFactory(
+      final Provider<JsonResourceManagerComponent.Builder> subComponentBuilder) {
+    return new SubComponentResourceManagerFactory<>(subComponentBuilder);
+  }
 
-        return new SubComponentResourceManagerFactory<>(subComponentBuilder);
-    }
+  @DatabaseScope
+  @Provides
+  static ResourceStore<JsonResourceManager> jsonResourceManager(
+      final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
+      final ResourceManagerFactory<JsonResourceManager> resourceManagerFactory) {
+    return new ResourceStoreImpl<>(allResourceManagers, resourceManagerFactory);
+  }
 
-    @DatabaseScope
-    @Provides
-    static ResourceStore<JsonResourceManager> jsonResourceManager(
-            final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
-            final ResourceManagerFactory<JsonResourceManager> resourceManagerFactory) {
-        return new ResourceStoreImpl<>(allResourceManagers, resourceManagerFactory);
-    }
-
-    @DatabaseScope
-    @Provides
-    static Database<JsonResourceManager> jsonDatabase(final TransactionManager transactionManager,
-                                                      final DatabaseConfiguration dbConfig,
-                                                      final PathBasedPool<Database<?>> sessions,
-                                                      final ResourceStore<JsonResourceManager> resourceStore,
-                                                      final WriteLocksRegistry writeLocks,
-                                                      final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
-
-        return new LocalDatabase<>(
-                transactionManager,
-                dbConfig,
-                sessions,
-                resourceStore,
-                writeLocks,
-                resourceManagers
-        );
-    }
+  @DatabaseScope
+  @Provides
+  static Database<JsonResourceManager> jsonDatabase(final TransactionManager transactionManager,
+      final DatabaseConfiguration dbConfig, final PathBasedPool<Database<?>> sessions,
+      final ResourceStore<JsonResourceManager> resourceStore, final WriteLocksRegistry writeLocks,
+      final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+    return new LocalDatabase<>(transactionManager,
+                               dbConfig,
+                               sessions,
+                               resourceStore,
+                               writeLocks,
+                               resourceManagers);
+  }
 }

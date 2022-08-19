@@ -13,9 +13,7 @@ import org.sirix.dagger.ResourceManagerScope;
  */
 @Module
 public interface JsonResourceManagerModule {
-
-    @Binds
-    @ResourceManagerScope
-    JsonResourceManager resourceManager(JsonResourceManagerImpl resourceManager);
-
+  @Binds
+  @ResourceManagerScope
+  JsonResourceManager resourceManager(JsonResourceManagerImpl resourceManager);
 }
