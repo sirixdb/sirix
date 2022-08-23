@@ -1,9 +1,7 @@
 package org.sirix.node.immutable.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -12,6 +10,10 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.NamespaceNode;
+
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable namespace node wrapper.

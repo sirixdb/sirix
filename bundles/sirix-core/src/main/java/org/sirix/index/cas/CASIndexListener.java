@@ -9,11 +9,11 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.SearchMode;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
 import org.sirix.index.redblacktree.RBTreeWriter;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 import java.util.Optional;

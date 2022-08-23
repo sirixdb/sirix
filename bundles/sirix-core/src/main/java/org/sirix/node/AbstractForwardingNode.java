@@ -1,11 +1,11 @@
 package org.sirix.node;
 
 import com.google.common.collect.ForwardingObject;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**

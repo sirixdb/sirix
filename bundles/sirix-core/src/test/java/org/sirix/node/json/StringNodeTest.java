@@ -21,13 +21,7 @@
 
 package org.sirix.node.json;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-
+import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,7 +34,9 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Fixed;
-import com.google.common.hash.Hashing;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -78,7 +74,7 @@ public class StringNodeTest {
     check(node2);
   }
 
-  private final void check(final StringNode node) {
+  private void check(final StringNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());

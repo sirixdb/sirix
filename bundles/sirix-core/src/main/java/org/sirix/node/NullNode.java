@@ -22,12 +22,12 @@
 package org.sirix.node;
 
 import com.google.common.base.Objects;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;

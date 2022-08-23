@@ -1,5 +1,8 @@
 package org.sirix.access.trx.node;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.User;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.api.*;
@@ -18,9 +21,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.time.Instant;

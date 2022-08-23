@@ -21,31 +21,28 @@
 
 package org.sirix.node.json;
 
-import java.math.BigInteger;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import com.google.common.hash.Funnel;
-import com.google.common.hash.PrimitiveSink;
-import org.checkerframework.checker.index.qual.NonNegative;
-
 import com.google.common.hash.HashFunction;
+import com.google.common.hash.PrimitiveSink;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.HashCode;
 import org.sirix.settings.Fixed;
+
+import java.math.BigInteger;
 
 /**
  * <p>

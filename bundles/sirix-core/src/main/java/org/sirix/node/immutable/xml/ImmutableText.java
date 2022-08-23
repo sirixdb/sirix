@@ -1,7 +1,5 @@
 package org.sirix.node.immutable.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -12,6 +10,10 @@ import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.TextNode;
+
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable text node wrapper.

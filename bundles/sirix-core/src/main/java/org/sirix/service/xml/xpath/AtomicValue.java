@@ -21,6 +21,8 @@
 
 package org.sirix.service.xml.xpath;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -34,8 +36,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;

@@ -1,5 +1,6 @@
 package org.sirix.node.immutable.json;
 
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -10,7 +11,6 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xml.TextNode;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 import static com.google.common.base.Preconditions.checkNotNull;

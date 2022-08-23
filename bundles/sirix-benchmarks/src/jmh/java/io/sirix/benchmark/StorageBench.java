@@ -1,5 +1,6 @@
 package io.sirix.benchmark;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.openjdk.jmh.annotations.*;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -15,6 +16,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -30,18 +32,20 @@ public class StorageBench {
   public static final Path DB_PATH = Paths.get(System.getProperty("user.home"), "sirix-data", "storage-db");
   public static final Path RESOURCES = Paths.get("src", "jmh", "resources", "xmark");
 
-  @Benchmark
+  private final Bytes<ByteBuffer> bufferBytes = Bytes.elasticByteBuffer(64_000);
+
+//  @Benchmark
   public void readPage(BenchState state) {
     state.reader.read(state.uberPage, null);
   }
 
-  @Benchmark
+//  @Benchmark
   public void writePage(BenchState state) {
-    state.writer.write(state.uberPage);
+    state.writer.write(null, state.uberPage, bufferBytes);
   }
 
   @OutputTimeUnit(TimeUnit.MILLISECONDS)
-  @Benchmark
+//  @Benchmark
   public void commitMedium(BenchState state) {
     try (var wtx = state.manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(BenchState.MediumXMLString));
@@ -50,7 +54,7 @@ public class StorageBench {
   }
 
   @OutputTimeUnit(TimeUnit.MILLISECONDS)
-  @Benchmark
+//  @Benchmark
   public void commitSmall(BenchState state) {
     try (var wtx = state.manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(BenchState.SmallXMLString));

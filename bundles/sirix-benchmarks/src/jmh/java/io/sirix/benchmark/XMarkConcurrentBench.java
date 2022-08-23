@@ -1,15 +1,6 @@
 package io.sirix.benchmark;
 
-import org.openjdk.jmh.annotations.Benchmark;
-import org.openjdk.jmh.annotations.BenchmarkMode;
-import org.openjdk.jmh.annotations.Fork;
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Mode;
-import org.openjdk.jmh.annotations.OutputTimeUnit;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.Setup;
-import org.openjdk.jmh.annotations.State;
-import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.annotations.*;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -37,10 +28,10 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 
-//@BenchmarkMode(Mode.AverageTime)
-//@OutputTimeUnit(TimeUnit.MILLISECONDS)
-//@State(Scope.Benchmark)
-//@Fork(value = 2, jvmArgs = { "-Xms2G", "-Xmx2G" })
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@State(Scope.Benchmark)
+@Fork(value = 2, jvmArgs = { "-Xms2G", "-Xmx2G" })
 public class XMarkConcurrentBench {
 
   private static final Path XML = Paths.get("src", "jmh", "resources");
@@ -115,14 +106,14 @@ public class XMarkConcurrentBench {
   /**
    * Test seriell.
    */
-//  @Benchmark
+  @Benchmark
   public void testSeriellOld(MyState state) {
     final String query = "//regions/africa//location";
     final int resultNumber = 55;
     final Axis axis = new XPathAxis(state.rtx, query);
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
-      axis.next();
+      axis.nextLong();
     }
     assertEquals(false, axis.hasNext());
   }
@@ -130,7 +121,7 @@ public class XMarkConcurrentBench {
   /**
    * Test seriell.
    */
-//  @Benchmark
+  @Benchmark
   public void testSeriellNew(MyState state) {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -141,7 +132,7 @@ public class XMarkConcurrentBench {
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
-      axis.next();
+      axis.nextLong();
     }
     assertEquals(false, axis.hasNext());
   }
@@ -149,7 +140,7 @@ public class XMarkConcurrentBench {
   /**
    * Test concurrent.
    */
-//  @Benchmark
+  @Benchmark
   public void testConcurrent(MyState state) {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -164,7 +155,7 @@ public class XMarkConcurrentBench {
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
-      axis.next();
+      axis.nextLong();
     }
     assertEquals(false, axis.hasNext());
   }
@@ -172,7 +163,7 @@ public class XMarkConcurrentBench {
   /**
    * Test concurrent.
    */
-//  @Benchmark
+  @Benchmark
   public void testPartConcurrentDescAxis1(MyState state) {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -186,7 +177,7 @@ public class XMarkConcurrentBench {
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
-      axis.next();
+      axis.nextLong();
     }
     assertEquals(false, axis.hasNext());
   }
@@ -194,7 +185,7 @@ public class XMarkConcurrentBench {
   /**
    * Test concurrent.
    */
-//  @Benchmark
+  @Benchmark
   public void testPartConcurrentDescAxis2(MyState state) {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -208,7 +199,7 @@ public class XMarkConcurrentBench {
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
-      axis.next();
+      axis.nextLong();
     }
     assertEquals(axis.hasNext(), false);
   }

@@ -25,14 +25,13 @@ import com.google.common.base.Objects;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.math.BigInteger;
 

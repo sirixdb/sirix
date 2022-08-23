@@ -21,8 +21,6 @@
 
 package org.sirix.service.xml.xpath.comparators;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,6 +33,9 @@ import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.types.Type;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 public class NodeCompTest {
 
