@@ -9,7 +9,6 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import java.math.BigInteger;

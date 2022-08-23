@@ -6,11 +6,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.PageTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.xml.AttributeNode;
 
-import java.io.*;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
@@ -52,12 +49,12 @@ public final class RevisionReferencesNodeTest {
     assertArrayEquals(new int[] { 3, 7, 8, 13 }, node.getRevisions());
 
     final var otherNode = new RevisionReferencesNode(1, new int[] { 3, 7, 8, 13});
-    assertTrue(node.equals(otherNode));
-    assertTrue(otherNode.equals(node));
+    assertEquals(node, otherNode);
+    assertEquals(otherNode, node);
 
     final var otherUnequalNodeDueToValue = new RevisionReferencesNode(1, new int[] { 3, 7, 8 });
-    assertFalse(node.equals(otherUnequalNodeDueToValue));
-    assertFalse(otherUnequalNodeDueToValue.equals(node));
+    assertNotEquals(node, otherUnequalNodeDueToValue);
+    assertNotEquals(otherUnequalNodeDueToValue, node);
   }
 
   @Test(expected = UnsupportedOperationException.class)

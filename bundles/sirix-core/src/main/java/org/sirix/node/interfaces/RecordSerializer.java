@@ -1,15 +1,12 @@
 package org.sirix.node.interfaces;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.node.SirixDeweyID;
+
+import java.nio.ByteBuffer;
 
 /**
  * Persisting a record (first byte of a record must be its type).
@@ -29,7 +26,7 @@ public interface RecordSerializer {
    * @throws NullPointerException if one of the parameters is {@code null}
    */
   @NonNull
-  DataRecord deserialize(Bytes<ByteBuffer> source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx);
+  DataRecord deserialize(BytesIn<ByteBuffer> source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx);
 
   /**
    * Serialize a record.
@@ -39,5 +36,5 @@ public interface RecordSerializer {
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    */
-  void serialize(Bytes<ByteBuffer> sink, DataRecord record, PageReadOnlyTrx pageReadTrx);
+  void serialize(BytesOut<ByteBuffer> sink, DataRecord record, PageReadOnlyTrx pageReadTrx);
 }

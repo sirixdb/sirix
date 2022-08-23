@@ -37,7 +37,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
 
-import java.io.*;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;

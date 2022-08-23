@@ -16,6 +16,7 @@ import org.brackit.xquery.xdm.node.AbstractTemporalNode;
 import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.TemporalNode;
 import org.brackit.xquery.xdm.type.NodeType;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -33,7 +34,6 @@ import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
 import org.slf4j.LoggerFactory;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.Collections;
 import java.util.Objects;
 

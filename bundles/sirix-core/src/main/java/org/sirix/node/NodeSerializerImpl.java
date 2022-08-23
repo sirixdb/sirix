@@ -1,7 +1,9 @@
 package org.sirix.node;
 
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.DataRecord;
@@ -17,7 +19,7 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements NodePersistenter {
   @Override
-  public DataRecord deserialize(final Bytes<ByteBuffer> source, final @NonNegative long recordID, final byte[] deweyID,
+  public @NonNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID, final byte[] deweyID,
       final PageReadOnlyTrx pageReadTrx) {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
@@ -25,7 +27,7 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public void serialize(final Bytes<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+  public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     final NodeKind nodeKind = (NodeKind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);
@@ -33,7 +35,7 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public byte[] deserializeDeweyID(Bytes<ByteBuffer> source, byte[] previousDeweyID,
+  public byte[] deserializeDeweyID(BytesIn<ByteBuffer> source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
@@ -60,11 +62,11 @@ public final class NodeSerializerImpl implements NodePersistenter {
   }
 
   @Override
-  public void serializeDeweyID(Bytes<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+  public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
+      final byte[] deweyIDBytes = deweyID;
       if (nextDeweyID != null) {
-        final byte[] deweyIDBytes = deweyID;
         final byte[] nextDeweyIDBytes = nextDeweyID;
 
         //assert deweyIDBytes.length <= nextDeweyIDBytes.length;
@@ -77,14 +79,13 @@ public final class NodeSerializerImpl implements NodePersistenter {
         }
         writeDeweyID(sink, nextDeweyIDBytes, i);
       } else {
-        final byte[] deweyIDBytes = deweyID;
         sink.writeByte((byte) deweyIDBytes.length);
         sink.write(deweyIDBytes);
       }
     }
   }
 
-  private static void writeDeweyID(final Bytes<ByteBuffer> sink, final byte[] deweyID, @NonNegative final int i) {
+  private static void writeDeweyID(final BytesOut<ByteBuffer> sink, final byte[] deweyID, @NonNegative final int i) {
     sink.writeByte((byte) i);
     sink.writeByte((byte) (deweyID.length - i));
     final var bytes = Arrays.copyOfRange(deweyID, i, deweyID.length);

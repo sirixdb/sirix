@@ -1,7 +1,5 @@
 package org.sirix.index.path;
 
-import java.util.Optional;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -9,13 +7,16 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.SearchMode;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
 import org.sirix.index.redblacktree.RBTreeWriter;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
+import java.util.Set;
 
 public final class PathIndexBuilder {
 

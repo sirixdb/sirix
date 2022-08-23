@@ -10,11 +10,11 @@ import org.sirix.index.ChangeListener;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexFilterAxis;
 import org.sirix.index.SearchMode;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 
 import java.util.*;

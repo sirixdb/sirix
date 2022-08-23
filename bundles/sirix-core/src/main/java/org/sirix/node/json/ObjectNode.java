@@ -27,8 +27,8 @@
  */
 package org.sirix.node.json;
 
-import java.math.BigInteger;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
@@ -42,10 +42,9 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
+
+import java.math.BigInteger;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

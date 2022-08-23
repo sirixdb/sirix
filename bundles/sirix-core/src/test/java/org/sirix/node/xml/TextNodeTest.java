@@ -38,10 +38,9 @@ import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import java.io.*;
 import java.nio.ByteBuffer;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 /**
  * Text node test.
@@ -69,13 +68,13 @@ public class TextNodeTest {
   }
 
   @Test
-  public void testTextRootNode() throws IOException {
+  public void testTextRootNode() {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0L);
     final TextNode node = new TextNode(valDel, strucDel);
     node.setHash(node.computeHash());
     check(node);
@@ -90,7 +89,7 @@ public class TextNodeTest {
     check(node2);
   }
 
-  private final void check(final TextNode node) {
+  private void check(final TextNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
@@ -100,10 +99,10 @@ public class TextNodeTest {
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
     assertEquals(NodeKind.TEXT, node.getKind());
-    assertEquals(false, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
+    assertFalse(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasLeftSibling());
+    assertTrue(node.hasRightSibling());
   }
 
 }

@@ -16,15 +16,16 @@ buildscript {
 }
 
 plugins {
-  id "org.sonarqube" version "3.4.0.2513"
+    id "org.sonarqube" version "3.4.0.2513"
+    id "me.champeau.jmh" version "0.6.1"
 }
 
 sonarqube {
-  properties {
-    property "sonar.projectKey", "sirixdb_sirix"
-    property "sonar.organization", "sirixdb"
-    property "sonar.host.url", "https://sonarcloud.io"
-  }
+    properties {
+        property "sonar.projectKey", "sirixdb_sirix"
+        property "sonar.organization", "sirixdb"
+        property "sonar.host.url", "https://sonarcloud.io"
+    }
 }
 
 apply from: "${rootDir}/libraries.gradle"
@@ -91,7 +92,7 @@ subprojects {
         withSourcesJar()
         withJavadocJar()
 
-        if (JavaVersion.current() != targetCompatibility){
+        if (JavaVersion.current() != targetCompatibility) {
             throw new GradleException("This build must be run with Java " + targetCompatibility.toString())
         }
     }
@@ -111,7 +112,8 @@ subprojects {
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
-                                 "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"]
+                                 "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+                                 "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
     }
 
     compileTestJava {
@@ -120,7 +122,8 @@ subprojects {
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
-                                 "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"]
+                                 "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+                                 "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
     }
 
     spotless {
@@ -129,7 +132,7 @@ subprojects {
             licenseHeaderFile "${rootDir}/LICENSE"
         }
     }
-    
+
 //    jacoco {
 //        toolVersion = "0.8.7"
 //    }
@@ -248,7 +251,8 @@ subprojects {
                  "--add-opens=java.base/java.lang=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
-                 "--add-opens=java.base/java.util=ALL-UNNAMED"
+                 "--add-opens=java.base/java.util=ALL-UNNAMED",
+                 "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
         ])
 
         minHeapSize = '2g'

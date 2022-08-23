@@ -70,7 +70,7 @@ fun setupTestDbJson(sirixQueryTestFileJson: String, jsonReader: JsonReader) {
                         jsonReader, JsonNodeTrx.Commit.NO
                     )
                 wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
-                val nodeKey = insertSubtreeAsFirstChild.node.nodeKey
+                val nodeKey = insertSubtreeAsFirstChild.node.getNodeKey()
                 println("JSON Test Record nodeKey=$nodeKey")
             }
         }
@@ -103,7 +103,7 @@ fun setupTestDbXml(sirixQueryTestFileXml: String, xmlEventReader: XMLEventReader
             val wtx = manager.beginNodeTrx()
             wtx.use {
                 val insertSubtreeAsFirstChild = wtx.insertSubtreeAsFirstChild(xmlEventReader)
-                val nodeKey = insertSubtreeAsFirstChild.node.nodeKey
+                val nodeKey = insertSubtreeAsFirstChild.node.getNodeKey()
                 println("XML Test Record nodeKey=$nodeKey")
                 wtx.commit(CliCommandTestConstants.TEST_COMMIT_MESSAGE)
             }

@@ -1,15 +1,16 @@
 package org.sirix.index.name;
 
-import java.util.Optional;
-import java.util.Set;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.redblacktree.RBTreeReader.MoveCursor;
 import org.sirix.index.redblacktree.RBTreeWriter;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import java.util.Optional;
+import java.util.Set;
 
 public final class NameIndexListener {
 

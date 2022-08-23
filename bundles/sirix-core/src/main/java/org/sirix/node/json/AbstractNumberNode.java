@@ -1,14 +1,10 @@
 package org.sirix.node.json;
 
 import com.google.common.hash.Funnel;
-import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
-import org.sirix.api.visitor.JsonNodeVisitor;
-import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
@@ -19,7 +15,7 @@ import java.math.BigInteger;
 
 public abstract class AbstractNumberNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
-  private StructNodeDelegate structNodeDelegate;
+  private final StructNodeDelegate structNodeDelegate;
   private Number number;
 
   private BigInteger hashCode;

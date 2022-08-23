@@ -9,13 +9,13 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
+import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.node.NodeKind;
-import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.json.shredder.JsonShredder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

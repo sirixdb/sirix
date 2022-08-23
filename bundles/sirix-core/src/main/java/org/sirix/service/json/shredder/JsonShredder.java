@@ -167,74 +167,15 @@ public final class JsonShredder implements Callable<Long> {
         final var nextToken = reader.peek();
 
         switch (nextToken) {
-          case BEGIN_OBJECT -> {
-            level++;
-            reader.beginObject();
-            if (!(level == 1 && skipRootJson)) {
-              final long insertedObjectNodeKey = addObject();
-
-              if (insertedRootNodeKey == -1)
-                insertedRootNodeKey = insertedObjectNodeKey;
-            }
-          }
-          case NAME -> {
-            final String name = reader.nextName();
-            addObjectRecord(name);
-          }
-          case END_OBJECT -> {
-            level--;
-            if (level == 0) {
-              endReached = true;
-            }
-            reader.endObject();
-            processTrxMovement();
-          }
-          case BEGIN_ARRAY -> {
-            level++;
-            reader.beginArray();
-            if (!(level == 1 && skipRootJson)) {
-              final var insertedArrayNodeKey = insertArray();
-
-              if (insertedRootNodeKey == -1)
-                insertedRootNodeKey = insertedArrayNodeKey;
-            }
-          }
-          case END_ARRAY -> {
-            level--;
-            if (level == 0) {
-              endReached = true;
-            }
-            reader.endArray();
-            processTrxMovement();
-          }
-          case STRING -> {
-            final var string = reader.nextString();
-            final var insertedStringValueNodeKey =
-                insertStringValue(string, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedStringValueNodeKey;
-          }
-          case BOOLEAN -> {
-            final var bool = reader.nextBoolean();
-            final var insertedBooleanValueNodeKey =
-                insertBooleanValue(bool, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedBooleanValueNodeKey;
-          }
-          case NULL -> {
-            reader.nextNull();
-            final var insertedNullValueNodeKey =
-                insertNullValue(reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedNullValueNodeKey;
-          }
-          case NUMBER -> {
-            final var number = readNumber();
-            final var insertedNumberValueNodeKey =
-                insertNumberValue(number, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedNumberValueNodeKey;
-          }
+          case BEGIN_OBJECT -> insertedRootNodeKey = processBeginObject(insertedRootNodeKey);
+          case NAME -> processName();
+          case END_OBJECT -> endReached = processEndObject();
+          case BEGIN_ARRAY -> insertedRootNodeKey = processBeginArray(insertedRootNodeKey);
+          case END_ARRAY -> endReached = processEndArray();
+          case STRING -> insertedRootNodeKey = processString(insertedRootNodeKey);
+          case BOOLEAN -> insertedRootNodeKey = processBoolean(insertedRootNodeKey);
+          case NULL -> insertedRootNodeKey = processNull(insertedRootNodeKey);
+          case NUMBER -> insertedRootNodeKey = processNumber(insertedRootNodeKey);
           default -> {
           }
           // Node kind not known.
@@ -245,6 +186,94 @@ public final class JsonShredder implements Callable<Long> {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
+  }
+
+  private long processNumber(long insertedRootNodeKey) throws IOException {
+    final var number = readNumber();
+    final var insertedNumberValueNodeKey =
+        insertNumberValue(number, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
+    if (insertedRootNodeKey == -1)
+      insertedRootNodeKey = insertedNumberValueNodeKey;
+    return insertedRootNodeKey;
+  }
+
+  private long processNull(long insertedRootNodeKey) throws IOException {
+    reader.nextNull();
+    final var insertedNullValueNodeKey =
+        insertNullValue(reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
+    if (insertedRootNodeKey == -1)
+      insertedRootNodeKey = insertedNullValueNodeKey;
+    return insertedRootNodeKey;
+  }
+
+  private long processBoolean(long insertedRootNodeKey) throws IOException {
+    final var bool = reader.nextBoolean();
+    final var insertedBooleanValueNodeKey =
+        insertBooleanValue(bool, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
+    if (insertedRootNodeKey == -1)
+      insertedRootNodeKey = insertedBooleanValueNodeKey;
+    return insertedRootNodeKey;
+  }
+
+  private long processString(long insertedRootNodeKey) throws IOException {
+    final var string = reader.nextString();
+    final var insertedStringValueNodeKey =
+        insertStringValue(string, reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT);
+    if (insertedRootNodeKey == -1)
+      insertedRootNodeKey = insertedStringValueNodeKey;
+    return insertedRootNodeKey;
+  }
+
+  private boolean processEndArray() throws IOException {
+    boolean endReached = false;
+    level--;
+    if (level == 0) {
+      endReached = true;
+    }
+    reader.endArray();
+    processTrxMovement();
+    return endReached;
+  }
+
+  private long processBeginArray(long insertedRootNodeKey) throws IOException {
+    level++;
+    reader.beginArray();
+    if (!(level == 1 && skipRootJson)) {
+      final var insertedArrayNodeKey = insertArray();
+
+      if (insertedRootNodeKey == -1)
+        insertedRootNodeKey = insertedArrayNodeKey;
+    }
+    return insertedRootNodeKey;
+  }
+
+  private boolean processEndObject() throws IOException {
+    boolean endReached = false;
+    level--;
+    if (level == 0) {
+      endReached = true;
+    }
+    reader.endObject();
+    processTrxMovement();
+    return endReached;
+  }
+
+  private void processName() throws IOException {
+    final String name = reader.nextName();
+    addObjectRecord(name);
+  }
+
+  private long processBeginObject(long insertedRootNodeKey) throws IOException {
+    level++;
+    reader.beginObject();
+    if (!(level == 1 && skipRootJson)) {
+      final long insertedObjectNodeKey = addObject();
+
+      if (insertedRootNodeKey == -1)
+        insertedRootNodeKey = insertedObjectNodeKey;
+    }
+
+    return insertedRootNodeKey;
   }
 
   @SuppressWarnings("ConstantConditions")

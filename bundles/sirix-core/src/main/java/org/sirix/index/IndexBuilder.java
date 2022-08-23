@@ -1,12 +1,13 @@
 package org.sirix.index;
 
-import java.util.Set;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.NonStructuralWrapperAxis;
+
+import java.util.Set;
 
 /**
  * Build an index by traversing the current revision.
@@ -26,8 +27,10 @@ public final class IndexBuilder {
     final long nodeKey = rtx.getNodeKey();
     rtx.moveToDocumentRoot();
 
-    for (@SuppressWarnings("unused")
-    final long key : new NonStructuralWrapperAxis(new DescendantAxis(rtx))) {
+    var axis = new NonStructuralWrapperAxis(new DescendantAxis(rtx));
+    while (axis.hasNext()) {
+      axis.nextLong();
+
       for (final XmlNodeVisitor builder : builders) {
         rtx.acceptVisitor(builder);
       }
@@ -45,8 +48,9 @@ public final class IndexBuilder {
     final long nodeKey = rtx.getNodeKey();
     rtx.moveToDocumentRoot();
 
-    for (@SuppressWarnings("unused")
-    final long key : new DescendantAxis(rtx)) {
+    final var axis = new DescendantAxis(rtx);
+    while (axis.hasNext()) {
+      axis.nextLong();
       for (final JsonNodeVisitor builder : builders) {
         rtx.acceptVisitor(builder);
       }

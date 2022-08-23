@@ -2,7 +2,8 @@ package org.sirix.node;
 
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 
 import java.nio.ByteBuffer;
 
@@ -20,7 +21,7 @@ public final class Utils {
    * @param output {@link ByteArrayDataOutput} reference
    * @param value long value
    */
-  public static void putVarLong(final Bytes<ByteBuffer> output, long value) {
+  public static void putVarLong(final BytesOut<ByteBuffer> output, long value) {
     output.writeStopBit(value);
   }
 
@@ -30,7 +31,7 @@ public final class Utils {
    * @param input {@link ByteArrayDataInput} reference
    * @return long value
    */
-  public static long getVarLong(final Bytes<ByteBuffer> input)  {
+  public static long getVarLong(final BytesIn<ByteBuffer> input)  {
     return input.readStopBit();
   }
 }

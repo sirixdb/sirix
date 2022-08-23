@@ -28,25 +28,16 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.PageTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 /**
  * Object number node test.
@@ -77,7 +68,7 @@ public class ObjectNumberNodeTest {
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                0L,
-                                                               0l);
+                                                               0L);
     final ObjectNumberNode node = new ObjectNumberNode(value, strucDel);
     node.setHash(node.computeHash());
     check(node);
@@ -85,10 +76,8 @@ public class ObjectNumberNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageWriteTrx);
-    final ObjectNumberNode node2 = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(data,
-                                                                                               node.getNodeKey(),
-                                                                                               null,
-                                                                                               pageWriteTrx);
+    final ObjectNumberNode node2 =
+        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 
