@@ -23,6 +23,7 @@ package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -38,7 +39,6 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -171,8 +171,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof TextNode) {
-      final TextNode other = (TextNode) obj;
+    if (obj instanceof TextNode other) {
       return Objects.equal(structNodeDel.getNodeDelegate(), other.getNodeDelegate()) && valDel.equals(other.valDel);
     }
     return false;
