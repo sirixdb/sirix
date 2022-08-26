@@ -10,7 +10,6 @@ import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
 
 /**
  * A module with all the common bindings between resource managers.
@@ -18,7 +17,7 @@ import java.util.concurrent.locks.Lock;
  * @author Joao Sousa
  */
 @Module
-public interface ResourceManagerModule {
+public interface ResourceSessionModule {
 
     @Provides
     @ResourceManagerScope

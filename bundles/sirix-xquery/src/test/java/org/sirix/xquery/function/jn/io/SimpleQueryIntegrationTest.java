@@ -374,7 +374,7 @@ public final class SimpleQueryIntegrationTest {
     final var openDocQuery = "jn:doc('mycol.jn','mydoc.jn')";
     final var object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
 
-    try (final var wtx = object.getTrx().getResourceManager().beginNodeTrx()) {
+    try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
       wtx.moveTo(3);
 
       try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {

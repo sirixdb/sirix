@@ -6,7 +6,7 @@ import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -203,8 +203,8 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
-  default JsonResourceManager getResourceManager() {
-    return nodeReadOnlyTrxDelegate().getResourceManager();
+  default JsonResourceSession getResourceSession() {
+    return nodeReadOnlyTrxDelegate().getResourceSession();
   }
 
   @Override

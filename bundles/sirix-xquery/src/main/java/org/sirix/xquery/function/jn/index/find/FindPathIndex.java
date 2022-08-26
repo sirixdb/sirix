@@ -16,7 +16,6 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.json.JsonIndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
 
 /**
@@ -52,7 +51,7 @@ public final class FindPathIndex extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

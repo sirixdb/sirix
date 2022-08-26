@@ -25,10 +25,10 @@ import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.NodeKind;
@@ -112,7 +112,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param resourceMgr resource manager to read the resource
    * @param builder     builder of the JSON serializer
    */
-  private JsonSerializer(final JsonResourceManager resourceMgr, final Builder builder) {
+  private JsonSerializer(final JsonResourceSession resourceMgr, final Builder builder) {
     super(resourceMgr, builder.maxLevel == Long.MAX_VALUE && builder.maxNodes == Long.MAX_VALUE
         && builder.maxChildNodes == Long.MAX_VALUE
         ? null
@@ -510,7 +510,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private boolean hasMoreRevisionsToSerialize(final JsonNodeReadOnlyTrx rtx) {
     return rtx.getRevisionNumber() < revisions[revisions.length - 1] || (revisions.length == 1 && revisions[0] == -1
-        && rtx.getRevisionNumber() < rtx.getResourceManager().getMostRecentRevisionNumber());
+        && rtx.getRevisionNumber() < rtx.getResourceSession().getMostRecentRevisionNumber());
   }
 
   /**
@@ -631,7 +631,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     try (final var db = Databases.openJsonDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
-      try (final JsonResourceManager resMgr = db.openResourceManager("shredded");
+      try (final JsonResourceSession resMgr = db.beginResourceSession("shredded");
            final FileWriter outputStream = new FileWriter(target.toFile())) {
         final JsonSerializer serializer = JsonSerializer.newBuilder(resMgr, outputStream).build();
         serializer.call();
@@ -644,24 +644,24 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /**
    * Constructor, setting the necessary stuff.
    *
-   * @param resMgr    Sirix {@link ResourceManager}
+   * @param resMgr    Sirix {@link ResourceSession}
    * @param stream    {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceManager resMgr, final Writer stream, final int... revisions) {
+  public static Builder newBuilder(final JsonResourceSession resMgr, final Writer stream, final int... revisions) {
     return new Builder(resMgr, stream, revisions);
   }
 
   /**
    * Constructor.
    *
-   * @param resMgr     Sirix {@link ResourceManager}
+   * @param resMgr     Sirix {@link ResourceSession}
    * @param nodeKey    root node key of subtree to shredder
    * @param stream     {@link OutputStream} to write to
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions  revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceManager resMgr, final @NonNegative long nodeKey,
+  public static Builder newBuilder(final JsonResourceSession resMgr, final @NonNegative long nodeKey,
       final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
     return new Builder(resMgr, nodeKey, stream, properties, revisions);
   }
@@ -688,7 +688,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Resource manager to use.
      */
-    private final JsonResourceManager resourceMgr;
+    private final JsonResourceSession resourceMgr;
 
     /**
      * Further revisions to serialize.
@@ -752,11 +752,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Constructor, setting the necessary stuff.
      *
-     * @param resourceMgr Sirix {@link ResourceManager}
+     * @param resourceMgr Sirix {@link ResourceSession}
      * @param stream      {@link OutputStream} to write to
      * @param revisions   revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final Appendable stream, final int... revisions) {
+    public Builder(final JsonResourceSession resourceMgr, final Appendable stream, final int... revisions) {
       serializeStartNodeWithBrackets = true;
       maxLevel = Long.MAX_VALUE;
       startNodeKey = 0;
@@ -776,13 +776,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Constructor.
      *
-     * @param resourceMgr Sirix {@link ResourceManager}
+     * @param resourceMgr Sirix {@link ResourceSession}
      * @param nodeKey     root node key of subtree to shredder
      * @param stream      {@link OutputStream} to write to
      * @param properties  {@link JsonSerializerProperties} to use
      * @param revisions   revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final @NonNegative long nodeKey, final Writer stream,
+    public Builder(final JsonResourceSession resourceMgr, final @NonNegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       serializeStartNodeWithBrackets = true;

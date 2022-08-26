@@ -7,7 +7,7 @@ import org.sirix.JsonTestHelper;
 import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.Database;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.utils.JsonDocumentCreator;
 
 import java.io.IOException;
@@ -28,9 +28,9 @@ public final class NodePageTrxTruncateToRevisionIntegrationTest {
                                                                            .resolve("data")
                                                                            .resolve("sirix.data");
 
-  private Database<JsonResourceManager> database;
+  private Database<JsonResourceSession> database;
 
-  private JsonResourceManager resourceManager;
+  private JsonResourceSession resourceManager;
 
   private long fileSize;
 
@@ -38,7 +38,7 @@ public final class NodePageTrxTruncateToRevisionIntegrationTest {
   public void setUp() throws IOException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    resourceManager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
 
     try (final var wtx = resourceManager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);

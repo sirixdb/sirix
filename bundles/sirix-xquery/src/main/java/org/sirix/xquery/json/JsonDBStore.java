@@ -5,7 +5,7 @@ import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.JsonStore;
 import org.sirix.api.Database;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -17,9 +17,9 @@ import java.util.Set;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface JsonDBStore extends JsonStore, AutoCloseable {
-  JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceManager> database);
+  JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceSession> database);
 
-  JsonDBStore removeDatabase(Database<JsonResourceManager> database);
+  JsonDBStore removeDatabase(Database<JsonResourceSession> database);
 
   @Override
   JsonDBCollection lookup(String name);

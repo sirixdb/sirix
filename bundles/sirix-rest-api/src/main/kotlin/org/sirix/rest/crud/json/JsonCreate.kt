@@ -16,7 +16,7 @@ import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.json.JsonResourceSession
 import org.sirix.rest.KotlinJsonStreamingShredder
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
@@ -91,7 +91,7 @@ class JsonCreate(
                     )
 
                     if (resourceHasBeenCreated) {
-                        val manager = database.openResourceManager(fileName)
+                        val manager = database.beginResourceSession(fileName)
 
                         manager.use {
                             insertJsonSubtreeAsFirstChild(
@@ -157,7 +157,7 @@ class JsonCreate(
                     resConfig
                 )
 
-                val manager = database.openResourceManager(resPathName)
+                val manager = database.beginResourceSession(resPathName)
 
                 manager.use {
                     val maxNodeKey = if (resourceHasBeenCreated) {
@@ -188,7 +188,7 @@ class JsonCreate(
     }
 
     private fun serializeJson(
-        manager: JsonResourceManager,
+        manager: JsonResourceSession,
         routingCtx: RoutingContext
     ): String {
         val out = StringWriter()
@@ -227,7 +227,7 @@ class JsonCreate(
     }
 
     private fun createResourceIfNotExisting(
-        database: Database<JsonResourceManager>,
+        database: Database<JsonResourceSession>,
         resConfig: ResourceConfiguration?,
     ): Boolean {
         logger.debug("Try to create resource: $resConfig")
@@ -235,7 +235,7 @@ class JsonCreate(
     }
 
     private suspend fun insertJsonSubtreeAsFirstChild(
-        manager: JsonResourceManager,
+        manager: JsonResourceSession,
         ctx: RoutingContext
     ): Long {
         val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
@@ -258,7 +258,7 @@ class JsonCreate(
     }
 
     private fun insertJsonSubtreeAsFirstChild(
-        manager: JsonResourceManager,
+        manager: JsonResourceSession,
         resFileToStore: Path
     ): Long {
         val wtx = manager.beginNodeTrx()

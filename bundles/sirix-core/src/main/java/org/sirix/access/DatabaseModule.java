@@ -7,10 +7,10 @@ import org.sirix.access.json.JsonLocalDatabaseComponent;
 import org.sirix.access.json.LocalJsonDatabaseFactory;
 import org.sirix.access.xml.LocalXmlDatabaseFactory;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.access.xml.XmlLocalDatabaseComponent;
-import org.sirix.api.json.JsonResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.json.JsonResourceSession;
+import org.sirix.api.xml.XmlResourceSession;
 
 import javax.inject.Singleton;
 
@@ -24,11 +24,11 @@ public interface DatabaseModule {
 
     @Binds
     @Singleton
-    LocalDatabaseFactory<JsonResourceManager> bindJsonDatabaseFactory(LocalJsonDatabaseFactory jsonFactory);
+    LocalDatabaseFactory<JsonResourceSession> bindJsonDatabaseFactory(LocalJsonDatabaseFactory jsonFactory);
 
     @Binds
     @Singleton
-    LocalDatabaseFactory<XmlResourceManager> bindXmlDatabaseFactory(LocalXmlDatabaseFactory xmlFactory);
+    LocalDatabaseFactory<XmlResourceSession> bindXmlDatabaseFactory(LocalXmlDatabaseFactory xmlFactory);
 
     @Provides
     @Singleton
@@ -38,7 +38,7 @@ public interface DatabaseModule {
 
     @Provides
     @Singleton
-    static PathBasedPool<ResourceManager<?, ?>> resourceManagers() {
+    static PathBasedPool<ResourceSession<?, ?>> resourceManagers() {
         return new PathBasedPool<>();
     }
 

@@ -14,7 +14,7 @@ import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.temporal.FirstAxis;
@@ -80,8 +80,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   }
 
   @Override
-  public JsonResourceManager getResourceManager() {
-    return rtx.getResourceManager();
+  public JsonResourceSession getResourceSession() {
+    return rtx.getResourceSession();
   }
 
   @Override
@@ -154,7 +154,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   }
 
   private JsonNodeTrx getReadWriteTrx() {
-    final JsonResourceManager resourceManager = rtx.getResourceManager();
+    final JsonResourceSession resourceManager = rtx.getResourceSession();
     final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
     trx.moveTo(nodeKey);
     return trx;
@@ -201,7 +201,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   public T getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -220,21 +220,21 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   public T getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new PreviousAxis<>(rtx.getResourceManager(), rtx);
+        new PreviousAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public T getFirst() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new FirstAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public T getLast() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -325,7 +325,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     final NodeReadOnlyTrx otherTrx = other.getTrx();
 
-    return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
+    return otherTrx.getResourceSession().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
   }
 
   @Override

@@ -55,7 +55,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final XmlDBNode doc = (XmlDBNode) args[0];
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
-    final XmlIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final XmlIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -68,12 +68,12 @@ public final class ScanCASIndex extends AbstractScanIndex {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
           idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a CAS index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
     final Type keyType = indexDef.getContentType();

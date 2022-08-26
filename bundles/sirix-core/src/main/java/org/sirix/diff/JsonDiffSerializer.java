@@ -4,7 +4,7 @@ import com.google.api.client.util.Objects;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.node.NodeKind;
 import org.sirix.service.json.serialize.JsonSerializer;
 
@@ -16,13 +16,13 @@ import java.util.Collection;
 public final class JsonDiffSerializer {
 
   private final String databaseName;
-  private final JsonResourceManager resourceManager;
+  private final JsonResourceSession resourceManager;
   private final int oldRevisionNumber;
   private final int newRevisionNumber;
   private final Collection<DiffTuple> diffs;
 
   public JsonDiffSerializer(final String databaseName,
-                            JsonResourceManager resourceManager,
+                            JsonResourceSession resourceManager,
                             int oldRevisionNumber,
                             int newRevisionNumber,
                             Collection<DiffTuple> diffs) {
@@ -216,7 +216,7 @@ public final class JsonDiffSerializer {
     }
   }
 
-  public static void serialize(int newRevision, JsonResourceManager resourceManager, JsonNodeReadOnlyTrx newRtx,
+  public static void serialize(int newRevision, JsonResourceSession resourceManager, JsonNodeReadOnlyTrx newRtx,
       JsonObject jsonObject) {
     try (final var writer = new StringWriter()) {
       final var serializer =

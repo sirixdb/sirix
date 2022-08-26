@@ -1,18 +1,12 @@
 package org.sirix.rest.crud.json
 
-import io.netty.handler.codec.http.HttpResponseStatus
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.HttpException
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
-import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
-import org.sirix.exception.SirixUsageException
+import org.sirix.api.json.JsonResourceSession
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -42,7 +36,7 @@ class JsonHead(private val location: Path) {
         val database = Databases.openJsonDatabase(location.resolve(databaseName))
 
         database.use {
-            val manager = database.openResourceManager(resource)
+            val manager = database.beginResourceSession(resource)
 
             manager.use {
                 if (manager.resourceConfig.hashType == HashType.NONE) {
@@ -70,7 +64,7 @@ class JsonHead(private val location: Path) {
         ctx.response().end()
     }
 
-    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: JsonResourceManager): Int {
+    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: JsonResourceSession): Int {
         return rev?.toInt()
             ?: if (revTimestamp != null) {
                 var revision = getRevisionNumber(manager, revTimestamp)
@@ -84,7 +78,7 @@ class JsonHead(private val location: Path) {
             }
     }
 
-    private fun getRevisionNumber(manager: JsonResourceManager, revision: String): Int {
+    private fun getRevisionNumber(manager: JsonResourceSession, revision: String): Int {
         val revisionDateTime = LocalDateTime.parse(revision)
         val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
         return manager.getRevisionNumber(zdt.toInstant())

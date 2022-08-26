@@ -12,7 +12,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
@@ -52,12 +52,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
   /**
    * {@link Set} of databases.
    */
-  private final Set<Database<JsonResourceManager>> databases;
+  private final Set<Database<JsonResourceSession>> databases;
 
   /**
    * Mapping sirix databases to collections.
    */
-  private final ConcurrentMap<Database<JsonResourceManager>, JsonDBCollection> collections;
+  private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
 
   /**
    * {@link StorageType} instance.
@@ -214,7 +214,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     if (Databases.existsDatabase(dbPath)) {
       try {
         final var database = Databases.openJsonDatabase(dbPath);
-        final Optional<Database<JsonResourceManager>> storedCollection =
+        final Optional<Database<JsonResourceSession>> storedCollection =
             databases.stream().findFirst().filter(db -> db.equals(database));
         if (storedCollection.isPresent()) {
           final var db = storedCollection.get();
@@ -360,7 +360,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         return collection;
       }
 
-      try (final JsonResourceManager manager = database.openResourceManager(resourceName);
+      try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
            final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(commitMessage, commitTimestamp);
@@ -397,14 +397,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceManager> database) {
+  public JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceSession> database) {
     databases.add(database);
     collections.put(database, jsonDBCollection);
     return this;
   }
 
   @Override
-  public JsonDBStore removeDatabase(final @NonNull Database<JsonResourceManager> database) {
+  public JsonDBStore removeDatabase(final @NonNull Database<JsonResourceSession> database) {
     databases.remove(database);
     collections.remove(database);
     return this;
@@ -445,7 +445,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
-  private Void createResource(String collName, final Database<JsonResourceManager> database, final JsonReader reader,
+  private Void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
       final String resourceName) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .storageType(storageType)
@@ -454,7 +454,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                  .hashKind(hashType)
                                                  .useDeweyIDs(useDeweyIDs)
                                                  .build());
-    try (final JsonResourceManager manager = database.openResourceManager(resourceName);
+    try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
@@ -491,7 +491,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .buildPathSummary(true)
                                                          .hashKind(hashType)
                                                          .build());
-            try (final JsonResourceManager manager = database.openResourceManager(resourceName);
+            try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
                  final JsonNodeTrx wtx = manager.beginNodeTrx()) {
               final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
               collections.put(database, collection);
@@ -520,7 +520,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
-        final Predicate<Database<JsonResourceManager>> databasePredicate =
+        final Predicate<Database<JsonResourceSession>> databasePredicate =
             currDatabase -> currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);

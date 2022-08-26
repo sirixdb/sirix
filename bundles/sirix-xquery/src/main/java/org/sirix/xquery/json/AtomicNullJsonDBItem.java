@@ -3,7 +3,7 @@ package org.sirix.xquery.json;
 import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.Null;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.xquery.StructuredDBItem;
 
 public final class AtomicNullJsonDBItem extends Null
@@ -35,8 +35,8 @@ public final class AtomicNullJsonDBItem extends Null
   }
 
   @Override
-  public JsonResourceManager getResourceManager() {
-    return rtx.getResourceManager();
+  public JsonResourceSession getResourceSession() {
+    return rtx.getResourceSession();
   }
 
   @Override

@@ -14,7 +14,7 @@ import org.brackit.xquery.xdm.Expr;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
@@ -63,7 +63,7 @@ public final class IndexExpr implements Expr {
     final JsonDBCollection jsonCollection = jsonItemStore.lookup(databaseName);
     final var database = jsonCollection.getDatabase();
 
-    final var manager = database.openResourceManager(resourceName);
+    final var manager = database.beginResourceSession(resourceName);
     final var indexController = revision == -1
         ? manager.getRtxIndexController(manager.getMostRecentRevisionNumber())
         : manager.getRtxIndexController(revision);
@@ -250,7 +250,7 @@ public final class IndexExpr implements Expr {
     return searchMode;
   }
 
-  private void checkIfIndexNodeIsApplicable(JsonResourceManager manager, JsonNodeReadOnlyTrx rtx,
+  private void checkIfIndexNodeIsApplicable(JsonResourceSession manager, JsonNodeReadOnlyTrx rtx,
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
       List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);

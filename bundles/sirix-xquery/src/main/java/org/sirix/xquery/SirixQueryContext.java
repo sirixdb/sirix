@@ -153,7 +153,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   private void commitXmlTrx(List<UpdateOp> updateList) {
     final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
       if (sequence instanceof XmlDBNode) {
-        return ((XmlDBNode) sequence).getTrx().getResourceManager().getNodeTrx();
+        return ((XmlDBNode) sequence).getTrx().getResourceSession().getNodeTrx();
       }
 
       return Optional.empty();
@@ -172,7 +172,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   private void commitJsonTrx(List<UpdateOp> updateList) {
     final Function<Sequence, Optional<JsonNodeTrx>> mapDBNodeToWtx = sequence -> {
       if (sequence instanceof JsonDBItem) {
-        return ((JsonDBItem) sequence).getTrx().getResourceManager().getNodeTrx();
+        return ((JsonDBItem) sequence).getTrx().getResourceSession().getNodeTrx();
       }
 
       return Optional.empty();

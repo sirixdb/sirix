@@ -2,7 +2,7 @@ package org.sirix.access;
 
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.cache.BufferManager;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -12,59 +12,59 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public class ResourceStoreImpl<R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
+public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements ResourceStore<R> {
 
   /**
    * Central repository of all open resource managers.
    */
-  private final Map<Path, R> resourceManagers;
+  private final Map<Path, R> resourceSessions;
 
-  private final PathBasedPool<ResourceManager<?, ?>> allResourceManagers;
+  private final PathBasedPool<ResourceSession<?, ?>> allResourceSessions;
 
-  private final ResourceManagerFactory<R> resourceManagerFactory;
+  private final ResourceSessionFactory<R> resourceSessionFactory;
 
-  public ResourceStoreImpl(final PathBasedPool<ResourceManager<?, ?>> allResourceManagers,
-                           final ResourceManagerFactory<R> resourceManagerFactory) {
+  public ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
+                           final ResourceSessionFactory<R> resourceSessionFactory) {
 
-    this.resourceManagers = new ConcurrentHashMap<>();
-    this.allResourceManagers = allResourceManagers;
-    this.resourceManagerFactory = resourceManagerFactory;
+    this.resourceSessions = new ConcurrentHashMap<>();
+    this.allResourceSessions = allResourceSessions;
+    this.resourceSessionFactory = resourceSessionFactory;
   }
 
   @Override
-  public R openResource(final @NonNull ResourceConfiguration resourceConfig,
+  public R beginResourceSession(final @NonNull ResourceConfiguration resourceConfig,
                         final @NonNull BufferManager bufferManager,
                         final @NonNull Path resourceFile) {
-    return this.resourceManagers.computeIfAbsent(resourceFile, k -> {
-      final var resourceManager = this.resourceManagerFactory.create(resourceConfig, bufferManager, resourceFile);
-      this.allResourceManagers.putObject(resourceFile, resourceManager);
-      return resourceManager;
+    return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
+      final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
+      this.allResourceSessions.putObject(resourceFile, resourceSession);
+      return resourceSession;
     });
   }
 
   @Override
-  public boolean hasOpenResourceManager(final Path resourceFile) {
+  public boolean hasOpenResourceSession(final Path resourceFile) {
     checkNotNull(resourceFile);
-    return resourceManagers.containsKey(resourceFile);
+    return resourceSessions.containsKey(resourceFile);
   }
 
   @Override
-  public R getOpenResourceManager(final Path resourceFile) {
+  public R getOpenResourceSession(final Path resourceFile) {
     checkNotNull(resourceFile);
-    return resourceManagers.get(resourceFile);
+    return resourceSessions.get(resourceFile);
   }
 
   @Override
   public void close() {
-    resourceManagers.forEach((resourceName, resourceMgr) -> resourceMgr.close());
-    resourceManagers.clear();
+    resourceSessions.forEach((resourceName, resourceMgr) -> resourceMgr.close());
+    resourceSessions.clear();
   }
 
   @Override
-  public boolean closeResourceManager(final Path resourceFile) {
-    final R manager = resourceManagers.remove(resourceFile);
-    this.allResourceManagers.removeObject(resourceFile, manager);
-    return manager != null;
+  public boolean closeResourceSession(final Path resourceFile) {
+    final R session = resourceSessions.remove(resourceFile);
+    this.allResourceSessions.removeObject(resourceFile, session);
+    return session != null;
   }
 }

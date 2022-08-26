@@ -2,8 +2,8 @@ package org.sirix.access;
 
 import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
 import org.sirix.api.*;
-import org.sirix.api.json.JsonResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.json.JsonResourceSession;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
@@ -165,7 +165,7 @@ public final class Databases {
    * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file, final User user) {
+  public static synchronized Database<XmlResourceSession> openXmlDatabase(final Path file, final User user) {
     return openDatabase(file, user, DatabaseType.XML);
   }
 
@@ -180,7 +180,7 @@ public final class Databases {
    * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file, final User user) {
+  public static synchronized Database<JsonResourceSession> openJsonDatabase(final Path file, final User user) {
     return openDatabase(file, user, DatabaseType.JSON);
   }
 
@@ -194,7 +194,7 @@ public final class Databases {
    * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file) {
+  public static synchronized Database<JsonResourceSession> openJsonDatabase(final Path file) {
     return openDatabase(file, createAdminUser(), DatabaseType.JSON);
   }
 
@@ -217,11 +217,11 @@ public final class Databases {
    * @throws SirixUsageException  if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
+  public static synchronized Database<XmlResourceSession> openXmlDatabase(final Path file) {
     return openDatabase(file, createAdminUser(), DatabaseType.XML);
   }
 
-  private static <M extends ResourceManager<R, W>, R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
+  private static <M extends ResourceSession<R, W>, R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
       final Path file, final User user, final DatabaseType databaseType) {
     checkNotNull(file);
     if (!Files.exists(file)) {

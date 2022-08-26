@@ -9,7 +9,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
@@ -51,12 +51,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
   /**
    * {@link Set} of databases.
    */
-  private final Set<Database<XmlResourceManager>> databases;
+  private final Set<Database<XmlResourceSession>> databases;
 
   /**
    * Mapping sirix databases to collections.
    */
-  private final ConcurrentMap<Database<XmlResourceManager>, XmlDBCollection> collections;
+  private final ConcurrentMap<Database<XmlResourceSession>, XmlDBCollection> collections;
 
   /**
    * {@link StorageType} instance.
@@ -174,7 +174,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     if (Databases.existsDatabase(dbPath)) {
       try {
         final var database = Databases.openXmlDatabase(dbPath);
-        final Optional<Database<XmlResourceManager>> storedCollection =
+        final Optional<Database<XmlResourceSession>> storedCollection =
             databases.stream().findFirst().filter(db -> db.equals(database));
         if (storedCollection.isPresent()) {
           return collections.get(storedCollection.get());
@@ -252,7 +252,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
 
-      try (final XmlResourceManager manager = database.openResourceManager(resName);
+      try (final XmlResourceSession manager = database.beginResourceSession(resName);
            final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
@@ -287,7 +287,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .buildPathSummary(true)
                                                            .hashKind(HashType.ROLLING)
                                                            .build());
-              try (final XmlResourceManager manager = database.openResourceManager(resourceName);
+              try (final XmlResourceSession manager = database.beginResourceSession(resourceName);
                    final XmlNodeTrx wtx = manager.beginNodeTrx()) {
                 final XmlDBCollection collection = new XmlDBCollection(collName, database);
                 collections.put(database, collection);

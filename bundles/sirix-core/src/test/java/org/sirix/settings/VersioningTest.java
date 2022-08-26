@@ -33,7 +33,7 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
@@ -42,7 +42,7 @@ import org.sirix.exception.SirixException;
 public class VersioningTest {
 
   /** {@link Database} instance. */
-  private Database<XmlResourceManager> database;
+  private Database<XmlResourceSession> database;
 
   @Before
   public void setUp() throws SirixException {
@@ -172,7 +172,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test() throws SirixException {
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       try (final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -210,7 +210,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test1() throws SirixException {
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       XmlNodeTrx wtx = manager.beginNodeTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -260,7 +260,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test2() throws SirixException {
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       XmlNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();

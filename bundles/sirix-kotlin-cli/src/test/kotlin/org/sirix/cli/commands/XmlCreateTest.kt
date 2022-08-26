@@ -71,7 +71,7 @@ internal class XmlCreateTest : CliCommandTest() {
         database.use {
             assertTrue(database.existsResource(CliCommandTestConstants.TEST_RESOURCE))
 
-            val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+            val manager = database.beginResourceSession(CliCommandTestConstants.TEST_RESOURCE)
             manager.use {
                 val out = ByteArrayOutputStream()
                 XmlSerializer.XmlSerializerBuilder(manager, out).build().call()

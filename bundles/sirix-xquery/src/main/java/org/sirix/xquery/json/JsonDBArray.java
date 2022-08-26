@@ -45,7 +45,7 @@ public final class JsonDBArray extends AbstractJsonDBArray<JsonDBArray>
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArrayStream(new PastAxis<>(rtx.getResourceManager(), rtx, include), collection);
+    return new TemporalSirixJsonArrayStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
@@ -54,13 +54,13 @@ public final class JsonDBArray extends AbstractJsonDBArray<JsonDBArray>
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArrayStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include), collection);
+    return new TemporalSirixJsonArrayStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBArray> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonArrayStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
+    return new TemporalSirixJsonArrayStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
   }
 
   @Override

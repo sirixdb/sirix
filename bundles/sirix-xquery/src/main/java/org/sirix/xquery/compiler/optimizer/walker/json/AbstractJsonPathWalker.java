@@ -12,7 +12,7 @@ import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.index.IndexDef;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.NodeKind;
@@ -63,7 +63,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     final RevisionData revisionData = getRevisionData(node);
 
     try (final var jsonCollection = jsonDBStore.lookup(revisionData.databaseName());
-         final var resMgr = jsonCollection.getDatabase().openResourceManager(revisionData.resourceName());
+         final var resMgr = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
          final var rtx = revisionData.revision() == -1
              ? resMgr.beginNodeReadOnlyTrx()
              : resMgr.beginNodeReadOnlyTrx(revisionData.revision());
@@ -230,7 +230,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   }
 
   private boolean findIndexDefsForPathNodeKeys(AST predicateNode, Type type, Deque<String> predicateSegmentNames,
-      RevisionData revisionData, JsonResourceManager resMgr, PathSummaryReader pathSummary, List<Integer> pathNodeKeys,
+      RevisionData revisionData, JsonResourceSession resMgr, PathSummaryReader pathSummary, List<Integer> pathNodeKeys,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefsToPaths, Map<IndexDef, Integer> foundIndexDefsToPredicateLevels) {
     boolean notFound = false;
 

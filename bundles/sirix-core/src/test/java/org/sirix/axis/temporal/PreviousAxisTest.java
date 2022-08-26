@@ -8,7 +8,6 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -51,7 +50,7 @@ public final class PreviousAxisTest {
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new PreviousAxis<>(secondRtx.getResourceManager(), secondRtx);
+        return new PreviousAxis<>(secondRtx.getResourceSession(), secondRtx);
       }
     }.test();
   }

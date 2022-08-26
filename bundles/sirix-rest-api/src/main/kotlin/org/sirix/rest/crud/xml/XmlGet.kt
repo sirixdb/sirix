@@ -14,7 +14,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.xml.XmlResourceManager
+import org.sirix.api.xml.XmlResourceSession
 import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
@@ -66,7 +66,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         val database = Databases.openXmlDatabase(location.resolve(databaseName))
 
         database.use {
-            val manager = database.openResourceManager(resource)
+            val manager = database.beginResourceSession(resource)
 
             manager.use {
                 body = if (query != null && query.isNotEmpty()) {
@@ -94,8 +94,8 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
     }
 
     private suspend fun queryResource(
-        databaseName: String?, database: Database<XmlResourceManager>, revision: String?,
-        revisionTimestamp: String?, manager: XmlResourceManager, ctx: RoutingContext,
+        databaseName: String?, database: Database<XmlResourceSession>, revision: String?,
+        revisionTimestamp: String?, manager: XmlResourceSession, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
     ): String? {
         val dbCollection = XmlDBCollection(databaseName, database)
@@ -122,7 +122,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
     }
 
     suspend fun xquery(
-        manager: XmlResourceManager?,
+        manager: XmlResourceSession?,
         dbCollection: XmlDBCollection?,
         nodeId: String?,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
@@ -269,7 +269,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
     }
 
     private fun serializeResource(
-        manager: XmlResourceManager, revisions: IntArray, nodeId: Long?,
+        manager: XmlResourceSession, revisions: IntArray, nodeId: Long?,
         ctx: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()

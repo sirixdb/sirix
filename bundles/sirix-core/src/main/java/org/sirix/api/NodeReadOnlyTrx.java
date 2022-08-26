@@ -60,11 +60,11 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   long getNodeKey();
 
   /**
-   * Get the {@link ResourceManager} this instance is bound to.
+   * Get the {@link ResourceSession} this instance is bound to.
    *
    * @return the resource manager this transaction is bound to
    */
-  ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager();
+  ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 
   /**
    * Get the commit credentials.

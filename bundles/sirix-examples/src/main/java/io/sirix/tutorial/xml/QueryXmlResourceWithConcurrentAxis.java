@@ -50,7 +50,7 @@ public class QueryXmlResourceWithConcurrentAxis {
                                                    .useTextCompression(false)
                                                    .useDeweyIDs(true)
                                                    .build());
-      try (final var manager = database.openResourceManager("resource");
+      try (final var manager = database.beginResourceSession("resource");
            final var wtx = manager.beginNodeTrx();
            final var fis = new FileInputStream(pathToXmlFile.toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
@@ -61,7 +61,7 @@ public class QueryXmlResourceWithConcurrentAxis {
 
   static void queryXmlDatabase() {
     try (final var database = Databases.openXmlDatabase(DATABASE_PATH);
-         final var manager = database.openResourceManager("resource");
+         final var manager = database.beginResourceSession("resource");
          final var firstConcurrRtx = manager.beginNodeReadOnlyTrx();
          final var secondConcurrRtx = manager.beginNodeReadOnlyTrx();
          final var thirdConcurrRtx = manager.beginNodeReadOnlyTrx();

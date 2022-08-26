@@ -32,7 +32,6 @@ import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import javax.xml.XMLConstants;
 import javax.xml.namespace.QName;
@@ -53,7 +52,7 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
@@ -80,7 +79,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private transient XMLEventReader mReader;
 
   /** Resource manager instance. */
-  private final XmlResourceManager mResourceManager;
+  private final XmlResourceSession mResourceManager;
 
   /** sirix {@link NodeTrx}. */
   private transient XmlNodeTrx mWtx;
@@ -101,7 +100,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private transient String mTimestamp;
 
   /** Sirix {@link Database}. */
-  private final Database<XmlResourceManager> mDatabase;
+  private final Database<XmlResourceSession> mDatabase;
 
   /** Revision-timespan by date. */
   public enum DateBy {
@@ -143,7 +142,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createXmlDatabase(config);
     mDatabase = Databases.openXmlDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded").build());
-    mResourceManager = mDatabase.openResourceManager("shredded");
+    mResourceManager = mDatabase.beginResourceSession("shredded");
     mWtx = mResourceManager.beginNodeTrx();
   }
 
@@ -280,7 +279,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createXmlDatabase(dbConf);
     try (var db = Databases.openXmlDatabase(path)) {
       db.createResource(new ResourceConfiguration.Builder("wiki").build());
-      try (XmlResourceManager resourceManager = db.openResourceManager("wiki")) {
+      try (XmlResourceSession resourceManager = db.beginResourceSession("wiki")) {
         if (mPageEvents.peek() != null && mPageEvents.peek().isStartElement()
                 && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
           mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));

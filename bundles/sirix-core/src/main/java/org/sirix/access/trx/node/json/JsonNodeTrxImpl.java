@@ -36,7 +36,7 @@ import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
@@ -159,7 +159,7 @@ final class JsonNodeTrxImpl extends
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   JsonNodeTrxImpl(final String databaseName,
-      final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+      final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx,
       @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @NonNegative final int maxNodeCount,
       @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
@@ -2520,7 +2520,7 @@ final class JsonNodeTrxImpl extends
   protected void serializeUpdateDiffs(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
       final var diffSerializer = new JsonDiffSerializer(this.databaseName,
-                                                        (JsonResourceManager) resourceManager,
+                                                        (JsonResourceSession) resourceManager,
                                                         beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
                                                             ? beforeBulkInsertionRevisionNumber
                                                             : revisionNumber - 1,

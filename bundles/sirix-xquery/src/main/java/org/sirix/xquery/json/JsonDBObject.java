@@ -18,7 +18,7 @@ import org.sirix.access.trx.node.json.objectvalue.*;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.IncludeSelf;
@@ -90,8 +90,8 @@ public final class JsonDBObject extends AbstractItem
   }
 
   @Override
-  public JsonResourceManager getResourceManager() {
-    return rtx.getResourceManager();
+  public JsonResourceSession getResourceSession() {
+    return rtx.getResourceSession();
   }
 
   @Override
@@ -122,7 +122,7 @@ public final class JsonDBObject extends AbstractItem
   public JsonDBObject getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -139,21 +139,21 @@ public final class JsonDBObject extends AbstractItem
   public JsonDBObject getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis =
-        new PreviousAxis<>(rtx.getResourceManager(), rtx);
+        new PreviousAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public JsonDBObject getFirst() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new FirstAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public JsonDBObject getLast() {
     moveRtx();
-    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -161,20 +161,20 @@ public final class JsonDBObject extends AbstractItem
   public Stream<JsonDBObject> getEarlier(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new PastAxis<>(rtx.getResourceManager(), rtx, include), collection);
+    return new TemporalSirixJsonObjectStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBObject> getFuture(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include), collection);
+    return new TemporalSirixJsonObjectStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBObject> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonObjectStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
+    return new TemporalSirixJsonObjectStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
   }
 
   @Override
@@ -252,7 +252,7 @@ public final class JsonDBObject extends AbstractItem
 
     final NodeReadOnlyTrx otherTrx = other.getTrx();
 
-    return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
+    return otherTrx.getResourceSession().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
   }
 
   @Override
@@ -284,7 +284,7 @@ public final class JsonDBObject extends AbstractItem
   }
 
   private JsonNodeTrx getReadWriteTrx() {
-    final JsonResourceManager resourceManager = rtx.getResourceManager();
+    final JsonResourceSession resourceManager = rtx.getResourceSession();
     final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
     trx.moveTo(nodeKey);
     return trx;
@@ -342,7 +342,7 @@ public final class JsonDBObject extends AbstractItem
 
   private boolean findField(QNm field, JsonNodeTrx trx) {
     moveRtx();
-    if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
+    if (rtx.getResourceSession().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
         && hasNoMatchingPathNode(field)) {
       return false;
     }
@@ -470,7 +470,7 @@ public final class JsonDBObject extends AbstractItem
     moveRtx();
 
     return fields.computeIfAbsent(field, (unused) -> {
-      if (rtx.getResourceManager().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
+      if (rtx.getResourceSession().getResourceConfig().withPathSummary && rtx.getChildCount() > CHILD_THRESHOLD
           && hasNoMatchingPathNode(field)) {
         return null;
       }
@@ -495,7 +495,7 @@ public final class JsonDBObject extends AbstractItem
     rtx.moveTo(nodeKey);
     BitSet matches = filterMap.get(pcr);
     if (matches == null) {
-      try (final PathSummaryReader reader = rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber())) {
+      try (final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber())) {
         if (pcr != 0) {
           reader.moveTo(pcr);
         }

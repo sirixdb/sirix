@@ -3,7 +3,7 @@ package org.sirix.rest.crud
 import org.sirix.api.NodeCursor
 import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.api.NodeTrx
-import org.sirix.api.ResourceManager
+import org.sirix.api.ResourceSession
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
@@ -13,9 +13,9 @@ import java.time.format.DateTimeParseException
 class Revisions {
     companion object {
         fun <R, W> getRevisionsToSerialize(
-                startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
-                endRevisionTimestamp: String?, manager: ResourceManager<R, W>, revision: String?,
-                revisionTimestamp: String?
+            startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
+            endRevisionTimestamp: String?, manager: ResourceSession<R, W>, revision: String?,
+            revisionTimestamp: String?
         ): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
@@ -31,7 +31,7 @@ class Revisions {
             }
         }
 
-        fun <R, W> getRevisionNumber(rev: String?, revTimestamp: String?, manager: ResourceManager<R, W>): IntArray
+        fun <R, W> getRevisionNumber(rev: String?, revTimestamp: String?, manager: ResourceSession<R, W>): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
@@ -49,7 +49,7 @@ class Revisions {
             }
         }
 
-        private fun <R, W> getRevisionNumber(manager: ResourceManager<R, W>, revision: String): Int
+        private fun <R, W> getRevisionNumber(manager: ResourceSession<R, W>, revision: String): Int
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
@@ -68,8 +68,8 @@ class Revisions {
         }
 
         private fun <R, W> getRevisionNumbers(
-                manager: ResourceManager<R, W>,
-                revisions: Pair<ZonedDateTime, ZonedDateTime>
+            manager: ResourceSession<R, W>,
+            revisions: Pair<ZonedDateTime, ZonedDateTime>
         ): IntArray
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,

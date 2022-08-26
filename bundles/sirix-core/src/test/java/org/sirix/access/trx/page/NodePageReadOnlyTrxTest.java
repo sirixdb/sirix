@@ -3,7 +3,7 @@ package org.sirix.access.trx.page;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.InternalResourceSession;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.TransactionIntentLog;
@@ -20,7 +20,7 @@ public final class NodePageReadOnlyTrxTest {
 
   @Test
   public void testPageKey() {
-    final InternalResourceManager<?,?> resourceManagerMock = createResourceManagerMock();
+    final InternalResourceSession<?,?> resourceManagerMock = createResourceManagerMock();
 
     final var trx = new NodePageReadOnlyTrx(1, resourceManagerMock, new UberPage(), 0,
                                             mock(Reader.class), mock(BufferManager.class),
@@ -33,7 +33,7 @@ public final class NodePageReadOnlyTrxTest {
 
   @Test
   public void testRecordPageOffset() {
-    final InternalResourceManager<?,?> resourceManagerMock = createResourceManagerMock();
+    final InternalResourceSession<?,?> resourceManagerMock = createResourceManagerMock();
 
     final var trx = new NodePageReadOnlyTrx(1, resourceManagerMock, new UberPage(), 0,
         mock(Reader.class), mock(BufferManager.class),
@@ -44,8 +44,8 @@ public final class NodePageReadOnlyTrxTest {
   }
 
   @NotNull
-  private InternalResourceManager<?,?> createResourceManagerMock() {
-    final var resourceManagerMock = mock(InternalResourceManager.class);
+  private InternalResourceSession<?,?> createResourceManagerMock() {
+    final var resourceManagerMock = mock(InternalResourceSession.class);
     when(resourceManagerMock.getResourceConfig()).thenReturn(new ResourceConfiguration.Builder("foobar").build());
     return resourceManagerMock;
   }

@@ -5,7 +5,7 @@ import org.sirix.access.LocalDatabaseFactory;
 import org.sirix.access.User;
 import org.sirix.access.json.JsonLocalDatabaseComponent.Builder;
 import org.sirix.api.Database;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +19,7 @@ import javax.inject.Singleton;
  * @author Joao Sousa
  */
 @Singleton
-public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResourceManager> {
+public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResourceSession> {
 
   /**
    * Logger for {@link LocalJsonDatabaseFactory}.
@@ -34,7 +34,7 @@ public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResour
   }
 
   @Override
-  public Database<JsonResourceManager> createDatabase(final DatabaseConfiguration configuration, final User user) {
+  public Database<JsonResourceSession> createDatabase(final DatabaseConfiguration configuration, final User user) {
     logger.trace("Creating new local JSON database instance (open)");
     return this.subComponentBuilder.get().databaseConfiguration(configuration).user(user).build().database();
   }

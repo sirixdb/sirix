@@ -20,7 +20,7 @@ class JsonCreate(options: CliOptions, private val dataOptions: DataCommandOption
             val database = openJsonDatabase(dataOptions.user)
 
             createOrRemoveAndCreateResource(database)
-            val manager = database.openResourceManager(dataOptions.resourceName)
+            val manager = database.beginResourceSession(dataOptions.resourceName)
             manager.use {
                 val wtx = manager.beginNodeTrx()
                 wtx.use {

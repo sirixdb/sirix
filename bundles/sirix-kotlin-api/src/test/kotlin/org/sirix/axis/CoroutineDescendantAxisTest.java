@@ -31,7 +31,7 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -61,7 +61,7 @@ public class CoroutineDescendantAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final XmlResourceManager rm = holder.getResourceManager();
+    final XmlResourceSession rm = holder.getResourceManager();
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
@@ -116,7 +116,7 @@ public class CoroutineDescendantAxisTest {
 
   @Test
   public void testIterateIncludingSelf() throws SirixException {
-    final XmlResourceManager rm = holder.getResourceManager();
+    final XmlResourceSession rm = holder.getResourceManager();
     final NodeCursor rtx = rm.beginNodeReadOnlyTrx();
 
     AbsAxisTest.testAxisConventions(
@@ -177,7 +177,7 @@ public class CoroutineDescendantAxisTest {
   @Test
   public void testIterationTime() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-    final XmlResourceManager rm = holder.getResourceManager();
+    final XmlResourceSession rm = holder.getResourceManager();
 
     rtx.moveToDocumentRoot();
 

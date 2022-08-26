@@ -1,12 +1,11 @@
 package io.sirix.tutorial.json;
 
-import java.io.StringWriter;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.Databases;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.service.json.serialize.JsonSerializer;
 
-import io.sirix.tutorial.Constants;
+import java.io.StringWriter;
 
 public class SerializeVersionedJsonResource {
 
@@ -15,36 +14,36 @@ public class SerializeVersionedJsonResource {
 
     final var database = Databases.openJsonDatabase(Constants.SIRIX_DATA_LOCATION.resolve("json-database-versioned"));
 
-    try (final var manager = database.openResourceManager("resource")) {
-      serializeRevisionOneAndTwo(manager);
+    try (final var session = database.beginResourceSession("resource")) {
+      serializeRevisionOneAndTwo(session);
 
-      serializeMostRecentRevision(manager);
+      serializeMostRecentRevision(session);
 
-      serializeAllRevisions(manager);
+      serializeAllRevisions(session);
     }
   }
 
-  private static void serializeRevisionOneAndTwo(final JsonResourceManager manager) {
+  private static void serializeRevisionOneAndTwo(final JsonResourceSession manager) {
     final var writer = new StringWriter();
     final var serializerForRevisionOneAndTwo = new JsonSerializer.Builder(manager, writer, 1, 2).build();
     serializerForRevisionOneAndTwo.call();
     System.out.println("Revision 1 and 2:");
-    System.out.println(writer.toString());
+    System.out.println(writer);
   }
 
-  private static void serializeMostRecentRevision(final JsonResourceManager manager) {
+  private static void serializeMostRecentRevision(final JsonResourceSession manager) {
     final var writer = new StringWriter();
     final var serializerForMostRecentRevision = new JsonSerializer.Builder(manager, writer).build();
     serializerForMostRecentRevision.call();
     System.out.println("Most recent revision:");
-    System.out.println(writer.toString());
+    System.out.println(writer);
   }
 
-  private static void serializeAllRevisions(final JsonResourceManager manager) {
+  private static void serializeAllRevisions(final JsonResourceSession manager) {
     final var writer = new StringWriter();
     final var serializerForAllRevisions = new JsonSerializer.Builder(manager, writer, -1).build();
     serializerForAllRevisions.call();
     System.out.println("All revisions:");
-    System.out.println(writer.toString());
+    System.out.println(writer);
   }
 }

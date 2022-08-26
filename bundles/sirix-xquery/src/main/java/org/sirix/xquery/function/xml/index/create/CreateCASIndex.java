@@ -19,7 +19,7 @@ import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -66,7 +66,7 @@ public final class CreateCASIndex extends AbstractFunction {
 
     final XmlDBNode doc = ((XmlDBNode) args[0]);
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
-    final XmlResourceManager manager = rtx.getResourceManager();
+    final XmlResourceSession manager = rtx.getResourceSession();
 
     final Optional<XmlNodeTrx> optionalWriteTrx = manager.getNodeTrx();
     final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
@@ -75,7 +75,7 @@ public final class CreateCASIndex extends AbstractFunction {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
-    final XmlIndexController controller = wtx.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    final XmlIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

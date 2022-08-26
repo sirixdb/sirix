@@ -5,7 +5,7 @@ import org.sirix.access.User;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 
@@ -53,8 +53,8 @@ public interface ForwardingNodeReadOnlyTrx extends NodeReadOnlyTrx {
     }
 
     @Override
-    default ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
-        return delegate().getResourceManager();
+    default ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
+        return delegate().getResourceSession();
     }
 
     @Override

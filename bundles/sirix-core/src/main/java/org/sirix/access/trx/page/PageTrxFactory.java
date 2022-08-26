@@ -32,13 +32,13 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
+import org.sirix.access.trx.node.InternalResourceSession;
+import org.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.api.json.JsonResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.json.JsonResourceSession;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -72,7 +72,7 @@ public final class PageTrxFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager    {@link XmlResourceManagerImpl} this page write trx is bound to
+   * @param resourceManager    {@link XmlResourceSessionImpl} this page write trx is bound to
    * @param uberPage           root of revision
    * @param writer             writer where this transaction should write to
    * @param trxId              the transaction ID
@@ -82,7 +82,7 @@ public final class PageTrxFactory {
    *                           {@code false} otherwise
    */
   public PageTrx createPageTrx(
-      final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
+      final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @NonNegative long trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
       final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
@@ -151,10 +151,10 @@ public final class PageTrxFactory {
       final NamePage namePage = pageRtx.getNamePage(newRevisionRootPage);
       final DeweyIDPage deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
 
-      if (resourceManager instanceof JsonResourceManager) {
+      if (resourceManager instanceof JsonResourceSession) {
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
         deweyIDPage.createIndexTree(this.databaseType, pageRtx, log);
-      } else if (resourceManager instanceof XmlResourceManager) {
+      } else if (resourceManager instanceof XmlResourceSession) {
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.NAMESPACE_REFERENCE_OFFSET, log);

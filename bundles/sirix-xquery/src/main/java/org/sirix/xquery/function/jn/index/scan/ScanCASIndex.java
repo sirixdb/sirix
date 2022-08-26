@@ -57,7 +57,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -73,7 +73,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
                                idx,
                                doc.getCollection().getName(),
                                doc.getTrx()
-                                  .getResourceManager()
+                                  .getResourceSession()
                                   .getResourceConfig()
                                   .getResource()
                                   .getFileName()
@@ -85,7 +85,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
                                idx,
                                doc.getCollection().getName(),
                                doc.getTrx()
-                                  .getResourceManager()
+                                  .getResourceSession()
                                   .getResourceConfig()
                                   .getResource()
                                   .getFileName()

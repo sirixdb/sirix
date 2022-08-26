@@ -41,7 +41,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.JsonDiff;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.service.json.BasicJsonDiff;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.json.JsonDBCollection;
@@ -96,7 +96,7 @@ public final class Diff extends AbstractFunction {
     final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
     final var doc = col.getDocument(expResName);
-    final var resourceMgr = doc.getResourceManager();
+    final var resourceMgr = doc.getResourceSession();
 
     if (resourceMgr.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
       return readDiffFromFileAndCalculateViaDeweyIDs(dbName,
@@ -110,12 +110,12 @@ public final class Diff extends AbstractFunction {
 
     final JsonDiff jsonDiff = new BasicJsonDiff(col.getDatabase().getName());
 
-    return new Str(jsonDiff.generateDiff(doc.getResourceManager(), oldRevision, newRevision, startNodeKey, maxLevel));
+    return new Str(jsonDiff.generateDiff(doc.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel));
   }
 
   @NotNull
   private Str readDiffFromFileAndCalculateViaDeweyIDs(String dbName, String expResName, int oldRevision,
-      int newRevision, int startNodeKey, int maxLevel, JsonResourceManager resourceMgr) {
+      int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceMgr) {
     // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
     try (final var rtx = resourceMgr.beginNodeReadOnlyTrx(newRevision)) {
       rtx.moveTo(startNodeKey);

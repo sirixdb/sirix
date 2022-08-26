@@ -28,11 +28,11 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.InternalResourceSession;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -87,9 +87,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final UberPage uberPage;
 
   /**
-   * {@link InternalResourceManager} reference.
+   * {@link InternalResourceSession} reference.
    */
-  final InternalResourceManager<?, ?> resourceManager;
+  final InternalResourceSession<?, ?> resourceManager;
 
   /**
    * The revision number, this page trx is bound to.
@@ -151,7 +151,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @throws SirixIOException if reading of the persistent storage fails
    */
   public NodePageReadOnlyTrx(final long trxId,
-      final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
+      final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final @NonNegative int revision, final Reader reader,
       final BufferManager resourceBufferManager, final @NonNull RevisionRootPageReader revisionRootPageReader,
       final @Nullable TransactionIntentLog trxIntentLog) {
@@ -239,7 +239,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
+  public ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
     assertNotClosed();
     return resourceManager;
   }

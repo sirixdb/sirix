@@ -9,7 +9,6 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -54,7 +53,7 @@ public final class FutureAxisTest {
         ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new FutureAxis<>(firstRtx.getResourceManager(), firstRtx, IncludeSelf.YES);
+        return new FutureAxis<>(firstRtx.getResourceSession(), firstRtx, IncludeSelf.YES);
       }
     }.test();
   }
@@ -69,7 +68,7 @@ public final class FutureAxisTest {
         ImmutableList.of(secondRtx, thirdRtx), null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new FutureAxis<>(firstRtx.getResourceManager(), firstRtx);
+        return new FutureAxis<>(firstRtx.getResourceSession(), firstRtx);
       }
     }.test();
   }
@@ -99,7 +98,7 @@ public final class FutureAxisTest {
           null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-          return new FutureAxis<>(thirdReader.getResourceManager(), thirdReader, IncludeSelf.YES);
+          return new FutureAxis<>(thirdReader.getResourceSession(), thirdReader, IncludeSelf.YES);
         }
       }.test();
     }

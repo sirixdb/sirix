@@ -27,7 +27,7 @@ import org.checkerframework.checker.index.qual.NonNegative
 import org.sirix.api.NodeCursor
 import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.api.NodeTrx
-import org.sirix.api.ResourceManager
+import org.sirix.api.ResourceSession
 import org.sirix.settings.Fixed
 import org.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
@@ -51,7 +51,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     private var producer: Producer
 
     /** Axis current resource manager  */
-    private var resourceManager: ResourceManager<R, W>
+    private var resourceSession: ResourceSession<R, W>
 
     /** Determines if it's the first call to hasNext().  */
     private var first = false
@@ -65,31 +65,31 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     /**
      * Constructor initializing internal state.
      *
-     * @param resourceManager to retrieve cursors for pages
+     * @param resourceSession to retrieve cursors for pages
      */
-    constructor(resourceManager: ResourceManager<R, W>) : super(resourceManager.beginNodeReadOnlyTrx()) {
-        this.resourceManager = resourceManager
+    constructor(resourceSession: ResourceSession<R, W>) : super(resourceSession.beginNodeReadOnlyTrx()) {
+        this.resourceSession = resourceSession
         producer = Producer()
     }
     /**
      * Constructor initializing internal state.
      *
-     * @param resourceManager to retrieve cursors for pages
+     * @param resourceSession to retrieve cursors for pages
      * @param includeSelf determines if current node is included or not
      */
-    constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf) : super(resourceManager.beginNodeReadOnlyTrx(), includeSelf) {
-        this.resourceManager = resourceManager
+    constructor(resourceSession: ResourceSession<R, W>, includeSelf: IncludeSelf) : super(resourceSession.beginNodeReadOnlyTrx(), includeSelf) {
+        this.resourceSession = resourceSession
         producer = Producer()
     }
     /**
      * Constructor initializing internal state.
      *
-     * @param resourceManager to retrieve cursor for right page
+     * @param resourceSession to retrieve cursor for right page
      * @param includeSelf determines if current node is included or not
      * @param cursor to iterate through left page
      */
-    constructor(resourceManager: ResourceManager<R, W>, includeSelf: IncludeSelf, cursor: NodeCursor) : super(cursor, includeSelf) {
-        this.resourceManager = resourceManager
+    constructor(resourceSession: ResourceSession<R, W>, includeSelf: IncludeSelf, cursor: NodeCursor) : super(cursor, includeSelf) {
+        this.resourceSession = resourceSession
         producer = Producer()
     }
 
@@ -216,7 +216,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
         /** Determines if right page coroutine is running.  */
         var running = false
         /** Right page cursor  */
-        private val cursor: NodeCursor = resourceManager.beginNodeReadOnlyTrx()
+        private val cursor: NodeCursor = resourceSession.beginNodeReadOnlyTrx()
 
         override val coroutineContext: CoroutineContext
             get() = CoroutineName("CoroutineDescendantAxis") + Dispatchers.Default

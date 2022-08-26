@@ -26,15 +26,15 @@ import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
-import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.InternalResourceSession;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.xml.*;
@@ -64,12 +64,12 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   /**
    * Constructor.
    *
-   * @param resourceManager the current {@link ResourceManager} the reader is bound to
+   * @param resourceManager the current {@link ResourceSession} the reader is bound to
    * @param trxId ID of the reader
    * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
                          final @NonNegative long trxId,
                          final PageReadOnlyTrx pageReadTransaction,
                          final ImmutableXmlNode documentNode) {
@@ -409,7 +409,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   @Override
   public SirixDeweyID getLeftSiblingDeweyID() {
     assertNotClosed();
-    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceSession.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       SirixDeweyID deweyID = null;
@@ -426,7 +426,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
 
   @Override
   public SirixDeweyID getRightSiblingDeweyID() {
-    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceSession.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       SirixDeweyID deweyID = null;
@@ -443,7 +443,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
 
   @Override
   public SirixDeweyID getParentDeweyID() {
-    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceSession.getResourceConfig().areDeweyIDsStored) {
       final var currentNode = getCurrentNode();
       final long nodeKey = currentNode.getNodeKey();
       SirixDeweyID deweyID = null;
@@ -460,7 +460,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
 
   @Override
   public SirixDeweyID getFirstChildDeweyID() {
-    if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+    if (resourceSession.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       SirixDeweyID deweyID = null;
@@ -520,9 +520,9 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  public XmlResourceManager getResourceManager() {
+  public XmlResourceSession getResourceSession() {
     assertNotClosed();
-    return (XmlResourceManager) resourceManager;
+    return (XmlResourceSession) resourceSession;
   }
 
 }

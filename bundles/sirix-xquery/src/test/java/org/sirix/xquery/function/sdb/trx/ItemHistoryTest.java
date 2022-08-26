@@ -7,7 +7,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -33,7 +32,7 @@ public class ItemHistoryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var manager = database.openResourceManager("mydoc.jn");
+      try (final var manager = database.beginResourceSession("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.moveTo(2);
@@ -66,7 +65,7 @@ public class ItemHistoryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc2.jn").build());
 
-      try (final var manager = database.openResourceManager("mydoc2.jn");
+      try (final var manager = database.beginResourceSession("mydoc2.jn");
            final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}"));

@@ -40,7 +40,7 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
       new DescendantAxis(rtx).forEach(
           nodeKey -> {
@@ -63,7 +63,7 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
 
@@ -93,7 +93,7 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
 
@@ -123,7 +123,7 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(6);
 
@@ -153,7 +153,7 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(12);
 
@@ -184,7 +184,7 @@ public class JsonNodeTrxUpdateTest {
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
@@ -223,7 +223,7 @@ public class JsonNodeTrxUpdateTest {
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();

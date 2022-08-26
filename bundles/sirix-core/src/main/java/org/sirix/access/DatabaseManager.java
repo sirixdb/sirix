@@ -4,8 +4,8 @@ import dagger.Component;
 import org.sirix.access.json.JsonLocalDatabaseComponent;
 import org.sirix.access.xml.XmlLocalDatabaseComponent;
 import org.sirix.api.Database;
-import org.sirix.api.json.JsonResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.json.JsonResourceSession;
+import org.sirix.api.xml.XmlResourceSession;
 
 import javax.inject.Singleton;
 
@@ -42,9 +42,9 @@ public interface DatabaseManager {
     @SuppressWarnings("unused")
     XmlLocalDatabaseComponent.Builder xmlDatabaseBuilder();
 
-    LocalDatabaseFactory<JsonResourceManager> jsonDatabaseFactory();
+    LocalDatabaseFactory<JsonResourceSession> jsonDatabaseFactory();
 
-    LocalDatabaseFactory<XmlResourceManager> xmlDatabaseFactory();
+    LocalDatabaseFactory<XmlResourceSession> xmlDatabaseFactory();
 
     PathBasedPool<Database<?>> sessions();
 

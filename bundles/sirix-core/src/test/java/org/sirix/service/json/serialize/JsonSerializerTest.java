@@ -18,7 +18,7 @@ import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.service.InsertPosition;
@@ -41,7 +41,7 @@ public final class JsonSerializerTest {
   @Test
   public void test() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx();
          final var writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"test\",\"test\"]"));
@@ -66,7 +66,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).prettyPrint().build();
       serializer.call();
@@ -80,7 +80,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
@@ -93,7 +93,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var writer = new StringWriter();
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
@@ -115,7 +115,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       var serializedString = getSerializedStringWithMaxChildren(manager, 1);
       var expected = Files.readString(JSON.resolve("jsonSerializer")
                                           .resolve("testJsonDocumentWithMaxChildren1")
@@ -142,7 +142,7 @@ public final class JsonSerializerTest {
     }
   }
 
-  private String getSerializedStringWithMaxChildren(final JsonResourceManager manager, final int maxChildren)
+  private String getSerializedStringWithMaxChildren(final JsonResourceSession manager, final int maxChildren)
       throws IOException {
     try (final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).maxChildren(maxChildren).build();
@@ -156,7 +156,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMaxChildren2() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).useDeweyIDs(true).build());
-    try (final JsonResourceManager manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(JSON.resolve("complex3.json")));
 
@@ -173,7 +173,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).build();
       serializer.call();
@@ -190,7 +190,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer =
           new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).prettyPrint().build();
@@ -208,7 +208,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndMaxLevelSecond() throws IOException {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx,
@@ -231,7 +231,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectKeyStartNodeKey() throws IOException {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx,
@@ -255,7 +255,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKey() throws IOException {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx,
@@ -279,7 +279,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndPrettyPrintingAndArrayStartNodeKey() throws IOException {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx,
@@ -303,7 +303,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevelTwo() throws IOException {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
 
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
@@ -327,7 +327,7 @@ public final class JsonSerializerTest {
       throws IOException {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyMetaData(true)
                                                                         .startNodeKey(15)
@@ -350,7 +350,7 @@ public final class JsonSerializerTest {
       throws IOException {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyAndChildCountMetaData(true)
                                                                         .startNodeKey(15)
@@ -372,7 +372,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevelThree() throws IOException {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
                                                                         .startNodeKey(15)
@@ -394,7 +394,7 @@ public final class JsonSerializerTest {
   public void testJsonDocumentWithMetadataAndMaxLevelSecondAndPrettyPrinting() throws IOException {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx();
          final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx,
@@ -420,7 +420,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       var serializedString = getSerializedStringWithMaxLevel(manager, 1);
       var expected = "{}";
       assertEquals(expected, serializedString);
@@ -441,7 +441,7 @@ public final class JsonSerializerTest {
     }
   }
 
-  private String getSerializedStringWithMaxLevel(final JsonResourceManager manager, final int maxLevel)
+  private String getSerializedStringWithMaxLevel(final JsonResourceSession manager, final int maxLevel)
       throws IOException {
     try (final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(maxLevel).build();
@@ -456,7 +456,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       var serializedString = getSerializedStringWithMaxLevelAndNumberOfNodes(manager, 2, 3);
       var expected = "{\"foo\":[]}";
       assertEquals(expected, serializedString);
@@ -473,7 +473,7 @@ public final class JsonSerializerTest {
     }
   }
 
-  private String getSerializedStringWithMaxLevelAndNumberOfNodes(final JsonResourceManager manager, final int maxLevel,
+  private String getSerializedStringWithMaxLevelAndNumberOfNodes(final JsonResourceSession manager, final int maxLevel,
       final int numberOfNodes) throws IOException {
     try (final Writer writer = new StringWriter()) {
       final var serializer =
@@ -489,7 +489,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       var serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 2);
       var expected = "{\"foo\":[]}";
       assertEquals(expected, serializedString);
@@ -532,7 +532,7 @@ public final class JsonSerializerTest {
     }
   }
 
-  private String getSerializedStringWithMaxLevelAndStartNodeKey(final JsonResourceManager manager, final int maxLevel,
+  private String getSerializedStringWithMaxLevelAndStartNodeKey(final JsonResourceSession manager, final int maxLevel,
       final int startNodeKey) throws IOException {
     try (final Writer writer = new StringWriter()) {
       final var serializer =
@@ -548,7 +548,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
 
       rtx.moveTo(2);
@@ -580,7 +580,7 @@ public final class JsonSerializerTest {
     }
   }
 
-  private String getSerializedStringWithMaxLevelAndNumberOfNodesAndStartNodeKey(final JsonResourceManager manager,
+  private String getSerializedStringWithMaxLevelAndNumberOfNodesAndStartNodeKey(final JsonResourceSession manager,
       final long startNodeKey, final int maxLevel, final int numberOfNodes) throws IOException {
     try (final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).startNodeKey(startNodeKey)
@@ -598,7 +598,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
 
       rtx.moveTo(2);
@@ -649,7 +649,7 @@ public final class JsonSerializerTest {
   }
 
   private String getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(
-      final JsonResourceManager manager, final long startNodeKey, final int maxLevel, final int numberOfNodes,
+      final JsonResourceSession manager, final long startNodeKey, final int maxLevel, final int numberOfNodes,
       final int maxChildren) throws IOException {
     try (final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).startNodeKey(startNodeKey)

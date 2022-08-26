@@ -51,7 +51,7 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
 import org.sirix.diff.DiffFactory.DiffOptimized;
@@ -131,7 +131,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     buf.setLength(0);
     latch = new CountDownLatch(1);
 
-    try (final XmlResourceManager resMrg = doc.getTrx().getResourceManager()) {
+    try (final XmlResourceSession resMrg = doc.getTrx().getResourceSession()) {
       pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resMrg,
                                                                                 rev2,
                                                                                 rev1,
@@ -357,7 +357,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       case ELEMENT:
         final OutputStream out = new ByteArrayOutputStream();
         final XmlSerializer serializer =
-            XmlSerializer.newBuilder(rtx.getResourceManager(), out).startNodeKey(rtx.getNodeKey()).build();
+            XmlSerializer.newBuilder(rtx.getResourceSession(), out).startNodeKey(rtx.getNodeKey()).build();
         serializer.call();
         return out.toString();
       case ATTRIBUTE:

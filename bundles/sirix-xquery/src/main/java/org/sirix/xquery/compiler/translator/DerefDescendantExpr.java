@@ -20,7 +20,7 @@ import org.brackit.xquery.xdm.json.Object;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.ChildAxis;
@@ -94,7 +94,7 @@ class DerefDescendantExpr implements Expr {
   @Nullable
   private SirixJsonLazySequence getLazySequence(String recordFieldAsString, JsonDBItem jsonDBItem,
       JsonNodeReadOnlyTrx rtx) {
-    final var resourceManager = rtx.getResourceManager();
+    final var resourceManager = rtx.getResourceSession();
     if (resourceManager.getResourceConfig().withPathSummary && rtx.hasChildren()) {
       try {
         final int revisionNumber = rtx.getRevisionNumber();
@@ -333,11 +333,11 @@ class DerefDescendantExpr implements Expr {
 
   // Build the query.
   private static org.sirix.api.Axis buildQuery(final Deque<PathSegment> pathSegments,
-      final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager, final int revisionNumber,
+      final ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession, final int revisionNumber,
       final long nodeKey) {
-    final var concurrentRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+    final var concurrentRtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
     concurrentRtx.moveTo(nodeKey);
-    final var concurrentRtx1 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+    final var concurrentRtx1 = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
     var pathSegment = pathSegments.pop();
     var lastPathSegmentIsArray = pathSegment.isArray();
     org.sirix.api.Axis axis;

@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
@@ -23,8 +23,8 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   /** The revision number. */
   private int revision;
 
-  /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> resourceManager;
+  /** Sirix {@link ResourceSession}. */
+  private final ResourceSession<R, W> resourceSession;
 
   /** Node key to lookup and retrieve. */
   private long nodeKey;
@@ -35,19 +35,19 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   /**
    * Constructor.
    *
-   * @param resourceManager the resource manager
+   * @param resourceSession the resource manager
    * @param rtx the read only transactional cursor
    */
-  public AllTimeAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    this.resourceManager = checkNotNull(resourceManager);
+  public AllTimeAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
+    this.resourceSession = checkNotNull(resourceSession);
     revision = 1;
     nodeKey = rtx.getNodeKey();
   }
 
   @Override
   protected R computeNext() {
-    while (revision <= resourceManager.getMostRecentRevisionNumber()) {
-      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+    while (revision <= resourceSession.getMostRecentRevisionNumber()) {
+      final R rtx = resourceSession.beginNodeReadOnlyTrx(revision);
       revision++;
       if (rtx.moveTo(nodeKey)) {
         hasMoved = true;
@@ -62,7 +62,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   }
 
   @Override
-  public ResourceManager<R, W> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<R, W> getResourceManager() {
+    return resourceSession;
   }
 }

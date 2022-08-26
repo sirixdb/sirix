@@ -4,7 +4,6 @@ import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
@@ -98,7 +97,7 @@ class XmlUpdate(private val location: Path) {
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
             database.use {
-                val manager = database.openResourceManager(resPathName)
+                val manager = database.beginResourceSession(resPathName)
 
                 manager.use {
                     val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)

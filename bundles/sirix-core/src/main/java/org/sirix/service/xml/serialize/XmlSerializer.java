@@ -45,10 +45,10 @@ import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
@@ -118,7 +118,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XmlSerializer(final XmlResourceManager resourceMgr, final @NonNegative long nodeKey,
+  private XmlSerializer(final XmlResourceSession resourceMgr, final @NonNegative long nodeKey,
       final XmlSerializerBuilder builder, final boolean initialIndent, final @NonNegative int revision,
       final int... revsions) {
     super(resourceMgr, builder.maxLevel == -1
@@ -510,8 +510,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     try (final var db = Databases.openXmlDatabase(databaseFile)) {
       db.createResource(ResourceConfiguration.newBuilder("shredded").build());
 
-      try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
-          final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
+      try (final XmlResourceSession resMgr = db.beginResourceSession("shredded");
+           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XmlSerializer serializer = XmlSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
       }
@@ -523,11 +523,11 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   /**
    * Constructor, setting the necessary stuff.
    *
-   * @param resMgr Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceSession}
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static XmlSerializerBuilder newBuilder(final XmlResourceManager resMgr, final OutputStream stream,
+  public static XmlSerializerBuilder newBuilder(final XmlResourceSession resMgr, final OutputStream stream,
       final int... revisions) {
     return new XmlSerializerBuilder(resMgr, stream, revisions);
   }
@@ -535,13 +535,13 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   /**
    * Constructor.
    *
-   * @param resMgr Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceSession}
    * @param nodeKey root node key of subtree to shredder
    * @param stream {@link OutputStream} to write to
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XmlSerializerBuilder newBuilder(final XmlResourceManager resMgr, final @NonNegative long nodeKey,
+  public static XmlSerializerBuilder newBuilder(final XmlResourceSession resMgr, final @NonNegative long nodeKey,
       final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
     return new XmlSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
@@ -581,7 +581,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     private final OutputStream stream;
 
     /** Resource manager to use. */
-    private final XmlResourceManager resourceMgr;
+    private final XmlResourceSession resourceMgr;
 
     /** Further revisions to serialize. */
     private int[] versions;
@@ -605,11 +605,11 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     /**
      * Constructor, setting the necessary stuff.
      *
-     * @param resourceMgr Sirix {@link ResourceManager}
+     * @param resourceMgr Sirix {@link ResourceSession}
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final OutputStream stream,
+    public XmlSerializerBuilder(final XmlResourceSession resourceMgr, final OutputStream stream,
         final int... revisions) {
       maxLevel = -1;
       nodeKey = 0;
@@ -627,13 +627,13 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     /**
      * Constructor.
      *
-     * @param resourceMgr Sirix {@link ResourceManager}
+     * @param resourceMgr Sirix {@link ResourceSession}
      * @param nodeKey root node key of subtree to shredder
      * @param stream {@link OutputStream} to write to
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @NonNegative long nodeKey,
+    public XmlSerializerBuilder(final XmlResourceSession resourceMgr, final @NonNegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       maxLevel = -1;

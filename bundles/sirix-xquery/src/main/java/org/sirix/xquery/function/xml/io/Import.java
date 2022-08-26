@@ -11,7 +11,7 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
@@ -81,9 +81,9 @@ public final class Import extends AbstractFunction {
       doc = coll.getDocument(resName);
 
       try (final XmlNodeTrx wtx = doc.getTrx()
-                                     .getResourceManager()
+                                     .getResourceSession()
                                      .getNodeTrx()
-                                     .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
+                                     .orElse(doc.getTrx().getResourceSession().beginNodeTrx())) {
         final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
@@ -92,16 +92,16 @@ public final class Import extends AbstractFunction {
         new FMSEImport().shredder(checkNotNull(Paths.get(resToImport)), newRevTarget);
 
         try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
-            final XmlResourceManager resourceNew = databaseNew.openResourceManager("shredded");
-            final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
-            final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
+             final XmlResourceSession resourceNew = databaseNew.beginResourceSession("shredded");
+             final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
+             final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
           fmes.diff(wtx, rtx);
         }
       } catch (final IOException e) {
         throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
       }
     } finally {
-      trx = doc.getTrx().getResourceManager().beginNodeReadOnlyTrx();
+      trx = doc.getTrx().getResourceSession().beginNodeReadOnlyTrx();
       doc.getTrx().close();
     }
 

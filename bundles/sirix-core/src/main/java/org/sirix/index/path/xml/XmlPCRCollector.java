@@ -25,7 +25,7 @@ public final class XmlPCRCollector extends AbstractPCRCollector implements PCRCo
   public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
     final PathSummaryReader reader = mRtx instanceof XmlNodeTrx
         ? ((XmlNodeTrx) mRtx).getPathSummary()
-        : mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber());
+        : mRtx.getResourceSession().openPathSummary(mRtx.getRevisionNumber());
     try {
       return getPcrValue(paths, reader);
     } finally {

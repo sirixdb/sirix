@@ -9,8 +9,8 @@ import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
-import org.sirix.api.ResourceManager
-import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.ResourceSession
+import org.sirix.api.json.JsonResourceSession
 import org.sirix.rest.crud.AbstractDeleteHandler
 import org.sirix.xquery.json.BasicJsonDBStore
 import java.nio.file.Path
@@ -38,8 +38,8 @@ class JsonDelete(location: Path, private val authz: AuthorizationProvider) : Abs
         return Databases.openJsonDatabase(dbFile,  sirixDBUser)
     }
 
-    override fun hashType(manager: ResourceManager<*, *>): HashType {
-        if (manager is JsonResourceManager)
+    override fun hashType(manager: ResourceSession<*, *>): HashType {
+        if (manager is JsonResourceSession)
             return manager.resourceConfig.hashType
         else
             throw IllegalArgumentException("Resource manager is not of JSON type.")

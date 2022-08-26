@@ -1,6 +1,6 @@
 package org.sirix.access;
 
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,13 +11,11 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * A registry for write locks used for {@link ResourceManager resource managers}.
+ * A registry for write locks used for {@link ResourceSession resource managers}.
  *
- * <p>Each {@link ResourceManager}, identified by its {@link Path resource path}, will be
+ * <p>Each {@link ResourceSession}, identified by its {@link Path resource path}, will be
  * assigned a unique write lock.
  *
  * @author Joao Sousa

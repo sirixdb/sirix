@@ -19,7 +19,7 @@ class XmlCreate(options: CliOptions, private val dataOptions: DataCommandOptions
         val database = openXmlDatabase(dataOptions!!.user)
 
         createOrRemoveAndCreateResource(database)
-        val manager = database.openResourceManager(dataOptions.resourceName)
+        val manager = database.beginResourceSession(dataOptions.resourceName)
         manager.use {
             val wtx = manager.beginNodeTrx()
             wtx.use {

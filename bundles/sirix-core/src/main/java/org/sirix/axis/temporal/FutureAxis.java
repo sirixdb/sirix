@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
@@ -25,8 +25,8 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
   /** The revision number. */
   private int revision;
 
-  /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> resourceManager;
+  /** Sirix {@link ResourceSession}. */
+  private final ResourceSession<R, W> resourceSession;
 
   /** Node key to lookup and retrieve. */
   private long nodeKey;
@@ -36,20 +36,20 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
    *
    * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
-  public FutureAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
+  public FutureAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
     // Using telescope pattern instead of builder (only one optional parameter).
-    this(resourceManager, rtx, IncludeSelf.NO);
+    this(resourceSession, rtx, IncludeSelf.NO);
   }
 
   /**
    * Constructor.
    *
-   * @param resourceManager the resource manager
+   * @param resourceSession the resource manager
    * @param rtx the transactional read only cursor
    * @param includeSelf determines if current revision must be included or not
    */
-  public FutureAxis(final ResourceManager<R, W> resourceManager, final R rtx, final IncludeSelf includeSelf) {
-    this.resourceManager = checkNotNull(resourceManager);
+  public FutureAxis(final ResourceSession<R, W> resourceSession, final R rtx, final IncludeSelf includeSelf) {
+    this.resourceSession = checkNotNull(resourceSession);
     nodeKey = rtx.getNodeKey();
     revision = checkNotNull(includeSelf) == IncludeSelf.YES
         ? rtx.getRevisionNumber()
@@ -59,8 +59,8 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
   @Override
   protected R computeNext() {
     // != a little bit faster?
-    if (revision <= resourceManager.getMostRecentRevisionNumber()) {
-      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+    if (revision <= resourceSession.getMostRecentRevisionNumber()) {
+      final R rtx = resourceSession.beginNodeReadOnlyTrx(revision);
       revision++;
       if (rtx.moveTo(nodeKey)) {
         return rtx;
@@ -74,7 +74,7 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
   }
 
   @Override
-  public ResourceManager<R, W> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<R, W> getResourceManager() {
+    return resourceSession;
   }
 }

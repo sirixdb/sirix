@@ -19,7 +19,7 @@ public class DiffXmlResource {
     final var databaseFile = Constants.SIRIX_DATA_LOCATION.resolve("xml-database-versioned");
 
     try (final var database = Databases.openXmlDatabase(databaseFile);
-         final var manager = database.openResourceManager("resource");
+         final var manager = database.beginResourceSession("resource");
          final var rtxOnFirstRevision = manager.beginNodeReadOnlyTrx(1);
          final var rtxOnThirdRevision = manager.beginNodeReadOnlyTrx(3)) {
       DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(manager,

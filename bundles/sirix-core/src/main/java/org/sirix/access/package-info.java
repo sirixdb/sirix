@@ -25,13 +25,13 @@
  * </p>
  * <ul>
  * <li>There can only be a single {@link org.sirix.api.Database} instance per Database-Folder</li>
- * <li>There can be multiple {@link org.sirix.api.ResourceManager} instances per
+ * <li>There can be multiple {@link org.sirix.api.ResourceSession} instances per
  * {@link org.sirix.api.Database} linked uniquely to resources representing concrete
  * data-storages.</li>
  * <li>There can only be a single {@link org.sirix.api.xml.XmlNodeTrx} instance per
- * {@link org.sirix.api.ResourceManager}</li>
+ * {@link org.sirix.api.ResourceSession}</li>
  * <li>There can be multiple {@link org.sirix.api.xml.XmlNodeReadOnlyTrx} instances per
- * {@link org.sirix.api.ResourceManager}.</li>
+ * {@link org.sirix.api.ResourceSession}.</li>
  * </ul>
  * <p>
  * Code examples:

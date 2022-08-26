@@ -3,7 +3,7 @@ package org.sirix.service.json;
 import com.google.common.collect.ImmutableSet;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.JsonDiff;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.diff.*;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -39,7 +39,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
    * @return a JSON-String describing the differences encountered between the two revisions
    */
   @Override
-  public String generateDiff(JsonResourceManager resourceManager, int oldRevisionNumber, int newRevisionNumber) {
+  public String generateDiff(JsonResourceSession resourceManager, int oldRevisionNumber, int newRevisionNumber) {
     return generateDiff(resourceManager, oldRevisionNumber, newRevisionNumber, 0, 0);
   }
 
@@ -54,7 +54,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
    * @return a JSON-String describing the differences encountered between the two revisions
    */
   @Override
-  public String generateDiff(JsonResourceManager resourceManager, int oldRevisionNumber, int newRevisionNumber,
+  public String generateDiff(JsonResourceSession resourceManager, int oldRevisionNumber, int newRevisionNumber,
       long startNodeKey, long maxDepth) {
     diffs.clear();
 

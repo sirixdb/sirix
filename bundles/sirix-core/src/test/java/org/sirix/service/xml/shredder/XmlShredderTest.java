@@ -31,7 +31,7 @@ import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
@@ -77,7 +77,7 @@ public class XmlShredderTest {
     // Verify.
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
     database2.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
-    final XmlResourceManager manager = database2.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession manager = database2.beginResourceSession(XmlTestHelper.RESOURCE);
     final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
     rtx.moveToDocumentRoot();
     final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
@@ -128,8 +128,8 @@ public class XmlShredderTest {
     // Setup expected.
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
 
-    try (final XmlResourceManager manager = database2.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx expectedTrx = manager.beginNodeTrx()) {
+    try (final XmlResourceSession manager = database2.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx expectedTrx = manager.beginNodeTrx()) {
       XmlDocumentCreator.create(expectedTrx);
       expectedTrx.commit();
       expectedTrx.moveToDocumentRoot();
@@ -161,9 +161,9 @@ public class XmlShredderTest {
     // Setup parsed session.
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
 
-    try (final var manager2 = database2.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager2.beginNodeTrx();
-        final FileInputStream fis = new FileInputStream(XML2.toFile())) {
+    try (final var manager2 = database2.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager2.beginNodeTrx();
+         final FileInputStream fis = new FileInputStream(XML2.toFile())) {
       final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
@@ -199,9 +199,9 @@ public class XmlShredderTest {
   @Test
   public void testShreddingLargeText() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final FileInputStream fis1 = new FileInputStream(XML3.toFile());
-        final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final FileInputStream fis1 = new FileInputStream(XML3.toFile());
+         final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
       try (final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();

@@ -10,7 +10,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.*;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
@@ -57,9 +57,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   private final PageReadOnlyTrx pageReadTrx;
 
   /**
-   * {@link ResourceManager} reference.
+   * {@link ResourceSession} reference.
    */
-  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager;
+  private final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession;
 
   /**
    * Determines if path summary is closed or not.
@@ -87,14 +87,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Private constructor.
    *
    * @param pageReadTrx     page reader
-   * @param resourceManager {@link ResourceManager} reference
+   * @param resourceSession {@link ResourceSession} reference
    */
   private PathSummaryReader(final PageReadOnlyTrx pageReadTrx,
-      final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager) {
+      final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
     pathCache = new HashMap<>();
     this.pageReadTrx = pageReadTrx;
     isClosed = false;
-    this.resourceManager = resourceManager;
+    this.resourceSession = resourceSession;
 
     currentNode = this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
@@ -141,12 +141,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Get a new path summary reader instance.
    *
    * @param pageReadTrx     the {@link PageReadOnlyTrx} instance
-   * @param resourceManager the {@link ResourceManager} instance
+   * @param resourceSession the {@link ResourceSession} instance
    * @return new path summary reader instance
    */
   public static PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
-      final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager) {
-    return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceManager));
+      final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
+    return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceSession));
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
@@ -533,7 +533,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
     if (currentNode instanceof NameNode) {
       final int uriKey = ((NameNode) currentNode).getURIKey();
-      final String uri = uriKey == -1 || pageReadTrx.getResourceManager() instanceof JsonResourceManager
+      final String uri = uriKey == -1 || pageReadTrx.getResourceManager() instanceof JsonResourceSession
           ? ""
           : pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = ((NameNode) currentNode).getPrefixKey();
@@ -570,9 +570,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
+  public ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
     assertNotClosed();
-    return resourceManager;
+    return resourceSession;
   }
 
   @Override

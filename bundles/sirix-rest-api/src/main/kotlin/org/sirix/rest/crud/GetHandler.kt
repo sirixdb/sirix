@@ -11,7 +11,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.json.JsonResourceSession
 import org.sirix.rest.crud.json.JsonGet
 import org.sirix.rest.crud.xml.XmlGet
 import org.sirix.service.json.serialize.StringValue
@@ -207,7 +207,7 @@ class GetHandler(
     }
 
     private fun emitCommaSeparatedResourceString(
-        it: Database<JsonResourceManager>,
+        it: Database<JsonResourceSession>,
         buffer: StringBuilder
     ) {
         val resources = it.listResources()

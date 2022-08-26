@@ -119,7 +119,7 @@ final class XmlNodeTrxImpl extends
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  XmlNodeTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @NonNegative int maxNodeCount, @Nullable final Lock transactionLock, final Duration afterCommitDelay,
       final @NonNull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory,
@@ -1738,7 +1738,7 @@ final class XmlNodeTrxImpl extends
   private void copy(final XmlNodeReadOnlyTrx trx, final InsertPosition insert) {
     assert trx != null;
     assert insert != null;
-    final XmlNodeReadOnlyTrx rtx = trx.getResourceManager().beginNodeReadOnlyTrx(trx.getRevisionNumber());
+    final XmlNodeReadOnlyTrx rtx = trx.getResourceSession().beginNodeReadOnlyTrx(trx.getRevisionNumber());
     assert rtx.getRevisionNumber() == trx.getRevisionNumber();
     rtx.moveTo(trx.getNodeKey());
     assert rtx.getNodeKey() == trx.getNodeKey();

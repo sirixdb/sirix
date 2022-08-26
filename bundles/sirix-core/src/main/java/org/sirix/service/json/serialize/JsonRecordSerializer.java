@@ -1,10 +1,9 @@
 package org.sirix.service.json.serialize;
 
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.util.serialize.Serializer;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.service.xml.serialize.XmlSerializerProperties;
 
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -24,7 +23,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final long maxLevel;
 
-  private final JsonResourceManager resourceMgr;
+  private final JsonResourceSession resourceMgr;
 
   private final int numberOfRecords;
 
@@ -88,7 +87,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param revision    revision to serialize
    * @param revisions   further revisions to serialize
    */
-  private JsonRecordSerializer(final JsonResourceManager resourceMgr, final Builder builder,
+  private JsonRecordSerializer(final JsonResourceSession resourceMgr, final Builder builder,
       final @NonNegative int revision, final int... revisions) {
     this.numberOfRecords = builder.numberOfRecords;
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
@@ -124,12 +123,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
   /**
    * Constructor, setting the necessary stuff.
    *
-   * @param resMgr          Sirix {@link ResourceManager}
+   * @param resMgr          Sirix {@link ResourceSession}
    * @param numberOfRecords number of records to serialize
    * @param writer          {@link Writer} to write to
    * @param revisions       revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceManager resMgr, final int numberOfRecords, final Writer writer,
+  public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords, final Writer writer,
       final int... revisions) {
     return new Builder(resMgr, numberOfRecords, writer, revisions);
   }
@@ -137,14 +136,14 @@ public final class JsonRecordSerializer implements Callable<Void> {
   /**
    * Constructor.
    *
-   * @param resMgr          Sirix {@link ResourceManager}
+   * @param resMgr          Sirix {@link ResourceSession}
    * @param numberOfRecords number of records to serialize
    * @param nodeKey         root node key of subtree to shredder
    * @param writer          {@link OutputStream} to write to
    * @param properties      {@link XmlSerializerProperties} to use
    * @param revisions       revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceManager resMgr, final int numberOfRecords,
+  public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords,
       final @NonNegative long nodeKey, final Writer writer, final JsonSerializerProperties properties,
       final int... revisions) {
     return new Builder(resMgr, numberOfRecords, nodeKey, writer, properties, revisions);
@@ -172,7 +171,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     /**
      * Resource manager to use.
      */
-    private final JsonResourceManager resourceMgr;
+    private final JsonResourceSession resourceMgr;
 
     private final int numberOfRecords;
 
@@ -230,12 +229,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
     /**
      * Constructor, setting the necessary stuff.
      *
-     * @param resourceMgr     Sirix {@link ResourceManager}
+     * @param resourceMgr     Sirix {@link ResourceSession}
      * @param numberOfRecords number of records to serialize
      * @param stream          {@link OutputStream} to write to
      * @param revisions       revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final int numberOfRecords, final Appendable stream,
+    public Builder(final JsonResourceSession resourceMgr, final int numberOfRecords, final Appendable stream,
         final int... revisions) {
       this.numberOfRecords = numberOfRecords;
       nodeKey = 0;
@@ -253,14 +252,14 @@ public final class JsonRecordSerializer implements Callable<Void> {
     /**
      * Constructor.
      *
-     * @param resourceMgr     Sirix {@link ResourceManager}
+     * @param resourceMgr     Sirix {@link ResourceSession}
      * @param numberOfRecords number of records to serialize
      * @param nodeKey         root node key of subtree to shredder
      * @param stream          {@link OutputStream} to write to
      * @param properties      {@link XmlSerializerProperties} to use
      * @param revisions       revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final int numberOfRecords, final @NonNegative long nodeKey,
+    public Builder(final JsonResourceSession resourceMgr, final int numberOfRecords, final @NonNegative long nodeKey,
         final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       this.numberOfRecords = numberOfRecords;
@@ -443,7 +442,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
           rtx.moveToFirstChild();
 
           var jsonSerializer =
-              new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(rtx.getNodeKey())
+              new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).startNodeKey(rtx.getNodeKey())
                                                                                   .serializeStartNodeWithBrackets(false)
                                                                                   .serializeTimestamp(serializeTimestamp)
                                                                                   .withMetaData(withMetaData)
@@ -477,7 +476,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
             if (hasMoved) {
               var nodeKey = rtx.getNodeKey();
               jsonSerializer =
-                  new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
+                  new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).startNodeKey(nodeKey)
                                                                                       .serializeStartNodeWithBrackets(
                                                                                           false)
                                                                                       .maxLevel(maxLevel)
@@ -507,7 +506,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
                     out.append("{");
                   }
                   jsonSerializer =
-                      new JsonSerializer.Builder(rtx.getResourceManager(), out, revisions).startNodeKey(nodeKey)
+                      new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).startNodeKey(nodeKey)
                                                                                           .serializeStartNodeWithBrackets(
                                                                                               false)
                                                                                           .maxLevel(maxLevel)

@@ -4,9 +4,9 @@ import org.brackit.xquery.XQuery
 import org.brackit.xquery.util.serialize.Serializer
 import org.sirix.access.DatabaseType
 import org.sirix.api.Database
-import org.sirix.api.ResourceManager
-import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xml.XmlResourceManager
+import org.sirix.api.ResourceSession
+import org.sirix.api.json.JsonResourceSession
+import org.sirix.api.xml.XmlResourceSession
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.RevisionsHelper.Companion.getRevisionsToSerialize
 import org.sirix.exception.SirixException
@@ -47,7 +47,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
     private fun xQueryXml(): String {
         val database = openXmlDatabase(queryOptions.user)
         database.use {
-            val manager = database.openResourceManager(queryOptions.resource)
+            val manager = database.beginResourceSession(queryOptions.resource)
             manager.use {
                 val dbCollection =
                     XmlDBCollection(options.location, database)
@@ -103,7 +103,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
     private fun xQueryJson(): String {
         val database = openJsonDatabase(queryOptions.user)
         database.use {
-            val manager = database.openResourceManager(queryOptions.resource)
+            val manager = database.beginResourceSession(queryOptions.resource)
             manager.use {
                 val dbCollection = JsonDBCollection(options.location, database)
                 dbCollection.use {
@@ -252,7 +252,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
     private fun serializeResource(): String {
         val database: Database<*> = openDatabase(queryOptions.user)
         database.use {
-            val manager = database.openResourceManager(queryOptions.resource)
+            val manager = database.beginResourceSession(queryOptions.resource)
             manager.use {
                 val revisions: Array<Int> = getRevisions(manager)
                 with(queryOptions) {
@@ -268,9 +268,9 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
     }
 
 
-    private fun getRevisions(manager: ResourceManager<*, *>): Array<Int> {
+    private fun getRevisions(manager: ResourceSession<*, *>): Array<Int> {
         return when (manager) {
-            is JsonResourceManager -> getRevisionsToSerialize(
+            is JsonResourceSession -> getRevisionsToSerialize(
                 queryOptions.startRevision,
                 queryOptions.endRevision,
                 queryOptions.startRevisionTimestamp,
@@ -279,7 +279,7 @@ class Query(options: CliOptions, private val queryOptions: QueryOptions) : CliCo
                 queryOptions.revision,
                 queryOptions.revisionTimestamp
             )
-            is XmlResourceManager -> getRevisionsToSerialize(
+            is XmlResourceSession -> getRevisionsToSerialize(
                 queryOptions.startRevision,
                 queryOptions.endRevision,
                 queryOptions.startRevisionTimestamp,

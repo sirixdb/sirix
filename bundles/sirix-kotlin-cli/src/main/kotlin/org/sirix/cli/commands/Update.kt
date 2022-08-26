@@ -35,7 +35,7 @@ class Update(
         val database = openJsonDatabase(user)
 
         database.use {
-            val manager = database.openResourceManager(resource)
+            val manager = database.beginResourceSession(resource)
 
             manager.use {
                 val wtx = manager.beginNodeTrx()
@@ -96,7 +96,7 @@ class Update(
         val database = openXmlDatabase(user)
 
         database.use {
-            val manager = database.openResourceManager(resource)
+            val manager = database.beginResourceSession(resource)
 
             manager.use {
                 val wtx = manager.beginNodeTrx()

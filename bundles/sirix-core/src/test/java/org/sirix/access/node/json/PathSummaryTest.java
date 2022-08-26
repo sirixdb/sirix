@@ -27,7 +27,7 @@ public class PathSummaryTest {
   @Test
   public void testInsertTestDocument() {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var pathSummary = manager.openPathSummary()) {
       final var pathSummaryAxis = new DescendantAxis(pathSummary);
 
