@@ -11,7 +11,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  * Builds a content-and-structure (CAS) index.
  *
  * @author Johannes Lichtenberger
- *
  */
 final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
 

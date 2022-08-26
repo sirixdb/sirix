@@ -30,14 +30,12 @@ import org.sirix.JsonTestHelper;
 import org.sirix.api.Database;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
@@ -52,19 +50,19 @@ public class ArrayNodeTest {
   private Database<JsonResourceManager> database;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     JsonTestHelper.closeEverything();
   }
 
   @Test
-  public void testNode() throws IOException {
+  public void testNode() {
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);

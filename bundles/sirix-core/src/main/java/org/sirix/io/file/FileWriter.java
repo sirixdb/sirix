@@ -37,6 +37,9 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -48,9 +51,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class FileWriter extends AbstractForwardingReader implements Writer {
 
-  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256;
+  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
 
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 64;
+  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
 
   /**
    * Random access to work on.
@@ -96,8 +99,19 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer truncateTo(final int revision) {
-    // FIXME | TODO
+  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+    try {
+      final var dataFileRevisionRootPageOffset =
+          cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
+
+      // Read page from file.
+      dataFile.seek(dataFileRevisionRootPageOffset);
+      final int dataLength = dataFile.readInt();
+
+      dataFile.getChannel().truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + dataLength);
+    } catch (InterruptedException | ExecutionException | TimeoutException | IOException e) {
+      throw new IllegalStateException(e);
+    }
 
     return this;
   }

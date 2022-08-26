@@ -20,17 +20,16 @@
  */
 package org.sirix.io;
 
-import java.io.RandomAccessFile;
-
 import com.github.benmanes.caffeine.cache.AsyncCache;
-import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.filechannel.FileChannelStorage;
 import org.sirix.io.file.FileStorage;
+import org.sirix.io.filechannel.FileChannelStorage;
 import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
+
+import java.io.RandomAccessFile;
 
 /**
  * Specific backend types are specified in this enum.
@@ -98,7 +97,7 @@ public enum StorageType {
    * @throws SirixIOException if an IO-exception occurs
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
-  public static final IOStorage getStorage(final ResourceConfiguration resourceConf) {
+  public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
     return resourceConf.storageType.getInstance(resourceConf);
   }
 }

@@ -379,6 +379,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     try {
       final Path commitFile = pageRtx.resourceManager.getCommitFile();
+
       commitFile.toFile().deleteOnExit();
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
@@ -614,7 +615,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public PageTrx truncateTo(final int revision) {
-    storagePageReaderWriter.truncateTo(revision);
+    storagePageReaderWriter.truncateTo(this, revision);
     return this;
   }
 
