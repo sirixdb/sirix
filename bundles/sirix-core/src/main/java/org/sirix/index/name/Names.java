@@ -1,6 +1,10 @@
 package org.sirix.index.name;
 
 import com.google.common.collect.HashBiMap;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
@@ -22,9 +26,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public final class Names {
 
   /**
-   * Map the hash of a name the node key.
+   * Map the hash of a name to the node key.
    */
-  private final Map<Integer, Long> countNodeMap;
+  private final Int2LongMap countNodeMap;
 
   /**
    * Map the hash of a name to its name.
@@ -34,20 +38,20 @@ public final class Names {
   /**
    * Map which is used to count the occurences of a name mapping.
    */
-  private final Map<Integer, Integer> countNameMapping;
+  private final Int2IntMap countNameMapping;
 
   private long maxNodeKey;
 
-  private int indexNumber;
+  private final int indexNumber;
 
   /**
    * Constructor creating a new index structure.
    */
   private Names(final int indexNumber) {
     this.indexNumber = indexNumber;
-    countNodeMap = new HashMap<>();
+    countNodeMap = new Int2LongOpenHashMap();
     nameMap = new HashMap<>();
-    countNameMapping = new HashMap<>();
+    countNameMapping = new Int2IntOpenHashMap();
   }
 
   /**
@@ -61,9 +65,9 @@ public final class Names {
     this.indexNumber = indexNumber;
     this.maxNodeKey = maxNodeKey;
     // It's okay, we don't allow to store more than Integer.MAX key value pairs.
-    countNodeMap = new HashMap<>((int) maxNodeKey + 1);
+    countNodeMap = new Int2LongOpenHashMap((int) maxNodeKey + 1);
     nameMap = HashBiMap.create((int) maxNodeKey + 1);
-    countNameMapping = new HashMap<>((int) maxNodeKey + 1);
+    countNameMapping = new Int2IntOpenHashMap((int) maxNodeKey + 1);
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1, l = maxNodeKey; i < l; i += 2) {
@@ -96,8 +100,8 @@ public final class Names {
    * @param key the key to remove
    */
   public void removeName(final int key, final PageTrx pageTrx) {
-    final Integer prevValue = countNameMapping.get(key);
-    if (prevValue != null) {
+    final int prevValue = countNameMapping.get(key);
+    if (prevValue != 0) {
       final long countNodeKey = countNodeMap.get(key);
 
       if (prevValue - 1 == 0) {
