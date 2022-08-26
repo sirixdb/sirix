@@ -7,17 +7,17 @@ buildscript {
     }
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.0"
-        classpath 'net.researchgate:gradle-release:3.0.0'
+        classpath 'net.researchgate:gradle-release:3.0.1'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.42.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.7.2"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.10.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
 plugins {
     id "org.sonarqube" version "3.4.0.2513"
-    id "me.champeau.jmh" version "0.6.1"
+    id "me.champeau.jmh" version "0.6.6"
 }
 
 sonarqube {
