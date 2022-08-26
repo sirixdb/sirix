@@ -13,7 +13,7 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.json.shredder.JsonShredder;
@@ -44,7 +44,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   /**
    * Sirix database.
    */
-  private final Database<JsonResourceManager> database;
+  private final Database<JsonResourceSession> database;
 
   /**
    * Unique ID.
@@ -59,7 +59,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * @param name     collection name
    * @param database Sirix {@link Database} reference
    */
-  public JsonDBCollection(final String name, final Database<JsonResourceManager> database) {
+  public JsonDBCollection(final String name, final Database<JsonResourceSession> database) {
     super(Preconditions.checkNotNull(name));
     this.database = Preconditions.checkNotNull(database);
     id = ID_SEQUENCE.incrementAndGet();
@@ -71,7 +71,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * @param name     collection name
    * @param database Sirix {@link Database} reference
    */
-  public JsonDBCollection(final String name, final Database<JsonResourceManager> database,
+  public JsonDBCollection(final String name, final Database<JsonResourceSession> database,
       final JsonDBStore jsonDBStore) {
     super(Preconditions.checkNotNull(name));
     this.database = Preconditions.checkNotNull(database);
@@ -116,7 +116,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    *
    * @return Sirix {@link Database}
    */
-  public Database<JsonResourceManager> getDatabase() {
+  public Database<JsonResourceSession> getDatabase() {
     return database;
   }
 
@@ -131,7 +131,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
-    final JsonResourceManager resource = database.openResourceManager(resName);
+    final JsonResourceSession resource = database.beginResourceSession(resName);
 
     JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
@@ -153,7 +153,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
-    final JsonResourceManager resource = database.openResourceManager(resName);
+    final JsonResourceSession resource = database.beginResourceSession(resName);
     final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
 
     final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
@@ -187,7 +187,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final JsonResourceManager manager = database.openResourceManager(resources.get(0).getFileName().toString());
+      final JsonResourceSession manager = database.beginResourceSession(resources.get(0).getFileName().toString());
       final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
 
@@ -226,7 +226,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .buildPathSummary(true)
                                                    .hashKind(HashType.ROLLING)
                                                    .build());
-      final JsonResourceManager manager = database.openResourceManager(resName);
+      final JsonResourceSession manager = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(commitMessage, commitTimestamp);
@@ -278,7 +278,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     resources.forEach(resourcePath -> {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final JsonResourceManager resource = database.openResourceManager(resourceName);
+        final JsonResourceSession resource = database.beginResourceSession(resourceName);
         final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
 
         if (rtx.moveToFirstChild()) {
@@ -313,7 +313,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .customCommitTimestamps(commitTimestamp != null)
                                                    .hashKind(HashType.ROLLING)
                                                    .build());
-      final JsonResourceManager manager = database.openResourceManager(resourceName);
+      final JsonResourceSession manager = database.beginResourceSession(resourceName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(commitMessage, commitTimestamp);

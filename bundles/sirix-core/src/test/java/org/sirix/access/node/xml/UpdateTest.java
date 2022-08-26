@@ -81,8 +81,8 @@ public class UpdateTest {
   public void testUserNamePersistence() {
     final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
     try (final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       assertEquals(Optional.of(user), wtx.getUser());
       wtx.commit();
@@ -99,8 +99,8 @@ public class UpdateTest {
     final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
       assertEquals(Optional.of(user), wtx.getUser());
       wtx.commit();
@@ -110,8 +110,8 @@ public class UpdateTest {
     final var newUser = new User("Marc Kramis", UUID.randomUUID());
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), newUser);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       assertEquals(Optional.of(user), wtx.getUserOfRevisionToRepresent());
       assertEquals(Optional.of(newUser), wtx.getUser());
       wtx.revertTo(1);
@@ -124,13 +124,13 @@ public class UpdateTest {
   public void testGettingHistory() {
     final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
     try (final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
     }
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+        final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       final var history = manager.getHistory();
 
       assertEquals(3, history.size());
@@ -157,7 +157,7 @@ public class UpdateTest {
     final var user = setupCommitHistoryTest();
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+        final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       final var history = manager.getHistory();
 
       assertEquals(3, history.size());
@@ -184,7 +184,7 @@ public class UpdateTest {
     final var user = setupCommitHistoryTest();
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+        final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       final var history = manager.getHistory(3, 1);
 
       assertEquals(3, history.size());
@@ -211,7 +211,7 @@ public class UpdateTest {
     final var user = setupCommitHistoryTest();
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+        final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       final var history = manager.getHistory(2);
 
       assertEquals(2, history.size());
@@ -231,8 +231,8 @@ public class UpdateTest {
   private User setupCommitHistoryTest() {
     final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
     try (final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.moveToDocumentRoot();
@@ -245,8 +245,8 @@ public class UpdateTest {
     final var newUser = new User("Marc Kramis", UUID.randomUUID());
 
     try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), newUser);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+         final var manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveToFirstChild();
       wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
       wtx.insertTextAsFirstChild("OOPS4!");

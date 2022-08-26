@@ -29,7 +29,7 @@ import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.settings.Constants;
@@ -50,9 +50,9 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializerWithInitialIndent() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
 
@@ -69,9 +69,9 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializerWithMaxLevel() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
 
@@ -85,9 +85,9 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
 
@@ -101,9 +101,9 @@ public class XmlSerializerTest {
   @Test
   public void testRestSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.close();
@@ -124,9 +124,9 @@ public class XmlSerializerTest {
   @Test
   public void testIDSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.close();
@@ -141,9 +141,9 @@ public class XmlSerializerTest {
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
       XmlDocumentCreator.createVersioned(wtx);
@@ -168,9 +168,9 @@ public class XmlSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx();
-        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx();
+         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
       XmlDocumentCreator.createVersioned(wtx);

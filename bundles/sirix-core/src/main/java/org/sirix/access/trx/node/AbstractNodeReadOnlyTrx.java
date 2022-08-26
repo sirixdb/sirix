@@ -50,7 +50,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Resource manager this write transaction is bound to.
    */
-  protected final InternalResourceManager<T, W> resourceManager;
+  protected final InternalResourceSession<T, W> resourceSession;
 
   /**
    * Tracks whether the transaction is closed.
@@ -68,18 +68,18 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param trxId               the transaction ID
    * @param pageReadTransaction the underlying read-only page transaction
    * @param documentNode        the document root node
-   * @param resourceManager     The resource manager for the current transaction
+   * @param resourceSession     The resource manager for the current transaction
    * @param itemList            Read-transaction-exclusive item list.
    */
   protected AbstractNodeReadOnlyTrx(final @NonNegative long trxId,
                                     final @NonNull PageReadOnlyTrx pageReadTransaction,
                                     final @NonNull N documentNode,
-                                    final InternalResourceManager<T, W> resourceManager,
+                                    final InternalResourceSession<T, W> resourceSession,
                                     final ItemList<AtomicValue> itemList) {
     checkArgument(trxId >= 0);
 
     this.itemList = itemList;
-    this.resourceManager = checkNotNull(resourceManager);
+    this.resourceSession = checkNotNull(resourceSession);
     this.id = trxId;
     this.pageReadOnlyTrx = checkNotNull(pageReadTransaction);
     this.currentNode = checkNotNull(documentNode);
@@ -99,12 +99,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public boolean storeDeweyIDs() {
-    return resourceManager.getResourceConfig().areDeweyIDsStored;
+    return resourceSession.getResourceConfig().areDeweyIDsStored;
   }
 
   @Override
-  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
+    return resourceSession;
   }
 
   @Override
@@ -543,7 +543,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       pageReadOnlyTrx.close();
 
       // Callback on session to make sure everything is cleaned up.
-      resourceManager.closeReadTransaction(id);
+      resourceSession.closeReadTransaction(id);
 
       setPageReadTransaction(null);
 

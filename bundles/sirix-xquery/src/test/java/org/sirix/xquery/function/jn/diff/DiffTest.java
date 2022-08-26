@@ -42,8 +42,8 @@ public final class DiffTest {
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     assert database != null;
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));

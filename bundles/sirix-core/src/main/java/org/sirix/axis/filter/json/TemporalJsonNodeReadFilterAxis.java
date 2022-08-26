@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Filter;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
@@ -82,7 +82,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   }
 
   @Override
-  public ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> getResourceManager() {
+  public ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> getResourceManager() {
     return mAxis.getResourceManager();
   }
 }

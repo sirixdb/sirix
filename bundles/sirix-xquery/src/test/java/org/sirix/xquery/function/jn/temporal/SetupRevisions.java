@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.jn.temporal;
 
 import org.brackit.xquery.XQuery;
-import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.JsonDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
@@ -20,7 +19,7 @@ public final class SetupRevisions {
     final var openDocQuery = "jn:doc('mycol.jn','mydoc.jn')";
     final var object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
 
-    try (final var wtx = object.getTrx().getResourceManager().beginNodeTrx()) {
+    try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
       wtx.moveTo(3);
 
       try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {

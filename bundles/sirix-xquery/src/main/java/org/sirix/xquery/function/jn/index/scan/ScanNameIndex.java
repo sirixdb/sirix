@@ -19,7 +19,6 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.name.NameFilter;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
 
@@ -52,7 +51,7 @@ public final class ScanNameIndex extends AbstractScanIndex {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -64,12 +63,12 @@ public final class ScanNameIndex extends AbstractScanIndex {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
           idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.NAME) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a name index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
     final String names = FunUtil.getString(args, 2, "$names", null, null, false);

@@ -3,7 +3,7 @@ package org.sirix.rest.crud.json
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import org.sirix.access.trx.node.HashType
-import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.json.JsonResourceSession
 import java.io.StringWriter
 import java.util.concurrent.Callable
 
@@ -12,7 +12,7 @@ class JsonSerializeHelper {
         serializer: Callable<*>,
         out: StringWriter,
         ctx: RoutingContext,
-        manager: JsonResourceManager,
+        manager: JsonResourceSession,
         revisions: IntArray,
         nodeId: Long?,
     ): String {
@@ -35,7 +35,7 @@ class JsonSerializeHelper {
     }
 
     private fun writeResponseWithHashValue(
-        manager: JsonResourceManager,
+        manager: JsonResourceSession,
         revision: Int,
         ctx: RoutingContext,
         nodeId: Long?

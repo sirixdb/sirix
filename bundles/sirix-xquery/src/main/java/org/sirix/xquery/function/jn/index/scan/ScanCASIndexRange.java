@@ -21,7 +21,6 @@ import org.sirix.index.IndexType;
 import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
 
@@ -53,7 +52,7 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -66,12 +65,12 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
           idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a CAS index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
     final Type keyType = indexDef.getContentType();

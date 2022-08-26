@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * <p>
  * This interface describes database instances handled by Sirix. A database is a persistent place
- * where all data is stored. {@link ResourceManager}s are used to access the data in individual
+ * where all data is stored. {@link ResourceSession}s are used to access the data in individual
  * resources.
  * </p>
  *
@@ -45,7 +45,7 @@ import java.util.List;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
+public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     extends AutoCloseable {
   /**
    * Determines if the database is open.
@@ -81,13 +81,13 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
   List<Path> listResources();
 
   /**
-   * Getting the resource manager to open and work with a resource stored in this database.
+   * Open a resource session to work with a resource stored in this database.
    *
    * @param resourceName the resource to work on
    * @return the resource manager
    * @throws SirixException if can't open resource manager
    */
-  T openResourceManager(String resourceName);
+  T beginResourceSession(String resourceName);
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.

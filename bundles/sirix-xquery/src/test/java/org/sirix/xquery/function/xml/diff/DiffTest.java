@@ -41,7 +41,7 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XmlDocumentCreator;
@@ -86,8 +86,8 @@ public final class DiffTest {
 
     try (final var database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(XmlTestHelper.RESOURCE).build());
-      try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
-          final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+      try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));

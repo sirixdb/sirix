@@ -29,12 +29,12 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 
 /**
@@ -148,14 +148,14 @@ public final class DiffFactory {
   /**
    * Create a new {@link Builder} instance.
    *
-   * @param resourceManager the {@link ResourceManager} to use
+   * @param resourceManager the {@link ResourceSession} to use
    * @param newRev new revision to compare
    * @param oldRev old revision to compare
    * @param diffKind kind of diff (optimized or not)
    * @param observers {@link Set} of observers
    * @return new {@link Builder} instance
    */
-  public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceManager resourceManager,
+  public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceSession resourceManager,
       final @NonNegative int newRev, final @NonNegative int oldRev, final DiffOptimized diffKind,
       final Set<DiffObserver> observers) {
     return new Builder<>(resourceManager, newRev, oldRev, diffKind, observers);
@@ -164,8 +164,8 @@ public final class DiffFactory {
   /** Builder to simplify static methods. */
   public static final class Builder<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
 
-    /** {@link ResourceManager} reference. */
-    final ResourceManager<R, W> resMgr;
+    /** {@link ResourceSession} reference. */
+    final ResourceSession<R, W> resMgr;
 
     /** Start key of new revision. */
     transient long newStartKey;
@@ -209,13 +209,13 @@ public final class DiffFactory {
     /**
      * Constructor.
      *
-     * @param resMgr the {@link ResourceManager} to use
+     * @param resMgr the {@link ResourceSession} to use
      * @param newRev new revision to compare
      * @param oldRev old revision to compare
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final ResourceManager<R, W> resMgr, final @NonNegative int newRev, final @NonNegative int oldRev,
+    public Builder(final ResourceSession<R, W> resMgr, final @NonNegative int newRev, final @NonNegative int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
       this.resMgr = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");

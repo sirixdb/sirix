@@ -7,8 +7,8 @@ import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.ResourceSession;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.io.StorageType;
 import org.sirix.settings.VersioningType;
 
@@ -18,11 +18,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Test the {@link ResourceManager}.
+ * Test the {@link ResourceSession}.
  *
  * @author Johannes Lichtenberger
  */
-public final class ResourceManagerTest {
+public final class ResourceSessionTest {
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
@@ -43,7 +43,7 @@ public final class ResourceManagerTest {
     assertion(exception);
   }
 
-  private void createTransactions(Consumer<JsonResourceManager> startTransactions) {
+  private void createTransactions(Consumer<JsonResourceSession> startTransactions) {
     final var resource = "resource";
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
@@ -54,7 +54,7 @@ public final class ResourceManagerTest {
                                                    .versioningApproach(VersioningType.FULL)
                                                    .storageType(StorageType.MEMORY_MAPPED)
                                                    .build());
-      try (final var manager = database.openResourceManager(resource)) {
+      try (final var manager = database.beginResourceSession(resource)) {
         startTransactions.accept(manager);
       }
     }

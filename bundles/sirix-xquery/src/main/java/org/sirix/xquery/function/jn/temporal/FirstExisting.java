@@ -12,8 +12,6 @@ import org.sirix.node.RevisionReferencesNode;
 import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.json.JsonItemFactory;
 
-import java.util.Optional;
-
 /**
  * <p>
  * Function for selecting a node in the revision it first existed. The parameter is the context node. Supported
@@ -51,13 +49,13 @@ public final class FirstExisting extends AbstractFunction {
 
     if (indexNode != null) {
       final var revision = indexNode.getRevisions()[0];
-      final var resourceManager = item.getTrx().getResourceManager();
+      final var resourceManager = item.getTrx().getResourceSession();
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
       rtx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(rtx, item.getCollection());
     }
 
-    final var resourceManager = item.getTrx().getResourceManager();
+    final var resourceManager = item.getTrx().getResourceSession();
     for (int revisionNumber = 1; revisionNumber < resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
       if (rtx.moveTo(item.getNodeKey())) {

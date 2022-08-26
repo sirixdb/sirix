@@ -36,7 +36,7 @@ public final class CreateXmlDatabase {
                                                    .useTextCompression(false)
                                                    .useDeweyIDs(true)
                                                    .build());
-      try (final var manager = database.openResourceManager("resource");
+      try (final var manager = database.beginResourceSession("resource");
            final var wtx = manager.beginNodeTrx();
            final var fis = new FileInputStream(pathToXmlFile.toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));

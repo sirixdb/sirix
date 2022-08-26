@@ -26,10 +26,10 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,10 +45,10 @@ import java.nio.file.Path;
 public final class Holder {
 
   /** {@link Database} implementation. */
-  private Database<XmlResourceManager> database;
+  private Database<XmlResourceSession> database;
 
-  /** {@link XmlResourceManager} implementation. */
-  private XmlResourceManager resMgr;
+  /** {@link XmlResourceSession} implementation. */
+  private XmlResourceSession resMgr;
 
   /** {@link XmlNodeReadOnlyTrx} implementation. */
   private XmlNodeReadOnlyTrx rtx;
@@ -71,7 +71,7 @@ public final class Holder {
     database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).useDeweyIDs(true)
                                                                                      .hashKind(HashType.ROLLING)
                                                                                      .build());
-    final XmlResourceManager resourceManager = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -91,7 +91,7 @@ public final class Holder {
     }
     final var database = Databases.openXmlDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).buildPathSummary(true).build());
-    final XmlResourceManager resourceManager = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -105,7 +105,7 @@ public final class Holder {
    */
   public static Holder openResourceManager() {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XmlResourceManager resMgr = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resMgr = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);
@@ -119,7 +119,7 @@ public final class Holder {
    */
   public static Holder openResourceManagerWithHashes() {
     final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(PATHS.PATH1.getFile());
-    final XmlResourceManager resMgr = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resMgr = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);
@@ -186,16 +186,16 @@ public final class Holder {
    *
    * @return {@link Database} handle
    */
-  public Database<XmlResourceManager> getDatabase() {
+  public Database<XmlResourceSession> getDatabase() {
     return database;
   }
 
   /**
-   * Get the {@link ResourceManager} handle.
+   * Get the {@link ResourceSession} handle.
    *
-   * @return {@link ResourceManager} handle
+   * @return {@link ResourceSession} handle
    */
-  public XmlResourceManager getResourceManager() {
+  public XmlResourceSession getResourceManager() {
     return resMgr;
   }
 
@@ -236,11 +236,11 @@ public final class Holder {
   }
 
   /**
-   * Set the working {@link ResourceManager}.
+   * Set the working {@link ResourceSession}.
    *
-   * @param resourceManager {@link XmlResourceManager} instance
+   * @param resourceManager {@link XmlResourceSession} instance
    */
-  private void setResourceManager(final XmlResourceManager resourceManager) {
+  private void setResourceManager(final XmlResourceSession resourceManager) {
     resMgr = resourceManager;
   }
 
@@ -249,7 +249,7 @@ public final class Holder {
    *
    * @param database {@link Database} instance
    */
-  private void setDatabase(final Database<XmlResourceManager> database) {
+  private void setDatabase(final Database<XmlResourceSession> database) {
     this.database = database;
   }
 

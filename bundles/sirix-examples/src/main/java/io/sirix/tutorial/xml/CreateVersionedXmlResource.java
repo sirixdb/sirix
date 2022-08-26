@@ -28,7 +28,7 @@ public final class CreateVersionedXmlResource {
                                                          .useTextCompression(false)
                                                          .useDeweyIDs(true)
                                                          .build());
-            try (final var manager = database.openResourceManager(resource);
+            try (final var manager = database.beginResourceSession(resource);
                  final var wtx = manager.beginNodeTrx()) {
                 XmlDocumentCreator.createVersioned(wtx);
             }

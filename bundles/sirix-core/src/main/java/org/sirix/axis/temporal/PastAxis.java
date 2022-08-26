@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
@@ -22,8 +22,8 @@ import org.sirix.axis.IncludeSelf;
 public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AbstractTemporalAxis<R, W> {
 
-  /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> resourceManager;
+  /** Sirix {@link ResourceSession}. */
+  private final ResourceSession<R, W> resourceSession;
 
   /** The revision number. */
   private int revision;
@@ -36,20 +36,20 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
-  public PastAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
+  public PastAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
     // Using telescope pattern instead of builder (only one optional parameter).
-    this(resourceManager, rtx, IncludeSelf.NO);
+    this(resourceSession, rtx, IncludeSelf.NO);
   }
 
   /**
    * Constructor.
    *
-   * @param resourceManager the resource manager
+   * @param resourceSession the resource manager
    * @param rtx the transactional read only cursor
    * @param includeSelf determines if current revision must be included or not
    */
-  public PastAxis(final ResourceManager<R, W> resourceManager, final R rtx, final IncludeSelf includeSelf) {
-    this.resourceManager = checkNotNull(resourceManager);
+  public PastAxis(final ResourceSession<R, W> resourceSession, final R rtx, final IncludeSelf includeSelf) {
+    this.resourceSession = checkNotNull(resourceSession);
     revision = 0;
     nodeKey = rtx.getNodeKey();
     revision = checkNotNull(includeSelf) == IncludeSelf.YES
@@ -60,7 +60,7 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   @Override
   protected R computeNext() {
     if (revision > 0) {
-      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+      final R rtx = resourceSession.beginNodeReadOnlyTrx(revision);
       revision--;
 
       if (rtx.moveTo(nodeKey))
@@ -75,7 +75,7 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   @Override
-  public ResourceManager<R, W> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<R, W> getResourceManager() {
+    return resourceSession;
   }
 }

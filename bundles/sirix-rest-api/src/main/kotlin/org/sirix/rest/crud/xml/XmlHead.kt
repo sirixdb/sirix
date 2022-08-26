@@ -7,7 +7,7 @@ import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
-import org.sirix.api.xml.XmlResourceManager
+import org.sirix.api.xml.XmlResourceSession
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -37,7 +37,7 @@ class XmlHead(private val location: Path) {
         val database = Databases.openXmlDatabase(location.resolve(databaseName))
 
         database.use {
-            val manager = database.openResourceManager(resource)
+            val manager = database.beginResourceSession(resource)
 
             manager.use {
                 if (manager.resourceConfig.hashType == HashType.NONE) {
@@ -70,7 +70,7 @@ class XmlHead(private val location: Path) {
         ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
     }
 
-    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XmlResourceManager): Int {
+    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XmlResourceSession): Int {
         return rev?.toInt()
             ?: if (revTimestamp != null) {
                 var revision = getRevisionNumber(manager, revTimestamp)
@@ -84,7 +84,7 @@ class XmlHead(private val location: Path) {
             }
     }
 
-    private fun getRevisionNumber(manager: XmlResourceManager, revision: String): Int {
+    private fun getRevisionNumber(manager: XmlResourceSession, revision: String): Int {
         val revisionDateTime = LocalDateTime.parse(revision)
         val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
         return manager.getRevisionNumber(zdt.toInstant())

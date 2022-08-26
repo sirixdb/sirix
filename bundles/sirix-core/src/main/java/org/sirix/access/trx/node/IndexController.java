@@ -49,17 +49,17 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Determines if an index of the specified type is available.
    *
    * @param type type of index to lookup
-   * @param resourceManager the {@link ResourceManager} this index controller is bound to
+   * @param resourceSession the {@link ResourceSession} this index controller is bound to
    * @param revision the revision for this index controller
    * @return {@code true} if an index of the specified type exists, {@code false} otherwise
    * @throws SirixIOException if an I/O exception occurs while deserializing the index configuration
    *         for the specified {@code revision}
    */
-  static boolean containsIndex(final IndexType type, final ResourceManager<?, ?> resourceManager, final int revision) {
+  static boolean containsIndex(final IndexType type, final ResourceSession<?, ?> resourceSession, final int revision) {
     final Indexes indexes = new Indexes();
 
     final java.nio.file.Path indexesFile =
-        resourceManager.getResourcePath()
+        resourceSession.getResourcePath()
                        .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
                        .resolve(revision + ".xml");
 

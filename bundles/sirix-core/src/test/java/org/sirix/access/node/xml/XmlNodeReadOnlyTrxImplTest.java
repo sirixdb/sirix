@@ -30,7 +30,7 @@ import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
 
@@ -60,8 +60,8 @@ public final class XmlNodeReadOnlyTrxImplTest {
 
     try (final var db = Databases.openXmlDatabase(PATHS.PATH2.getFile())) {
       db.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
-      try (final XmlResourceManager resMgr = db.openResourceManager(XmlTestHelper.RESOURCE);
-          final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
+      try (final XmlResourceSession resMgr = db.beginResourceSession(XmlTestHelper.RESOURCE);
+           final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
         assertEquals(0, rtx.getRevisionNumber());
       }
     }

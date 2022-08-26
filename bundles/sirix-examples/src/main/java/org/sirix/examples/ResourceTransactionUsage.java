@@ -1,17 +1,18 @@
 package org.sirix.examples;
 
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public final class ResourceTransactionUsage {
 
@@ -33,15 +34,15 @@ public final class ResourceTransactionUsage {
     try (var database = Databases.openXmlDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource").build());
 
-      try (var resourceMgr = database.openResourceManager("resource");
-          var wtx = resourceMgr.beginNodeTrx();
-          var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
+      try (var session = database.beginResourceSession("resource");
+           var wtx = session.beginNodeTrx();
+           var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
         wtx.moveTo(2);
         wtx.moveSubtreeToFirstChild(4).commit();
 
         var out = new ByteArrayOutputStream();
-        new XmlSerializer.XmlSerializerBuilder(resourceMgr, out).prettyPrint().build().call();
+        new XmlSerializer.XmlSerializerBuilder(session, out).prettyPrint().build().call();
 
         System.out.println(out);
       }

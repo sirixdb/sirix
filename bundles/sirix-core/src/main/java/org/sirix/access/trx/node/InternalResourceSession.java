@@ -6,8 +6,8 @@ import org.sirix.page.UberPage;
 import java.nio.file.Path;
 import java.util.concurrent.locks.Lock;
 
-public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    extends ResourceManager<R, W> {
+public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+    extends ResourceSession<R, W> {
   /**
    * Abort a write transaction.
    */

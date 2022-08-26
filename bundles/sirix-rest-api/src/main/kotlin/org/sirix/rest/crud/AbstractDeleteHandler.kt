@@ -16,7 +16,7 @@ import org.sirix.access.Databases
 import org.sirix.access.User
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
-import org.sirix.api.ResourceManager
+import org.sirix.api.ResourceSession
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -113,7 +113,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         routingCtx: RoutingContext
     ) {
         ctx.executeBlocking { promise: Promise<Unit> ->
-            val manager = database.openResourceManager(resPathName)
+            val manager = database.beginResourceSession(resPathName)
             manager.use {
                 val wtx = manager.beginNodeTrx()
 
@@ -138,5 +138,5 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         }.await()
     }
 
-    protected abstract fun hashType(manager: ResourceManager<*, *>): HashType
+    protected abstract fun hashType(manager: ResourceSession<*, *>): HashType
 }

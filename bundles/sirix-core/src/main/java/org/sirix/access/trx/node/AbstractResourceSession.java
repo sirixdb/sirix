@@ -8,7 +8,7 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.User;
-import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.access.trx.page.RevisionRootPageReader;
@@ -54,10 +54,10 @@ import java.util.stream.Collectors;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    implements ResourceManager<R, W>, InternalResourceManager<R, W> {
+public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+    implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceManager.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceSession.class);
 
   /**
    * Write lock to assure only one exclusive write transaction exists.
@@ -122,7 +122,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * The resource store with which this manager has been created.
    */
-  final ResourceStore<? extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore;
+  final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore;
 
   /**
    * The user interacting with SirixDB.
@@ -147,7 +147,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    * @throws SirixException if Sirix encounters an exception
    */
-  protected AbstractResourceManager(final @NonNull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
+  protected AbstractResourceSession(final @NonNull ResourceStore<? extends ResourceSession<R, W>> resourceStore,
       final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
       final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
       final @Nullable User user, final PageTrxFactory pageTrxFactory) {
@@ -463,7 +463,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       nodeTrxMap.clear();
       pageTrxMap.clear();
       nodePageTrxMap.clear();
-      resourceStore.closeResourceManager(resourceConfig.getResource());
+      resourceStore.closeResourceSession(resourceConfig.getResource());
 
       storage.close();
       isClosed = true;
@@ -474,7 +474,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * Checks for valid revision.
    *
    * @param revision revision number to check
-   * @throws IllegalStateException    if {@link XmlResourceManagerImpl} is already closed
+   * @throws IllegalStateException    if {@link XmlResourceSessionImpl} is already closed
    * @throws IllegalArgumentException if revision isn't valid
    */
   @Override

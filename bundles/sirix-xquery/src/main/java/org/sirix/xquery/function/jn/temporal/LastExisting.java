@@ -9,13 +9,11 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.json.JsonItem;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.index.IndexType;
 import org.sirix.node.RevisionReferencesNode;
 import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.json.JsonItemFactory;
-
-import java.util.Optional;
 
 /**
  * <p>
@@ -49,7 +47,7 @@ public final class LastExisting extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final JsonDBItem item = (JsonDBItem) args[0];
 
-    final var resourceManager = item.getTrx().getResourceManager();
+    final var resourceManager = item.getTrx().getResourceSession();
 
     final RevisionReferencesNode indexNode;
     try (final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx()) {
@@ -88,7 +86,7 @@ public final class LastExisting extends AbstractFunction {
     return null;
   }
 
-  private JsonItem getJsonItem(JsonDBItem item, int revision, JsonResourceManager resourceManager) {
+  private JsonItem getJsonItem(JsonDBItem item, int revision, JsonResourceSession resourceManager) {
     final var trx = resourceManager.beginNodeReadOnlyTrx(revision);
     trx.moveTo(item.getNodeKey());
     return new JsonItemFactory().getSequence(trx, item.getCollection());

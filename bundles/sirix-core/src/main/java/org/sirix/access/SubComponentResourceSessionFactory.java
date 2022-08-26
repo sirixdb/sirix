@@ -2,24 +2,24 @@ package org.sirix.access;
 
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.cache.BufferManager;
 
 import javax.inject.Provider;
 import java.nio.file.Path;
 
 /**
- * A parameterizable resource manager factory that creates {@link ResourceManager} instances based on
- * {@link GenericResourceManagerComponent a resource manager subcomponent}.
+ * A parameterizable resource manager factory that creates {@link ResourceSession} instances based on
+ * {@link GenericResourceSessionComponent a resource manager subcomponent}.
  *
  * @author Joao Sousa
  */
-public class SubComponentResourceManagerFactory<B extends GenericResourceManagerComponent.Builder<B, R, ?>, R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
-    implements ResourceManagerFactory<R> {
+public class SubComponentResourceSessionFactory<B extends GenericResourceSessionComponent.Builder<B, R, ?>, R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
+    implements ResourceSessionFactory<R> {
 
   private final Provider<B> subComponentBuilder;
 
-  public SubComponentResourceManagerFactory(final Provider<B> subComponentBuilder) {
+  public SubComponentResourceSessionFactory(final Provider<B> subComponentBuilder) {
     this.subComponentBuilder = subComponentBuilder;
   }
 

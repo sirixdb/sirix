@@ -40,10 +40,10 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.node.NodeKind.DumbNode;
@@ -53,7 +53,7 @@ import org.sirix.utils.XmlDocumentCreator;
 
 /**
  *
- * Helper class for offering convenient usage of {@link XmlResourceManagerImpl}s for test cases.
+ * Helper class for offering convenient usage of {@link XmlResourceSessionImpl}s for test cases.
  *
  * This includes instantiation of databases plus resources.
  *
@@ -102,7 +102,7 @@ public final class XmlTestHelper {
   public final static Random random = new Random();
 
   /** Path <=> Database instances. */
-  private final static Map<Path, Database<XmlResourceManager>> INSTANCES = new Hashtable<>();
+  private final static Map<Path, Database<XmlResourceSession>> INSTANCES = new Hashtable<>();
 
   @Test
   public void testDummy() {
@@ -117,7 +117,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceManager> getDatabase(final Path file) {
+  public static final Database<XmlResourceSession> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -145,7 +145,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceManager> getDatabase(final Path file, final User user) {
+  public static final Database<XmlResourceSession> getDatabase(final Path file, final User user) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -173,7 +173,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceManager> getDatabaseWithRollingHashesEnabled(final Path file) {
+  public static final Database<XmlResourceSession> getDatabaseWithRollingHashesEnabled(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -201,7 +201,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceManager> getDatabaseWithDeweyIDsEnabled(final Path file) {
+  public static final Database<XmlResourceSession> getDatabaseWithDeweyIDsEnabled(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -287,8 +287,8 @@ public final class XmlTestHelper {
   public static void createTestDocument() {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-    try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -301,8 +301,8 @@ public final class XmlTestHelper {
    */
   public static void createPICommentTestDocument() {
     final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(PATHS.PATH1.getFile());
-    try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
-        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+    try (final XmlResourceSession manager = database.beginResourceSession(RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.createCommentPI(wtx);
       wtx.commit();
     }

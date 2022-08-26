@@ -30,7 +30,7 @@ import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
-public class XmlResourceManagerTest {
+public class XmlResourceSessionTest {
 
   private Holder holder;
 
@@ -62,11 +62,11 @@ public class XmlResourceManagerTest {
     try (final var database = Holder.openResourceManager().getDatabase()) {
       assertEquals(database, holder.getDatabase());
 
-      try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+      try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
         assertEquals(manager, holder.getResourceManager());
       }
 
-      try (final XmlResourceManager manager2 = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+      try (final XmlResourceSession manager2 = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
         assertNotSame(manager2, holder.getResourceManager());
       }
     }
@@ -169,7 +169,7 @@ public class XmlResourceManagerTest {
   @Test
   public void testExisting() {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XmlResourceManager resource = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
 
     final XmlNodeTrx wtx1 = resource.beginNodeTrx();
     XmlDocumentCreator.create(wtx1);
@@ -178,7 +178,7 @@ public class XmlResourceManagerTest {
     wtx1.close();
     resource.close();
 
-    final XmlResourceManager resource2 = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resource2 = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final XmlNodeReadOnlyTrx rtx1 = resource2.beginNodeReadOnlyTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -197,7 +197,7 @@ public class XmlResourceManagerTest {
     wtx2.close();
 
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XmlResourceManager resource3 = database2.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resource3 = database2.beginResourceSession(XmlTestHelper.RESOURCE);
     final XmlNodeReadOnlyTrx rtx2 = resource3.beginNodeReadOnlyTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);

@@ -39,7 +39,7 @@ internal class DumpResourceHistoryTest : CliCommandTest() {
         var database = Databases.openXmlDatabase(path(), CliCommandTestConstants.TEST_USER)
         database.use {
             database.createResource(ResourceConfiguration.Builder(TEST_RESOURCE).build())
-            val manager = database.openResourceManager(TEST_RESOURCE)
+            val manager = database.beginResourceSession(TEST_RESOURCE)
             manager.use {
                 val wtx = manager.beginNodeTrx()
                 wtx.use {

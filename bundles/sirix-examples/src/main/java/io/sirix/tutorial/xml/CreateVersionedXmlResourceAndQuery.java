@@ -1,7 +1,7 @@
 package io.sirix.tutorial.xml;
 
 import org.sirix.access.Databases;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -26,7 +26,7 @@ public final class CreateVersionedXmlResourceAndQuery {
     final var databaseFile = Constants.SIRIX_DATA_LOCATION.resolve("xml-database-versioned");
 
     try (final var database = Databases.openXmlDatabase(databaseFile)) {
-      try (final var manager = database.openResourceManager("resource");
+      try (final var manager = database.beginResourceSession("resource");
            // Starts a read only transaction on the most recent revision.
            final var rtx = manager.beginNodeReadOnlyTrx()) {
 
@@ -44,11 +44,11 @@ public final class CreateVersionedXmlResourceAndQuery {
 
   private static final class MyXmlNodeVisitor implements XmlNodeVisitor {
 
-    private final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> manager;
+    private final ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> manager;
 
     private final XmlNodeReadOnlyTrx trx;
 
-    public MyXmlNodeVisitor(final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> manager,
+    public MyXmlNodeVisitor(final ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> manager,
         final XmlNodeReadOnlyTrx rtx) {
       this.manager = manager;
       this.trx = rtx;

@@ -632,7 +632,7 @@ public final class JsonShredder implements Callable<Long> {
 
     try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
       db.createResource(ResourceConfiguration.newBuilder("shredded").build());
-      try (final var resMgr = db.openResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
+      try (final var resMgr = db.beginResourceSession("shredded"); final var wtx = resMgr.beginNodeTrx()) {
         final var path = Paths.get(args[0]);
         final var jsonReader = createFileReader(path);
         final var shredder =

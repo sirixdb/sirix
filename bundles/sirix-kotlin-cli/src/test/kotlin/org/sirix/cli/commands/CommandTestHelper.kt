@@ -61,7 +61,7 @@ fun setupTestDbJson(sirixQueryTestFileJson: String, jsonReader: JsonReader) {
         if (!database.createResource(resConfig)) {
             throw IllegalStateException("Failed to create resource '${CliCommandTestConstants.TEST_RESOURCE}'!")
         }
-        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+        val manager = database.beginResourceSession(CliCommandTestConstants.TEST_RESOURCE)
         manager.use {
             val wtx = manager.beginNodeTrx()
             wtx.use {
@@ -98,7 +98,7 @@ fun setupTestDbXml(sirixQueryTestFileXml: String, xmlEventReader: XMLEventReader
         if (!database.createResource(resConfig)) {
             throw IllegalStateException("Failed to create resource '${CliCommandTestConstants.TEST_RESOURCE}'!")
         }
-        val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+        val manager = database.beginResourceSession(CliCommandTestConstants.TEST_RESOURCE)
         manager.use {
             val wtx = manager.beginNodeTrx()
             wtx.use {

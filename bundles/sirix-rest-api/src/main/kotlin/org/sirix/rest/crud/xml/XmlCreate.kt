@@ -18,7 +18,7 @@ import org.sirix.access.ResourceConfiguration
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
-import org.sirix.api.xml.XmlResourceManager
+import org.sirix.api.xml.XmlResourceSession
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
@@ -79,7 +79,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
                     createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
-                    val manager = database.openResourceManager(fileName)
+                    val manager = database.beginResourceSession(fileName)
 
                     manager.use {
                         insertXmlSubtreeAsFirstChild(
@@ -140,7 +140,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     ResourceConfiguration.Builder(resPathName).hashKind(HashType.valueOf(hashType.uppercase()))
                         .customCommitTimestamps(commitTimestampAsString != null).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
-                val manager = database.openResourceManager(resPathName)
+                val manager = database.beginResourceSession(resPathName)
 
                 manager.use {
                     val pathToFile = filePath.toPath()
@@ -165,7 +165,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     }
 
     private fun serializeXml(
-        manager: XmlResourceManager,
+        manager: XmlResourceSession,
         routingCtx: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
@@ -197,7 +197,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     }
 
     private suspend fun createOrRemoveAndCreateResource(
-        database: Database<XmlResourceManager>,
+        database: Database<XmlResourceSession>,
         resConfig: ResourceConfiguration?,
         resPathName: String, dispatcher: CoroutineDispatcher
     ) {
@@ -210,7 +210,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     }
 
     private fun insertXmlSubtreeAsFirstChild(
-        manager: XmlResourceManager,
+        manager: XmlResourceSession,
         resFileToStore: Path,
         ctx: RoutingContext
     ): Long {

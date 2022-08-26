@@ -40,7 +40,7 @@ import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.InsertPosition;
@@ -201,7 +201,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
   private void test(final Path folder) throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
-    final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     int i = 2;
     final List<Path> files =
         Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(Collectors.toList());

@@ -33,7 +33,7 @@ public class TransactionIntentLogTest {
   @Test
   public void integrationTest() throws FileNotFoundException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resourceManager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var pageReadOnlyTrx = resourceManager.beginPageReadOnlyTrx()) {
       final RandomAccessFile file = new RandomAccessFile(JsonTestHelper.PATHS.PATH2.getFile().toFile(), "rw");
       final var byteHandlerPipeline = new ByteHandlePipeline(new ByteHandlePipeline(new SnappyCompressor()));

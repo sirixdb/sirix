@@ -40,6 +40,6 @@ public final class GetMostRecentRevision extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Int32(doc.getTrx().getResourceManager().getMostRecentRevisionNumber());
+    return new Int32(doc.getTrx().getResourceSession().getMostRecentRevisionNumber());
   }
 }

@@ -526,10 +526,10 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   ImmutableValueNode getValueNode();
 
   /**
-   * Get the {@link ResourceManager} this instance is bound to.
+   * Get the {@link ResourceSession} this instance is bound to.
    *
    * @return the resource manager
    */
   @Override
-  XmlResourceManager getResourceManager();
+  XmlResourceSession getResourceSession();
 }

@@ -50,7 +50,7 @@ public final class FindPathIndex extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final XmlDBNode doc = (XmlDBNode) args[0];
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
-    final XmlIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final XmlIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

@@ -31,7 +31,7 @@ import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
@@ -49,11 +49,11 @@ public final class XPathWriteTransactionTest {
 
   private static final String RESOURCE = "bla";
 
-  private XmlResourceManager manager;
+  private XmlResourceSession manager;
 
   private XmlNodeTrx wtx;
 
-  private Database<XmlResourceManager> database;
+  private Database<XmlResourceSession> database;
 
   @Before
   public void setUp() throws Exception {
@@ -64,7 +64,7 @@ public final class XPathWriteTransactionTest {
     // Verify.
     database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-    manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+    manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     wtx = manager.beginNodeTrx();
   }
 

@@ -3,7 +3,7 @@ package org.sirix.access.xml;
 import dagger.Subcomponent;
 import org.sirix.access.GenericLocalDatabaseComponent;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.dagger.DatabaseScope;
 
 /**
@@ -13,7 +13,7 @@ import org.sirix.dagger.DatabaseScope;
  */
 @DatabaseScope
 @Subcomponent(modules = {XmlLocalDatabaseModule.class})
-public interface XmlLocalDatabaseComponent extends GenericLocalDatabaseComponent<XmlResourceManager,
+public interface XmlLocalDatabaseComponent extends GenericLocalDatabaseComponent<XmlResourceSession,
         XmlResourceManagerComponent.Builder> {
 
     @Subcomponent.Builder

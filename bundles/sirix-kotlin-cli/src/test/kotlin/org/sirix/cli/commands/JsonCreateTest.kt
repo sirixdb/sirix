@@ -69,7 +69,7 @@ internal class JsonCreateTest : CliCommandTest() {
         database.use {
             assertTrue(database.existsResource(CliCommandTestConstants.TEST_RESOURCE))
 
-            val manager = database.openResourceManager(CliCommandTestConstants.TEST_RESOURCE)
+            val manager = database.beginResourceSession(CliCommandTestConstants.TEST_RESOURCE)
             manager.use {
                 val out = StringWriter()
                 JsonSerializer.newBuilder(manager, out).build().call()

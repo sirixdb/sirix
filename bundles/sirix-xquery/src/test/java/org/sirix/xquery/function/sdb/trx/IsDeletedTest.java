@@ -33,7 +33,7 @@ public final class IsDeletedTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
-      try (final var manager = database.openResourceManager("mydoc.jn");
+      try (final var manager = database.beginResourceSession("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.moveTo(2);
@@ -63,7 +63,7 @@ public final class IsDeletedTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
-      try (final var manager = database.openResourceManager("mydoc.jn");
+      try (final var manager = database.beginResourceSession("mydoc.jn");
            final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"), JsonNodeTrx.Commit.NO);
         wtx.moveTo(2);

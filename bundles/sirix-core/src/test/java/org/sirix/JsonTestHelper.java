@@ -30,7 +30,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.utils.JsonDocumentCreator;
@@ -45,7 +45,7 @@ import java.util.Random;
 import static org.junit.Assert.fail;
 
 /**
- * Helper class for offering convenient usage of the {@link JsonResourceManager} for test cases.
+ * Helper class for offering convenient usage of the {@link JsonResourceSession} for test cases.
  *
  * This includes instantiation of databases plus resources.
  *
@@ -94,7 +94,7 @@ public final class JsonTestHelper {
   public final static Random random = new Random();
 
   /** Path <=> Database instances. */
-  private final static Map<Path, Database<JsonResourceManager>> INSTANCES = new HashMap<>();
+  private final static Map<Path, Database<JsonResourceSession>> INSTANCES = new HashMap<>();
 
   @Test
   public void testDummy() {
@@ -109,7 +109,7 @@ public final class JsonTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static Database<JsonResourceManager> getDatabase(final Path file) {
+  public static Database<JsonResourceSession> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -137,7 +137,7 @@ public final class JsonTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static Database<JsonResourceManager> getDatabaseWithHashesEnabled(final Path file) {
+  public static Database<JsonResourceSession> getDatabaseWithHashesEnabled(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -193,8 +193,8 @@ public final class JsonTestHelper {
    */
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final JsonResourceManager manager = database.openResourceManager(RESOURCE);
-        final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+    try (final JsonResourceSession manager = database.beginResourceSession(RESOURCE);
+         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
     }

@@ -19,28 +19,26 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node.json;
+package org.sirix.access.trx.node.xml;
 
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.User;
-import org.sirix.access.trx.node.AbstractResourceManager;
-import org.sirix.access.trx.node.AfterCommitState;
-import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.RecordToRevisionsIndex;
+import org.sirix.access.trx.node.*;
+import org.sirix.access.trx.node.AbstractResourceSession;
+import org.sirix.access.trx.node.InternalResourceSession;
 import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.cache.BufferManager;
-import org.sirix.dagger.DatabaseName;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.IOStorage;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
 
 import javax.inject.Inject;
@@ -51,28 +49,23 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Provides node transactions on different revisions of JSON resources.
+ * Provides node transactions on different revisions of XML resources.
  */
-public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx>
-    implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> {
+public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>
+    implements XmlResourceSession, InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /**
-   * {@link JsonIndexController}s used for this session.
+   * {@link XmlIndexController}s used for this session.
    */
-  private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
+  private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
 
   /**
-   * {@link JsonIndexController}s used for this session.
+   * {@link XmlIndexController}s used for this session.
    */
-  private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
+  private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
 
   /**
-   * The name of the database on which this instance operates.
-   */
-  private final String databaseName;
-
-  /**
-   * Constructor.
+   * Package private constructor.
    *
    * @param resourceStore  the resource store with which this manager has been created
    * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
@@ -85,84 +78,79 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
    * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
    */
   @Inject
-  JsonResourceManagerImpl(final ResourceStore<JsonResourceManager> resourceStore,
-                          final ResourceConfiguration resourceConf,
-                          final BufferManager bufferManager,
-                          final IOStorage storage,
-                          final UberPage uberPage,
-                          final Semaphore writeLock,
-                          final User user,
-                          @DatabaseName final String databaseName,
-                          final PageTrxFactory pageTrxFactory) {
+  XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
+                         final ResourceConfiguration resourceConf,
+                         final BufferManager bufferManager,
+                         final IOStorage storage,
+                         final UberPage uberPage,
+                         final Semaphore writeLock,
+                         final User user,
+                         final PageTrxFactory pageTrxFactory) {
+
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
-    this.databaseName = databaseName;
     rtxIndexControllers = new ConcurrentHashMap<>();
     wtxIndexControllers = new ConcurrentHashMap<>();
   }
 
   @Override
-  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId,
-                                                           PageReadOnlyTrx pageReadTrx,
-                                                           Node documentNode) {
-    return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
+  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
+
+    return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-                                            PageTrx pageTrx,
-                                            int maxNodeCount,
-                                            // TODO delete me
-                                            // TODO delete me
-                                            Duration autoCommitDelay,
-                                            Node documentNode,
-                                            AfterCommitState afterCommitState) {
+  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
+                                           PageTrx pageTrx,
+                                           int maxNodeCount,
+                                           Duration autoCommitDelay,
+                                           Node documentNode,
+                                           AfterCommitState afterCommitState) {
     // The node read-only transaction.
-    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
+    final InternalXmlNodeReadOnlyTrx nodeReadTrx =
+        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
 
     // Node factory.
-    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageTrx);
+    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
-    final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
+    final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadOnlyTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadTrx);
     } else {
       pathSummaryWriter = null;
     }
-
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
-    final var lock = isAutoCommitting ? new ReentrantLock() : null;
-    return new JsonNodeTrxImpl(this.databaseName,
-            this,
-            nodeReadOnlyTrx,
+    final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
+    return new XmlNodeTrxImpl(this,
+            nodeReadTrx,
             pathSummaryWriter,
             maxNodeCount,
-            lock,
+            transactionLock,
             autoCommitDelay,
-            new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
+            new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageTrx),
             nodeFactory,
             afterCommitState,
-            new RecordToRevisionsIndex(pageTrx),
-            isAutoCommitting);
+            new RecordToRevisionsIndex(pageTrx)
+    );
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized JsonIndexController getRtxIndexController(final int revision) {
+  public synchronized XmlIndexController getRtxIndexController(final int revision) {
     return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized JsonIndexController getWtxIndexController(final int revision) {
+  public synchronized XmlIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 
-  private JsonIndexController createIndexController(int revision) {
-    final var controller = new JsonIndexController();
+  private XmlIndexController createIndexController(int revision) {
+    final var controller = new XmlIndexController();
     initializeIndexController(revision, controller);
     return controller;
   }

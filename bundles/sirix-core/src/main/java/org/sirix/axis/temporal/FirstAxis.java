@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -17,8 +17,8 @@ import org.sirix.axis.AbstractTemporalAxis;
 public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AbstractTemporalAxis<R, W> {
 
-  /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> resourceManager;
+  /** Sirix {@link ResourceSession}. */
+  private final ResourceSession<R, W> resourceSession;
 
   /** Node key to lookup and retrieve. */
   private final long nodeKey;
@@ -29,11 +29,11 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
   /**
    * Constructor.
    *
-   * @param resourceManager the resource manager
+   * @param resourceSession the resource manager
    * @param rtx the transactional cursor
    */
-  public FirstAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    this.resourceManager = checkNotNull(resourceManager);
+  public FirstAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
+    this.resourceSession = checkNotNull(resourceSession);
     nodeKey = rtx.getNodeKey();
     first = true;
   }
@@ -42,7 +42,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
   protected R computeNext() {
     if (first) {
       first = false;
-      final R rtx = resourceManager.beginNodeReadOnlyTrx(1);
+      final R rtx = resourceSession.beginNodeReadOnlyTrx(1);
       if (rtx.moveTo(nodeKey)) {
         return rtx;
       } else {
@@ -55,7 +55,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
   }
 
   @Override
-  public ResourceManager<R, W> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<R, W> getResourceManager() {
+    return resourceSession;
   }
 }

@@ -22,7 +22,6 @@ import org.sirix.xquery.node.XmlDBNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * <p>
@@ -57,7 +56,7 @@ public final class ItemHistory extends AbstractFunction {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
     final NodeReadOnlyTrx rtx = item.getTrx();
 
-    final var resMgr = rtx.getResourceManager();
+    final var resMgr = rtx.getResourceSession();
     final NodeReadOnlyTrx rtxInMostRecentRevision = resMgr.beginNodeReadOnlyTrx();
 
     final RevisionReferencesNode node =
@@ -65,7 +64,7 @@ public final class ItemHistory extends AbstractFunction {
 
     if (node == null) {
       final List<Item> sequences = new ArrayList<>();
-      final var resourceManager = item.getTrx().getResourceManager();
+      final var resourceManager = item.getTrx().getResourceSession();
       Item previousItem = null;
       for (int revision = 1; revision <= resourceManager.getMostRecentRevisionNumber(); revision++) {
         final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);

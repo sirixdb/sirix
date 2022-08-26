@@ -55,7 +55,7 @@ import java.util.concurrent.TimeUnit;
  * @author Marc Kramis, Seabix GmbH
  * @author Johannes Lichtenberger
  */
-public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AutoCloseable {
 
   /**

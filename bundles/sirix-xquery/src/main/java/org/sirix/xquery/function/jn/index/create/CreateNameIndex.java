@@ -15,7 +15,7 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.json.JsonIndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -61,7 +61,7 @@ public final class CreateNameIndex extends AbstractFunction {
 
     final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonResourceManager manager = rtx.getResourceManager();
+    final JsonResourceSession manager = rtx.getResourceSession();
 
     final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeTrx();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(manager::beginNodeTrx);
@@ -70,7 +70,7 @@ public final class CreateNameIndex extends AbstractFunction {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
-    final JsonIndexController controller = wtx.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

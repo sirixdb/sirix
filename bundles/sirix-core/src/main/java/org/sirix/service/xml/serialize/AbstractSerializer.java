@@ -21,20 +21,22 @@
 
 package org.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.concurrent.Callable;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.concurrent.Callable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -44,8 +46,8 @@ import org.sirix.settings.Constants;
  */
 public abstract class AbstractSerializer implements Callable<Void> {
 
-  /** Sirix {@link ResourceManager}. */
-  protected final XmlResourceManager mResMgr;
+  /** Sirix {@link ResourceSession}. */
+  protected final XmlResourceSession mResMgr;
 
   /** Stack for reading end element. */
   protected final Deque<Long> mStack;
@@ -59,11 +61,11 @@ public abstract class AbstractSerializer implements Callable<Void> {
   /**
    * Constructor.
    *
-   * @param resMgr Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceSession}
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XmlResourceManager resMgr, final @NonNegative int revision, final int... revisions) {
+  public AbstractSerializer(final XmlResourceSession resMgr, final @NonNegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -76,12 +78,12 @@ public abstract class AbstractSerializer implements Callable<Void> {
   /**
    * Constructor.
    *
-   * @param resMgr Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceSession}
    * @param key key of root node from which to shredder the subtree
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XmlResourceManager resMgr, final @NonNegative long key,
+  public AbstractSerializer(final XmlResourceSession resMgr, final @NonNegative long key,
       final @NonNegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null

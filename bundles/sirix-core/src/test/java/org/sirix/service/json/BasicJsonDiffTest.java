@@ -34,7 +34,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(15);
       final var nodeKey = wtx.insertObjectRecordAsRightSibling("hereIAm", new StringValue("yeah")).getParentKey();
@@ -58,7 +58,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"new\":\"stuff\"}"));
@@ -77,7 +77,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
       wtx.commit();
@@ -95,7 +95,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"test\", \"test\"]"));
       wtx.moveTo(2);
@@ -114,7 +114,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"baz\":\"hello\"}"));
       wtx.moveTo(2);
@@ -131,7 +131,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.moveTo(1);
@@ -160,7 +160,7 @@ public final class BasicJsonDiffTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.moveTo(1);

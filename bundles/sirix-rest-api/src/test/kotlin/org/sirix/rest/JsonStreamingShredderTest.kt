@@ -3,20 +3,14 @@ package org.sirix.rest
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.sirix.JsonTestHelper
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
-import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.serialize.JsonSerializer
 import org.skyscreamer.jsonassert.JSONAssert
-import java.io.IOException
 import java.io.StringWriter
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -86,7 +80,7 @@ class JsonStreamingShredderTest {
         val database = Databases.openJsonDatabase(databaseDirectory)
         database.use {
             database.createResource(ResourceConfiguration.Builder("shredded").build())
-            val manager = database.openResourceManager("shredded")
+            val manager = database.beginResourceSession("shredded")
 
             manager.use {
                 val wtx = manager.beginNodeTrx()

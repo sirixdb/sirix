@@ -29,7 +29,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -343,9 +343,9 @@ public final class XmlDocumentCreator {
    *
    * @throws SirixException if shredding fails
    */
-  public static void createRevisioned(final Database<XmlResourceManager> database) {
+  public static void createRevisioned(final Database<XmlResourceSession> database) {
 
-    try (final XmlResourceManager resMgr = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+    try (final XmlResourceSession resMgr = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       try (final XmlNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();

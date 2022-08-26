@@ -36,7 +36,7 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
+public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
     implements Database<T> {
 
   /**
@@ -92,7 +92,7 @@ public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnl
    */
   private final ResourceStore<T> resourceStore;
 
-  private final PathBasedPool<ResourceManager<?, ?>> resourceManagers;
+  private final PathBasedPool<ResourceSession<?, ?>> resourceManagers;
 
   /**
    * This field should be use to fetch the locks for resource managers.
@@ -111,7 +111,7 @@ public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnl
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
-      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceManager<?, ?>> resourceManagers) {
+      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
     this.transactionManager = transactionManager;
     this.dbConfig = checkNotNull(dbConfig);
     this.sessions = sessions;
@@ -132,7 +132,7 @@ public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnl
   }
 
   @Override
-  public T openResourceManager(final String resourceName) {
+  public T beginResourceSession(final String resourceName) {
     assertNotClosed();
 
     final Path resourcePath =
@@ -143,8 +143,8 @@ public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnl
                                     resourcePath.toString());
     }
 
-    if (resourceStore.hasOpenResourceManager(resourcePath)) {
-      return resourceStore.getOpenResourceManager(resourcePath);
+    if (resourceStore.hasOpenResourceSession(resourcePath)) {
+      return resourceStore.getOpenResourceSession(resourcePath);
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
@@ -160,7 +160,7 @@ public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnl
       addResourceToBufferManagerMapping(resourcePath, resourceConfig);
     }
 
-    return resourceStore.openResource(resourceConfig, BUFFER_MANAGERS.get(resourcePath), resourcePath);
+    return resourceStore.beginResourceSession(resourceConfig, BUFFER_MANAGERS.get(resourcePath), resourcePath);
   }
 
   @Override
@@ -249,7 +249,7 @@ public final class LocalDatabase<T extends ResourceManager<? extends NodeReadOnl
   }
 
   private boolean bootstrapResource(ResourceConfiguration resConfig) {
-    try (final T resourceTrxManager = openResourceManager(resConfig.getResource().getFileName().toString());
+    try (final T resourceTrxManager = beginResourceSession(resConfig.getResource().getFileName().toString());
          final W wtx = resourceTrxManager.beginNodeTrx()) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {

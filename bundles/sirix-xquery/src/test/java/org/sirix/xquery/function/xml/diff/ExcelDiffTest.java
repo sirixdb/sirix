@@ -24,7 +24,7 @@ import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
@@ -72,7 +72,7 @@ public final class ExcelDiffTest extends TestCase {
    */
   private void test(final Path folder) throws Exception {
     try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XmlResourceManager resource = database.openResourceManager(XmlTestHelper.RESOURCE);
+      XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -111,7 +111,7 @@ public final class ExcelDiffTest extends TestCase {
           }
 
           resource.close();
-          resource = database.openResourceManager(XmlTestHelper.RESOURCE);
+          resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
 
           final OutputStream out = new ByteArrayOutputStream();
           final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();

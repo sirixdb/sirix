@@ -7,13 +7,13 @@ import com.google.gson.JsonParser;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
-import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.InternalResourceSession;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.diff.JsonDiffSerializer;
@@ -68,12 +68,12 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   /**
    * Constructor.
    *
-   * @param resourceManager     the current {@link ResourceManager} the reader is bound to
+   * @param resourceManager     the current {@link ResourceSession} the reader is bound to
    * @param trxId               ID of the reader
    * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode        the document node
    */
-  JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+  JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
                           final @NonNegative long trxId,
                           final PageReadOnlyTrx pageReadTransaction,
                           final ImmutableJsonNode documentNode) {
@@ -99,7 +99,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   @Override
   public List<JsonObject> getUpdateOperations() {
     final var revisionNumber = pageReadOnlyTrx instanceof PageTrx ? getRevisionNumber() - 1 : getRevisionNumber();
-    final var updateOperationsFile = resourceManager.getResourceConfig()
+    final var updateOperationsFile = resourceSession.getResourceConfig()
                                                     .getResource()
                                                     .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                                     .resolve(
@@ -147,7 +147,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
           revisionNumber = getRevisionNumber();
         }
 
-        JsonDiffSerializer.serialize(revisionNumber, getResourceManager(), this, diffTupleObject);
+        JsonDiffSerializer.serialize(revisionNumber, this.getResourceSession(), this, diffTupleObject);
         moveTo(currentNodeKey);
       }
 
@@ -254,9 +254,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
   }
 
   @Override
-  public JsonResourceManager getResourceManager() {
+  public JsonResourceSession getResourceSession() {
     assertNotClosed();
-    return (JsonResourceManager) resourceManager;
+    return (JsonResourceSession) resourceSession;
   }
 
   @Override

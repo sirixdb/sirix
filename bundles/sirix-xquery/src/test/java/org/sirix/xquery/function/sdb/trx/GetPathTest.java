@@ -31,7 +31,7 @@ public class GetPathTest {
   public void test() throws IOException {
     JsonTestHelper.createTestDocument();
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resourceManager = database.openResourceManager(JsonTestHelper.RESOURCE);
+         final var resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = resourceManager.beginNodeTrx()) {
       wtx.moveTo(6);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"foo\":[]}"));

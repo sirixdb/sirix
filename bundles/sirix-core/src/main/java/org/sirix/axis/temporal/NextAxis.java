@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -17,8 +17,8 @@ import org.sirix.axis.AbstractTemporalAxis;
 public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AbstractTemporalAxis<R, W> {
 
-  /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> resourceManager;
+  /** Sirix {@link ResourceSession}. */
+  private final ResourceSession<R, W> resourceSession;
 
   /** Determines if it's the first call. */
   private boolean first;
@@ -34,8 +34,8 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
-  public NextAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    this.resourceManager = checkNotNull(resourceManager);
+  public NextAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
+    this.resourceSession = checkNotNull(resourceSession);
     revision = 0;
     nodeKey = rtx.getNodeKey();
     revision = rtx.getRevisionNumber() + 1;
@@ -44,10 +44,10 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
   @Override
   protected R computeNext() {
-    if (revision <= resourceManager.getMostRecentRevisionNumber() && first) {
+    if (revision <= resourceSession.getMostRecentRevisionNumber() && first) {
       first = false;
 
-      final R rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+      final R rtx = resourceSession.beginNodeReadOnlyTrx(revision);
       revision++;
 
       if (rtx.moveTo(nodeKey)) {
@@ -62,7 +62,7 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   @Override
-  public ResourceManager<R, W> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<R, W> getResourceManager() {
+    return resourceSession;
   }
 }

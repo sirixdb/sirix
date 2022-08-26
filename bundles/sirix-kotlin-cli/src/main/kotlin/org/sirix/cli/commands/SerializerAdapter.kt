@@ -1,8 +1,8 @@
 package org.sirix.cli.commands
 
-import org.sirix.api.ResourceManager
-import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xml.XmlResourceManager
+import org.sirix.api.ResourceSession
+import org.sirix.api.json.JsonResourceSession
+import org.sirix.api.xml.XmlResourceSession
 import org.sirix.cli.MetaDataEnum
 import org.sirix.service.json.serialize.JsonRecordSerializer
 import org.sirix.service.json.serialize.JsonSerializer
@@ -10,7 +10,7 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
 import java.io.StringWriter
 
-class SerializerAdapter(manager: ResourceManager<*, *>, nextTopLevelNodes: Int?) {
+class SerializerAdapter(manager: ResourceSession<*, *>, nextTopLevelNodes: Int?) {
 
     private var jsonSerializerBuilder: JsonSerializer.Builder? = null
     private var jsonRecordSerializer: JsonRecordSerializer.Builder? = null
@@ -21,7 +21,7 @@ class SerializerAdapter(manager: ResourceManager<*, *>, nextTopLevelNodes: Int?)
 
     init {
         when (manager) {
-            is JsonResourceManager -> {
+            is JsonResourceSession -> {
                 outWriter = StringWriter()
                 if (nextTopLevelNodes == null) {
                     jsonSerializerBuilder = JsonSerializer.newBuilder(manager, outWriter)
@@ -30,7 +30,7 @@ class SerializerAdapter(manager: ResourceManager<*, *>, nextTopLevelNodes: Int?)
                         JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, outWriter)
                 }
             }
-            is XmlResourceManager -> {
+            is XmlResourceSession -> {
                 outStream = ByteArrayOutputStream()
                 xmlSerializerBuilder =
                     XmlSerializer.XmlSerializerBuilder(manager, outStream)

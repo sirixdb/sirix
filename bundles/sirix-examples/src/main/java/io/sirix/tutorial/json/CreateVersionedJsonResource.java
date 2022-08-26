@@ -1,13 +1,12 @@
 package io.sirix.tutorial.json;
 
-import java.nio.file.Files;
-
+import io.sirix.tutorial.Constants;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
 
-import io.sirix.tutorial.Constants;
+import java.nio.file.Files;
 
 public final class CreateVersionedJsonResource {
 
@@ -28,7 +27,7 @@ public final class CreateVersionedJsonResource {
                                                    .useTextCompression(false)
                                                    .useDeweyIDs(true)
                                                    .build());
-      try (final var manager = database.openResourceManager("resource"); final var wtx = manager.beginNodeTrx()) {
+      try (final var manager = database.beginResourceSession("resource"); final var wtx = manager.beginNodeTrx()) {
         // Create sample document.
         JsonDocumentCreator.create(wtx);
         wtx.commit();

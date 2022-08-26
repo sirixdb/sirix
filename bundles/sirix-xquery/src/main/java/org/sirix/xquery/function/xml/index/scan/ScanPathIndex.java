@@ -52,7 +52,7 @@ public final class ScanPathIndex extends AbstractScanIndex {
     final XmlDBNode doc = ((XmlDBNode) args[0]);
     final NodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =
-        (XmlIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+        (XmlIndexController) rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -64,12 +64,12 @@ public final class ScanPathIndex extends AbstractScanIndex {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
           idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.PATH) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a path index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     final String paths = FunUtil.getString(args, 2, "$paths", null, null, false);
     final PathFilter filter = (paths != null)

@@ -3,7 +3,7 @@ package org.sirix.cli.commands
 import org.sirix.api.NodeCursor
 import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.api.NodeTrx
-import org.sirix.api.ResourceManager
+import org.sirix.api.ResourceSession
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -11,7 +11,7 @@ class RevisionsHelper {
     companion object {
         fun <R, W> getRevisionsToSerialize(
             startRevision: Int?, endRevision: Int?, startRevisionTimestamp: LocalDateTime?,
-            endRevisionTimestamp: LocalDateTime?, manager: ResourceManager<R, W>, revision: Int?,
+            endRevisionTimestamp: LocalDateTime?, manager: ResourceSession<R, W>, revision: Int?,
             revisionTimestamp: LocalDateTime?
         ): Array<Int>
                 where R : NodeReadOnlyTrx,
@@ -38,7 +38,7 @@ class RevisionsHelper {
         fun <R, W> getRevisionNumber(
             rev: Int?,
             revTimestamp: LocalDateTime?,
-            manager: ResourceManager<R, W>
+            manager: ResourceSession<R, W>
         ): Array<Int>
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
@@ -60,7 +60,7 @@ class RevisionsHelper {
             }
         }
 
-        private fun <R, W> getRevisionNumber(manager: ResourceManager<R, W>, revision: LocalDateTime): Int
+        private fun <R, W> getRevisionNumber(manager: ResourceSession<R, W>, revision: LocalDateTime): Int
                 where R : NodeReadOnlyTrx,
                       R : NodeCursor,
                       W : NodeTrx,
@@ -70,7 +70,7 @@ class RevisionsHelper {
         }
 
         private fun <R, W> getRevisionNumbers(
-            manager: ResourceManager<R, W>,
+            manager: ResourceSession<R, W>,
             revisions: Pair<LocalDateTime, LocalDateTime>
         ): Array<Int>
                 where R : NodeReadOnlyTrx,

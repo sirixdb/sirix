@@ -38,7 +38,7 @@ public final class JsonRecordSerializerTest {
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
 
-      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":"bar"},null,[]]
@@ -63,7 +63,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).build();
       jsonRecordSerializer.call();
@@ -81,7 +81,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer =
           new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(7).build();
@@ -100,7 +100,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer =
           new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(15).build();
@@ -119,7 +119,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).build();
       jsonRecordSerializer.call();
@@ -137,7 +137,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer =
           new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).withMetaData(true).build();
@@ -155,7 +155,7 @@ public final class JsonRecordSerializerTest {
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
-      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":{"bar": "baz"}},null,[]]
@@ -180,7 +180,7 @@ public final class JsonRecordSerializerTest {
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
-      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [[],"foo",null,[],{}]
@@ -205,7 +205,7 @@ public final class JsonRecordSerializerTest {
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
-      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":{"bar": "baz"}},null,[]]
@@ -230,7 +230,7 @@ public final class JsonRecordSerializerTest {
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
-      try (final var resmgr = database.openResourceManager(JsonTestHelper.RESOURCE);
+      try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":{"bar": "baz"}},null,[]]

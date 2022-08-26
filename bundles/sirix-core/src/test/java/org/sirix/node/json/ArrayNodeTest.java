@@ -29,7 +29,7 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.api.Database;
 import org.sirix.api.PageTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -47,13 +47,13 @@ public class ArrayNodeTest {
 
   private PageTrx pageTrx;
 
-  private Database<JsonResourceManager> database;
+  private Database<JsonResourceSession> database;
 
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After

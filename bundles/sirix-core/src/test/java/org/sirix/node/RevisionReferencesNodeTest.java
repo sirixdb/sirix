@@ -20,7 +20,7 @@ public final class RevisionReferencesNodeTest {
   public void setUp() {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After

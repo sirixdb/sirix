@@ -321,7 +321,7 @@ class JsonUpdate(private val location: Path) {
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
-                val manager = database.openResourceManager(resPathName)
+                val manager = database.beginResourceSession(resPathName)
 
                 manager.use {
                     val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)

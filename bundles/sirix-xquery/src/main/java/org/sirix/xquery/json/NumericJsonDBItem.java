@@ -7,7 +7,7 @@ import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.atomic.Numeric;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 import org.sirix.xquery.StructuredDBItem;
 import com.google.common.base.Preconditions;
 
@@ -41,8 +41,8 @@ public final class NumericJsonDBItem extends AbstractNumeric
   }
 
   @Override
-  public JsonResourceManager getResourceManager() {
-    return rtx.getResourceManager();
+  public JsonResourceSession getResourceSession() {
+    return rtx.getResourceSession();
   }
 
   private void moveRtx() {

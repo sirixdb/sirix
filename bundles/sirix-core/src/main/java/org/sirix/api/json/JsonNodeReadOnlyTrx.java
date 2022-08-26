@@ -3,7 +3,7 @@ package org.sirix.api.json;
 import com.google.gson.JsonObject;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -68,12 +68,12 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   VisitResult acceptVisitor(JsonNodeVisitor visitor);
 
   /**
-   * Get the {@link ResourceManager} this instance is bound to.
+   * Get the {@link ResourceSession} this instance is bound to.
    *
    * @return the resource manager
    */
   @Override
-  JsonResourceManager getResourceManager();
+  JsonResourceSession getResourceSession();
 
   boolean getBooleanValue();
 

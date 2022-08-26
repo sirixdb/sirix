@@ -1,21 +1,6 @@
 package org.sirix.examples;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.Optional;
-import java.util.Random;
-import org.brackit.xquery.BrackitQueryContext;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.Tuple;
-import org.brackit.xquery.XQuery;
+import org.brackit.xquery.*;
 import org.brackit.xquery.compiler.CompileChain;
 import org.brackit.xquery.sequence.SortedNodeSequence;
 import org.brackit.xquery.xdm.Item;
@@ -29,6 +14,18 @@ import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.SirixQueryContext.CommitStrategy;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.Optional;
+import java.util.Random;
 
 /**
  * A few examples (some taken from the official brackit examples). Usually you would use a logger
@@ -162,8 +159,11 @@ public final class XQueryUsage {
       final QueryContext ctx2 = SirixQueryContext.createWithNodeStore(store);
       System.out.println();
       System.out.println("Query loaded document:");
-      final String xq2 = "let $doc := xml:doc('mycol.xml', 'mydoc.xml')\n" + "for $log in $doc/log return \n"
-          + "( insert nodes <a><b/></a> into $log )\n";
+      final String xq2 = """
+          let $doc := xml:doc('mycol.xml', 'mydoc.xml')
+          for $log in $doc/log return\s
+          ( insert nodes <a><b/></a> into $log )
+          """;
       System.out.println(xq2);
       new XQuery(xq2).execute(ctx2);
 
@@ -410,7 +410,7 @@ public final class XQueryUsage {
       final XmlDBNode node =
           (XmlDBNode) new XQuery(SirixCompileChain.createWithNodeStore(store), "doc('mydocs.col')").execute(ctx3);
       final Optional<IndexDef> index = node.getTrx()
-                                           .getResourceManager()
+                                           .getResourceSession()
                                            .getRtxIndexController(node.getTrx().getRevisionNumber())
                                            .getIndexes()
                                            .findPathIndex(org.brackit.xquery.util.path.Path.parse("//log/*"));

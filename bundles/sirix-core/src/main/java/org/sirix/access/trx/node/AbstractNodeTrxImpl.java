@@ -4,7 +4,7 @@ import com.google.common.base.MoreObjects;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.User;
-import org.sirix.access.trx.node.InternalResourceManager.Abort;
+import org.sirix.access.trx.node.InternalResourceSession.Abort;
 import org.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
 import org.sirix.api.*;
 import org.sirix.axis.IncludeSelf;
@@ -66,7 +66,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * The resource manager.
    */
-  protected final InternalResourceManager<R, W> resourceManager;
+  protected final InternalResourceSession<R, W> resourceManager;
 
   /**
    * {@link PathSummaryWriter} instance.
@@ -159,7 +159,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   protected AbstractNodeTrxImpl(final ThreadFactory threadFactory, final HashType hashType, final IN nodeReadOnlyTrx,
-      final R typeSpecificTrx, final InternalResourceManager<R, W> resourceManager,
+      final R typeSpecificTrx, final InternalResourceSession<R, W> resourceManager,
       final AfterCommitState afterCommitState, final AbstractNodeHashing<N, R> nodeHashing,
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
       final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
@@ -220,7 +220,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public Optional<User> getUser() {
-    return getResourceManager().getUser();
+    return getResourceSession().getUser();
   }
 
   @Override

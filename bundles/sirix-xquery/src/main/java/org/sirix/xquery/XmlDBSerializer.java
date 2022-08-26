@@ -100,8 +100,8 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
             final OutputStream pos = new PrintStream(out);
 
             XmlSerializer.XmlSerializerBuilder serializerBuilder =
-                new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceManager(), pos,
-                    node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
+                new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceSession(), pos,
+                                                       node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
             if (emitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (prettyPrint)

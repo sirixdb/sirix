@@ -23,7 +23,7 @@ public final class JsonPCRCollector extends AbstractPCRCollector {
   public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
     final PathSummaryReader reader = rtx instanceof JsonNodeTrx
         ? ((JsonNodeTrx) rtx).getPathSummary()
-        : rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber());
+        : rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
     try {
       return getPcrValue(paths, reader);
     } finally {

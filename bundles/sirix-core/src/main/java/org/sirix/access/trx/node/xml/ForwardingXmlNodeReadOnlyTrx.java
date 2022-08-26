@@ -10,7 +10,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
@@ -89,8 +89,8 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default XmlResourceManager getResourceManager() {
-    return nodeReadOnlyTrxDelegate().getResourceManager();
+  default XmlResourceSession getResourceSession() {
+    return nodeReadOnlyTrxDelegate().getResourceSession();
   }
 
   @Override

@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * In memory storage.
+ * In memory storage. // FIXME: broken
  *
  * @author Johannes Lichtenberger
  */

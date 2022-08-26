@@ -6,8 +6,8 @@ import org.sirix.access.Databases.openJsonDatabase
 import org.sirix.access.Databases.openXmlDatabase
 import org.sirix.access.User
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xml.XmlResourceManager
+import org.sirix.api.json.JsonResourceSession
+import org.sirix.api.xml.XmlResourceSession
 import org.sirix.cli.CliOptions
 import org.sirix.cli.CliPrinter
 import java.nio.file.Path
@@ -34,7 +34,7 @@ abstract class CliCommand(protected val options: CliOptions) {
 
     }
 
-    protected fun openJsonDatabase(user: User?): Database<JsonResourceManager> {
+    protected fun openJsonDatabase(user: User?): Database<JsonResourceSession> {
         return when {
             user != null -> {
                 openJsonDatabase(path(), user)
@@ -45,7 +45,7 @@ abstract class CliCommand(protected val options: CliOptions) {
         }
     }
 
-    protected fun openXmlDatabase(user: User?): Database<XmlResourceManager> {
+    protected fun openXmlDatabase(user: User?): Database<XmlResourceSession> {
         return when {
             user != null -> {
                 openXmlDatabase(path(), user)

@@ -2,10 +2,10 @@ package org.sirix.xquery.json;
 
 import org.brackit.xquery.xdm.json.JsonItem;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.json.JsonResourceSession;
 
 public interface JsonDBItem extends JsonItem {
-  JsonResourceManager getResourceManager();
+  JsonResourceSession getResourceSession();
 
   JsonNodeReadOnlyTrx getTrx();
 

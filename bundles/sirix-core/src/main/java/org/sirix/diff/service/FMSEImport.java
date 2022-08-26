@@ -70,9 +70,9 @@ public final class FMSEImport {
 
     try (final var db = Databases.openXmlDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
-      try (final var resMgr = db.openResourceManager("shredded");
-          final var wtx = resMgr.beginNodeTrx();
-          final var fis = new FileInputStream(resNewRev.toFile())) {
+      try (final var resMgr = db.beginResourceSession("shredded");
+           final var wtx = resMgr.beginNodeTrx();
+           final var fis = new FileInputStream(resNewRev.toFile())) {
         final var fileReader = XmlShredder.createFileReader(fis);
         final var shredder =
             new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
@@ -113,12 +113,12 @@ public final class FMSEImport {
       shredder(checkNotNull(resNewRev), newRevTarget);
 
       try (final var databaseOld = Databases.openXmlDatabase(resOldRev);
-          final var resMgrOld = databaseOld.openResourceManager("shredded");
-          final var wtx = resMgrOld.beginNodeTrx();
-          final var databaseNew = Databases.openXmlDatabase(newRevTarget);
-          final var resourceNew = databaseNew.openResourceManager("shredded");
-          final var rtx = resourceNew.beginNodeReadOnlyTrx();
-          final var fmes = idName == null
+           final var resMgrOld = databaseOld.beginResourceSession("shredded");
+           final var wtx = resMgrOld.beginNodeTrx();
+           final var databaseNew = Databases.openXmlDatabase(newRevTarget);
+           final var resourceNew = databaseNew.beginResourceSession("shredded");
+           final var rtx = resourceNew.beginNodeReadOnlyTrx();
+           final var fmes = idName == null
               ? FMSE.createInstance(new DefaultNodeComparisonFactory())
               : FMSE.createWithIdentifier(idName, new DefaultNodeComparisonFactory())) {
         fmes.diff(wtx, rtx);

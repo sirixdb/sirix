@@ -1,11 +1,11 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
+
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -17,8 +17,8 @@ import org.sirix.axis.AbstractTemporalAxis;
 public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AbstractTemporalAxis<R, W> {
 
-  /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<R, W> resourceManager;
+  /** Sirix {@link ResourceSession}. */
+  private final ResourceSession<R, W> resourceSession;
 
   /** Node key to lookup and retrieve. */
   private long nodeKey;
@@ -31,8 +31,8 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
-  public LastAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
-    this.resourceManager = checkNotNull(resourceManager);
+  public LastAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
+    this.resourceSession = checkNotNull(resourceSession);
     nodeKey = rtx.getNodeKey();
     first = true;
   }
@@ -42,7 +42,7 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     if (first) {
       first = false;
 
-      final R rtx = resourceManager.beginNodeReadOnlyTrx(resourceManager.getMostRecentRevisionNumber());
+      final R rtx = resourceSession.beginNodeReadOnlyTrx(resourceSession.getMostRecentRevisionNumber());
 
       if (rtx.moveTo(nodeKey)) {
         return rtx;
@@ -56,7 +56,7 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   @Override
-  public ResourceManager<R, W> getResourceManager() {
-    return resourceManager;
+  public ResourceSession<R, W> getResourceManager() {
+    return resourceSession;
   }
 }

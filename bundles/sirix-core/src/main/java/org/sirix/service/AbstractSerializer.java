@@ -21,9 +21,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     implements Callable<Void> {
 
   /**
-   * Sirix {@link ResourceManager}.
+   * Sirix {@link ResourceSession}.
    */
-  protected final ResourceManager<R, W> resMgr;
+  protected final ResourceSession<R, W> resMgr;
 
   /**
    * Stack for reading end element.
@@ -50,11 +50,11 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Constructor.
    *
-   * @param resMgr    Sirix {@link ResourceManager}
+   * @param resMgr    Sirix {@link ResourceSession}
    * @param revision  first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor,
+  public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor,
       final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new LongArrayList();
@@ -67,12 +67,12 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Constructor.
    *
-   * @param resMgr    Sirix {@link ResourceManager}
+   * @param resMgr    Sirix {@link ResourceSession}
    * @param key       key of root node from which to serialize the subtree
    * @param revision  first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor, final @NonNegative long key,
+  public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor, final @NonNegative long key,
       final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new LongArrayList();

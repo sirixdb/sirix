@@ -16,7 +16,7 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.InsertPosition;
@@ -56,7 +56,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   /**
    * {@link Database} instance.
    */
-  private final Database<XmlResourceManager> database;
+  private final Database<XmlResourceSession> database;
 
   /**
    * Unique ID.
@@ -79,7 +79,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
    * @param name     collection name
    * @param database Sirix {@link Database} reference
    */
-  public XmlDBCollection(final String name, final Database<XmlResourceManager> database) {
+  public XmlDBCollection(final String name, final Database<XmlResourceSession> database) {
     super(Preconditions.checkNotNull(name));
     this.database = Preconditions.checkNotNull(database);
     id = ID_SEQUENCE.incrementAndGet();
@@ -117,7 +117,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
    *
    * @return Sirix {@link Database}
    */
-  public Database<XmlResourceManager> getDatabase() {
+  public Database<XmlResourceSession> getDatabase() {
     return database;
   }
 
@@ -143,7 +143,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
 
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
     return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) -> {
-      final XmlResourceManager resource = database.openResourceManager(resName);
+      final XmlResourceSession resource = database.beginResourceSession(resName);
 
       XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
@@ -221,7 +221,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
-    final XmlResourceManager manager = database.openResourceManager(resourceName);
+    final XmlResourceSession manager = database.beginResourceSession(resourceName);
     final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
     final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
     return new XmlDBNode(rtx, this);
@@ -266,7 +266,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
                                                  .customCommitTimestamps(commitTimestamp != null)
                                                  .hashKind(HashType.ROLLING)
                                                  .build());
-    final XmlResourceManager resource = database.openResourceManager(resourceName);
+    final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx = resource.beginNodeTrx();
 
     final SubtreeHandler handler =
@@ -334,7 +334,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     resources.forEach(resourcePath -> {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final XmlResourceManager resource = database.openResourceManager(resourceName);
+        final XmlResourceSession resource = database.beginResourceSession(resourceName);
         final XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx();
         documents.add(new XmlDBNode(trx, this));
       } catch (final SirixException e) {

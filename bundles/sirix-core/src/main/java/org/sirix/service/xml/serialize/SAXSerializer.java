@@ -32,10 +32,10 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.Utils;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -73,12 +73,12 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   /**
    * Constructor.
    *
-   * @param resMgr Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceSession}
    * @param handler SAX {@link ContentHandler}
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  public SAXSerializer(final XmlResourceManager resMgr, final ContentHandler handler, final @NonNegative int revision,
+  public SAXSerializer(final XmlResourceSession resMgr, final ContentHandler handler, final @NonNegative int revision,
       final int... revisions) {
     super(resMgr, null, revision, revisions);
     contentHandler = handler;
@@ -262,7 +262,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
     Databases.createXmlDatabase(config);
     final var database = Databases.openXmlDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded").build());
-    try (final XmlResourceManager resource = database.openResourceManager("shredded")) {
+    try (final XmlResourceSession resource = database.beginResourceSession("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
       final SAXSerializer serializer = new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
       serializer.call();

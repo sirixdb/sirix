@@ -12,7 +12,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.json.JsonResourceSession
 import org.sirix.rest.crud.PermissionCheckingXQuery
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.Revisions
@@ -60,7 +60,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         val database = Databases.openJsonDatabase(location.resolve(databaseName))
 
         database.use {
-            val manager = database.openResourceManager(resource)
+            val manager = database.beginResourceSession(resource)
 
             manager.use {
                 body = if (query != null && query.isNotEmpty()) {
@@ -88,8 +88,8 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
     }
 
     private suspend fun queryResource(
-        databaseName: String?, database: Database<JsonResourceManager>, revision: String?,
-        revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
+        databaseName: String?, database: Database<JsonResourceSession>, revision: String?,
+        revisionTimestamp: String?, manager: JsonResourceSession, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
     ): String? {
         val dbCollection = JsonDBCollection(databaseName, database)
@@ -117,7 +117,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
     }
 
     suspend fun xquery(
-        manager: JsonResourceManager?,
+        manager: JsonResourceSession?,
         dbCollection: JsonDBCollection?,
         nodeId: String?,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
@@ -291,7 +291,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
     }
 
     private suspend fun serializeResource(
-        manager: JsonResourceManager, revisions: IntArray, nodeId: Long?,
+        manager: JsonResourceSession, revisions: IntArray, nodeId: Long?,
         ctx: RoutingContext,
         vertxContext: Context
     ): String {

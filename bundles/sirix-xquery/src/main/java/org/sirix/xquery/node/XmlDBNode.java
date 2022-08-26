@@ -21,7 +21,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.axis.*;
 import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
@@ -344,7 +344,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       assert node.getNodeClassID() == this.getNodeClassID();
       final NodeReadOnlyTrx rtx = node.getTrx();
       if (rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
-          && rtx.getResourceManager().getResourceConfig().getID() == this.rtx.getResourceManager()
+          && rtx.getResourceSession().getResourceConfig().getID() == this.rtx.getResourceSession()
                                                                              .getResourceConfig()
                                                                              .getID()) {
         retVal = true;
@@ -1412,7 +1412,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   private XmlNodeTrx getWtx() {
-    final XmlResourceManager resource = rtx.getResourceManager();
+    final XmlResourceSession resource = rtx.getResourceSession();
     final XmlNodeTrx wtx;
     if (resource.hasRunningNodeWriteTrx() && resource.getNodeTrx().isPresent()) {
       wtx = resource.getNodeTrx().get();
@@ -1452,8 +1452,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
 
     // Compare document IDs.
-    final long firstDocumentID = getTrx().getResourceManager().getResourceConfig().getID();
-    final long secondDocumentID = ((XmlDBNode) otherNode).getTrx().getResourceManager().getResourceConfig().getID();
+    final long firstDocumentID = getTrx().getResourceSession().getResourceConfig().getID();
+    final long secondDocumentID = ((XmlDBNode) otherNode).getTrx().getResourceSession().getResourceConfig().getID();
     if (firstDocumentID != secondDocumentID) {
       return firstDocumentID < secondDocumentID
           ? -1
@@ -1624,7 +1624,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getNext() {
     moveRtx();
 
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -1641,21 +1641,21 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getPrevious() {
     moveRtx();
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-        new PreviousAxis<>(rtx.getResourceManager(), rtx);
+        new PreviousAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public XmlDBNode getFirst() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
   @Override
   public XmlDBNode getLast() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 
@@ -1665,7 +1665,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new PastAxis<>(rtx.getResourceManager(), rtx, include), collection);
+    return new TemporalSirixNodeStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
@@ -1674,13 +1674,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new FutureAxis<>(rtx.getResourceManager(), rtx, include), collection);
+    return new TemporalSirixNodeStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getAllTime() {
     moveRtx();
-    return new TemporalSirixNodeStream(new AllTimeAxis<>(rtx.getResourceManager(), rtx), collection);
+    return new TemporalSirixNodeStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
   }
 
   @Override
@@ -1770,7 +1770,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
     final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
 
-    return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
+    return otherTrx.getResourceSession().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
   }
 
   @Override

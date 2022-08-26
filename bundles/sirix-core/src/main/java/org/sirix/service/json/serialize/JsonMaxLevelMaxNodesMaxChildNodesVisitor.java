@@ -59,7 +59,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
 
   public JsonMaxLevelMaxNodesMaxChildNodesVisitor setTrx(final JsonNodeReadOnlyTrx rtx) {
     this.rtx = rtx;
-    deweyIDsAreStored = rtx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+    deweyIDsAreStored = rtx.getResourceSession().getResourceConfig().areDeweyIDsStored;
     if (deweyIDsAreStored) {
       final var nodeKey = rtx.getNodeKey();
       rtx.moveTo(startNodeKey);

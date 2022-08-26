@@ -12,7 +12,7 @@ import org.sirix.access.DatabasesInternals
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
-import org.sirix.api.json.JsonResourceManager
+import org.sirix.api.json.JsonResourceSession
 import org.sirix.service.json.BasicJsonDiff
 import org.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
@@ -42,10 +42,10 @@ class DiffHandler(private val location: Path) {
         val diff = context.executeBlocking<String> { resultPromise ->
             var diffString: String? = null
             database.use {
-                val resourceManager = database.openResourceManager(resourceName)
+                val resourceManager = database.beginResourceSession(resourceName)
 
                 resourceManager.use {
-                    if (resourceManager is JsonResourceManager) {
+                    if (resourceManager is JsonResourceSession) {
                         val firstRevision: String? = ctx.queryParam("first-revision").getOrNull(0)
                         val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
 

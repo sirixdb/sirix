@@ -51,7 +51,7 @@ public class StringNodeTest {
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @Test

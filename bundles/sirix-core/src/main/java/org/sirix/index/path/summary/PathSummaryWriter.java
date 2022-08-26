@@ -110,7 +110,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param nodeFactory The node factory to create path nodes
    * @param rtx         the read-only trx
    */
-  public PathSummaryWriter(final PageTrx pageTrx, final ResourceManager<R, ? extends NodeTrx> resMgr,
+  public PathSummaryWriter(final PageTrx pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
       final NodeFactory nodeFactory, final R rtx) {
     this.pageTrx = checkNotNull(pageTrx);
     pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);

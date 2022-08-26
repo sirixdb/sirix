@@ -28,7 +28,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 
 import java.math.BigInteger;
@@ -213,7 +213,7 @@ public final class HashTest {
 
   private XmlNodeTrx createWtx() throws SirixException {
     final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(XmlTestHelper.PATHS.PATH1.getFile());
-    final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+    final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final XmlNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
   }

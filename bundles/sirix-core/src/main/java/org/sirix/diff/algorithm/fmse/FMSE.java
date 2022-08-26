@@ -178,7 +178,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     alreadyInserted = new HashMap<>();
 
     oldPathSummary = this.wtx.getPathSummary();
-    newPathSummary = this.rtx.getResourceManager().openPathSummary(this.rtx.getRevisionNumber());
+    newPathSummary = this.rtx.getResourceSession().openPathSummary(this.rtx.getRevisionNumber());
 
     final var oldRevVisitor = new FMSEVisitor(this.wtx, inOrderOldRev, descendantsOldRev);
     final var newRevVisitor = new FMSEVisitor(this.rtx, inOrderNewRev, descendantsNewRev);

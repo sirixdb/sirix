@@ -50,7 +50,7 @@ public class ObjectNumberNodeTest {
   public void setUp() {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageWriteTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After

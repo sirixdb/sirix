@@ -26,7 +26,7 @@ class HistoryHandler(private val location: Path) {
         withContext(ctx.vertx().dispatcher()) {
             val buffer = StringBuilder()
             database.use {
-                val manager = database.openResourceManager(resourceName)
+                val manager = database.beginResourceSession(resourceName)
 
                 manager.use {
                     val numberOfRevisions = ctx.queryParam("revisions")
