@@ -16,20 +16,20 @@ public final class HashEntryNodeTest {
     assertNotNull(node.toString());
 
     final var otherNode = new HashEntryNode(2, 3247389, "foobar");
-    assertTrue(node.equals(otherNode));
-    assertTrue(otherNode.equals(node));
+    assertEquals(node, otherNode);
+    assertEquals(otherNode, node);
 
     final var otherUnequalNodeDueToKey = new HashEntryNode(3, 82193, "foobar");
-    assertFalse(node.equals(otherUnequalNodeDueToKey));
-    assertFalse(otherUnequalNodeDueToKey.equals(node));
+    assertNotEquals(node, otherUnequalNodeDueToKey);
+    assertNotEquals(otherUnequalNodeDueToKey, node);
 
     final var otherUnequalNodeDueToValue = new HashEntryNode(4, 3247389, "baz");
-    assertFalse(node.equals(otherUnequalNodeDueToValue));
-    assertFalse(otherUnequalNodeDueToValue.equals(node));
+    assertNotEquals(node, otherUnequalNodeDueToValue);
+    assertNotEquals(otherUnequalNodeDueToValue, node);
 
     final var otherUnequalNodeDueToType = new HashCountEntryNode(1, 55);
-    assertFalse(node.equals(otherUnequalNodeDueToType));
-    assertFalse(otherUnequalNodeDueToType.equals(node));
+    assertNotEquals(node, otherUnequalNodeDueToType);
+    assertNotEquals(otherUnequalNodeDueToType, node);
   }
 
   @Test(expected = UnsupportedOperationException.class)

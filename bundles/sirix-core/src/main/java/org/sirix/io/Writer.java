@@ -39,11 +39,11 @@ public interface Writer extends Reader {
    * Writing a page related to the reference.
    *
    * @param pageReference that points to a page
-   * @param bufferdBytes  the bytes to write
-   * @throws SirixIOException execption to be thrown if something bad happens
+   * @param bufferedBytes  the bytes to write
+   * @throws SirixIOException exception to be thrown if something bad happens
    * @return this writer instance
    */
-  Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferdBytes);
+  Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Write beacon for the first reference.
@@ -61,7 +61,7 @@ public interface Writer extends Reader {
    * @param revision the revision to truncate to.
    * @return this writer instance
    */
-  Writer truncateTo(int revision);
+  Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision);
 
   /**
    * Truncate, that is remove all file content.

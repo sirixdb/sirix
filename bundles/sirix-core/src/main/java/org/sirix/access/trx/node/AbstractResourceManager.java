@@ -213,19 +213,31 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
 
     final Writer writer = storage.createWriter();
+
     final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    return this.pageTrxFactory.createPageTrx(this,
-                                             abort == Abort.YES && lastCommittedUberPage.isBootstrap()
-                                                 ? new UberPage()
-                                                 : new UberPage(lastCommittedUberPage),
-                                             writer,
-                                             id,
-                                             representRevision,
-                                             storedRevision,
-                                             lastCommittedRev,
-                                             isBoundToNodeTrx,
-                                             bufferManager);
+    final var pageTrx = this.pageTrxFactory.createPageTrx(this,
+                                                          abort == Abort.YES && lastCommittedUberPage.isBootstrap()
+                                                              ? new UberPage()
+                                                              : new UberPage(lastCommittedUberPage),
+                                                          writer,
+                                                          id,
+                                                          representRevision,
+                                                          storedRevision,
+                                                          lastCommittedRev,
+                                                          isBoundToNodeTrx,
+                                                          bufferManager);
+
+    truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, pageTrx);
+
+    return pageTrx;
+  }
+
+  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
+      PageTrx pageTrx) {
+    if (Files.exists(getCommitFile())) {
+      writer.truncateTo(pageTrx, lastCommittedRev);
+    }
   }
 
   @Override
@@ -250,16 +262,13 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
       int finalRevision = revision;
       revisionInfos.add(CompletableFuture.supplyAsync(() -> {
-        RevisionInfo revisionInfo;
         try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
           final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-
-          revisionInfo = new RevisionInfo(commitCredentials.getUser(),
-                                          rtx.getRevisionNumber(),
-                                          rtx.getRevisionTimestamp(),
-                                          commitCredentials.getMessage());
+          return new RevisionInfo(commitCredentials.getUser(),
+                                  rtx.getRevisionNumber(),
+                                  rtx.getRevisionTimestamp(),
+                                  commitCredentials.getMessage());
         }
-        return revisionInfo;
       }));
     }
 
@@ -276,16 +285,13 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
          revision > 0 && revision > lastCommittedRevision - revisions; revision--) {
       int finalRevision = revision;
       revisionInfos.add(CompletableFuture.supplyAsync(() -> {
-        RevisionInfo revisionInfo;
         try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(finalRevision)) {
           final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-
-          revisionInfo = new RevisionInfo(commitCredentials.getUser(),
-                                          rtx.getRevisionNumber(),
-                                          rtx.getRevisionTimestamp(),
-                                          commitCredentials.getMessage());
+          return new RevisionInfo(commitCredentials.getUser(),
+                                  rtx.getRevisionNumber(),
+                                  rtx.getRevisionTimestamp(),
+                                  commitCredentials.getMessage());
         }
-        return revisionInfo;
       }));
     }
 
@@ -698,13 +704,6 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     return Optional.ofNullable(nodeTrxMap.get(ID));
   }
-
-  //  @Override
-  //  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
-  //    assertNotClosed();
-  //
-  //    return nodeTrxMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
-  //  }
 
   @Override
   public synchronized Optional<W> getNodeTrx() {

@@ -192,7 +192,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer truncateTo(int revision) {
+    public Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision) {
       // TODO
       return this;
     }
