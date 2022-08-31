@@ -1,5 +1,7 @@
 package org.sirix.index.art;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.util.*;
 
 final class DescendingSubMap<K, V> extends NavigableSubMap<K, V> {
@@ -64,7 +66,7 @@ final class DescendingSubMap<K, V> extends NavigableSubMap<K, V> {
 
   final class DescendingEntrySetView extends EntrySetView {
     @Override
-    public Iterator<Entry<K, V>> iterator() {
+    public @NonNull Iterator<Entry<K, V>> iterator() {
       return new DescendingSubMapEntryIterator(absHighest(), absLowFence());
     }
   }

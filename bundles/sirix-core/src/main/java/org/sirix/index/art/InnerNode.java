@@ -28,45 +28,45 @@ abstract class InnerNode extends Node {
   // Byte.toUnsignedInt wherever comparison with it is done.
   short noOfChildren;
 
-  final Node[] child;
+  final Node[] children;
 
   InnerNode(int size) {
     prefixKeys = new byte[PESSIMISTIC_PATH_COMPRESSION_LIMIT];
-    child = new Node[size + 1];
+    children = new Node[size + 1];
   }
 
   // copy ctor. called when growing/shrinking
   InnerNode(InnerNode node, int size) {
     super(node);
-    child = new Node[size + 1];
+    children = new Node[size + 1];
     // copy header
     this.noOfChildren = node.noOfChildren;
     this.prefixLen = node.prefixLen;
     this.prefixKeys = node.prefixKeys;
 
     // copy leaf & replace uplink
-    child[size] = node.getLeaf();
-    if (child[size] != null) {
-      replaceUplink(this, child[size]);
+    children[size] = node.getLeaf();
+    if (children[size] != null) {
+      replaceUplink(this, children[size]);
     }
   }
 
   public void setLeaf(LeafNode<?, ?> leaf) {
-    child[child.length - 1] = leaf;
+    children[children.length - 1] = leaf;
     createUplink(this, leaf);
   }
 
   public void removeLeaf() {
-    removeUplink(child[child.length - 1]);
-    child[child.length - 1] = null;
+    removeUplink(children[children.length - 1]);
+    children[children.length - 1] = null;
   }
 
   public boolean hasLeaf() {
-    return child[child.length - 1] != null;
+    return children[children.length - 1] != null;
   }
 
   public LeafNode<?, ?> getLeaf() {
-    return (LeafNode<?, ?>) child[child.length - 1];
+    return (LeafNode<?, ?>) children[children.length - 1];
   }
 
   @Override
@@ -77,8 +77,8 @@ abstract class InnerNode extends Node {
     return first();
   }
 
-  Node[] getChild() {
-    return child;
+  Node[] getChildren() {
+    return children;
   }
 
   /**
@@ -96,13 +96,13 @@ abstract class InnerNode extends Node {
   abstract Node findChild(byte partialKey);
 
   /**
-   * @param partialKey
+   * @param partialKey the partial key of the inner node
    * @return a child which is equal or greater than given partial key, or null if there is no such child
    */
   abstract Node ceil(byte partialKey);
 
   /**
-   * @param partialKey
+   * @param partialKey the partial key of the inner node
    * @return a child which is equal or lesser than given partial key, or null if there is no such child
    */
   abstract Node floor(byte partialKey);

@@ -18,9 +18,8 @@ class EntrySet<K, V> extends AbstractSet<Map.Entry<K, V>> {
 
 	@Override
 	public boolean contains(Object o) {
-		if (!(o instanceof Map.Entry))
+		if (!(o instanceof Map.Entry<?, ?> entry))
 			return false;
-		Map.Entry<?, ?> entry = (Map.Entry<?, ?>) o;
 		Object value = entry.getValue();
 		LeafNode<K, V> p = tree.getEntry(entry.getKey());
 		return p != null && AdaptiveRadixTree.valEquals(p.getValue(), value);
@@ -28,9 +27,8 @@ class EntrySet<K, V> extends AbstractSet<Map.Entry<K, V>> {
 
 	@Override
 	public boolean remove(Object o) {
-		if (!(o instanceof Map.Entry))
+		if (!(o instanceof Map.Entry<?, ?> entry))
 			return false;
-		Map.Entry<?, ?> entry = (Map.Entry<?, ?>) o;
 		Object value = entry.getValue();
 		LeafNode<K, V> p = tree.getEntry(entry.getKey());
 		if (p != null && AdaptiveRadixTree.valEquals(p.getValue(), value)) {

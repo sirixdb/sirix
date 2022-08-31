@@ -1,16 +1,16 @@
 package org.sirix.node.interfaces.immutable;
 
-import java.math.BigInteger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.DataRecord;
+import org.sirix.node.interfaces.Node;
+
+import java.math.BigInteger;
 
 /**
  * An immutable node.
  *
  * @author Johannes Lichtenberger
- *
  */
 public interface ImmutableNode extends DataRecord {
 
@@ -27,12 +27,14 @@ public interface ImmutableNode extends DataRecord {
 
   /**
    * Getting the stored hash.
+   *
    * @return the hash code
    */
   BigInteger getHash();
 
   /**
    * Compute the hash code.
+   *
    * @return the computed hash code
    */
   BigInteger computeHash();
@@ -50,4 +52,11 @@ public interface ImmutableNode extends DataRecord {
    * @return {@code true}, if item has a parent, {@code false} otherwise
    */
   boolean hasParent();
+
+//  /**
+//   * Gets the previous revision number of the node, if it existed before and has been updated/deleted.
+//   *
+//   * @return the previous revision number of the node
+//   */
+//  long getRevisionNumberOfPreviousRevision();
 }

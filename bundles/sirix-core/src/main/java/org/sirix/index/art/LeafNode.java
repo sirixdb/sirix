@@ -72,10 +72,9 @@ class LeafNode<K, V> extends Node implements Map.Entry<K, V> {
 		if (obj == this) {
 			return true;
 		}
-		if (!(obj instanceof Map.Entry)) {
+		if (!(obj instanceof final Map.Entry<?, ?> other)) {
 			return false;
 		}
-		final Map.Entry<?, ?> other = (Map.Entry<?, ?>) obj;
 		return
 				(getKey() == null ? other.getKey() == null : getKey().equals(other.getKey())) &&
 						(getValue() == null ? other.getValue() == null : getValue().equals(other.getValue()));

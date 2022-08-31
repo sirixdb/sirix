@@ -387,7 +387,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 				return false;
 			LeafNode<K, V> node = tree.getEntry(key);
 			if (node != null && AdaptiveRadixTree.valEquals(node.getValue(),
-                                                                               entry.getValue())) {
+			                                                entry.getValue())) {
 				tree.deleteEntry(node);
 				return true;
 			}

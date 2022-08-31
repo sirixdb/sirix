@@ -1,5 +1,7 @@
 package org.sirix.index.art;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.util.*;
 
 // implementation simply relays/delegates calls to backing map's methods
@@ -12,7 +14,6 @@ final class KeySet<E> extends AbstractSet<E> implements NavigableSet<E> {
 
 	// this KeySet can only be created either on ART or on one of it's subMaps
 	@Override
-	@SuppressWarnings("unchecked")
 	public Iterator<E> iterator() {
 		if (map instanceof AdaptiveRadixTree)
 
@@ -23,7 +24,6 @@ final class KeySet<E> extends AbstractSet<E> implements NavigableSet<E> {
 
 	// this KeySet can only be created either on ART or on one of it's subMaps
 	@Override
-	@SuppressWarnings("unchecked")
 	public Iterator<E> descendingIterator() {
 		if (map instanceof AdaptiveRadixTree)
 			return ((AdaptiveRadixTree<E, ?>) map).descendingKeyIterator();
@@ -106,39 +106,39 @@ final class KeySet<E> extends AbstractSet<E> implements NavigableSet<E> {
 	}
 
 	@Override
-	public NavigableSet<E> subSet(E fromElement, boolean fromInclusive,
+	public @NonNull NavigableSet<E> subSet(E fromElement, boolean fromInclusive,
 			E toElement, boolean toInclusive) {
 		return new KeySet<>(map.subMap(fromElement, fromInclusive,
 		                               toElement, toInclusive));
 	}
 
 	@Override
-	public NavigableSet<E> headSet(E toElement, boolean inclusive) {
+	public @NonNull NavigableSet<E> headSet(E toElement, boolean inclusive) {
 		return new KeySet<>(map.headMap(toElement, inclusive));
 	}
 
 	@Override
-	public NavigableSet<E> tailSet(E fromElement, boolean inclusive) {
+	public @NonNull NavigableSet<E> tailSet(E fromElement, boolean inclusive) {
 		return new KeySet<>(map.tailMap(fromElement, inclusive));
 	}
 
 	@Override
-	public SortedSet<E> subSet(E fromElement, E toElement) {
+	public @NonNull SortedSet<E> subSet(E fromElement, E toElement) {
 		return subSet(fromElement, true, toElement, false);
 	}
 
 	@Override
-	public SortedSet<E> headSet(E toElement) {
+	public @NonNull SortedSet<E> headSet(E toElement) {
 		return headSet(toElement, false);
 	}
 
 	@Override
-	public SortedSet<E> tailSet(E fromElement) {
+	public @NonNull SortedSet<E> tailSet(E fromElement) {
 		return tailSet(fromElement, true);
 	}
 
 	@Override
-	public NavigableSet<E> descendingSet() {
+	public @NonNull NavigableSet<E> descendingSet() {
 		return new KeySet<>(map.descendingMap());
 	}
 
