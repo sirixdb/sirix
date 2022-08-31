@@ -1582,20 +1582,33 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
+      final boolean isCompressed = source.readBoolean();
       final var length = source.readByte();
       final var revisions = new int[length];
       for (int i = 0; i < length; i++) {
         revisions[i] = source.readInt();
       }
-      final var uncompressedRevisions = INTEGRATED_INT_COMPRESSOR.uncompress(revisions);
-      return new RevisionReferencesNode(recordID, uncompressedRevisions);
+      final int[] uncompressedRevisions;
+      if (isCompressed) {
+        uncompressedRevisions = INTEGRATED_INT_COMPRESSOR.uncompress(revisions);
+      } else {
+        uncompressedRevisions = revisions;
+      }
+      return new RevisionReferencesNode(recordID, revisions);
     }
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final var revisionRefNode = (RevisionReferencesNode) record;
       final var revisions = revisionRefNode.getRevisions();
-      final var compressedRevisions = INTEGRATED_INT_COMPRESSOR.compress(revisions);
+      final int[] compressedRevisions;
+      if (revisions.length > 10) {
+        compressedRevisions = INTEGRATED_INT_COMPRESSOR.compress(revisions);
+        sink.writeBoolean(true);
+      } else {
+        compressedRevisions = revisions;
+        sink.writeBoolean(false);
+      }
       sink.writeByte((byte) compressedRevisions.length);
       for (int compressedRevision : compressedRevisions) {
         sink.writeInt(compressedRevision);

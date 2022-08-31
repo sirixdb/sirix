@@ -16,13 +16,13 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		super(node16, NODE_SIZE);
 		assert node16.shouldShrink();
 		byte[] keys = node16.getKeys();
-		Node[] child = node16.getChild();
+		Node[] child = node16.getChildren();
 		System.arraycopy(keys, 0, this.keys, 0, node16.noOfChildren);
-		System.arraycopy(child, 0, this.child, 0, node16.noOfChildren);
+		System.arraycopy(child, 0, this.children, 0, node16.noOfChildren);
 
 		// update up links
 		for (int i = 0; i < noOfChildren; i++) {
-			replaceUplink(this, this.child[i]);
+			replaceUplink(this, this.children[i]);
 		}
 	}
 
@@ -32,7 +32,7 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		// paper does simple loop over because it's a tiny array of size 4
 		for (int i = 0; i < noOfChildren; i++) {
 			if (keys[i] == partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -47,10 +47,10 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		int i = noOfChildren;
 		for (; i > 0 && unsignedPartialKey < keys[i - 1]; i--) {
 			keys[i] = keys[i - 1];
-			this.child[i] = this.child[i - 1];
+			this.children[i] = this.children[i - 1];
 		}
 		keys[i] = unsignedPartialKey;
-		this.child[i] = child;
+		this.children[i] = child;
 		noOfChildren++;
 		createUplink(this, child, partialKey);
 	}
@@ -67,7 +67,7 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		}
 		// replace will be called from in a state where you know partialKey entry surely exists
 		assert index < noOfChildren : "Partial key does not exist";
-		child[index] = newChild;
+		children[index] = newChild;
 		createUplink(this, newChild, partialKey);
 	}
 
@@ -83,12 +83,12 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		// if this fails, the question is, how could you reach the leaf node?
 		// this node must've been your follow on pointer holding the partialKey
 		assert index < noOfChildren : "Partial key does not exist";
-		removeUplink(child[index]);
+		removeUplink(children[index]);
 		for (int i = index; i < noOfChildren - 1; i++) {
 			keys[i] = keys[i + 1];
-			child[i] = child[i + 1];
+			children[i] = children[i + 1];
 		}
-		child[noOfChildren - 1] = null;
+		children[noOfChildren - 1] = null;
 		noOfChildren--;
 	}
 
@@ -111,12 +111,12 @@ class Node4 extends org.sirix.index.art.InnerNode {
 
 	@Override
 	public Node first() {
-		return child[0];
+		return children[0];
 	}
 
 	@Override
 	public Node last() {
-		return child[Math.max(0, noOfChildren - 1)];
+		return children[Math.max(0, noOfChildren - 1)];
 	}
 
 	@Override
@@ -124,7 +124,7 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = 0; i < noOfChildren; i++) {
 			if (keys[i] >= partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -135,7 +135,7 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = 0; i < noOfChildren; i++) {
 			if (keys[i] > partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -146,7 +146,7 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = noOfChildren - 1; i >= 0; i--) {
 			if (keys[i] < partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -157,7 +157,7 @@ class Node4 extends org.sirix.index.art.InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = noOfChildren - 1; i >= 0; i--) {
 			if (keys[i] <= partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;

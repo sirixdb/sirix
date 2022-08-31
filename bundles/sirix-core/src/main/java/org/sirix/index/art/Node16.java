@@ -10,13 +10,13 @@ class Node16 extends InnerNode {
 		super(node, NODE_SIZE);
 		assert node.isFull();
 		byte[] keys = node.getKeys();
-		Node[] child = node.getChild();
+		Node[] child = node.getChildren();
 		System.arraycopy(keys, 0, this.keys, 0, node.noOfChildren);
-		System.arraycopy(child, 0, this.child, 0, node.noOfChildren);
+		System.arraycopy(child, 0, this.children, 0, node.noOfChildren);
 
 		// update up links
 		for (int i = 0; i < noOfChildren; i++) {
-			replaceUplink(this, this.child[i]);
+			replaceUplink(this, this.children[i]);
 		}
 	}
 
@@ -24,15 +24,15 @@ class Node16 extends InnerNode {
 		super(node48, NODE_SIZE);
 		assert node48.shouldShrink();
 		byte[] keyIndex = node48.getKeyIndex();
-		Node[] children = node48.getChild();
+		Node[] children = node48.getChildren();
 
 		// keyIndex by virtue of being "array indexed" is already sorted
 		// so we can iterate and keep adding into Node16
 		for (int i = 0, j = 0; i < Node48.KEY_INDEX_SIZE; i++) {
 			if (keyIndex[i] != Node48.ABSENT) {
-				child[j] = children[keyIndex[i]];
-				keys[j] = BinaryComparableUtils.unsigned(child[j].uplinkKey());
-				replaceUplink(this, child[j]);
+				this.children[j] = children[keyIndex[i]];
+				keys[j] = BinaryComparableUtils.unsigned(this.children[j].uplinkKey());
+				replaceUplink(this, this.children[j]);
 				j++;
 			}
 		}
@@ -44,7 +44,7 @@ class Node16 extends InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for(int i = 0; i < noOfChildren; i++){
 			if(keys[i] == partialKey){
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -63,10 +63,10 @@ class Node16 extends InnerNode {
 		assert insertionPoint <= noOfChildren;
 		for (int i = noOfChildren; i > insertionPoint; i--) {
 			keys[i] = keys[i - 1];
-			this.child[i] = this.child[i - 1];
+			this.children[i] = this.children[i - 1];
 		}
 		keys[insertionPoint] = unsignedPartialKey;
-		this.child[insertionPoint] = child;
+		this.children[insertionPoint] = child;
 		noOfChildren++;
 		createUplink(this, child, partialKey);
 	}
@@ -76,7 +76,7 @@ class Node16 extends InnerNode {
 		byte unsignedPartialKey = BinaryComparableUtils.unsigned(partialKey);
 		int index = Arrays.binarySearch(keys, 0, noOfChildren, unsignedPartialKey);
 		assert index >= 0;
-		child[index] = newChild;
+		children[index] = newChild;
 		createUplink(this, newChild, partialKey);
 	}
 
@@ -88,12 +88,12 @@ class Node16 extends InnerNode {
 		// if this fails, the question is, how could you reach the leaf node?
 		// this node must've been your follow on pointer holding the partialKey
 		assert index >= 0;
-		removeUplink(child[index]);
+		removeUplink(children[index]);
 		for (int i = index; i < noOfChildren - 1; i++) {
 			keys[i] = keys[i + 1];
-			child[i] = child[i + 1];
+			children[i] = children[i + 1];
 		}
-		child[noOfChildren - 1] = null;
+		children[noOfChildren - 1] = null;
 		noOfChildren--;
 	}
 
@@ -117,13 +117,13 @@ class Node16 extends InnerNode {
 	@Override
 	public Node first() {
 		assert noOfChildren > Node4.NODE_SIZE;
-		return child[0];
+		return children[0];
 	}
 
 	@Override
 	public Node last() {
 		assert noOfChildren > Node4.NODE_SIZE;
-		return child[noOfChildren - 1];
+		return children[noOfChildren - 1];
 	}
 
 	@Override
@@ -131,7 +131,7 @@ class Node16 extends InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = 0; i < noOfChildren; i++) {
 			if (keys[i] >= partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -142,7 +142,7 @@ class Node16 extends InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = 0; i < noOfChildren; i++) {
 			if (keys[i] > partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -153,7 +153,7 @@ class Node16 extends InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = noOfChildren - 1; i >= 0; i--) {
 			if (keys[i] < partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
@@ -164,7 +164,7 @@ class Node16 extends InnerNode {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = noOfChildren - 1; i >= 0; i--) {
 			if (keys[i] <= partialKey) {
-				return child[i];
+				return children[i];
 			}
 		}
 		return null;
