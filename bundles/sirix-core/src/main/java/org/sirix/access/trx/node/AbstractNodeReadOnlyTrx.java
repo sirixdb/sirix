@@ -132,12 +132,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getLeftSiblingKind() {
     assertNotClosed();
-    if (currentNode instanceof StructNode && hasLeftSibling()) {
-      final long nodeKey = currentNode.getNodeKey();
+    final N node = currentNode;
+    if (node instanceof StructNode && hasLeftSibling()) {
       moveToLeftSibling();
-      final NodeKind leftSiblKind = currentNode.getKind();
-      moveTo(nodeKey);
-      return leftSiblKind;
+      final NodeKind leftSiblingKind = currentNode.getKind();
+      setCurrentNode(node);
+      return leftSiblingKind;
     }
     return NodeKind.UNKNOWN;
   }
@@ -355,9 +355,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
-    final long nodeKey = currentNode.getNodeKey();
+    final N node = currentNode;
     final boolean retVal = moveTo(key);
-    moveTo(nodeKey);
+    setCurrentNode(node);
     return retVal;
   }
 
@@ -400,14 +400,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getParentKind() {
     assertNotClosed();
-    final ImmutableNode node = currentNode;
+    final N node = currentNode;
     if (node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
-    final long nodeKey = node.getNodeKey();
     moveToParent();
     final NodeKind parentKind = currentNode.getKind();
-    moveTo(nodeKey);
+    setCurrentNode(node);
     return parentKind;
   }
 
@@ -428,21 +427,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    final long nodeKey = currentNode.getNodeKey();
-    final boolean retVal = moveToLastChild();
-    moveTo(nodeKey);
-    return retVal;
+    return getStructuralNode().hasFirstChild(); // If it has a first child, it also has a last child.
   }
 
   @Override
   public NodeKind getLastChildKind() {
     assertNotClosed();
-    final ImmutableNode node = currentNode;
+    final N node = currentNode;
     if (node instanceof StructNode && hasLastChild()) {
-      final long nodeKey = node.getNodeKey();
       moveToLastChild();
       final NodeKind lastChildKind = currentNode.getKind();
-      moveTo(nodeKey);
+      setCurrentNode(node);
       return lastChildKind;
     }
     return NodeKind.UNKNOWN;
@@ -451,12 +446,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getFirstChildKind() {
     assertNotClosed();
-    final ImmutableNode node = currentNode;
+    final N node = currentNode;
     if (node instanceof StructNode && hasFirstChild()) {
-      final long nodeKey = node.getNodeKey();
       moveToFirstChild();
       final NodeKind firstChildKind = currentNode.getKind();
-      moveTo(nodeKey);
+      setCurrentNode(node);
       return firstChildKind;
     }
     return NodeKind.UNKNOWN;
@@ -503,31 +497,31 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getRightSiblingKind() {
     assertNotClosed();
-    final ImmutableNode node = currentNode;
+    final N node = currentNode;
     if (node instanceof StructNode && hasRightSibling()) {
-      final long nodeKey = node.getNodeKey();
       moveToRightSibling();
-      final NodeKind rightSiblKind = currentNode.getKind();
-      moveTo(nodeKey);
-      return rightSiblKind;
+      final NodeKind rightSiblingKind = currentNode.getKind();
+      setCurrentNode(node);
+      return rightSiblingKind;
     }
     return NodeKind.UNKNOWN;
   }
 
   @Override
   public PageReadOnlyTrx getPageTrx() {
+    assertNotClosed();
     return pageReadOnlyTrx;
   }
 
   @Override
   public CommitCredentials getCommitCredentials() {
+    assertNotClosed();
     return pageReadOnlyTrx.getCommitCredentials();
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
-
     return currentNode.getDeweyID();
   }
 
