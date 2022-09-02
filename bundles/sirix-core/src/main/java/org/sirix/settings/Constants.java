@@ -43,6 +43,9 @@ public final class Constants {
   /** Default internal encoding. */
   public static final Charset DEFAULT_ENCODING = StandardCharsets.UTF_8;
 
+  /** Null key for revisions. */
+  public static final int NULL_REVISION_NUMBER = -1;
+
   // --- Indirect Page
   // ----------------------------------------------------------
 

@@ -32,6 +32,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import java.io.IOException;
@@ -56,7 +57,8 @@ public class NullNodeTest {
   @Test
   public void test() throws IOException {
     // Create empty node.
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 2L, 5L, 0L, 0L);
     final NullNode node = new NullNode(strucDel);
@@ -66,8 +68,7 @@ public class NullNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageWriteTrx);
-    final NullNode node2 =
-        (NullNode) NodeKind.NULL_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);
+    final NullNode node2 = (NullNode) NodeKind.NULL_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 

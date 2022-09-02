@@ -2,6 +2,8 @@ package org.sirix.access.trx.node.json;
 
 import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathNode;
@@ -14,12 +16,10 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.json.*;
 import org.sirix.page.PathSummaryPage;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.zip.Deflater;
 
@@ -43,6 +43,11 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private final PageTrx pageTrx;
 
   /**
+   * The current revision number.
+   */
+  private final int revisionNumber;
+
+  /**
    * Constructor.
    *
    * @param hashFunction hash function used to hash nodes
@@ -51,6 +56,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   JsonNodeFactoryImpl(final HashFunction hashFunction, final PageTrx pageTrx) {
     this.hashFunction = checkNotNull(hashFunction);
     this.pageTrx = checkNotNull(pageTrx);
+    this.revisionNumber = pageTrx.getRevisionNumber();
   }
 
   @Override
@@ -62,10 +68,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? NamePageHash.generateHashForString(name.getLocalName())
         : -1;
 
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(
         ((PathSummaryPage) pageTrx.getActualRevisionRootPage().getPathSummaryPageReference().getPage()).getMaxNodeKey(0)
-            + 1, parentKey, hashFunction, null, revision, (SirixDeweyID) null);
+            + 1, parentKey, hashFunction, null, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -83,13 +88,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -103,13 +108,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   @Override
   public ObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -123,13 +128,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   @Override
   public NullNode createJsonNullNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -145,13 +150,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       String name, long objectValueKey, SirixDeweyID id) {
     final int localNameKey = pageTrx.createNameKey(name, NodeKind.OBJECT_KEY);
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 objectValueKey,
@@ -168,13 +173,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean doCompress, SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final boolean compression = doCompress && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
@@ -192,13 +197,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public BooleanNode createJsonBooleanNode(long parentKey, long leftSibKey, long rightSibKey, boolean boolValue,
       SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -213,13 +218,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value,
       SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -233,13 +238,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   @Override
   public ObjectNullNode createJsonObjectNullNode(long parentKey, SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -254,13 +259,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ObjectStringNode createJsonObjectStringNode(long parentKey, byte[] value, boolean doCompress,
       SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final boolean compression = doCompress && value.length > 40;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.BEST_COMPRESSION) : value;
@@ -277,13 +282,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   @Override
   public ObjectBooleanNode createJsonObjectBooleanNode(long parentKey, boolean boolValue, SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -299,13 +304,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   @Override
   public ObjectNumberNode createJsonObjectNumberNode(long parentKey, Number value, SirixDeweyID id) {
-    final long revision = pageTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction,
                          null,
-                         revision,
+                         Constants.NULL_REVISION_NUMBER,
+                         revisionNumber,
                          id);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),

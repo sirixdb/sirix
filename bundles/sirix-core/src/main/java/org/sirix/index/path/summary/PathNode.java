@@ -7,6 +7,7 @@ import org.brackit.xquery.util.path.Path;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -217,7 +218,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDel;
   }
 
@@ -244,7 +245,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", nodeDel)
                       .add("struct delegate", structNodeDel)

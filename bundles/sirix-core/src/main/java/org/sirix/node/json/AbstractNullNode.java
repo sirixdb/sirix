@@ -3,6 +3,7 @@ package org.sirix.node.json;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Node;
@@ -70,7 +71,7 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 

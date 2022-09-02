@@ -1,7 +1,8 @@
 package org.sirix.access.node.json;
 
-import org.junit.After;
-import org.junit.Before;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
@@ -23,16 +24,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author Johannes Lichtenberger
  */
 public final class ResourceSessionTest {
-  @Before
+  @BeforeEach
   public void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
     JsonTestHelper.closeEverything();
   }
 
+  @DisplayName("throw exception when multiple read-write transactions are started")
   @Test
   public void test_whenMultipleReadWriteTrxStarted_throwException() {
     final Exception exception = assertThrows(RuntimeException.class, () -> createTransactions(resourceManager -> {

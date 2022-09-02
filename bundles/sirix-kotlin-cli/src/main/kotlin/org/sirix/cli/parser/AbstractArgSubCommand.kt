@@ -1,4 +1,4 @@
-@file:UseExperimental(ExperimentalCli::class)
+@file:OptIn(ExperimentalCli::class)
 package org.sirix.cli.parser
 
 import kotlinx.cli.ExperimentalCli
@@ -8,7 +8,7 @@ import org.sirix.cli.commands.CliCommand
 
 abstract class AbstractArgSubCommand(name: String, actionDescription: String) : Subcommand(name, actionDescription) {
 
-    protected var executed: Boolean = false
+    private var executed: Boolean = false
 
     override fun execute() {
         executed = true

@@ -38,9 +38,16 @@ public interface DataRecord {
   RecordSerializer getKind();
 
   /**
-   * Get the revision this node has been inserted.
-   * 
-   * @return revision this node has been inserted
+   * Get the previous revision of this record.
+   *
+   * @return the previous revision
    */
-  long getRevision();
+  int getPreviousRevisionNumber();
+
+  /**
+   * Get the previous revision of this record.
+   *
+   * @return the previous revision
+   */
+  int getLastModifiedRevisionNumber();
 }

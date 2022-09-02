@@ -45,7 +45,7 @@ import kotlin.coroutines.CoroutineContext
  */
 class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: NodeCursor, W: NodeTrx, W: NodeCursor {
     /** Logger  */
-    private val LOGGER = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
+    private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
 
     /** Right page coroutine producer  */
     private var producer: Producer
@@ -60,7 +60,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
     private var left = true
 
     /** Capacity of the results queue.  */
-    private val CAPACITY = 200
+    private val capacity = 200
 
     /**
      * Constructor initializing internal state.
@@ -208,7 +208,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
          * Channel that stores result keys already computed by the producer. End of the result sequence is
          * marked by the NULL_NODE_KEY.
          */
-        private var results: Channel<Long> = Channel(CAPACITY)
+        private var results: Channel<Long> = Channel(capacity)
          /**
          * Actual coroutine job
          */
@@ -225,7 +225,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
             producingTask?.cancel()
             results.close()
             running = false
-            results = Channel(CAPACITY)
+            results = Channel(capacity)
             cursor.close()
         }
         suspend fun receive(): Long {
@@ -266,7 +266,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
 
                  // Then follow right sibling if there is one.
                  if (cursor.hasRightSibling()) {
-                     val currKey: Long = cursor.node.nodeKey
+                     val currKey: Long = cursor.node.getNodeKey()
                      key = hasNextNode(cursor, cursor.rightSiblingKey, currKey)
                      results.send(key)
                      continue
@@ -274,7 +274,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
 
                  // Then follow right sibling on stack.
                  if (rightSiblingKeyStack.size > 0) {
-                     val currKey: Long = cursor.node.nodeKey
+                     val currKey: Long = cursor.node.getNodeKey()
                      key = hasNextNode(cursor, rightSiblingKeyStack.pop(), currKey)
                      results.send(key)
                      continue
@@ -291,7 +291,7 @@ class CoroutineDescendantAxis<R,W>: AbstractAxis where R: NodeReadOnlyTrx, R: No
                      results.send(Fixed.NULL_NODE_KEY.standardProperty)
                  }
              } catch (e: InterruptedException) {
-                 LOGGER.error(e.message, e)
+                 logger.error(e.message, e)
              }
          }
      }

@@ -124,7 +124,7 @@ final class JsonNodeTrxImpl extends
   private final boolean storeChildCount;
 
   /**
-   * Flag to decide wheter to store the full node history or not.
+   * Flag to decide if to store the full node history or not.
    */
   private final boolean storeNodeHistory;
 
@@ -184,7 +184,7 @@ final class JsonNodeTrxImpl extends
     hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
     storeChildCount = resourceManager.getResourceConfig().storeChildCount();
 
-    // Only auto commit by node modifications if it is more then 0.
+    // Only auto commit by node modifications if it is more than 0.
     this.isAutoCommitting = isAutoCommitting;
 
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
@@ -2224,6 +2224,7 @@ final class JsonNodeTrxImpl extends
       node = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
       node.setNameKey(newNameKey);
       node.setName(key);
+      node.setPreviousRevision(pageTrx.getRevisionToRepresent());
 
       // Adapt path summary.
       if (buildPathSummary) {
@@ -2305,6 +2306,8 @@ final class JsonNodeTrxImpl extends
       final AbstractStringNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(byteVal);
+      node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
@@ -2352,6 +2355,8 @@ final class JsonNodeTrxImpl extends
       final AbstractBooleanNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(value);
+      node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
@@ -2400,6 +2405,8 @@ final class JsonNodeTrxImpl extends
       final AbstractNumberNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(value);
+      node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
@@ -2501,7 +2508,7 @@ final class JsonNodeTrxImpl extends
       parent.decrementChildCount();
     }
 
-    // Remove non structural nodes of old node.
+    // Remove non-structural nodes of old node.
     if (oldNode.getKind() == NodeKind.ELEMENT) {
       moveTo(oldNode.getNodeKey());
       // removeNonStructural();

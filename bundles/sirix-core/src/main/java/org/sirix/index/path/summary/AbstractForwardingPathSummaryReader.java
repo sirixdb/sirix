@@ -288,4 +288,9 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   public boolean isDocumentRoot() {
     return delegate().isDocumentRoot();
   }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return delegate().getPreviousRevisionNumber();
+  }
 }

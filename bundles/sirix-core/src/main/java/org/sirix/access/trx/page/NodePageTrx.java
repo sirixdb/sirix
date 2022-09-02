@@ -30,7 +30,6 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.Restore;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -112,11 +111,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   private final NodePageReadOnlyTrx pageRtx;
 
   /**
-   * Determines if a log must be replayed or not.
-   */
-  private Restore restore = Restore.NO;
-
-  /**
    * Determines if transaction is closed.
    */
   private volatile boolean isClosed;
@@ -187,17 +181,14 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public int getRevisionToRepresent() {
+    pageRtx.assertNotClosed();
     return representRevision;
   }
 
   @Override
   public TransactionIntentLog getLog() {
+    pageRtx.assertNotClosed();
     return log;
-  }
-
-  @Override
-  public void restore(final Restore restore) {
-    this.restore = checkNotNull(restore);
   }
 
   @Override
@@ -285,6 +276,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                                                           -1,
                                                           null,
                                                           null,
+                                                          -1,
                                                           pageRtx.getRevisionNumber(),
                                                           (SirixDeweyID) null));
     ((UnorderedKeyValuePage) cont.getModified()).setRecord(delNode);

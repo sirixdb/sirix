@@ -1,10 +1,10 @@
 package org.sirix.service.json.shredder;
 
 import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.DatabaseConfiguration;
@@ -33,7 +33,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public final class JsonShredderTest {
 
@@ -42,12 +42,12 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  @Before
+  @BeforeEach
   public void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
     JsonTestHelper.closeEverything();
   }
@@ -59,7 +59,7 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
+  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -105,7 +105,6 @@ public final class JsonShredderTest {
 
   // TODO: JMH test
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:-UseBiasedLocking -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Ignore
   @Test
   public void testChicago() {
     logger.info("start");
@@ -418,7 +417,7 @@ public final class JsonShredderTest {
     test("abc-location-stations.json");
   }
 
-  @Ignore
+  @Disabled("Duplicate keys")
   @Test
   public void testHistoricalEventsEnglish() throws IOException {
     test("historical-events-english.json");

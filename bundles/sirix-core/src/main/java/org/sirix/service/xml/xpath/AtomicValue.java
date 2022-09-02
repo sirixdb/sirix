@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -53,7 +53,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   private byte[] value;
 
   /** The item's value type. */
-  private int type;
+  private final int type;
 
   /**
    * The item's key. In case of an Atomic value this is always a negative to make them distinguishable
@@ -219,12 +219,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    */
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append("Atomic Value: ");
-    builder.append(new String(value));
-    builder.append("\nKey: ");
-    builder.append(itemKey);
-    return builder.toString();
+    return "Atomic Value: " + new String(value, Constants.DEFAULT_ENCODING) + "\nKey: " + itemKey;
   }
 
   @Override
@@ -244,11 +239,21 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   @Override
   public AtomicValue clone() {
-    return this;
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public void setParentKey(final long pKey) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setPreviousRevision(int revision) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
     throw new UnsupportedOperationException();
   }
 
@@ -273,8 +278,13 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public long getRevision() {
-    return -1; // Not needed over here.
+  public int getPreviousRevisionNumber() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

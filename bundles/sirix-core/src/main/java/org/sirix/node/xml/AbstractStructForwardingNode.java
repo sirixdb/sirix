@@ -1,11 +1,12 @@
 package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.StructNode;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import java.math.BigInteger;
 
 /**
@@ -137,7 +138,17 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   }
 
   @Override
-  public String toString() {
+  public void setPreviousRevision(int revision) {
+    structDelegate().setPreviousRevision(revision);
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return structDelegate().getPreviousRevisionNumber();
+  }
+
+  @Override
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nodeDelegate", super.toString())
                       .add("structDelegate", structDelegate().toString())

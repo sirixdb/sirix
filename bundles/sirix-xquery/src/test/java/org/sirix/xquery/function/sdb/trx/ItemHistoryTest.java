@@ -1,10 +1,10 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.XQuery;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.service.json.shredder.JsonShredder;
@@ -16,13 +16,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 
-public class ItemHistoryTest {
-  @Before
+public final class ItemHistoryTest {
+  @BeforeEach
   public void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
     JsonTestHelper.closeEverything();
   }
@@ -55,7 +55,7 @@ public class ItemHistoryTest {
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, openQuery).serialize(ctx, printWriter);
-        Assert.assertEquals("\"bla\" \"blabla\" \"blablabla\"", out.toString());
+        Assertions.assertEquals("\"bla\" \"blabla\" \"blablabla\"", out.toString());
       }
     }
   }
@@ -87,7 +87,7 @@ public class ItemHistoryTest {
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, openQuery).serialize(ctx, printWriter);
-        Assert.assertEquals("\"generic\" \"generic1\"", out.toString());
+        Assertions.assertEquals("\"generic\" \"generic1\"", out.toString());
       }
     }
   }

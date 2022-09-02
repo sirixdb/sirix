@@ -39,6 +39,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.xml.ElementNode;
+import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
 import java.io.IOException;
@@ -52,10 +53,14 @@ import static org.junit.Assert.assertEquals;
  */
 public final class NodePageTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx pageReadTrx;
 
   @Before
@@ -80,7 +85,8 @@ public final class NodePageTest {
     final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, IndexType.DOCUMENT, pageReadTrx);
     assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del = new NodeDelegate(0, 1, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(0, 1, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 4L, 3L, 1L, 0L);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
     final ElementNode node1 = new ElementNode(strucDel,

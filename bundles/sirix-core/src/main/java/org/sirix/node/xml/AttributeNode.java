@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -25,6 +25,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.hash.HashCode;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
@@ -41,14 +44,10 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
- * <p>
  * Node representing an attribute.
- * </p>
  */
 public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
 
@@ -70,8 +69,9 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    * Creating an attribute.
    *
    * @param nodeDel {@link NodeDelegate} to be set
-   * @param nodeDel {@link StructNodeDelegate} to be set
+   * @param nameDel {@link StructNodeDelegate} to be set
    * @param valDel {@link ValueNodeDelegate} to be set
+   * @param qNm the QName to be set
    */
   public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValueNodeDelegate valDel,
       final QNm qNm) {
@@ -88,9 +88,11 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   /**
    * Creating an attribute.
    *
+   * @param hashCode the hash code
    * @param nodeDel {@link NodeDelegate} to be set
-   * @param nodeDel {@link StructNodeDelegate} to be set
+   * @param nameDel {@link StructNodeDelegate} to be set
    * @param valDel {@link ValueNodeDelegate} to be set
+   * @param qNm the QName to be set
    */
   public AttributeNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
       final ValueNodeDelegate valDel, final QNm qNm) {
@@ -139,7 +141,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this).add("nameDel", nameDel).add("valDel", valDel).toString();
   }
 
@@ -190,8 +192,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof AttributeNode) {
-      final AttributeNode other = (AttributeNode) obj;
+    if (obj instanceof final AttributeNode other) {
       return Objects.equal(nameDel, other.nameDel) && Objects.equal(valDel, other.valDel);
     }
     return false;
@@ -226,7 +227,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDel;
   }
 

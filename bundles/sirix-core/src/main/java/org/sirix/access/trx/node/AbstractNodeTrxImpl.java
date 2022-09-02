@@ -155,7 +155,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     Committed,
 
     Closed
-
   }
 
   protected AbstractNodeTrxImpl(final ThreadFactory threadFactory, final HashType hashType, final IN nodeReadOnlyTrx,
@@ -164,7 +163,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
       final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
       final Duration afterCommitDelay, @NonNegative final int maxNodeCount) {
-
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
@@ -199,15 +197,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                                              afterCommitDelay.toMillis(),
                                              TimeUnit.MILLISECONDS);
     }
-
-    // // Redo last transaction if the system crashed.
-    // if (!pPageWriteTrx.isCreated()) {
-    // try {
-    // commit();
-    // } catch (final SirixException e) {
-    // throw new IllegalStateException(e);
-    // }
-    // }
   }
 
   protected abstract W self();

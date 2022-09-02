@@ -21,10 +21,11 @@
 
 package org.sirix.node.interfaces;
 
-import java.math.BigInteger;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import java.math.BigInteger;
 
 /**
  * <p>
@@ -66,6 +67,20 @@ public interface Node extends ImmutableNode {
    * @param nodeKey the parent nodeKey
    */
   void setParentKey(long nodeKey);
+
+  /**
+   * Set the previous revision of this record.
+   *
+   * @param revision the previous revision
+   */
+  void setPreviousRevision(int revision);
+
+  /**
+   * Set the last modified revision of this record.
+   *
+   * @param revision the last modified revision
+   */
+  void setLastModifiedRevision(int revision);
 
   static BigInteger to128BitsAtMaximumBigInteger(BigInteger hash) {
     final var bigInteger = hash.mod(MAX_POSITIVE_VALUE_128_BIT);

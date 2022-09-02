@@ -14,7 +14,7 @@ class CreateSubcommand : AbstractDataCommand("create", "Create a Sirix DB") {
 
     override fun execute() {
         super.execute()
-        dataBasetype = DatabaseType.valueOf(type.toUpperCase())
+        dataBasetype = DatabaseType.valueOf(type.uppercase())
     }
 
     override fun createCliCommand(options: CliOptions): CliCommand {

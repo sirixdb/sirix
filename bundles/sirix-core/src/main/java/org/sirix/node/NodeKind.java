@@ -368,13 +368,15 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
+      final var revisionNumber = pageReadTrx.getRevisionNumber();
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     hashFunction,
                                                     null,
-                                                    getVarLong(source),
+                                                    Constants.NULL_REVISION_NUMBER,
+                                                    revisionNumber,
                                                     SirixDeweyID.newRootID().toBytes());
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                   getVarLong(source),
@@ -390,8 +392,6 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final XmlDocumentRootNode node = (XmlDocumentRootNode) record;
-      // writeHash(sink, node.getHash());
-      putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
@@ -444,8 +444,9 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
+      final var revisionNumber = pageReadTrx.getRevisionNumber();
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
-      final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, null, 0, (SirixDeweyID) null);
+      final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, null, 0, revisionNumber, (SirixDeweyID) null);
       return new DeletedNode(delegate);
     }
 
@@ -1462,14 +1463,15 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-
+      final var revisionNumber = pageReadTrx.getRevisionNumber();
       final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     hashFunction,
                                                     null,
-                                                    getVarLong(source),
+                                                    Constants.NULL_REVISION_NUMBER,
+                                                    revisionNumber,
                                                     SirixDeweyID.newRootID().toBytes());
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                   getVarLong(source),
@@ -1484,7 +1486,6 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
-      putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
       putVarLong(sink, node.getLastChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
@@ -1514,8 +1515,8 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final HashEntryNode node = (HashEntryNode) record;
-      sink.writeInt(node.getKey());
-      sink.writeUtf8(node.getValue());
+      sink.writeInt(node.key());
+      sink.writeUtf8(node.value());
     }
 
     @Override
@@ -1754,22 +1755,25 @@ public enum NodeKind implements NodePersistenter {
   private static NodeDelegate deserializeNodeDelegateWithoutIDs(final BytesIn<ByteBuffer> source,
       final @NonNegative long recordID, final PageReadOnlyTrx pageReadTrx) {
     final long parentKey = recordID - getVarLong(source);
-    final long revision = getVarLong(source);
+    final int previousRevision = source.readInt();
+    final int lastModifiedRevision = source.readInt();
     final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
-    return new NodeDelegate(recordID, parentKey, hashFunction, null, revision, (SirixDeweyID) null);
+    return new NodeDelegate(recordID, parentKey, hashFunction, null, previousRevision, lastModifiedRevision, (SirixDeweyID) null);
   }
 
   private static NodeDelegate deserializeNodeDelegate(final BytesIn<ByteBuffer> source,
       final @NonNegative long recordID, final byte[] id, final PageReadOnlyTrx pageReadTrx) {
     final long parentKey = recordID - getVarLong(source);
-    final long revision = getVarLong(source);
+    final int previousRevision = source.readInt();
+    final int lastModifiedRevision = source.readInt();
     final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
-    return new NodeDelegate(recordID, parentKey, hashFunction, null, revision, id);
+    return new NodeDelegate(recordID, parentKey, hashFunction, null, previousRevision, lastModifiedRevision, id);
   }
 
   private static void serializeDelegate(final NodeDelegate nodeDel, final BytesOut<ByteBuffer> sink) {
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());
-    putVarLong(sink, nodeDel.getRevision());
+    sink.writeInt(nodeDel.getPreviousRevisionNumber());
+    sink.writeInt(nodeDel.getLastModifiedRevisionNumber());
   }
 
   private static void serializeStructDelegate(final NodeKind kind, final StructNodeDelegate nodeDel,
@@ -1807,14 +1811,14 @@ public enum NodeKind implements NodePersistenter {
     final var isJsonNode =
         kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY || isValueNode;
 
-    final long rightSibl;
-    final long leftSibl;
+    final long rightSibling;
+    final long leftSibling;
     final long firstChild;
     final long lastChild;
     final long childCount;
 
-    rightSibl = currKey - getVarLong(source);
-    leftSibl = currKey - getVarLong(source);
+    rightSibling = currKey - getVarLong(source);
+    leftSibling = currKey - getVarLong(source);
 
     if (isValueNode) {
       firstChild = Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -1838,9 +1842,9 @@ public enum NodeKind implements NodePersistenter {
     }
 
     if (isJsonNode)
-      return new StructNodeDelegate(nodeDel, firstChild, lastChild, rightSibl, leftSibl, childCount, descendantCount);
+      return new StructNodeDelegate(nodeDel, firstChild, lastChild, rightSibling, leftSibling, childCount, descendantCount);
 
-    return new StructNodeDelegate(nodeDel, firstChild, rightSibl, leftSibl, childCount, descendantCount);
+    return new StructNodeDelegate(nodeDel, firstChild, rightSibling, leftSibling, childCount, descendantCount);
   }
 
   private static NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel,
@@ -1934,11 +1938,6 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public long getRevision() {
-      return 0;
-    }
-
-    @Override
     public long getNodeKey() {
       return nodeKey;
     }
@@ -1950,6 +1949,16 @@ public enum NodeKind implements NodePersistenter {
 
     @Override
     public byte[] getDeweyIDAsBytes() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int getLastModifiedRevisionNumber() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int getPreviousRevisionNumber() {
       throw new UnsupportedOperationException();
     }
   }

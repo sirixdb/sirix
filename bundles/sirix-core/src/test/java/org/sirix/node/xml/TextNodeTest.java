@@ -35,6 +35,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
@@ -47,10 +48,14 @@ import static org.junit.Assert.*;
  */
 public class TextNodeTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx mPageReadTrx;
 
   @Before
@@ -71,7 +76,8 @@ public class TextNodeTest {
   public void testTextRootNode() {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0L);
@@ -82,10 +88,8 @@ public class TextNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, mPageReadTrx);
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data,
-                                                                node.getNodeKey(),
-                                                                node.getDeweyID().toBytes(),
-                                                                mPageReadTrx);
+    final TextNode node2 =
+        (TextNode) NodeKind.TEXT.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), mPageReadTrx);
     check(node2);
   }
 

@@ -526,6 +526,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
+  public int getPreviousRevisionNumber() {
+    assertNotClosed();
+    return currentNode.getPreviousRevisionNumber();
+  }
+
+  @Override
   public boolean isClosed() {
     return isClosed;
   }

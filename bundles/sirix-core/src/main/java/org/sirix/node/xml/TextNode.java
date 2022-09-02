@@ -24,6 +24,7 @@ package org.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -178,7 +179,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", structNodeDel.getNodeDelegate())
                       .add("struct delegate", structNodeDel)
@@ -191,7 +192,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return structNodeDel.getNodeDelegate();
   }
 

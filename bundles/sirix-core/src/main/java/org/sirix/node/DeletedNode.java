@@ -21,12 +21,14 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.interfaces.Node;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
+import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.interfaces.Node;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.
@@ -70,7 +72,7 @@ public final class DeletedNode extends AbstractForwardingNode {
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this).add("delegate", mDel.toString()).toString();
   }
 
@@ -80,7 +82,7 @@ public final class DeletedNode extends AbstractForwardingNode {
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return mDel;
   }
 }

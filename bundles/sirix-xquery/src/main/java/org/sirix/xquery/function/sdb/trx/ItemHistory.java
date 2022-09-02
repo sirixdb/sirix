@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
@@ -16,12 +15,14 @@ import org.sirix.index.IndexType;
 import org.sirix.node.RevisionReferencesNode;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.json.*;
+import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonItemFactory;
 import org.sirix.xquery.node.XmlDBNode;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * <p>
@@ -63,48 +64,25 @@ public final class ItemHistory extends AbstractFunction {
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (node == null) {
-      final List<Item> sequences = new ArrayList<>();
-      final var resourceManager = item.getTrx().getResourceSession();
-      Item previousItem = null;
-      for (int revision = 1; revision <= resourceManager.getMostRecentRevisionNumber(); revision++) {
+      final Deque<Item> sequences = new ArrayDeque<>();
+      final var resourceSession = item.getTrx().getResourceSession();
+      int revision = resourceSession.getMostRecentRevisionNumber();
+      while (revision > 0) {
         final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
         if (rtxInRevision.moveTo(item.getNodeKey())) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
             assert item instanceof XmlDBNode;
             final var xmlDBNode = new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
-            if (previousItem == null || !Objects.equals(((XmlDBNode) previousItem).getValue(), xmlDBNode.getValue())
-                || !Objects.equals(((XmlDBNode) previousItem).getName(), xmlDBNode.getName())) {
-              sequences.add(xmlDBNode);
-              previousItem = xmlDBNode;
-            } else {
-              rtxInRevision.close();
-            }
+            sequences.addFirst(xmlDBNode);
           } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx trx) {
             assert item instanceof JsonDBItem;
             final var jsonItem = new JsonItemFactory().getSequence(trx, ((JsonDBItem) item).getCollection());
-            if (previousItem == null) {
-              sequences.add(jsonItem);
-              previousItem = jsonItem;
-            } else if (jsonItem instanceof AtomicStrJsonDBItem atomicStrJsonDBItem && !Objects.equals(
-                atomicStrJsonDBItem.stringValue(),
-                ((AtomicStrJsonDBItem) previousItem).stringValue())) {
-              sequences.add(jsonItem);
-              previousItem = jsonItem;
-            } else if (jsonItem instanceof AtomicBooleanJsonDBItem atomicBooleanJsonDBItem && !Objects.equals(
-                atomicBooleanJsonDBItem.booleanValue(),
-                previousItem.booleanValue())) {
-              sequences.add(jsonItem);
-              previousItem = jsonItem;
-            } else if (jsonItem instanceof NumericJsonDBItem numericJsonDBItem
-                && numericJsonDBItem.cmp((Atomic) previousItem) != 0) {
-              sequences.add(jsonItem);
-              previousItem = jsonItem;
-            } else {
-              rtxInRevision.close();
-            }
+            sequences.addFirst(jsonItem);
           }
+          revision = rtxInRevision.getPreviousRevisionNumber();
         } else {
           rtxInRevision.close();
+          revision--;
         }
       }
 

@@ -1,9 +1,11 @@
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.brackit.xquery.atomic.QNm;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -19,8 +21,8 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import java.math.BigInteger;
 
 /**
  * <p>
@@ -114,7 +116,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("structDel", structNodeDel)
                       .add("nameDel", nameDel)
@@ -210,7 +212,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return structNodeDel.getNodeDelegate();
   }
 

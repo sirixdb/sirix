@@ -99,8 +99,13 @@ public abstract class AbstractImmutableJsonStructuralNode implements ImmutableSt
   }
 
   @Override
-  public long getRevision() {
-    return structDelegate().getRevision();
+  public int getPreviousRevisionNumber() {
+    return structDelegate().getPreviousRevisionNumber();
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return structDelegate().getLastModifiedRevisionNumber();
   }
 
   @Override

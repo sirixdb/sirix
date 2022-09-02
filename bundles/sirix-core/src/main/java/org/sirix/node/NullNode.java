@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -122,7 +122,6 @@ public final class NullNode implements StructNode {
   @Override
   public void setParentKey(long nodeKey) {
     throw new UnsupportedOperationException();
-
   }
 
   @Override
@@ -206,14 +205,18 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public long getRevision() {
-    return node.getRevision();
+  public int getPreviousRevisionNumber() {
+    return node.getPreviousRevisionNumber();
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return node.getLastModifiedRevisionNumber();
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof NullNode) {
-      final NullNode other = (NullNode) obj;
+    if (obj instanceof final NullNode other) {
       return Objects.equal(node, other.node);
     }
     return false;
@@ -236,6 +239,16 @@ public final class NullNode implements StructNode {
 
   @Override
   public byte[] getDeweyIDAsBytes() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setPreviousRevision(int revision) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
     throw new UnsupportedOperationException();
   }
 }

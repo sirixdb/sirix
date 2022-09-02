@@ -37,7 +37,12 @@ public final class RevisionReferencesNode implements DataRecord {
   }
 
   @Override
-  public long getRevision() {
+  public int getPreviousRevisionNumber() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
     throw new UnsupportedOperationException();
   }
 

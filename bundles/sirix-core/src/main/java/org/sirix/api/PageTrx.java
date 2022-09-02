@@ -1,6 +1,8 @@
 package org.sirix.api;
 
-import org.sirix.access.trx.node.Restore;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
@@ -10,10 +12,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.time.Instant;
 
@@ -134,14 +132,6 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @throws NullPointerException if {@code reference} is {@code null}
    */
   void commit(PageReference reference);
-
-  /**
-   * Determines if this page write trx must restore a previous failed trx.
-   *
-   * @param restore determines if this page write trx must restore a previous failed trx
-   * @throws NullPointerException if {@code restore} is {@code null}
-   */
-  void restore(Restore restore);
 
   /**
    * Get inlying {@link PageReadOnlyTrx}.

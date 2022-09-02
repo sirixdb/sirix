@@ -37,6 +37,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
 import java.io.IOException;
@@ -50,10 +51,14 @@ import static org.junit.Assert.assertEquals;
  */
 public class ElementNodeTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx pageReadTrx;
 
   @Before
@@ -72,7 +77,8 @@ public class ElementNodeTest {
 
   @Test
   public void testElementNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
 
@@ -94,10 +100,8 @@ public class ElementNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx);
-    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(data,
-                                                                         node.getNodeKey(),
-                                                                         node.getDeweyID().toBytes(),
-                                                                         pageReadTrx);
+    final ElementNode node2 =
+        (ElementNode) NodeKind.ELEMENT.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);
     check(node2);
   }
 

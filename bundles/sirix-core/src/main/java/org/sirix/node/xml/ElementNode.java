@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -25,6 +25,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.BiMap;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -39,8 +42,6 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
@@ -55,22 +56,34 @@ import java.util.Optional;
  */
 public final class ElementNode extends AbstractStructForwardingNode implements NameNode, ImmutableXmlNode {
 
-  /** Delegate for name node information. */
+  /**
+   * Delegate for name node information.
+   */
   private final NameNodeDelegate nameDel;
 
-  /** Mapping names/keys. */
+  /**
+   * Mapping names/keys.
+   */
   private final BiMap<Long, Long> attributes;
 
-  /** Keys of attributes. */
+  /**
+   * Keys of attributes.
+   */
   private final List<Long> attributeKeys;
 
-  /** Keys of namespace declarations. */
+  /**
+   * Keys of namespace declarations.
+   */
   private final List<Long> namespaceKeys;
 
-  /** {@link StructNodeDelegate} reference. */
+  /**
+   * {@link StructNodeDelegate} reference.
+   */
   private final StructNodeDelegate structNodeDel;
 
-  /** The qualified name. */
+  /**
+   * The qualified name.
+   */
   private final QNm qNm;
 
   private BigInteger hash;
@@ -78,14 +91,15 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Constructor
    *
-   * @param structDel {@link StructNodeDelegate} to be set
-   * @param nameDel {@link NameNodeDelegate} to be set
+   * @param structDel     {@link StructNodeDelegate} to be set
+   * @param nameDel       {@link NameNodeDelegate} to be set
    * @param attributeKeys list of attribute keys
-   * @param attributes attribute nameKey / nodeKey mapping in both directions
+   * @param attributes    attribute nameKey / nodeKey mapping in both directions
    * @param namespaceKeys keys of namespaces to be set
    */
-  public ElementNode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
-      final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
+  public ElementNode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
+      final List<Long> attributeKeys, final BiMap<Long, Long> attributes, final List<Long> namespaceKeys,
+      final QNm qNm) {
     hash = hashCode;
     assert structDel != null;
     structNodeDel = structDel;
@@ -104,10 +118,10 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Constructor
    *
-   * @param structDel {@link StructNodeDelegate} to be set
-   * @param nameDel {@link NameNodeDelegate} to be set
+   * @param structDel     {@link StructNodeDelegate} to be set
+   * @param nameDel       {@link NameNodeDelegate} to be set
    * @param attributeKeys list of attribute keys
-   * @param attributes attribute nameKey / nodeKey mapping in both directions
+   * @param attributes    attribute nameKey / nodeKey mapping in both directions
    * @param namespaceKeys keys of namespaces to be set
    */
   public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
@@ -175,7 +189,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Inserting an attribute.
    *
-   * @param attrKey the new attribute key
+   * @param attrKey   the new attribute key
    * @param nameIndex index mapping to name string
    */
   public void insertAttribute(final @NonNegative long attrKey, final long nameIndex) {
@@ -269,7 +283,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nameDelegate", nameDel)
                       .add("nameSpaceKeys", namespaceKeys)
@@ -311,11 +325,9 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   public boolean equals(final Object obj) {
-    if (obj instanceof ElementNode) {
-      final ElementNode other = (ElementNode) obj;
-      return Objects.equal(delegate(), other.delegate()) && Objects.equal(nameDel, other.nameDel);
-    }
-    return false;
+    return obj instanceof final ElementNode other && Objects.equal(delegate(), other.delegate()) && Objects.equal(
+        nameDel,
+        other.nameDel);
   }
 
   /**
@@ -337,7 +349,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return structNodeDel.getNodeDelegate();
   }
 
