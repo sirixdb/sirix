@@ -36,6 +36,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
 import java.io.IOException;
@@ -48,10 +49,14 @@ import static org.junit.Assert.assertEquals;
  */
 public class PINodeTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx pageReadTrx;
 
   @Before
@@ -72,7 +77,8 @@ public class PINodeTest {
   public void testProcessInstructionNode() throws IOException {
     final byte[] value = { (byte) 17, (byte) 18 };
 
-    final NodeDelegate del = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(99, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);

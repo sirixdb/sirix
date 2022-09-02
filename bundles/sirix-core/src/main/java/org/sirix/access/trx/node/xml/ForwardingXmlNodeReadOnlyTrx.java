@@ -472,4 +472,9 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   default SirixDeweyID getRightSiblingDeweyID() {
     return nodeReadOnlyTrxDelegate().getRightSiblingDeweyID();
   }
+
+  @Override
+  default int getPreviousRevisionNumber() {
+    return nodeReadOnlyTrxDelegate().getPreviousRevisionNumber();
+  }
 }

@@ -61,6 +61,6 @@ public final class RevisionReferencesNodeTest {
   public void testGetRevisionMethodOperationNotSupportedException() {
     final var node = new RevisionReferencesNode(1, new int[] {});
 
-    node.getRevision();
+    node.getPreviousRevisionNumber();
   }
 }

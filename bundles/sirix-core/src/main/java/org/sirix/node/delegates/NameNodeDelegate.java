@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -18,9 +18,6 @@
  * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/**
- *
- */
 package org.sirix.node.delegates;
 
 import com.google.common.base.MoreObjects;
@@ -28,13 +25,14 @@ import com.google.common.base.Objects;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.PrimitiveSink;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
@@ -44,33 +42,42 @@ import java.math.BigInteger;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- *
  */
 public class NameNodeDelegate extends AbstractForwardingNode implements NameNode {
 
-  /** Node delegate, containing basic node information. */
+  /**
+   * Node delegate, containing basic node information.
+   */
   private final NodeDelegate nodeDelegate;
 
-  /** Key of the prefix. */
+  /**
+   * Key of the prefix.
+   */
   private int prefixKey;
 
-  /** Key of the local name */
+  /**
+   * Key of the local name
+   */
   private int localNameKey;
 
-  /** URI of the related namespace. */
+  /**
+   * URI of the related namespace.
+   */
   private int uriKey;
 
-  /** Path node key. */
+  /**
+   * Path node key.
+   */
   private long pathNodeKey;
 
   /**
    * Constructor.
    *
-   * @param delegate page delegator
-   * @param uriKey uriKey to be stored
-   * @param prefixKey prefixKey to be stored
+   * @param delegate     page delegator
+   * @param uriKey       uriKey to be stored
+   * @param prefixKey    prefixKey to be stored
    * @param localNameKey localNameKey to be stored
-   * @param pathNodeKey path node key associated with node
+   * @param pathNodeKey  path node key associated with node
    */
   public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey, final int localNameKey,
       final @NonNegative long pathNodeKey) {
@@ -103,15 +110,15 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
   @Override
   public BigInteger computeHash() {
-    final Funnel<NameNode> nodeFunnel = (NameNode node, PrimitiveSink into) -> {
-      into.putInt(node.getURIKey())
-          .putInt(node.getPrefixKey())
-          .putInt(node.getLocalNameKey())
-          .putLong(node.getPathNodeKey());
-    };
+    final Funnel<NameNode> nodeFunnel = (NameNode node, PrimitiveSink into) -> into.putInt(node.getURIKey())
+                                                                                   .putInt(node.getPrefixKey())
+                                                                                   .putInt(node.getLocalNameKey())
+                                                                                   .putLong(node.getPathNodeKey());
 
-    return Node.to128BitsAtMaximumBigInteger(
-        new BigInteger(1, nodeDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes()));
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
+                                                            nodeDelegate.getHashFunction()
+                                                                        .hashObject(this, nodeFunnel)
+                                                                        .asBytes()));
   }
 
   @Override
@@ -172,17 +179,16 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof NameNodeDelegate))
+    if (!(obj instanceof final NameNodeDelegate other))
       return false;
 
-    final NameNodeDelegate other = (NameNodeDelegate) obj;
-
-    return Objects.equal(uriKey, other.uriKey) && Objects.equal(prefixKey, other.prefixKey)
-        && Objects.equal(localNameKey, other.localNameKey);
+    return Objects.equal(uriKey, other.uriKey) && Objects.equal(prefixKey, other.prefixKey) && Objects.equal(
+        localNameKey,
+        other.localNameKey);
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", nodeDelegate)
                       .add("uriKey", uriKey)
@@ -193,13 +199,8 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDelegate;
-  }
-
-  @Override
-  public long getRevision() {
-    return nodeDelegate.getRevision();
   }
 
   @Override

@@ -35,6 +35,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.settings.Constants;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -46,10 +47,14 @@ import static org.junit.Assert.assertEquals;
  */
 public class NamespaceNodeTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx pageReadTrx;
 
   @Before
@@ -68,7 +73,8 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() throws IOException {
-    final NodeDelegate nodeDel = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate nodeDel =
+        new NodeDelegate(99, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 
     // Create empty node.
@@ -78,10 +84,8 @@ public class NamespaceNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx);
-    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data,
-                                                                               node.getNodeKey(),
-                                                                               node.getDeweyID().toBytes(),
-                                                                               pageReadTrx);
+    final NamespaceNode node2 =
+        (NamespaceNode) NodeKind.NAMESPACE.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);
     check(node2);
   }
 

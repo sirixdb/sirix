@@ -35,6 +35,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Constants;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -70,7 +71,8 @@ public class ObjectKeyNodeTest {
     final String name = "foobar";
 
     final long pathNodeKey = 12;
-    final NodeDelegate del = new NodeDelegate(14, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(14, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
     final ObjectKeyNode node = new ObjectKeyNode(strucDel, nameKey, name, pathNodeKey);
     node.setHash(node.computeHash());
@@ -79,8 +81,7 @@ public class ObjectKeyNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
-    final ObjectKeyNode node2 =
-        (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(data, node.getNodeKey(), null, pageTrx);
+    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2, nameKey);
   }
 

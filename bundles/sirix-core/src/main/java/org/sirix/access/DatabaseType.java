@@ -19,7 +19,6 @@ import java.util.stream.Stream;
 
 public enum DatabaseType {
   XML("xml") {
-    @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
         DatabaseConfiguration dbConfig, User user) {
@@ -32,6 +31,7 @@ public enum DatabaseType {
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     null,
                                                     null,
+                                                    0,
                                                     0,
                                                     id == null ? null : id.toBytes());
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
@@ -46,7 +46,6 @@ public enum DatabaseType {
   },
 
   JSON("json") {
-    @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<R> createDatabase(
         DatabaseConfiguration dbConfig, User user) {
@@ -59,6 +58,7 @@ public enum DatabaseType {
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     null,
                                                     null,
+                                                    0,
                                                     0,
                                                     id == null ? null : id.toBytes());
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
@@ -73,7 +73,7 @@ public enum DatabaseType {
     }
   };
 
-  private String stringType;
+  private final String stringType;
 
   DatabaseType(String stringType) {
     this.stringType = stringType;

@@ -24,14 +24,14 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.PrimitiveSink;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.Fixed;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.math.BigInteger;
 
@@ -282,7 +282,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("first child", getFirstChildKey())
                       .add("last child", getLastChildKey())
@@ -321,7 +321,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 

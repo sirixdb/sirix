@@ -32,6 +32,7 @@ import com.google.common.base.Objects;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -130,7 +131,7 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return structNodeDel.getNodeDelegate();
   }
 
@@ -140,7 +141,7 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDel).toString();
   }
 

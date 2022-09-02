@@ -1,6 +1,8 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.delegates.NodeDelegate;
 
 /**
@@ -31,7 +33,7 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return mDelegate;
   }
 }

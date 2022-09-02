@@ -28,6 +28,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -167,7 +168,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("name", name)
                       .add("nameKey", nameKey)
@@ -189,7 +190,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return structNodeDel.getNodeDelegate();
   }
 

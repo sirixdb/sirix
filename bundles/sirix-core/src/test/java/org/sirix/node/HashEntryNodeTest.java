@@ -11,7 +11,7 @@ public final class HashEntryNodeTest {
 
     assertEquals(NodeKind.HASH_ENTRY, node.getKind());
     assertEquals(1, node.getNodeKey());
-    assertEquals(3247389, node.getKey());
+    assertEquals(3247389, node.key());
     assertEquals(-1168208943, node.hashCode());
     assertNotNull(node.toString());
 
@@ -36,6 +36,6 @@ public final class HashEntryNodeTest {
   public void testOperationNotSupportedException() {
     final var node = new HashEntryNode(1, 3247389, "foobar");
 
-    node.getRevision();
+    node.getPreviousRevisionNumber();
   }
 }

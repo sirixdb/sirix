@@ -4,6 +4,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.index.redblacktree.interfaces.MutableRBNode;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
@@ -73,7 +74,7 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 
@@ -172,7 +173,7 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", nodeDelegate)
                       .add("left child", left)
@@ -201,5 +202,10 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   @Override
   public byte[] getDeweyIDAsBytes() {
     return null;
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    throw new UnsupportedOperationException();
   }
 }

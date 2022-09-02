@@ -3,7 +3,6 @@ package org.sirix.access.trx.page;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.jetbrains.annotations.NotNull;
-import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -65,11 +64,6 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   @Override
   public void commit(PageReference reference) {
     delegate().commit(reference);
-  }
-
-  @Override
-  public void restore(Restore restore) {
-    delegate().restore(restore);
   }
 
   @Override

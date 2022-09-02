@@ -1,5 +1,6 @@
 package org.sirix.index.redblacktree;
 
+import org.jetbrains.annotations.NotNull;
 import org.sirix.index.redblacktree.interfaces.ImmutableRBNode;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
@@ -70,7 +71,7 @@ public final class ImmutableRBNodeImpl<K extends Comparable<? super K>, V> exten
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return node.delegate();
   }
 }

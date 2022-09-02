@@ -75,8 +75,8 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
   }
 
   @Override
-  public long getRevision() {
-    return node.getRevision();
+  public int getPreviousRevisionNumber() {
+    return node.getPreviousRevisionNumber();
   }
 
   @Override

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -24,6 +24,9 @@ package org.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
@@ -36,14 +39,10 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.math.BigInteger;
 
 /**
- * <p>
  * Node representing a namespace.
- * </p>
  */
 public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXmlNode {
 
@@ -161,15 +160,14 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof NamespaceNode) {
-      final NamespaceNode other = (NamespaceNode) obj;
+    if (obj instanceof final NamespaceNode other) {
       return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameDel, other.nameDel);
     }
     return false;
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this).add("nodeDel", nodeDel).add("nameDel", nameDel).toString();
   }
 
@@ -193,7 +191,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDel;
   }
 

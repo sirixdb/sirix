@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -20,18 +20,20 @@
  */
 package org.sirix.node.delegates;
 
-import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.zip.Deflater;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.Compression;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.zip.Deflater;
 
 /**
  * Delegate method for all nodes containing "value"-data. That means that independent values are
@@ -142,7 +144,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return MoreObjects.toStringHelper(this).add("value", new String(value)).toString();
   }
 
@@ -157,7 +159,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 

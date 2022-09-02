@@ -134,6 +134,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                                                        null,
                                                                                        null,
                                                                                        0,
+                                                                                       0,
                                                                                        (SirixDeweyID) null)),
                                                          rbTreeReader.indexType,
                                                          rbTreeReader.index);
@@ -175,6 +176,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                                                     node.getNodeKey(),
                                                                                     null,
                                                                                     null,
+                                                                                    0,
                                                                                     0,
                                                                                     (SirixDeweyID) null)),
                                                       rbTreeReader.indexType,

@@ -34,6 +34,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import java.io.IOException;
@@ -78,6 +79,7 @@ public class DocumentRootNodeTest {
                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                   Hashing.sha256(),
                                                   null,
+                                                  Constants.NULL_REVISION_NUMBER,
                                                   0,
                                                   SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,

@@ -20,7 +20,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   protected AbstractForwardingNode() {}
 
   @Override
-  protected abstract NodeDelegate delegate();
+  protected abstract @NonNull NodeDelegate delegate();
 
   @Override
   public SirixDeweyID getDeweyID() {
@@ -78,12 +78,17 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public long getRevision() {
-    return delegate().getRevision();
+  public int getPreviousRevisionNumber() {
+    return delegate().getPreviousRevisionNumber();
   }
 
   @Override
-  public String toString() {
+  public void setPreviousRevision(int revision) {
+    delegate().setPreviousRevision(revision);
+  }
+
+  @Override
+  public @NonNull String toString() {
     return delegate().toString();
   }
 
@@ -100,5 +105,15 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   @Override
   public byte[] getDeweyIDAsBytes() {
     return delegate().getDeweyIDAsBytes();
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return delegate().getLastModifiedRevisionNumber();
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
+    delegate().setLastModifiedRevision(revision);
   }
 }

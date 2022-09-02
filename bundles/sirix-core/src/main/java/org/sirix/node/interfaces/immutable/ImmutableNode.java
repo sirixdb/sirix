@@ -52,11 +52,4 @@ public interface ImmutableNode extends DataRecord {
    * @return {@code true}, if item has a parent, {@code false} otherwise
    */
   boolean hasParent();
-
-//  /**
-//   * Gets the previous revision number of the node, if it existed before and has been updated/deleted.
-//   *
-//   * @return the previous revision number of the node
-//   */
-//  long getRevisionNumberOfPreviousRevision();
 }

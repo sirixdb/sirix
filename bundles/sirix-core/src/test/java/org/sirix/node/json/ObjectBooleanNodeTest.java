@@ -35,6 +35,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import java.io.IOException;
@@ -67,12 +68,14 @@ public class ObjectBooleanNodeTest {
   public void test() throws IOException {
     // Create empty node.
     final boolean boolValue = true;
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del,
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L, 0L);
+                                                               0L,
+                                                               0L);
     final ObjectBooleanNode node = new ObjectBooleanNode(boolValue, strucDel);
     node.setHash(node.computeHash());
     check(node);
@@ -81,10 +84,7 @@ public class ObjectBooleanNodeTest {
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
     final ObjectBooleanNode node2 =
-        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(data,
-                                                                      node.getNodeKey(),
-                                                                      null,
-                                                                      pageTrx);
+        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 

@@ -907,4 +907,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public SirixDeweyID getDeweyID() {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    throw new UnsupportedOperationException();
+  }
 }

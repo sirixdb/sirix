@@ -32,6 +32,6 @@ public final class HashCountEntryNodeTest {
   public void testOperationNotSupportedException() {
     final var node = new HashCountEntryNode(1, 44);
 
-    node.getRevision();
+    node.getPreviousRevisionNumber();
   }
 }

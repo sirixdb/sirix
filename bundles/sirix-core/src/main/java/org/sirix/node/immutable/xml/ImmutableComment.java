@@ -86,8 +86,13 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
-  public long getRevision() {
-    return node.getRevision();
+  public int getPreviousRevisionNumber() {
+    return node.getPreviousRevisionNumber();
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return node.getLastModifiedRevisionNumber();
   }
 
   @Override

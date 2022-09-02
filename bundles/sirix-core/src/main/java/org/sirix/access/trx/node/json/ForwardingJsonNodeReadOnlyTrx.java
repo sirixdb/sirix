@@ -346,4 +346,9 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   default boolean moveToRightSibling() {
     return nodeReadOnlyTrxDelegate().moveToRightSibling();
   }
+
+  @Override
+  default int getPreviousRevisionNumber() {
+    return nodeReadOnlyTrxDelegate().getPreviousRevisionNumber();
+  }
 }

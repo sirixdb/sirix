@@ -77,9 +77,9 @@ public final class Names {
       if (nameNode != null && nameNode.getKind() != NodeKind.DELETE) {
         final HashEntryNode hashEntryNode = (HashEntryNode) nameNode;
 
-        final int key = hashEntryNode.getKey();
+        final int key = hashEntryNode.key();
 
-        nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
+        nameMap.put(key, hashEntryNode.value().getBytes(Constants.DEFAULT_ENCODING));
 
         final long nodeKeyOfCountNode = i + 1;
         final var countNode = pageReadTrx.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);

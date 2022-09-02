@@ -1469,6 +1469,8 @@ final class XmlNodeTrxImpl extends
         final ValueNode node =
             pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         node.setValue(byteVal);
+        node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+        node.setLastModifiedRevision(nodeReadOnlyTrx.getRevisionNumber());
 
         nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
         nodeHashing.adaptHashedWithUpdate(oldHash);

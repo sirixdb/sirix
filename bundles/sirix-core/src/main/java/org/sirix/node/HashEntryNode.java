@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2019.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -31,22 +31,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Hash entry node.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
-public final class HashEntryNode implements DataRecord {
-
-  private final long nodeKey;
-
-  private final int key;
-
-  private final String value;
+public record HashEntryNode(long nodeKey, int key, String value) implements DataRecord {
 
   /**
    * Constructor.
    *
    * @param nodeKey the node key
-   * @param key the integer hash code
-   * @param value the String value
+   * @param key     the integer hash code
+   * @param value   the String value
    */
   public HashEntryNode(final long nodeKey, final int key, final String value) {
     this.nodeKey = nodeKey;
@@ -59,14 +52,6 @@ public final class HashEntryNode implements DataRecord {
     return NodeKind.HASH_ENTRY;
   }
 
-  public int getKey() {
-    return key;
-  }
-
-  public String getValue() {
-    return value;
-  }
-
   @Override
   public int hashCode() {
     return Objects.hashCode(key, value);
@@ -74,10 +59,9 @@ public final class HashEntryNode implements DataRecord {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof HashEntryNode))
+    if (!(obj instanceof final HashEntryNode other))
       return false;
 
-    final HashEntryNode other = (HashEntryNode) obj;
     return Objects.equal(key, other.key) && Objects.equal(value, other.value);
   }
 
@@ -87,12 +71,12 @@ public final class HashEntryNode implements DataRecord {
   }
 
   @Override
-  public long getNodeKey() {
-    return nodeKey;
+  public int getPreviousRevisionNumber() {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public long getRevision() {
+  public int getLastModifiedRevisionNumber() {
     throw new UnsupportedOperationException();
   }
 

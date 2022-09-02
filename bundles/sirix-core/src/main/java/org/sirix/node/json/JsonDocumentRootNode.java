@@ -27,6 +27,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.PrimitiveSink;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -140,12 +141,12 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   }
 
   @Override
-  public String toString() {
+  public @NotNull String toString() {
     return super.toString();
   }
 
   @Override
-  protected NodeDelegate delegate() {
+  protected @NotNull NodeDelegate delegate() {
     return nodeDel;
   }
 

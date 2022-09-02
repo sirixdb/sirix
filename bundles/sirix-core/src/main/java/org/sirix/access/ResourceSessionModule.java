@@ -12,7 +12,7 @@ import org.sirix.page.UberPage;
 import java.util.concurrent.Semaphore;
 
 /**
- * A module with all the common bindings between resource managers.
+ * A module with all the common bindings between resource sessions.
  *
  * @author Joao Sousa
  */

@@ -66,8 +66,11 @@ public class NodeDelegate implements Node {
    */
   private int typeKey;
 
-  /** Revision this node was added. */
-  private final long revision;
+  /** Previous revision. */
+  private int previousRevision;
+
+  /** Revision, when a node has been last modified. */
+  private int lastModifiedRevision;
 
   /** {@link SirixDeweyID} (needs to be deserialized). */
   private SirixDeweyID sirixDeweyID;
@@ -82,18 +85,20 @@ public class NodeDelegate implements Node {
    * @param parentKey parent node key
    * @param hashCode hash code of the node
    * @param hashFunction the hash function used to compute hash codes
-   * @param revision revision this node was added
+   * @param previousRevision previous revision, when the node has changed
+   * @param lastModifiedRevision the revision, when the node has been last modified
    * @param deweyID optional DeweyID
    */
   public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final HashFunction hashFunction,
-      final BigInteger hashCode, final @NonNegative long revision, final SirixDeweyID deweyID) {
+      final BigInteger hashCode, final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
     assert nodeKey >= 0 : "nodeKey must be >= 0!";
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.hashFunction = hashFunction;
     this.hashCode = hashCode;
-    this.revision = revision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.previousRevision = previousRevision;
     typeKey = TYPE_KEY;
     this.sirixDeweyID = deweyID;
   }
@@ -105,18 +110,20 @@ public class NodeDelegate implements Node {
    * @param parentKey parent node key
    * @param hashCode hash code of the node
    * @param hashFunction the hash function used to compute hash codes
-   * @param revision revision this node was added
+   * @param previousRevision previous previousRevision, when the node has changed
+   * @param lastModifiedRevision the previousRevision, when the node has been last modified
    * @param deweyID optional DeweyID
    */
   public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final HashFunction hashFunction,
-      final BigInteger hashCode, final @NonNegative long revision, final byte[] deweyID) {
+      final BigInteger hashCode, final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
     assert nodeKey >= 0 : "nodeKey must be >= 0!";
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.hashFunction = hashFunction;
     this.hashCode = hashCode;
-    this.revision = revision;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
     typeKey = TYPE_KEY;
     deweyIDData = deweyID;
   }
@@ -214,8 +221,23 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public long getRevision() {
-    return revision;
+  public int getPreviousRevisionNumber() {
+    return previousRevision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return lastModifiedRevision;
+  }
+
+  @Override
+  public void setPreviousRevision(int previousRevision) {
+    this.previousRevision = previousRevision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(int lastModifiedRevision) {
+    this.lastModifiedRevision = lastModifiedRevision;
   }
 
   @Override

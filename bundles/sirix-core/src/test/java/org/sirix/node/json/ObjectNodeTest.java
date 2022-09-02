@@ -35,6 +35,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import java.io.IOException;
@@ -66,7 +67,8 @@ public class ObjectNodeTest {
 
   @Test
   public void testNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final ObjectNode node = new ObjectNode(strucDel);
@@ -76,8 +78,7 @@ public class ObjectNodeTest {
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
-    final ObjectNode node2 =
-        (ObjectNode) NodeKind.OBJECT.deserialize(data, node.getNodeKey(), null, pageTrx);
+    final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2);
   }
 
