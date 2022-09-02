@@ -81,6 +81,11 @@ public record HashEntryNode(long nodeKey, int key, String value) implements Data
   }
 
   @Override
+  public long getNodeKey() {
+    return nodeKey;
+  }
+
+  @Override
   public SirixDeweyID getDeweyID() {
     return null;
   }
