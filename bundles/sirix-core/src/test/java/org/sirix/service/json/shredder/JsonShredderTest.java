@@ -105,6 +105,7 @@ public final class JsonShredderTest {
 
   // TODO: JMH test
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:-UseBiasedLocking -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
+  @Disabled
   @Test
   public void testChicago() {
     logger.info("start");
