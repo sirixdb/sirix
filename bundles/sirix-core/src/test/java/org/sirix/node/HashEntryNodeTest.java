@@ -1,17 +1,20 @@
 package org.sirix.node;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 public final class HashEntryNodeTest {
+  @SuppressWarnings("AssertBetweenInconvertibleTypes")
   @Test
   public void test() {
     final var node = new HashEntryNode(1, 3247389, "foobar");
 
     assertEquals(NodeKind.HASH_ENTRY, node.getKind());
     assertEquals(1, node.getNodeKey());
-    assertEquals(3247389, node.key());
+    assertEquals(3247389, node.getKey());
+    assertEquals("foobar", node.getValue());
     assertEquals(-1168208943, node.hashCode());
     assertNotNull(node.toString());
 
@@ -32,10 +35,10 @@ public final class HashEntryNodeTest {
     assertNotEquals(otherUnequalNodeDueToType, node);
   }
 
-  @Test(expected = UnsupportedOperationException.class)
+  @Test
   public void testOperationNotSupportedException() {
     final var node = new HashEntryNode(1, 3247389, "foobar");
 
-    node.getPreviousRevisionNumber();
+    Assertions.assertThrows(UnsupportedOperationException.class, node::getPreviousRevisionNumber);
   }
 }
