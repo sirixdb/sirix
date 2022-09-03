@@ -1515,8 +1515,8 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final HashEntryNode node = (HashEntryNode) record;
-      sink.writeInt(node.key());
-      sink.writeUtf8(node.value());
+      sink.writeInt(node.getKey());
+      sink.writeUtf8(node.getValue());
     }
 
     @Override
