@@ -562,7 +562,7 @@ https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x
 6. Make sure `access-type` is set to `confidential`
 7. Go to `Credentials` tab
 8. Put the `client secret` into the SirixDB HTTP-Server [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). Change the value of "client.secret" to whatever Keycloak set up.
-9. If "oAuthFlowType" is specified in the ame configuration file change the value to "PASSWORD" (if not default is "PASSWORD").
+9. If "oAuthFlowType" is specified in the same configuration file change the value to "PASSWORD" (if not default is "PASSWORD").
 10. Regarding Keycloak the `direct access` grant on the settings tab must be `enabled`.
 11. Our (user-/group-)roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. You can also assign `${databaseName}-` prefixed roles.
  
