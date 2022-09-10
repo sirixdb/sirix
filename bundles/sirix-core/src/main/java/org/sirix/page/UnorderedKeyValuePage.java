@@ -167,7 +167,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
-    deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT, 1.0f);
+    deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
     this.revision = pageReadOnlyTrx.getRevisionNumber();
     recordsStored = 0;
     areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -189,7 +189,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
-      deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT, 1.0f);
+      deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
       var byteBufferBytes = Bytes.elasticByteBuffer();
