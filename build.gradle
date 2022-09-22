@@ -17,7 +17,7 @@ buildscript {
 
 plugins {
     id "org.sonarqube" version "3.4.0.2513"
-    id "me.champeau.jmh" version "0.6.6"
+    id "me.champeau.jmh" version "0.6.8"
 }
 
 sonarqube {
