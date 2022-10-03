@@ -1857,7 +1857,7 @@ class SirixVerticleJsonTest {
                     assertEquals(200, response.statusCode())
                 }
 
-                response = client.getAbs("$server$serverPath?query=jn:all-times(.)").putHeader(
+                response = client.getAbs("$server$serverPath?query=jn:all-times($$)").putHeader(
                     HttpHeaders
                         .AUTHORIZATION
                         .toString(), "Bearer $accessToken"
