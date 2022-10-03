@@ -3,7 +3,6 @@ package org.sirix.cli.commands
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.sirix.cli.CliOptions
 import org.sirix.cli.MetaDataEnum
@@ -203,7 +202,7 @@ internal class QueryTest : CliCommandTest() {
 
     private fun giveAJSONiqQueryOption() =
         QueryOptions(
-            queryStr = "let \$nodeKey := sdb:nodekey(.=>foo[[2]]) return {\"nodeKey\": \$nodeKey}",
+            queryStr = "let \$nodeKey := sdb:nodekey($$.foo[[2]]) return {\"nodeKey\": \$nodeKey}",
             resource = CliCommandTestConstants.TEST_RESOURCE,
             revision = null,
             revisionTimestamp = null,
