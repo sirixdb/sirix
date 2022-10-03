@@ -1,4 +1,4 @@
-let $auction := . return
+let $auction := $$ return
 for $p in $auction/site/people/person
 let $a :=
   for $t in $auction/site/closed_auctions/closed_auction
