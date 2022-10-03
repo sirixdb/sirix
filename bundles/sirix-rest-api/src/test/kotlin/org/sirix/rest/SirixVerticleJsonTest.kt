@@ -115,12 +115,14 @@ class SirixVerticleJsonTest {
                 val user = response.bodyAsJsonObject()
                 accessToken = user.getString("access_token")
 
-                var httpResponse = client.putAbs("$server$serverPath?commitTimestamp=2014-01-01T12:11:12&commitMessage=Initial+Commit").putHeader(
-                    HttpHeaders.AUTHORIZATION
-                        .toString(), "Bearer $accessToken"
-                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
-                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
-                    .sendBuffer(Buffer.buffer(json)).await()
+                var httpResponse =
+                    client.putAbs("$server$serverPath?commitTimestamp=2014-01-01T12:11:12&commitMessage=Initial+Commit")
+                        .putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBuffer(Buffer.buffer(json)).await()
 
                 testContext.verify {
                     JSONAssert.assertEquals(
@@ -877,7 +879,7 @@ class SirixVerticleJsonTest {
                 val currentDateTimeAsString = currentDateTime.toString()
 
                 val query =
-                    "for \$i in bit:array-values(jn:open('database','json-resource',xs:dateTime('${currentDateTimeAsString}'))) where \$i=>city eq \"New York\" return { \$i, 'nodeKey': sdb:nodekey(\$i) }"
+                    "for \$i in bit:array-values(jn:open('database','json-resource',xs:dateTime('${currentDateTimeAsString}'))) where \$i.city eq \"New York\" return { \$i, 'nodeKey': sdb:nodekey(\$i) }"
 
                 val jsonData = json {
                     obj(
@@ -969,7 +971,7 @@ class SirixVerticleJsonTest {
                 }
 
                 val query =
-                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i=>generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
+                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i.generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
 
                 val jsonData = json {
                     obj(
@@ -1052,7 +1054,7 @@ class SirixVerticleJsonTest {
                 }
 
                 val query =
-                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i=>generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
+                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i.generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
 
                 val jsonData = json {
                     obj(
@@ -1136,7 +1138,7 @@ class SirixVerticleJsonTest {
                 }
 
                 val query =
-                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i=>generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
+                    "for \$i in jn:doc('mycol.jn','mydoc.jn') where deep-equal(\$i.generic, 1) return { \$i,'nodeKey': sdb:nodekey(\$i)}"
 
                 val jsonData = json {
                     obj(
@@ -1301,7 +1303,7 @@ class SirixVerticleJsonTest {
                 }
 
                 httpResponse =
-                    client.getAbs("$server$serverPath?query=let%20%24nodeKey%20%3A%3D%20sdb%3Anodekey(.%3D%3Efoo%5B%5B2%5D%5D)%0Areturn%20%7B%22nodeKey%22%3A%20%24nodeKey%7D")
+                    client.getAbs("$server$serverPath?query=let+%24nodeKey+%3A%3D+sdb%3Anodekey%28%24%24.foo%5B%5B2%5D%5D%29%0D%0Areturn+%7B%22nodeKey%22%3A+%24nodeKey%7D")
                         .putHeader(
                             HttpHeaders.AUTHORIZATION
                                 .toString(), "Bearer $accessToken"

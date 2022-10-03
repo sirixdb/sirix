@@ -9,10 +9,12 @@ import org.brackit.xquery.update.UpdateList;
 import org.brackit.xquery.update.op.UpdateOp;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
+import org.brackit.xquery.xdm.json.JsonCollection;
 import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.NodeCollection;
 import org.brackit.xquery.xdm.node.NodeFactory;
 import org.brackit.xquery.xdm.type.ItemType;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -22,7 +24,6 @@ import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.node.XmlDBStore;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
@@ -131,6 +132,16 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     this.commitStrategy = Preconditions.checkNotNull(commitStrategy);
     this.commitMessage = commitMessage;
     this.commitTimestamp = commitTimestamp;
+  }
+
+  @Override
+  public void setDefaultJsonCollection(JsonCollection<?> defaultJsonCollection) {
+    queryContextDelegate.setDefaultJsonCollection(defaultJsonCollection);
+  }
+
+  @Override
+  public void setDefaultNodeCollection(NodeCollection<?> defaultNodeCollection) {
+    queryContextDelegate.setDefaultNodeCollection(defaultNodeCollection);
   }
 
   @Override
@@ -244,13 +255,13 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   @Override
-  public NodeCollection<?> getDefaultCollection() {
-    return queryContextDelegate.getDefaultCollection();
+  public NodeCollection<?> getDefaultNodeCollection() {
+    return queryContextDelegate.getDefaultNodeCollection();
   }
 
   @Override
-  public void setDefaultCollection(NodeCollection<?> defaultCollection) {
-    queryContextDelegate.setDefaultCollection(defaultCollection);
+  public JsonCollection<?> getDefaultJsonCollection() {
+    return queryContextDelegate.getDefaultJsonCollection();
   }
 
   @Override

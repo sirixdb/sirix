@@ -1,4 +1,4 @@
-let $auction := . return
+let $auction := $$ return
 <result>
   <preferred>
     {count($auction/site/people/person/profile[@income >= 100000])}

@@ -1,4 +1,4 @@
-let $auction := . return
+let $auction := $$ return
 for $a in $auction/site/closed_auctions/closed_auction
 where
   not(

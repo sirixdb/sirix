@@ -20,8 +20,8 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public final class SimpleQueryIntegrationTest {
 
@@ -51,15 +51,15 @@ public final class SimpleQueryIntegrationTest {
   private static final String expectedPastOrSelfTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]} {\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]} {\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private Path sirixPath = PATHS.PATH1.getFile();
+  private final Path sirixPath = PATHS.PATH1.getFile();
 
   @BeforeEach
-  protected void setUp() {
+  public void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
-  protected void tearDown() {
+  public void tearDown() {
     JsonTestHelper.closeEverything();
   }
 
@@ -93,7 +93,7 @@ public final class SimpleQueryIntegrationTest {
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + json + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix";
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn').sirix";
       final var seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
@@ -116,7 +116,7 @@ public final class SimpleQueryIntegrationTest {
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + simpleJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix=>revisionNumber";
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn').sirix.revisionNumber";
       final var seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
@@ -138,7 +138,7 @@ public final class SimpleQueryIntegrationTest {
       final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + json + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[0]]=>revisionNumber";
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn').sirix[[0]].revisionNumber";
       final var seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
@@ -395,7 +395,7 @@ public final class SimpleQueryIntegrationTest {
   // final var ctx = SirixQueryContext.createWithJsonStore(store);
   // final var chain = SirixCompileChain.createWithJsonStore(store)) {
   // final var twitterFilePath = JSON.resolve("twitter.json").toString();
-  // final var storeQuery = "jn:load('mycol.jn','mydoc.jn','" + twitterFilePath + "')=>statuses";
+  // final var storeQuery = "jn:load('mycol.jn','mydoc.jn','" + twitterFilePath + "').statuses";
   // final var sequence = (JsonDBArray) new XQuery(chain, storeQuery).execute(ctx);
   //
   // TimeUnit.SECONDS.sleep(5);
@@ -441,7 +441,7 @@ public final class SimpleQueryIntegrationTest {
   // final var ctx = SirixQueryContext.createWithJsonStore(store);
   // final var chain = SirixCompileChain.createWithJsonStore(store)) {
   // final var twitterFilePath = JSON.resolve("twitter.json").toString();
-  // final var storeQuery = "jn:load('mycol.jn','mydoc.jn','" + twitterFilePath + "')=>statuses";
+  // final var storeQuery = "jn:load('mycol.jn','mydoc.jn','" + twitterFilePath + "').statuses";
   // final var sequence = (JsonDBArray) new XQuery(chain, storeQuery).execute(ctx);
   //
   // TimeUnit.SECONDS.sleep(5);
@@ -488,7 +488,7 @@ public final class SimpleQueryIntegrationTest {
 //   final var chain = SirixCompileChain.createWithJsonStore(store)) {
 //   final var twitterFilePath = JSON.resolve("twitter.json").toString();
 //   final var storeQuery = "let $created := jn:load('mycol.jn','mydoc.jn','" + twitterFilePath
-//   + "')=>statuses[[0]]=>created_at return xs:dateTime($created)";
+//   + "').statuses[[0]].created_at return xs:dateTime($created)";
 //
 //   final var buf = IOUtils.createBuffer();
 //   final var serializer = new StringSerializer(buf);

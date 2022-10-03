@@ -1,4 +1,4 @@
-let $auction := . return
+let $auction := $$ return
 for $i in
   distinct-values($auction/site/people/person/profile/interest/@category)
 let $p :=
