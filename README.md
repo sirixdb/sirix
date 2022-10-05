@@ -71,15 +71,15 @@ SirixDB not only supports snapshot-based versioning on a record granular level t
 Executing the following time-travel query on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of the possibilities:
 
 ```xquery
-let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z'))=>statuses
+let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z')).statuses
 let $foundStatus := for $status in $statuses
-  let $dateTimeCreated := xs:dateTime($status=>created_at)
+  let $dateTimeCreated := xs:dateTime($status.created_at)
   where $dateTimeCreated > xs:dateTime("2018-02-01T00:00:00") and not(exists(jn:previous($status)))
   order by $dateTimeCreated
   return $status
 return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
-The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[[0]]` for instance specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor also supports Python-like array slices to simplify tasks.
+The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `.` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[[0]]` for instance specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor also supports Python-like array slices to simplify tasks.
 
 ## JSONiq examples
 
@@ -88,7 +88,7 @@ query for changes using our stored merkle hash tree, which builds and updates ha
 the node in the previous revision or an empty sequence if there's none.
 
 ```xquery
-let $node := jn:doc('mycol.jn','mydoc.jn')=>fieldName[[1]]
+let $node := jn:doc('mycol.jn','mydoc.jn').fieldName[[1]]
 let $result := for $node-in-rev in jn:all-times($node)
                return
                  if ((not(exists(jn:previous($node-in-rev))))
@@ -114,7 +114,7 @@ let $result := for $i in (1 to $maxRevision)
                    ()
 return [
   for $diff at $pos in $result
-  return {"diffRev" || $pos || "toRev" || $pos + 1: jn:parse($diff)=>diffs}
+  return {"diffRev" || $pos || "toRev" || $pos + 1: jn:parse($diff).diffs}
 ]
 ```
 
@@ -167,11 +167,11 @@ let $stores := jn:doc('mycol.jn','stores')
 let $sales := jn:doc('mycol.jn','sales')
 let $join :=
   for $store in $stores, $sale in $sales
-  where $store=>"store number" = $sale=>"store number"
+  where $store."store number" = $sale."store number"
   return {
-    "nb" : $store=>"store number",
-    "state" : $store=>state,
-    "sold" : $sale=>product
+    "nb" : $store."store number",
+    "state" : $store.state,
+    "sold" : $sale.product
   }
 return [$join]
 ```
@@ -309,7 +309,7 @@ return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:
 
 Second, whole paths are indexable.
 
-Thus, the following path index is applicable to both queries: `=>sirix[]=>revision=>tada[]=>foo` and `=>sirix[]=>revision=>tada[][[4]]=>foo`. Thus, essentially both foo nodes are indexed and the first child has to be fetched afterwards. For the second query also the array index 4 has to be checked if the indexed node is really on index 4.
+Thus, the following path index is applicable to both queries: `.sirix[].revision.tada[].foo` and `.sirix[].revision.tada[][[4]].foo`. Thus, essentially both foo nodes are indexed and the first child has to be fetched afterwards. For the second query also the array index 4 has to be checked if the indexed node is really on index 4.
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
