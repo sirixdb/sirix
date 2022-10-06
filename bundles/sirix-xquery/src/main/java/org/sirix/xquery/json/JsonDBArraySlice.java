@@ -176,7 +176,7 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
 
     final int length = toIndex - fromIndex;
     return (length <= 20)
-        ? Int32.ZERO_TWO_TWENTY[length]
+        ? Int32.ZERO_TO_TWENTY[length]
         : new Int32(length);
   }
 
