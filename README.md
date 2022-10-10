@@ -570,7 +570,7 @@ https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x
 Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image. For setting up both with docker compose:
 
 1. Make sure the folder /opt/var/sirix/sixix-data exists and is read and writable for the container.
-2. Change the keycloak URL in the two configuration files ([configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) and [configuration file 2](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/out/production/resources/sirix-conf.json)) from "http://localhost:8080/auth/realms/sirixdb" to "http://sirix_keycloak_1:8080/auth/realms/sirixdb".
+2. Change the keycloak URL in the configuration file ([configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) from "http://localhost:8080/auth/realms/sirixdb" to "http://sirix_keycloak_1:8080/auth/realms/sirixdb".
 3. `sudo docker-compose up`
 
 ### SirixDB HTTP-Server Setup Without Docker/docker-compose
