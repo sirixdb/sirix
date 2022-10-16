@@ -128,8 +128,7 @@ public final class FileChannelReader implements Reader {
           // Must not happen.
             throw new IllegalStateException();
       }
-
-      buffer.position(0);
+      buffer.flip();
       final int dataLength = buffer.getInt();
 
       //      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
@@ -138,7 +137,7 @@ public final class FileChannelReader implements Reader {
       buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
 
       dataFileChannel.read(buffer, position + 4);
-      buffer.position(0);
+      buffer.flip();
       buffer.get(page);
 
       // Perform byte operations.
@@ -165,13 +164,13 @@ public final class FileChannelReader implements Reader {
 
       ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset);
-      buffer.position(0);
+      buffer.flip();
       final int dataLength = buffer.getInt();
       final byte[] page = new byte[dataLength];
 
       buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset + 4);
-      buffer.position(0);
+      buffer.flip();
       buffer.get(page);
 
       // Perform byte operations.
