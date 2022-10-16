@@ -544,11 +544,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private <V, T extends KeyValuePage<? extends V>> List<T> getPreviousPageFragments(
       final Collection<PageFragmentKey> pageFragments) {
     final var pages = pageFragments.stream()
-                                   .map(CompletableFuture::completedFuture)
-                                   .map(future -> future.thenApplyAsync(pageFragmentKey -> (T) readPage(pageFragmentKey),
-                                                                        pool))
-                                   .collect(Collectors.toList());
-
+                                                          .map((pageFragmentKey) -> CompletableFuture.supplyAsync(() ->
+                                                                  (T) readPage(pageFragmentKey), pool))
+                                                          .collect(Collectors.toList());
     return sequence(pages).join()
                           .stream()
                           .sorted(Comparator.<T, Integer>comparing(KeyValuePage::getRevision).reversed())
