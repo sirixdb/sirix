@@ -111,7 +111,7 @@ public final class FileChannelReader implements Reader {
   public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
-      ByteBuffer buffer = ByteBuffer.allocate(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
       final long position;
 
@@ -132,13 +132,12 @@ public final class FileChannelReader implements Reader {
       final int dataLength = buffer.getInt();
 
       //      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
-      final byte[] page = new byte[dataLength];
 
       buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
 
       dataFileChannel.read(buffer, position + 4);
       buffer.flip();
-      buffer.get(page);
+      final byte[] page = buffer.array();
 
       // Perform byte operations.
       return getPage(pageReadTrx, page);
@@ -162,16 +161,15 @@ public final class FileChannelReader implements Reader {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.nativeOrder());
+      ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset);
       buffer.flip();
       final int dataLength = buffer.getInt();
-      final byte[] page = new byte[dataLength];
 
       buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset + 4);
       buffer.flip();
-      buffer.get(page);
+      final byte[] page = buffer.array();
 
       // Perform byte operations.
       return (RevisionRootPage) getPage(pageReadTrx, page);
@@ -199,11 +197,11 @@ public final class FileChannelReader implements Reader {
   public RevisionFileData getRevisionFileData(int revision) {
     try {
       final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
-      final ByteBuffer buffer = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder());
+      final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
       revisionsOffsetFileChannel.read(buffer, fileOffset);
       buffer.position(8);
       revisionsOffsetFileChannel.read(buffer, fileOffset + 8);
-      buffer.position(0);
+      buffer.flip();
       final var offset = buffer.getLong();
       buffer.position(8);
       final var timestamp = buffer.getLong();

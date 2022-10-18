@@ -19,7 +19,6 @@ import org.sirix.service.ShredderCommit;
 import org.sirix.service.json.JsonNumber;
 import org.sirix.settings.Fixed;
 
-import javax.xml.stream.XMLStreamReader;
 import java.util.concurrent.Callable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -255,7 +254,7 @@ public final class JsonItemShredder implements Callable<Long> {
   }
 
   /**
-   * Insert new content based on a StAX parser {@link XMLStreamReader}.
+   * Insert new content based on a StAX like parser.
    *
    * @throws SirixException if something went wrong while inserting
    */
@@ -300,29 +299,28 @@ public final class JsonItemShredder implements Callable<Long> {
   }
 
   private long insertBooleanValue(final boolean boolValue, final boolean nextTokenIsParent) {
-    final boolean value = checkNotNull(boolValue);
     final long key;
 
     switch (insert) {
       case AS_FIRST_CHILD:
         if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = wtx.insertBooleanValueAsFirstChild(value).getNodeKey();
+          key = wtx.insertBooleanValueAsFirstChild(boolValue).getNodeKey();
         } else {
-          key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+          key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         }
         break;
       case AS_LAST_CHILD:
         if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = wtx.insertBooleanValueAsLastChild(value).getNodeKey();
+          key = wtx.insertBooleanValueAsLastChild(boolValue).getNodeKey();
         } else {
-          key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+          key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         }
         break;
       case AS_LEFT_SIBLING:
-        key = wtx.insertBooleanValueAsLeftSibling(value).getNodeKey();
+        key = wtx.insertBooleanValueAsLeftSibling(boolValue).getNodeKey();
         break;
       case AS_RIGHT_SIBLING:
-        key = wtx.insertBooleanValueAsRightSibling(value).getNodeKey();
+        key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         break;
       default:
         throw new AssertionError();//Should not happen
