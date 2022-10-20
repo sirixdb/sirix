@@ -84,7 +84,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
@@ -124,13 +124,13 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ElementNode node = (ElementNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       sink.writeInt(node.getAttributeCount());
       for (int i = 0, attCount = node.getAttributeCount(); i < attCount; i++) {
@@ -182,7 +182,7 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final AttributeNode node = (AttributeNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
@@ -219,7 +219,7 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final NamespaceNode node = (NamespaceNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
@@ -260,7 +260,7 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final TextNode node = (TextNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -285,7 +285,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
@@ -303,13 +303,13 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final PINode node = (PINode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
     }
@@ -349,7 +349,7 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final CommentNode node = (CommentNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -369,7 +369,7 @@ public enum NodeKind implements NodePersistenter {
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
-      final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
+      final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -383,7 +383,7 @@ public enum NodeKind implements NodePersistenter {
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                   source.readByte() == ((byte) 0) ? 0 : 1,
-                                                                  pageReadTrx.getResourceManager()
+                                                                  pageReadTrx.getResourceSession()
                                                                              .getResourceConfig().hashType
                                                                       == HashType.NONE ? 0 : source.readLong());
       return new XmlDocumentRootNode(nodeDel, structDel);
@@ -394,7 +394,7 @@ public enum NodeKind implements NodePersistenter {
       final XmlDocumentRootNode node = (XmlDocumentRootNode) record;
       putVarLong(sink, node.getFirstChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         sink.writeLong(node.getDescendantCount());
     }
 
@@ -445,7 +445,7 @@ public enum NodeKind implements NodePersistenter {
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
-      final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
+      final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
       final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, null, 0, revisionNumber, (SirixDeweyID) null);
       return new DeletedNode(delegate);
     }
@@ -561,7 +561,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
@@ -590,7 +590,7 @@ public enum NodeKind implements NodePersistenter {
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
@@ -876,7 +876,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Returning an instance.
       return new ObjectNode(hashCode, structDel);
@@ -885,14 +885,14 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectNode node = (ObjectNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE) {
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE) {
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       }
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -924,7 +924,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Returning an instance.
       return new ArrayNode(hashCode, structDel, pathNodeKey);
@@ -933,14 +933,14 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ArrayNode node = (ArrayNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -973,7 +973,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       final String name = nameKey == -1 ? "" : pageReadTrx.getName(nameKey, NodeKind.OBJECT_KEY);
 
@@ -986,7 +986,7 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectKeyNode node = (ObjectKeyNode) record;
-      if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       sink.writeInt(node.getNameKey());
       putVarLong(sink, node.getPathNodeKey());
@@ -994,7 +994,7 @@ public enum NodeKind implements NodePersistenter {
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -1254,7 +1254,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Returning an instance.
       return new StringNode(valDel, structDel);
@@ -1268,7 +1268,7 @@ public enum NodeKind implements NodePersistenter {
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -1297,7 +1297,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Returning an instance.
       return new BooleanNode(boolValue, structDel);
@@ -1311,7 +1311,7 @@ public enum NodeKind implements NodePersistenter {
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -1354,7 +1354,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Returning an instance.
       return new NumberNode(number, structDel);
@@ -1400,7 +1400,7 @@ public enum NodeKind implements NodePersistenter {
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -1427,7 +1427,7 @@ public enum NodeKind implements NodePersistenter {
 
       // Struct delegate.
       final StructNodeDelegate structDel =
-          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceManager().getResourceConfig());
+          deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
 
       // Returning an instance.
       return new NullNode(structDel);
@@ -1440,7 +1440,7 @@ public enum NodeKind implements NodePersistenter {
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
-                              pageReadTrx.getResourceManager().getResourceConfig());
+                              pageReadTrx.getResourceSession().getResourceConfig());
     }
 
     @Override
@@ -1464,7 +1464,7 @@ public enum NodeKind implements NodePersistenter {
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
-      final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
+      final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -1745,7 +1745,7 @@ public enum NodeKind implements NodePersistenter {
 
   private static BigInteger getHash(final BytesIn<ByteBuffer> source, final PageReadOnlyTrx pageReadTrx) {
     final BigInteger hashCode;
-    if (pageReadTrx.getResourceManager().getResourceConfig().hashType == HashType.NONE)
+    if (pageReadTrx.getResourceSession().getResourceConfig().hashType == HashType.NONE)
       hashCode = null;
     else
       hashCode = readHash(source);
@@ -1757,7 +1757,7 @@ public enum NodeKind implements NodePersistenter {
     final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
-    final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
+    final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
     return new NodeDelegate(recordID, parentKey, hashFunction, null, previousRevision, lastModifiedRevision, (SirixDeweyID) null);
   }
 
@@ -1766,7 +1766,7 @@ public enum NodeKind implements NodePersistenter {
     final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
-    final HashFunction hashFunction = pageReadTrx.getResourceManager().getResourceConfig().nodeHashFunction;
+    final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
     return new NodeDelegate(recordID, parentKey, hashFunction, null, previousRevision, lastModifiedRevision, id);
   }
 

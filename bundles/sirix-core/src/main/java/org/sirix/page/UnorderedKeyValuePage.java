@@ -165,7 +165,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     records = new DataRecord[Constants.NDP_NODE_COUNT];
     slots = new byte[Constants.NDP_NODE_COUNT][];
     this.indexType = indexType;
-    resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
+    resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
     deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
     this.revision = pageReadOnlyTrx.getRevisionNumber();
@@ -182,7 +182,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   UnorderedKeyValuePage(final Bytes<ByteBuffer> in, final PageReadOnlyTrx pageReadOnlyTrx) {
     recordPageKey = getVarLong(in);
     revision = in.readInt();
-    resourceConfig = pageReadOnlyTrx.getResourceManager().getResourceConfig();
+    resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
     areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
     recordPersister = resourceConfig.recordPersister;
     slots = new byte[Constants.NDP_NODE_COUNT][];

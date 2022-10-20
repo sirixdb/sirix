@@ -107,8 +107,8 @@ public final class FileChannelReader implements Reader {
     this.cache = cache;
   }
 
-  @Override
-  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference,
+      final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
@@ -150,7 +150,6 @@ public final class FileChannelReader implements Reader {
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
     uberPageReference.setKey(0);
-
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
     return uberPageReference;

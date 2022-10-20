@@ -35,7 +35,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    *
    * @return resource manager instance
    */
-  ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager();
+  ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 
   /**
    * Get the transaction-ID.

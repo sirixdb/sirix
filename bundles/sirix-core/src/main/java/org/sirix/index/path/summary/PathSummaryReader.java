@@ -533,7 +533,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
     if (currentNode instanceof NameNode) {
       final int uriKey = ((NameNode) currentNode).getURIKey();
-      final String uri = uriKey == -1 || pageReadTrx.getResourceManager() instanceof JsonResourceSession
+      final String uri = uriKey == -1 || pageReadTrx.getResourceSession() instanceof JsonResourceSession
           ? ""
           : pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = ((NameNode) currentNode).getPrefixKey();

@@ -148,7 +148,6 @@ public final class FileReader implements Reader {
       // Read primary beacon.
       dataFile.seek(0);
       uberPageReference.setKey(0);
-
       final UberPage page = (UberPage) read(uberPageReference, null);
       uberPageReference.setPage(page);
       return uberPageReference;
