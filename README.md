@@ -90,9 +90,10 @@ the node in the previous revision or an empty sequence if there's none.
 ```xquery
 let $node := jn:doc('mycol.jn','mydoc.jn').fieldName[[1]]
 let $result := for $node-in-rev in jn:all-times($node)
+               let $nodeInPreviousRevision := jn:previous($node-in-rev)
                return
-                 if ((not(exists(jn:previous($node-in-rev))))
-                      or (sdb:hash($node-in-rev) ne sdb:hash(jn:previous($node-in-rev)))) then
+                 if ((not(exists($nodeInPreviousRevision)))
+                      or (sdb:hash($node-in-rev) ne sdb:hash($nodeInPreviousRevision))) then
                    $node-in-rev
                  else
                    ()
