@@ -26,6 +26,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.filechannel.FileChannelStorage;
+import org.sirix.io.iouring.IOUringStorage;
 import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
 
@@ -74,6 +75,16 @@ public enum StorageType {
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
       final var storage = new MMStorage(resourceConf, cache);
+      storage.loadRevisionFileDataIntoMemory(cache);
+      return storage;
+    }
+  },
+
+  IOURING {
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final var storage = new IOUringStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
     }

@@ -16,6 +16,7 @@ dependencies {
     api implLibraries.dagger
     api implLibraries.fastUtil
     api implLibraries.amazonCorettoCryptoProvider
+    api implLibraries.iouring
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections

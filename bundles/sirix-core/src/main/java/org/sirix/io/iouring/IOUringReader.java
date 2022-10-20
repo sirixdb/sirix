@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, SirixDB All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
@@ -19,16 +19,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.io.memorymapped;
+package org.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ValueLayout;
 import net.openhft.chronicle.bytes.Bytes;
+import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.BytesUtils;
@@ -42,20 +42,19 @@ import org.sirix.page.interfaces.Page;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.time.Instant;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * Reader, to read from a memory-mapped file.
+ * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
  *
+ * @author Marc Kramis, Seabix
+ * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public final class MMFileReader implements Reader {
-
-  static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
-  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
-  static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG;
+public final class IOUringReader implements Reader {
 
   /**
    * Inflater to decompress.
@@ -68,66 +67,78 @@ public final class MMFileReader implements Reader {
   final HashFunction hashFunction;
 
   /**
+   * Data file.
+   */
+  private final AsyncFile dataFile;
+
+  /**
+   * Revisions offset file.
+   */
+  private final AsyncFile revisionsOffsetFile;
+
+  /**
    * The type of data to serialize.
    */
   private final SerializationType type;
 
   /**
-   * Used to serialize/deserialize pages.
+   * Used to serialize/deserialze pages.
    */
-  private final PagePersister pagePersitenter;
-  private final MemorySegment dataFileSegment;
-
-  private final MemorySegment revisionsOffsetFileSegment;
+  private final PagePersister pagePersiter;
 
   private final Cache<Integer, RevisionFileData> cache;
 
   /**
    * Constructor.
    *
-   * @param byteHandler {@link ByteHandler} instance
+   * @param dataFile            the data file
+   * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
+   * @param handler             {@link ByteHandler} instance
    */
-  public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
-      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
+  public IOUringReader(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final ByteHandler handler,
+      final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
     hashFunction = Hashing.sha256();
-    this.byteHandler = checkNotNull(byteHandler);
+    this.dataFile = dataFile;
+    this.revisionsOffsetFile = revisionsOffsetFile;
+    byteHandler = checkNotNull(handler);
     this.type = checkNotNull(type);
-    this.pagePersitenter = checkNotNull(pagePersistenter);
-    this.dataFileSegment = checkNotNull(dataFileSegment);
-    this.revisionsOffsetFileSegment = checkNotNull(revisionFileSegment);
-    this.cache = checkNotNull(cache);
+    pagePersiter = checkNotNull(pagePersistenter);
+    this.cache = cache;
   }
 
-  @Override
-  public Page read(final @NonNull PageReference reference,
-      final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
-      long offset;
+      // Read page from file.
+      ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
-      final int dataLength = switch (type) {
+      final long position;
+
+      switch (type) {
         case DATA -> {
-          if (reference.getKey() < 0) {
-            throw new SirixIOException("Reference key is not valid: " + reference.getKey());
-          }
-          offset = reference.getKey() + LAYOUT_INT.byteSize();
-          yield dataFileSegment.get(LAYOUT_INT, reference.getKey());
+          position = reference.getKey();
+          dataFile.read(buffer, position);
         }
         case TRANSACTION_INTENT_LOG -> {
-          if (reference.getLogKey() < 0) {
-            throw new SirixIOException("Reference log key is not valid: " + reference.getPersistentLogKey());
-          }
-          offset = reference.getPersistentLogKey() + LAYOUT_INT.byteSize();
-          yield dataFileSegment.get(LAYOUT_INT, reference.getPersistentLogKey());
+          position = reference.getPersistentLogKey();
+          dataFile.read(buffer, position);
         }
-        default -> throw new AssertionError();
-      };
+        default ->
+          // Must not happen.
+            throw new IllegalStateException();
+      }
+      buffer.flip();
+      final int dataLength = buffer.getInt();
 
+      buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
+
+      dataFile.read(buffer, position + 4);
+      buffer.flip();
       final byte[] page = new byte[dataLength];
+      buffer.get(page);
 
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
-
-      return deserialize(pageReadTrx, page);
+      // Perform byte operations.
+      return getPage(pageReadTrx, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -147,16 +158,32 @@ public final class MMFileReader implements Reader {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
+      dataFile.read(buffer, dataFileOffset);
+      buffer.flip();
+      final int dataLength = buffer.getInt();
 
+      buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
+      dataFile.read(buffer, dataFileOffset + 4);
+      buffer.flip();
       final byte[] page = new byte[dataLength];
+      buffer.get(page);
 
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, dataFileOffset + LAYOUT_INT.byteSize(), page, 0, dataLength);
-
-      return (RevisionRootPage) deserialize(pageReadTrx, page);
-    } catch (final IOException e) {
+      // Perform byte operations.
+      return (RevisionRootPage) getPage(pageReadTrx, page);
+    } catch (IOException e) {
       throw new SirixIOException(e);
     }
+  }
+
+  @NotNull
+  private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
+    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
+    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
+    BytesUtils.doWrite(input, inputStream.readAllBytes());
+    final var deserializedPage = pagePersiter.deserializePage(pageReadTrx, input, type);
+    input.clear();
+    return deserializedPage;
   }
 
   @Override
@@ -166,27 +193,21 @@ public final class MMFileReader implements Reader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
-    final var fileOffset = IOStorage.FIRST_BEACON + (revision * LAYOUT_LONG.byteSize() * 2);
-    final var revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset);
-    final var timestamp =
-        Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));
-    return new RevisionFileData(revisionOffset, timestamp);
-  }
-
-  private Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
-    // perform byte operations
-    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
-    BytesUtils.doWrite(input, inputStream.readAllBytes());
-    final var deserializedPage = pagePersitenter.deserializePage(pageReadTrx, input, type);
-    input.clear();
-    return deserializedPage;
+      final long fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
+      final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
+      revisionsOffsetFile.read(buffer, fileOffset);
+      buffer.position(8);
+      revisionsOffsetFile.read(buffer, fileOffset + 8);
+      buffer.flip();
+      final var offset = buffer.getLong();
+      buffer.position(8);
+      final var timestamp = buffer.getLong();
+      return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
   }
 
   @Override
   public void close() {
-    cache.invalidateAll();
-    dataFileSegment.scope().close();
-    revisionsOffsetFileSegment.scope().close();
+//    cache.invalidateAll();
   }
+
 }

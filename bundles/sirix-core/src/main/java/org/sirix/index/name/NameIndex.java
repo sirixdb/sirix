@@ -1,23 +1,19 @@
 package org.sirix.index.name;
 
-import java.util.Iterator;
-import java.util.Optional;
-import java.util.Set;
-
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.index.ChangeListener;
-import org.sirix.index.Filter;
-import org.sirix.index.IndexDef;
-import org.sirix.index.IndexFilterAxis;
-import org.sirix.index.SearchMode;
+import org.sirix.index.*;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.settings.Fixed;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
+
+import java.util.Iterator;
+import java.util.Optional;
+import java.util.Set;
 
 public interface NameIndex<B, L extends ChangeListener> {
   B createBuilder(PageTrx pageTrx, IndexDef indexDef);
@@ -26,7 +22,7 @@ public interface NameIndex<B, L extends ChangeListener> {
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
     final RBTreeReader<QNm, NodeReferences> reader =
-        RBTreeReader.getInstance(pageRtx.getResourceManager().getIndexCache(),
+        RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
                                  pageRtx,
                                  indexDef.getType(),
                                  indexDef.getID());

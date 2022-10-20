@@ -367,10 +367,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     pageRtx.assertNotClosed();
 
-    pageRtx.resourceManager.getCommitLock().lock();
+    pageRtx.resourceSession.getCommitLock().lock();
 
     try {
-      final Path commitFile = pageRtx.resourceManager.getCommitFile();
+      final Path commitFile = pageRtx.resourceSession.getCommitFile();
 
       commitFile.toFile().deleteOnExit();
       // Issues with windows that it's not created in the first time?
@@ -411,7 +411,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       uberPageReference.setPage(null);
 
       if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
-        final Path indexes = pageRtx.getResourceManager()
+        final Path indexes = pageRtx.getResourceSession()
                                     .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
                                                                      .resolve(revision + ".xml");
 
@@ -432,9 +432,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
     } finally {
-      pageRtx.resourceManager.getCommitLock().unlock();
+      pageRtx.resourceSession.getCommitLock().unlock();
     }
 
+    return readUberPage();
+  }
+
+  private UberPage readUberPage() {
     return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
   }
 
@@ -449,7 +453,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   private void setUserIfPresent() {
-    final Optional<User> optionalUser = pageRtx.resourceManager.getUser();
+    final Optional<User> optionalUser = pageRtx.resourceSession.getUser();
     optionalUser.ifPresent(user -> getActualRevisionRootPage().setUser(user));
   }
 
@@ -457,7 +461,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public UberPage rollback() {
     pageRtx.assertNotClosed();
     log.truncate();
-    return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
+    return readUberPage();
   }
 
   @Override
@@ -465,13 +469,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
-      final UberPage lastUberPage =
-          (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
+      final UberPage lastUberPage = readUberPage();
 
-      pageRtx.resourceManager.setLastCommittedUberPage(lastUberPage);
+      pageRtx.resourceSession.setLastCommittedUberPage(lastUberPage);
 
       if (!isBoundToNodeTrx) {
-        pageRtx.resourceManager.closePageWriteTransaction(pageRtx.getTrxId());
+        pageRtx.resourceSession.closePageWriteTransaction(pageRtx.getTrxId());
       }
 
       log.close();
@@ -572,8 +575,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
-    final VersioningType revisioning = pageRtx.resourceManager.getResourceConfig().versioningType;
-    final int mileStoneRevision = pageRtx.resourceManager.getResourceConfig().maxNumberOfRevisionsToRestore;
+    final VersioningType revisioning = pageRtx.resourceSession.getResourceConfig().versioningType;
+    final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);
   }
 

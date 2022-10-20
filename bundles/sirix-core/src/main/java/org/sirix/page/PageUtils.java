@@ -75,7 +75,7 @@ public final class PageUtils {
     final UnorderedKeyValuePage recordPage =
         new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
 
-    final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
+    final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
 
     // Create a {@link DocumentRootNode}.
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;

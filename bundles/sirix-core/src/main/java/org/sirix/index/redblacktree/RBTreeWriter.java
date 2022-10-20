@@ -90,7 +90,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }
-    rbTreeReader = RBTreeReader.getInstance(pageTrx.getResourceManager().getIndexCache(), pageTrx, type, index);
+    rbTreeReader = RBTreeReader.getInstance(pageTrx.getResourceSession().getIndexCache(), pageTrx, type, index);
     this.pageTrx = pageTrx;
   }
 

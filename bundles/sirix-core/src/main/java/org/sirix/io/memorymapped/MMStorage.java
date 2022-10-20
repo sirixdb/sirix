@@ -180,7 +180,8 @@ public final class MMStorage implements IOStorage {
                                                cache.synchronous());
 
       return new FileChannelWriter(dataFileChannel,
-                                   revisionsOffsetFileChannel, serializationType,
+                                   revisionsOffsetFileChannel,
+                                   serializationType,
                                    pagePersister,
                                    cache,
                                    reader);

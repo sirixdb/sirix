@@ -27,7 +27,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, CASFilterRange filter) {
     final RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(pageRtx.getResourceManager().getIndexCache(),
+        RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
                                  pageRtx,
                                  indexDef.getType(),
                                  indexDef.getID());
@@ -40,7 +40,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, CASFilter filter) {
     final RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(pageRtx.getResourceManager().getIndexCache(),
+        RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
                                  pageRtx,
                                  indexDef.getType(),
                                  indexDef.getID());

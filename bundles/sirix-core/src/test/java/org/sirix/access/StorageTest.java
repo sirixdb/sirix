@@ -143,6 +143,7 @@ public final class StorageTest {
                 new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
                 new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
                 new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+           //     new IOUringStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
                 new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),
             }
         }
