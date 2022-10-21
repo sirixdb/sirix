@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: 'temurin'
-          java-version: '18'
+          java-version: '19'
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Build with Gradle
@@ -45,31 +45,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r sirix-python-client/requirements-all.txt
           bash sirix-python-client/tests/resources/wait.sh
-          java --enable-preview --add-modules=jdk.incubator.foreign --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-SNAPSHOT-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
+          java --enable-preview --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-SNAPSHOT-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
           sleep 5
           python -m pytest sirix-python-client -v
-  Deploy:
-    name: Deploy to OSSRH and Docker Hub
-    if: ${{ github.repository_owner == 'sirixdb' && (github.event_name == 'push' || github.event_name == 'schedule') }}
-    needs: Test
-    runs-on: ubuntu-latest
-    env:
-      SONATYPE_NEXUS_USERNAME: ${{ secrets.SONATYPE_NEXUS_USERNAME }}
-      SONATYPE_NEXUS_PASSWORD: ${{ secrets.SONATYPE_NEXUS_PASSWORD }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: Install JDK
-        uses: actions/setup-java@v2
-        with:
-          distribution: 'temurin'
-          java-version: '18'
-      - name: Gradle deploy
-        run: ./gradlew travisReleaseSnapshot --info
-      - name: Login to Docker Hub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Docker Hub deploy
-        run: bash docker_push.sh
+  # TODO: Gradle docker images for Java 19 not available yet.
+  # Deploy:
+  #   name: Deploy to OSSRH and Docker Hub
+  #   if: ${{ github.repository_owner == 'sirixdb' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+  #   needs: Test
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     SONATYPE_NEXUS_USERNAME: ${{ secrets.SONATYPE_NEXUS_USERNAME }}
+  #     SONATYPE_NEXUS_PASSWORD: ${{ secrets.SONATYPE_NEXUS_PASSWORD }}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v2
+  #     - name: Install JDK
+  #       uses: actions/setup-java@v2
+  #       with:
+  #         distribution: 'temurin'
+  #         java-version: '19'
+  #     - name: Gradle deploy
+  #       run: ./gradlew travisReleaseSnapshot --info
+  #     - name: Login to Docker Hub
+  #       uses: docker/login-action@v1
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #     - name: Docker Hub deploy
+  #       run: bash docker_push.sh

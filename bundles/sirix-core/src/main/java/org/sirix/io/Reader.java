@@ -39,11 +39,11 @@ import java.util.concurrent.Executors;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- *
  */
 public interface Reader extends AutoCloseable {
 
-  ExecutorService POOL = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+  /** Executor Service used for the async read. */
+  ExecutorService POOL = Executors.newVirtualThreadPerTaskExecutor();
 
   /**
    * Getting the first reference of the {@code Uberpage}.
