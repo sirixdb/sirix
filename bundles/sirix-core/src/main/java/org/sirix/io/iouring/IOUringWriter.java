@@ -118,7 +118,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       // Read page from file.
       final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
-      dataFile.read(buffer, dataFileRevisionRootPageOffset);
+      dataFile.read(buffer, dataFileRevisionRootPageOffset).join();
 
       buffer.position(0);
       final int dataLength = buffer.getInt();
@@ -232,7 +232,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
       if (serializationType == SerializationType.DATA) {
         if (page instanceof RevisionRootPage revisionRootPage) {
-          ByteBuffer buffer = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder());
+          ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
           buffer.putLong(offset);
           buffer.position(8);
           buffer.putLong(revisionRootPage.getRevisionTimestamp());
@@ -243,19 +243,19 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
           } else {
             revisionsFileOffset = revisionsFile.size().join();
           }
-          revisionsFile.write(buffer, revisionsFileOffset);
+          revisionsFile.write(buffer, revisionsFileOffset).join();
           buffer = null;
           final long currOffset = offset;
           cache.put(revisionRootPage.getRevision(),
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
-          ByteBuffer buffer = ByteBuffer.allocate(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           buffer.put(serializedPage);
           buffer.position(0);
-          revisionsFile.write(buffer, 0);
+          revisionsFile.write(buffer, 0L).join();
           buffer.position(0);
-          revisionsFile.write(buffer, IOStorage.FIRST_BEACON >> 1);
+          revisionsFile.write(buffer, (long) IOStorage.FIRST_BEACON >> 1).join();
           buffer = null;
         }
       }
@@ -294,7 +294,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
       final var buffer = bufferedBytes.underlyingObject().rewind();
       buffer.limit((int) bufferedBytes.readLimit());
-      dataFile.write(buffer, 0L);
+      dataFile.write(buffer, 0L).join();
       dataFile.dataSync();
       bufferedBytes.clear();
     } catch (final IOException e) {
@@ -317,7 +317,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
     final var buffer = bufferedBytes.underlyingObject().rewind();
     buffer.limit((int) bufferedBytes.readLimit());
-    dataFile.write(buffer, offset);
+    dataFile.write(buffer, offset).join();
     bufferedBytes.clear();
   }
 

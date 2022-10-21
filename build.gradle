@@ -87,8 +87,8 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_18
-        targetCompatibility = JavaVersion.VERSION_18
+        sourceCompatibility = JavaVersion.VERSION_19
+        targetCompatibility = JavaVersion.VERSION_19
         withSourcesJar()
         withJavadocJar()
 
@@ -100,15 +100,13 @@ subprojects {
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '18')
+            addStringOption('-release', '19')
             addBooleanOption('-enable-preview', true)
-            addStringOption('-add-modules', 'jdk.incubator.foreign')
         }
     }
 
     compileJava {
         options.compilerArgs += ["--enable-preview",
-                                 "--add-modules=jdk.incubator.foreign",
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
@@ -118,7 +116,6 @@ subprojects {
 
     compileTestJava {
         options.compilerArgs += ["--enable-preview",
-                                 "--add-modules=jdk.incubator.foreign",
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
@@ -242,7 +239,6 @@ subprojects {
         useTestNG()
         useJUnit()
         jvmArgs(["--enable-preview",
-                 "--add-modules=jdk.incubator.foreign",
                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",

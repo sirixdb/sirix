@@ -212,7 +212,6 @@ public final class FileChannelReader implements Reader {
 
   @Override
   public void close() {
-    cache.invalidateAll();
   }
 
 }

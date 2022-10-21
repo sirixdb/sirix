@@ -56,7 +56,9 @@ public final class IOUringStorage implements IOStorage {
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
 
-  private final EventExecutor eventExecutor = EventExecutor.initDefault();
+  private final EventExecutor dataFileEventExecutor = EventExecutor.initDefault();
+
+  private final EventExecutor revisionsOffsetFileEventExecutor = EventExecutor.initDefault();
 
   private AsyncFile dataFile;
 
@@ -104,12 +106,13 @@ public final class IOUringStorage implements IOStorage {
   }
 
   private void createDataFileIfNotInitialized(Path dataFilePath) {
-    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(dataFilePath, eventExecutor);
+    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(dataFilePath, dataFileEventExecutor);
     dataFile = asyncFileCompletableFuture.join();
   }
 
   private void createRevisionsOffsetFileIfNotInitialized(Path revisionsOffsetFilePath) {
-    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(revisionsOffsetFilePath, eventExecutor);
+    CompletableFuture<AsyncFile> asyncFileCompletableFuture =
+        AsyncFile.open(revisionsOffsetFilePath, revisionsOffsetFileEventExecutor);
     revisionsOffsetFile = asyncFileCompletableFuture.join();
   }
 
@@ -173,10 +176,16 @@ public final class IOUringStorage implements IOStorage {
 
   @Override
   public void close() {
-    if (revisionsOffsetFile != null) {
-      revisionsOffsetFile.close();
+    try {
+      if (revisionsOffsetFile != null) {
+        revisionsOffsetFileEventExecutor.close();
+        revisionsOffsetFile.close();
+      }
+      dataFileEventExecutor.close();
+      dataFile.close();
+    } catch (Exception e) {
+      throw new RuntimeException(e);
     }
-    dataFile.close();
   }
 
   /**

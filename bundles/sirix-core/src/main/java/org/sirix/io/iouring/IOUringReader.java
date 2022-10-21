@@ -117,11 +117,11 @@ public final class IOUringReader implements Reader {
       switch (type) {
         case DATA -> {
           position = reference.getKey();
-          dataFile.read(buffer, position);
+          dataFile.read(buffer, position).join();
         }
         case TRANSACTION_INTENT_LOG -> {
           position = reference.getPersistentLogKey();
-          dataFile.read(buffer, position);
+          dataFile.read(buffer, position).join();
         }
         default ->
           // Must not happen.
@@ -132,7 +132,7 @@ public final class IOUringReader implements Reader {
 
       buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
 
-      dataFile.read(buffer, position + 4);
+      dataFile.read(buffer, position + Integer.BYTES).join();
       buffer.flip();
       final byte[] page = new byte[dataLength];
       buffer.get(page);
@@ -159,12 +159,12 @@ public final class IOUringReader implements Reader {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
-      dataFile.read(buffer, dataFileOffset);
+      dataFile.read(buffer, dataFileOffset).join();
       buffer.flip();
       final int dataLength = buffer.getInt();
 
       buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
-      dataFile.read(buffer, dataFileOffset + 4);
+      dataFile.read(buffer, dataFileOffset + Integer.BYTES).join();
       buffer.flip();
       final byte[] page = new byte[dataLength];
       buffer.get(page);
@@ -193,21 +193,20 @@ public final class IOUringReader implements Reader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
-      final long fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
+      final long fileOffset = (long) revision * Long.BYTES * 2 + IOStorage.FIRST_BEACON;
       final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
-      revisionsOffsetFile.read(buffer, fileOffset);
-      buffer.position(8);
-      revisionsOffsetFile.read(buffer, fileOffset + 8);
+      revisionsOffsetFile.read(buffer, fileOffset).join();
+      buffer.position(Long.BYTES);
+      revisionsOffsetFile.read(buffer, fileOffset + Long.BYTES).join();
       buffer.flip();
       final var offset = buffer.getLong();
-      buffer.position(8);
+      buffer.position(Long.BYTES);
       final var timestamp = buffer.getLong();
       return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
   }
 
   @Override
   public void close() {
-//    cache.invalidateAll();
   }
 
 }

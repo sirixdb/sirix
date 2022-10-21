@@ -205,9 +205,6 @@ public final class FileReader implements Reader {
 
   @Override
   public void close() {
-    if (cache != null) {
-      cache.invalidateAll();
-    }
     try {
       if (revisionsOffsetFile != null) {
         revisionsOffsetFile.close();

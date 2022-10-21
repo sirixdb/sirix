@@ -22,8 +22,6 @@
 package org.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
-import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ResourceScope;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IOStorage;
@@ -39,6 +37,7 @@ import org.sirix.page.SerializationType;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.foreign.MemorySession;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -111,24 +110,27 @@ public final class MMStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      final var dataFileScope = ResourceScope.newSharedScope();
+      final var dataFileSession = MemorySession.openShared();
       final var dataFileSegmentFileSize = Files.size(dataFilePath);
-      final var dataFileSegment =
-          MemorySegment.mapFile(dataFilePath, 0, dataFileSegmentFileSize, FileChannel.MapMode.READ_ONLY, dataFileScope);
 
-      final var revisionsOffsetFileScope = ResourceScope.newSharedScope();
+      final var revisionsOffsetFileScope = MemorySession.openShared();
       final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
-      final var revisionsOffsetFileSegment = MemorySegment.mapFile(revisionsOffsetFilePath,
-                                                                   0,
-                                                                   revisionsOffsetSegmentFileSize,
-                                                                   FileChannel.MapMode.READ_ONLY,
-                                                                   revisionsOffsetFileScope);
-      return new MMFileReader(dataFileSegment,
-                              revisionsOffsetFileSegment,
-                              new ByteHandlePipeline(byteHandlerPipeline),
-                              SerializationType.DATA,
-                              new PagePersister(),
-                              cache.synchronous());
+
+      try (final var dataFileChannel = FileChannel.open(dataFilePath);
+           final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
+        final var dataFileSegment =
+            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, dataFileSession);
+        final var revisionsOffsetFileSegment = revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY,
+                                                                              0,
+                                                                              revisionsOffsetSegmentFileSize,
+                                                                              dataFileSession);
+        return new MMFileReader(dataFileSegment,
+                                revisionsOffsetFileSegment,
+                                new ByteHandlePipeline(byteHandlerPipeline),
+                                SerializationType.DATA,
+                                new PagePersister(),
+                                cache.synchronous());
+      }
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {

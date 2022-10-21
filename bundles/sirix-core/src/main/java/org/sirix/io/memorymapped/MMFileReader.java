@@ -24,8 +24,6 @@ package org.sirix.io.memorymapped;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ValueLayout;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -41,6 +39,8 @@ import org.sirix.page.interfaces.Page;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 
@@ -185,8 +185,6 @@ public final class MMFileReader implements Reader {
 
   @Override
   public void close() {
-    cache.invalidateAll();
-    dataFileSegment.scope().close();
-    revisionsOffsetFileSegment.scope().close();
+    dataFileSegment.session().close();
   }
 }
