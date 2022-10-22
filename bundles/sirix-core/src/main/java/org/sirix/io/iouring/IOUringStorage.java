@@ -3,6 +3,7 @@ package org.sirix.io.iouring;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import one.jasyncfio.AsyncFile;
 import one.jasyncfio.EventExecutor;
+import one.jasyncfio.OpenOption;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IOStorage;
@@ -106,13 +107,20 @@ public final class IOUringStorage implements IOStorage {
   }
 
   private void createDataFileIfNotInitialized(Path dataFilePath) {
-    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(dataFilePath, dataFileEventExecutor);
+    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(dataFilePath,
+                                                                             dataFileEventExecutor,
+                                                                             OpenOption.READ_WRITE,
+                                                                             OpenOption.APPEND,
+                                                                             OpenOption.CREATE);
     dataFile = asyncFileCompletableFuture.join();
   }
 
   private void createRevisionsOffsetFileIfNotInitialized(Path revisionsOffsetFilePath) {
-    CompletableFuture<AsyncFile> asyncFileCompletableFuture =
-        AsyncFile.open(revisionsOffsetFilePath, revisionsOffsetFileEventExecutor);
+    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(revisionsOffsetFilePath,
+                                                                             revisionsOffsetFileEventExecutor,
+                                                                             OpenOption.READ_WRITE,
+                                                                             OpenOption.APPEND,
+                                                                             OpenOption.CREATE);
     revisionsOffsetFile = asyncFileCompletableFuture.join();
   }
 
