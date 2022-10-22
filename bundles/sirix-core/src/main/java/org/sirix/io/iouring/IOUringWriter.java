@@ -26,6 +26,7 @@ import net.openhft.chronicle.bytes.Bytes;
 import one.jasyncfio.AsyncFile;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.*;
 import org.sirix.page.*;
@@ -161,7 +162,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @NotNull
   private IOUringWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes, long offset) {
+      Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -212,7 +213,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       }
 
       if (bufferedBytes.writePosition() > FLUSH_SIZE) {
-        flushBuffer(bufferedBytes);
+        bufferedBytes = flushBuffer((PageTrx) pageReadOnlyTrx, bufferedBytes);
       }
 
       // Remember page coordinates.
@@ -250,13 +251,14 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
-          ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
-          buffer.put(serializedPage);
-          buffer.position(0);
-          revisionsFile.write(buffer, 0L).join();
-          buffer.position(0);
-          revisionsFile.write(buffer, (long) IOStorage.FIRST_BEACON >> 1).join();
-          buffer = null;
+          final ByteBuffer firstUberPageBuffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          firstUberPageBuffer.put(serializedPage);
+          firstUberPageBuffer.position(0);
+          revisionsFile.write(firstUberPageBuffer, 0L).join();
+          final ByteBuffer secondUberPageBuffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          secondUberPageBuffer.put(serializedPage);
+          secondUberPageBuffer.position(0);
+          revisionsFile.write(secondUberPageBuffer, (long) IOStorage.FIRST_BEACON >> 1).join();
         }
       }
 
@@ -281,10 +283,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes) {
+      Bytes<ByteBuffer> bufferedBytes) {
     try {
       if (bufferedBytes.writePosition() > 0) {
-        flushBuffer(bufferedBytes);
+        bufferedBytes = flushBuffer((PageTrx) pageReadOnlyTrx, bufferedBytes);
       }
 
       isFirstUberPage = true;
@@ -304,7 +306,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return this;
   }
 
-  private void flushBuffer(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+  private Bytes<ByteBuffer> flushBuffer(final PageTrx pageTrx, final Bytes<ByteBuffer> bufferedBytes) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 
@@ -318,7 +320,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     final var buffer = bufferedBytes.underlyingObject().rewind();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFile.write(buffer, offset).join();
-    bufferedBytes.clear();
+    return pageTrx.newBufferedBytesInstance();
   }
 
   @Override
