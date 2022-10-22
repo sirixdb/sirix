@@ -83,7 +83,7 @@ import static java.nio.file.StandardOpenOption.CREATE;
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
 
-  private final Bytes<ByteBuffer> bufferBytes = Bytes.elasticByteBuffer(64_000);
+  private Bytes<ByteBuffer> bufferBytes = Bytes.elasticByteBuffer(64_000);
 
   /**
    * Page writer to serialize.
@@ -177,6 +177,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         return size() > MAX_ENTRIES;
       }
     };
+  }
+
+  @Override
+  public Bytes<ByteBuffer> newBufferedBytesInstance() {
+    bufferBytes = Bytes.elasticByteBuffer(64_000);
+    return bufferBytes;
   }
 
   @Override

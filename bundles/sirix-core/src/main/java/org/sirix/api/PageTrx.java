@@ -1,5 +1,6 @@
 package org.sirix.api;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -13,6 +14,7 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
+import java.nio.ByteBuffer;
 import java.time.Instant;
 
 /**
@@ -22,6 +24,8 @@ import java.time.Instant;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public interface PageTrx extends PageReadOnlyTrx {
+
+  Bytes<ByteBuffer> newBufferedBytesInstance();
 
   /**
    * Truncate resource to given revision.
