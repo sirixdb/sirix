@@ -271,10 +271,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   @Override
   public void close() {
     if (dataFile != null) {
-      dataFile.dataSync();
+      dataFile.dataSync().join();
     }
     if (revisionsFile != null) {
-      revisionsFile.dataSync();
+      revisionsFile.dataSync().join();
     }
     if (reader != null) {
       reader.close();
@@ -297,7 +297,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       final var buffer = bufferedBytes.underlyingObject().rewind();
       buffer.limit((int) bufferedBytes.readLimit());
       dataFile.write(buffer, 0L).join();
-      dataFile.dataSync();
+      dataFile.dataSync().join();
       bufferedBytes.clear();
     } catch (final IOException e) {
       throw new SirixIOException(e);

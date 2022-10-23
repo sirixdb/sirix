@@ -187,10 +187,10 @@ public final class IOUringStorage implements IOStorage {
     try {
       if (revisionsOffsetFile != null) {
         revisionsOffsetFileEventExecutor.close();
-        revisionsOffsetFile.close();
+        revisionsOffsetFile.close().join();
       }
       dataFileEventExecutor.close();
-      dataFile.close();
+      dataFile.close().join();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
