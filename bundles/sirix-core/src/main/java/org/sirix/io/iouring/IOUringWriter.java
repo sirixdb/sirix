@@ -253,12 +253,13 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
         } else if (page instanceof UberPage && isFirstUberPage) {
           final ByteBuffer firstUberPageBuffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           firstUberPageBuffer.put(serializedPage);
-          firstUberPageBuffer.position(0);
+          firstUberPageBuffer.flip();
           revisionsFile.write(firstUberPageBuffer, 0L).join();
           final ByteBuffer secondUberPageBuffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           secondUberPageBuffer.put(serializedPage);
-          secondUberPageBuffer.position(0);
+          secondUberPageBuffer.flip();
           revisionsFile.write(secondUberPageBuffer, (long) IOStorage.FIRST_BEACON >> 1).join();
+          revisionsFile.dataSync().join();
         }
       }
 
@@ -298,6 +299,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       buffer.limit((int) bufferedBytes.readLimit());
       dataFile.write(buffer, 0L).join();
       dataFile.dataSync().join();
+      ((PageTrx) pageReadOnlyTrx).newBufferedBytesInstance();
       bufferedBytes.clear();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -320,6 +322,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     final var buffer = bufferedBytes.underlyingObject().rewind();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFile.write(buffer, offset).join();
+    dataFile.dataSync().join();
     return pageTrx.newBufferedBytesInstance();
   }
 
@@ -341,38 +344,5 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     }
 
     return this;
-  }
-
-  /**
-   * Convert the byte[] into a String to be used for logging and debugging.
-   *
-   * @param bytes the byte[] to be dumped
-   * @return the String representation
-   */
-  public static String dumpBytes(byte[] bytes) {
-    StringBuilder buffer = new StringBuilder("byte[");
-    buffer.append(bytes.length);
-    buffer.append("]: [");
-    for (byte aByte : bytes) {
-      buffer.append(aByte);
-      buffer.append(" ");
-    }
-    buffer.append("]");
-    return buffer.toString();
-  }
-
-  /**
-   * Convert the byteBuffer into a String to be used for logging and debugging.
-   *
-   * @param byteBuffer the byteBuffer to be dumped
-   * @return the String representation
-   */
-  public static String dumpBytes(ByteBuffer byteBuffer) {
-    byteBuffer.mark();
-    int length = byteBuffer.limit() - byteBuffer.position();
-    byte[] dst = new byte[length];
-    byteBuffer.get(dst);
-    byteBuffer.reset();
-    return dumpBytes(dst);
   }
 }
