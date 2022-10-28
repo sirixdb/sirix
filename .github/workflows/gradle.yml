@@ -38,7 +38,7 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build --info --stacktrace --refresh-dependencies
       - name: Stop gradle daemon
-        run: gradlew --stop
+        run: ./gradlew --stop
       - name: run python client tests
         uses: actions/checkout@v2
         with:
