@@ -175,7 +175,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   public CASFilterRange createCASFilterRange(final Set<String> thePaths, final Atomic min, final Atomic max,
       final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(thePaths.size());
-    if (thePaths.size() > 0) {
+    if (!thePaths.isEmpty()) {
       for (final String path : thePaths) {
         paths.add(parsePath(path));
       }

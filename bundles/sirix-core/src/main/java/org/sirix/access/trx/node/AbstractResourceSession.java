@@ -299,7 +299,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private List<RevisionInfo> getResult(final List<CompletableFuture<RevisionInfo>> revisionInfos) {
-    return revisionInfos.stream().map(CompletableFuture::join).collect(Collectors.toList());
+    return revisionInfos.stream().map(CompletableFuture::join).toList();
   }
 
   @Override

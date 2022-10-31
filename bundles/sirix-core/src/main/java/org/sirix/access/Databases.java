@@ -142,15 +142,10 @@ public final class Databases {
    * @throws SirixIOException if Sirix fails to delete the database
    */
   public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
-    // check that database must be closed beforehand
-    if (!MANAGER.sessions().containsAnyEntry(dbFile)) {
-      // if file is existing and folder is a sirix-database, delete it
-      if (Files.exists(dbFile)) {
-        // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
-        // 0) {
+    // check that database must be closed beforehand and if file is existing and folder is a sirix-database, delete it
+    if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)) {
         // instantiate the database for deletion
         SirixFiles.recursiveRemove(dbFile);
-      }
     }
   }
 
