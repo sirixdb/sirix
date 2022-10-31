@@ -333,7 +333,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assertNotClosed();
     try (final Stream<Path> stream = Files.list(dbConfig.getDatabaseFile()
                                                         .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
-      return stream.collect(Collectors.toList());
+      return stream.toList();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
