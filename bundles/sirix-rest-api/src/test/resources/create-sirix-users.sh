@@ -1,1 +1,1 @@
-/opt/jboss/keycloak/bin/add-user-keycloak.sh -r sirixdb -u admin -p admin --roles create,modify,delete,view
+if [ "$(opt/jboss/keycloak/bin/kcadm.sh get users -r sirixdb -q username=admin)" != '[ ]' ]; then echo 'User Found'; else opt/jboss/keycloak/bin/add-user-keycloak.sh -r sirixdb -u admin -p admin --roles create,modify,delete,view; fi;
