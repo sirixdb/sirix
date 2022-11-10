@@ -162,7 +162,7 @@ public final class ResourceConfiguration {
    * Standard storage.
    */
   private static final StorageType STORAGE =
-      OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
+     OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -525,8 +525,7 @@ public final class ResourceConfiguration {
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
-        final Class<ByteHandler> clazzName =
-            (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
       }
