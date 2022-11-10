@@ -108,7 +108,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
-      final var buffer = ByteBuffer.allocate(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
       dataFileChannel.read(buffer, dataFileRevisionRootPageOffset);
 
@@ -222,7 +222,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       if (serializationType == SerializationType.DATA) {
         if (page instanceof RevisionRootPage revisionRootPage) {
-          ByteBuffer buffer = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder());
+          ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
           buffer.putLong(offset);
           buffer.position(8);
           buffer.putLong(revisionRootPage.getRevisionTimestamp());
@@ -240,7 +240,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
-          ByteBuffer buffer = ByteBuffer.allocate(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           buffer.put(serializedPage);
           buffer.position(0);
           revisionsFileChannel.write(buffer, 0);

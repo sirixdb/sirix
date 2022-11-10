@@ -59,7 +59,7 @@ public enum StorageType {
   },
 
   /** FileChannel backend. */
-  FILECHANNEL {
+  FILE_CHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
@@ -80,7 +80,7 @@ public enum StorageType {
     }
   },
 
-  IOURING {
+  IO_URING {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();

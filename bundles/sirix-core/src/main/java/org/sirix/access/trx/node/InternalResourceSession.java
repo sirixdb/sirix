@@ -9,7 +9,7 @@ import java.util.concurrent.locks.Lock;
 public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends ResourceSession<R, W> {
   /**
-   * Abort a write transaction.
+   * Abort the write-transaction.
    */
   enum Abort {
     /**

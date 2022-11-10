@@ -123,9 +123,7 @@ public final class IOUringReader implements Reader {
           position = reference.getPersistentLogKey();
           dataFile.read(buffer, position).join();
         }
-        default ->
-          // Must not happen.
-            throw new IllegalStateException();
+        default -> throw new IllegalStateException();
       }
       buffer.flip();
       final int dataLength = buffer.getInt();
@@ -158,7 +156,7 @@ public final class IOUringReader implements Reader {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
+      ByteBuffer buffer = ByteBuffer.allocateDirect(Integer.BYTES).order(ByteOrder.nativeOrder());
       dataFile.read(buffer, dataFileOffset).join();
       buffer.flip();
       final int dataLength = buffer.getInt();
@@ -193,16 +191,14 @@ public final class IOUringReader implements Reader {
 
   @Override
   public RevisionFileData getRevisionFileData(int revision) {
-      final long fileOffset = (long) revision * Long.BYTES * 2 + IOStorage.FIRST_BEACON;
-      final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
-      revisionsOffsetFile.read(buffer, fileOffset).join();
-      buffer.position(Long.BYTES);
-      revisionsOffsetFile.read(buffer, fileOffset + Long.BYTES).join();
-      buffer.flip();
-      final var offset = buffer.getLong();
-      buffer.position(Long.BYTES);
-      final var timestamp = buffer.getLong();
-      return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
+    final long fileOffset = (long) revision * Long.BYTES * 2 + IOStorage.FIRST_BEACON;
+    final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
+    revisionsOffsetFile.read(buffer, fileOffset).join();
+    buffer.flip();
+    final var offset = buffer.getLong();
+    buffer.position(Long.BYTES);
+    final var timestamp = buffer.getLong();
+    return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
   }
 
   @Override

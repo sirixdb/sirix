@@ -110,7 +110,6 @@ public final class IOUringStorage implements IOStorage {
     CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(dataFilePath,
                                                                              dataFileEventExecutor,
                                                                              OpenOption.READ_WRITE,
-                                                                             OpenOption.APPEND,
                                                                              OpenOption.CREATE);
     dataFile = asyncFileCompletableFuture.join();
   }
@@ -119,7 +118,6 @@ public final class IOUringStorage implements IOStorage {
     CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(revisionsOffsetFilePath,
                                                                              revisionsOffsetFileEventExecutor,
                                                                              OpenOption.READ_WRITE,
-                                                                             OpenOption.APPEND,
                                                                              OpenOption.CREATE);
     revisionsOffsetFile = asyncFileCompletableFuture.join();
   }
@@ -186,11 +184,11 @@ public final class IOUringStorage implements IOStorage {
   public void close() {
     try {
       if (revisionsOffsetFile != null) {
-        revisionsOffsetFileEventExecutor.close();
         revisionsOffsetFile.close().join();
+        revisionsOffsetFileEventExecutor.close();
       }
-      dataFileEventExecutor.close();
       dataFile.close().join();
+      dataFileEventExecutor.close();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

@@ -251,13 +251,15 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
-          final ByteBuffer firstUberPageBuffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          final ByteBuffer firstUberPageBuffer =
+              ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           firstUberPageBuffer.put(serializedPage);
-          firstUberPageBuffer.flip();
+          firstUberPageBuffer.position(0);
           revisionsFile.write(firstUberPageBuffer, 0L).join();
-          final ByteBuffer secondUberPageBuffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          final ByteBuffer secondUberPageBuffer =
+              ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
           secondUberPageBuffer.put(serializedPage);
-          secondUberPageBuffer.flip();
+          secondUberPageBuffer.position(0);
           revisionsFile.write(secondUberPageBuffer, (long) IOStorage.FIRST_BEACON >> 1).join();
           revisionsFile.dataSync().join();
         }
@@ -308,7 +310,8 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return this;
   }
 
-  private Bytes<ByteBuffer> flushBuffer(final PageTrx pageTrx, final Bytes<ByteBuffer> bufferedBytes) throws IOException {
+  private Bytes<ByteBuffer> flushBuffer(final PageTrx pageTrx, final Bytes<ByteBuffer> bufferedBytes)
+      throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 
@@ -322,7 +325,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     final var buffer = bufferedBytes.underlyingObject().rewind();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFile.write(buffer, offset).join();
-    dataFile.dataSync().join();
+    bufferedBytes.clear();
     return pageTrx.newBufferedBytesInstance();
   }
 
