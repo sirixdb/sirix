@@ -124,14 +124,10 @@ public final class FileChannelReader implements Reader {
           position = reference.getPersistentLogKey();
           dataFileChannel.read(buffer, position);
         }
-        default ->
-          // Must not happen.
-            throw new IllegalStateException();
+        default -> throw new IllegalStateException();
       }
       buffer.flip();
       final int dataLength = buffer.getInt();
-
-      //      reference.setLength(dataLength + FileChannelReader.OTHER_BEACON);
 
       buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
 
@@ -165,10 +161,11 @@ public final class FileChannelReader implements Reader {
       buffer.flip();
       final int dataLength = buffer.getInt();
 
-      buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
+      buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset + 4);
       buffer.flip();
-      final byte[] page = buffer.array();
+      final byte[] page = new byte[dataLength];
+      buffer.get(page);
 
       // Perform byte operations.
       return (RevisionRootPage) getPage(pageReadTrx, page);

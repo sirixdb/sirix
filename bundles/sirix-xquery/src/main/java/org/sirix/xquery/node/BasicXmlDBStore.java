@@ -3,6 +3,7 @@ package org.sirix.xquery.node;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -14,8 +15,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.InsertPosition;
-
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.utils.OS;
 
 import java.io.IOException;
@@ -93,7 +92,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * Storage type.
      */
     private StorageType storageType =
-        OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
+        OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
     /**
      * The location to store created collections/databases.

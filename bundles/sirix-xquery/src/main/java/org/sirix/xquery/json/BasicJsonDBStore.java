@@ -99,7 +99,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * Storage type.
      */
     private StorageType storageType =
-        OS.isWindows() ? StorageType.FILECHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILECHANNEL;
+        OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
     /**
      * The location to store created collections/databases.
