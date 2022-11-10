@@ -544,7 +544,6 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[6]);
 
-      final HashFunction hashFunction;
       if (!"Hashing.sha256()".equals(jsonReader.nextString())) {
         throw new IllegalStateException("Hashing function not supported.");
       }
