@@ -233,7 +233,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @throws SirixIOException if an I/O error occurs
    */
   protected void postOrderTraversalHashes() {
-    new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> nodeHashing.addHashAndDescendantCount());
+    new PostOrderAxis(this, IncludeSelf.YES).forEach(unused -> nodeHashing.addHashAndDescendantCount());
   }
 
   @Override
