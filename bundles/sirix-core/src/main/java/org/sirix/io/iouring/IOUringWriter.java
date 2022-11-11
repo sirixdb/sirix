@@ -163,6 +163,17 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   @NotNull
   private IOUringWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes, long offset) {
+    try {
+      POOL.submit(() -> writePage(pageReadOnlyTrx, pageReference, bufferedBytes, offset)).get();
+      return this;
+    } catch (InterruptedException | ExecutionException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @NotNull
+  private IOUringWriter writePage(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference,
+      Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.

@@ -57,9 +57,7 @@ public final class IOUringStorage implements IOStorage {
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
 
-  private final EventExecutor dataFileEventExecutor = EventExecutor.initDefault();
-
-  private final EventExecutor revisionsOffsetFileEventExecutor = EventExecutor.initDefault();
+  private final EventExecutor eventExecutor = EventExecutor.builder().entries(1024).ioRingSetupSqPoll(1_000).build();
 
   private AsyncFile dataFile;
 
@@ -107,18 +105,14 @@ public final class IOUringStorage implements IOStorage {
   }
 
   private void createDataFileIfNotInitialized(Path dataFilePath) {
-    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(dataFilePath,
-                                                                             dataFileEventExecutor,
-                                                                             OpenOption.READ_WRITE,
-                                                                             OpenOption.CREATE);
+    CompletableFuture<AsyncFile> asyncFileCompletableFuture =
+        AsyncFile.open(dataFilePath, eventExecutor, OpenOption.READ_WRITE, OpenOption.CREATE);
     dataFile = asyncFileCompletableFuture.join();
   }
 
   private void createRevisionsOffsetFileIfNotInitialized(Path revisionsOffsetFilePath) {
-    CompletableFuture<AsyncFile> asyncFileCompletableFuture = AsyncFile.open(revisionsOffsetFilePath,
-                                                                             revisionsOffsetFileEventExecutor,
-                                                                             OpenOption.READ_WRITE,
-                                                                             OpenOption.CREATE);
+    CompletableFuture<AsyncFile> asyncFileCompletableFuture =
+        AsyncFile.open(revisionsOffsetFilePath, eventExecutor, OpenOption.READ_WRITE, OpenOption.CREATE);
     revisionsOffsetFile = asyncFileCompletableFuture.join();
   }
 
@@ -185,10 +179,9 @@ public final class IOUringStorage implements IOStorage {
     try {
       if (revisionsOffsetFile != null) {
         revisionsOffsetFile.close().join();
-        revisionsOffsetFileEventExecutor.close();
       }
       dataFile.close().join();
-      dataFileEventExecutor.close();
+      eventExecutor.close();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
