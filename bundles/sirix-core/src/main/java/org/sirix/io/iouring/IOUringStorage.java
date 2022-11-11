@@ -57,7 +57,8 @@ public final class IOUringStorage implements IOStorage {
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
 
-  private final EventExecutor eventExecutor = EventExecutor.builder().entries(1024).ioRingSetupSqPoll(1_000).build();
+  private static final EventExecutor eventExecutor =
+      EventExecutor.builder().entries(1024).ioRingSetupSqPoll(1_000).build();
 
   private AsyncFile dataFile;
 
@@ -181,7 +182,6 @@ public final class IOUringStorage implements IOStorage {
         revisionsOffsetFile.close().join();
       }
       dataFile.close().join();
-      eventExecutor.close();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
