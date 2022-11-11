@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -116,9 +117,14 @@ public final class IOUringReader implements Reader {
     }
   }
 
+  @Override
+  public CompletableFuture<? extends Page> readAsync(final @NonNull PageReference reference,
+      final @Nullable PageReadOnlyTrx pageReadTrx) {
+      return CompletableFuture.supplyAsync(() -> readPageFragment(reference, pageReadTrx), POOL);
+  }
+
   @NotNull
-  private Page readPageFragment(@NotNull PageReference reference,
-     @Nullable PageReadOnlyTrx pageReadTrx) {
+  private Page readPageFragment(@NotNull PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
