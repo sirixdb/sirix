@@ -104,7 +104,7 @@ public final class JsonShredderTest {
   }
 
   // TODO: JMH test
-  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:-UseBiasedLocking -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
+  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Disabled
   @Test
   public void testChicago() {
@@ -113,19 +113,18 @@ public final class JsonShredderTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       createResource(jsonPath, database);
-      database.removeResource(JsonTestHelper.RESOURCE);
-
-      createResource(jsonPath, database);
-      database.removeResource(JsonTestHelper.RESOURCE);
-
-      createResource(jsonPath, database);
-      database.removeResource(JsonTestHelper.RESOURCE);
-
-      createResource(jsonPath, database);
-      database.removeResource(JsonTestHelper.RESOURCE);
-
-      createResource(jsonPath, database);
-      database.removeResource(JsonTestHelper.RESOURCE);
+//      database.removeResource(JsonTestHelper.RESOURCE);
+//
+//      createResource(jsonPath, database);
+//      database.removeResource(JsonTestHelper.RESOURCE);
+//
+//      createResource(jsonPath, database);
+//      database.removeResource(JsonTestHelper.RESOURCE);
+//
+//      createResource(jsonPath, database);
+//      database.removeResource(JsonTestHelper.RESOURCE);
+//
+//      createResource(jsonPath, database);
     }
   }
 
@@ -140,7 +139,7 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.MEMORY_MAPPED)
+                                                 .storageType(StorageType.IO_URING)
                                                  .useDeweyIDs(false)
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
