@@ -21,8 +21,6 @@
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-**We want to build the database system together with you. Help us and become a maintainer yourself. Why? Maybe you like the software and want to help us. Furthermore, you'll learn a lot. Maybe you want to fix a bug or add a feature? You want to add an awesome project to your portfolio? You want to grow your network?... All of this are valid reasons besides probably many more**: [Collaborating on Open Source Software](https://youtu.be/TQN8BIxUmRo)
-
 SirixDB appends data to an indexed log file without the need of a WAL. It can simply be embedded and used as a library from your favorite language on the JVM to store and query data locally or by using a simple CLI. An asynchronous HTTP-server, which adds the core and query modules as dependencies can alternatively be used to interact with SirixDB over the network using Keycloak for authentication/authorization. One file stores the data with all revisions and possibly secondary indexes. A second file stores offsets into the file to quickly search for a revision by a given timestamp using an in-memory binary search. Furthermore a few maintenance files exist, which store the configuration of a resource and the definitions of secondary indexes (if any are configured). Other JSON files keep track of changes in delta files if enabled.
 
 It currently supports the storage and (time travel) querying of both XML - and JSON-data in its binary encoding, tailored to support versioning. The index-structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement the storage and querying of other data formats as relational data.
@@ -92,10 +90,9 @@ the node in the previous revision or an empty sequence if there's none.
 ```xquery
 let $node := jn:doc('mycol.jn','mydoc.jn').fieldName[[1]]
 let $result := for $node-in-rev in jn:all-times($node)
-               let $nodeInPreviousRevision := jn:previous($node-in-rev)
                return
-                 if ((not(exists($nodeInPreviousRevision)))
-                      or (sdb:hash($node-in-rev) ne sdb:hash($nodeInPreviousRevision))) then
+                 if ((not(exists(jn:previous($node-in-rev))))
+                      or (sdb:hash($node-in-rev) ne sdb:hash(jn:previous($node-in-rev)))) then
                    $node-in-rev
                  else
                    ()
@@ -441,10 +438,10 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 19, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 18, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
 
 ### Maven artifacts
-At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
+At this stage of development, you should use the latest SNAPSHOT aSrtifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
 
 Just add the following repository section to your POM or build.gradle file:
 ```xml
@@ -546,13 +543,41 @@ Plus we recommend using the Shenandoah GC:
 
 The REST-API is asynchronous at its very core. We use Vert.x, which is a toolkit built on top of Netty. It is heavily inspired by Node.js but for the JVM. As such, it uses event loop(s), which is thread(s), which never should by blocked by long-running CPU tasks or disk-bound I/O. We are using Kotlin with coroutines to keep the code simple. SirixDB uses OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance.
 
-### Start Docker Keycloak-Container using docker-compose
-For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test realm:
+### Start the SirixDB HTTP-Server and the Keycloak-Container using docker compose
 
-1. `git clone https://github.com/sirixdb/sirix.git`
-2. `sudo docker-compose up keycloak`
+_This section describes setting up the Keycloak using `docker compose`. If you want to setup Keycloak using docker hub image, instructions for that is described in the next section_
 
-### Keycloak setup
+For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test `sirixdb` realm:
+
+1. At first clone this repository with the following command (Or download .zip)
+    
+       git clone https://github.com/sirixdb/sirix.git
+
+2. `cd` into the sirix folder that was just cloned.
+    
+       cd sirix/
+
+3. Run the Keycloak container using `docker compose`
+
+       sudo docker compose up keycloak
+
+4. Visit `http://localhost:8080` and login to the admin console using username: `admin` and password: `admin`
+5. From the navigation panel on the left, select `Realm Settings` and verify that the `Name` field is set to `sirixdb`
+6. Select the client with Client ID `sirix`
+   1. Verify direct access grant enabled on.
+   2. Verify that `Access Type` is set to `confidential`
+   3. In the `credentials` tab
+      1. Verify that the Client Authenticatior is set to `Client Id and Secret`
+      2. Click on Regenerate Secret to generate a new secret. Set the value of the field named `client.secret` of [configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) and [configuration file 2](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/out/production/resources/sirix-conf.json) to this secret.
+      
+8. Set the value of the field named `keycloak.url` in [configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) and [configuration file 2](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/out/production/resources/sirix-conf.json) to `http://host.docker.internal:8080/auth/realms/sirixdb`
+9. Stop the docker container running Keycloak, either from Docker UI or pressing `Ctrl + C`.
+10. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
+
+        docker compose up
+### Keycloak setup (_Using Docker hub image_)
+
+_This section describes configuring the keycloak from docker hub image from scratch. Alternatively, using `docker compose` to configure Keycloak will be easier as a lot of configurations are already present._
 
 You can set up Keycloak as described in this excellent [tutorial](
 https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. You can skip steps 3 - 7 and 10, 11, and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests, the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image.
@@ -568,13 +593,6 @@ https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x
 9. If "oAuthFlowType" is specified in the same configuration file change the value to "PASSWORD" (if not default is "PASSWORD").
 10. Regarding Keycloak the `direct access` grant on the settings tab must be `enabled`.
 11. Our (user-/group-)roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. You can also assign `${databaseName}-` prefixed roles.
- 
-### Start the SirixDB HTTP-Server and the Keycloak-Container using docker-compose
-Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image. For setting up both with docker compose:
-
-1. Make sure the folder /opt/var/sirix/sixix-data exists and is read and writable for the container.
-2. Change the keycloak URL in the configuration file ([configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) from "http://localhost:8080/auth/realms/sirixdb" to "http://sirix_keycloak_1:8080/auth/realms/sirixdb".
-3. `sudo docker-compose up`
 
 ### SirixDB HTTP-Server Setup Without Docker/docker-compose
 
