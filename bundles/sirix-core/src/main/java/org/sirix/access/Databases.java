@@ -142,17 +142,18 @@ public final class Databases {
    * @param dbFile the database at this path should be deleted
    * @throws SirixIOException if Sirix fails to delete the database
    */
-  public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
+  public static synchronized void removeDatabase(final Path dbFile) {
     // check that database must be closed beforehand and if file is existing and folder is a sirix-database, delete it
-    if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)
-        && DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
-      final var databaseConfiguration = DatabaseConfiguration.deserialize(dbFile);
-      final var databaseType = databaseConfiguration.getDatabaseType();
+    if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)) {
+      if (DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
+        final var databaseConfiguration = DatabaseConfiguration.deserialize(dbFile);
+        final var databaseType = databaseConfiguration.getDatabaseType();
 
-      switch (databaseType) {
-        case XML -> removeXmlResources(dbFile);
-        case JSON -> removeJsonResources(dbFile);
-        default -> throw new IllegalStateException("Database type unknown!");
+        switch (databaseType) {
+          case XML -> removeXmlResources(dbFile);
+          case JSON -> removeJsonResources(dbFile);
+          default -> throw new IllegalStateException("Database type unknown!");
+        }
       }
 
       SirixFiles.recursiveRemove(dbFile);

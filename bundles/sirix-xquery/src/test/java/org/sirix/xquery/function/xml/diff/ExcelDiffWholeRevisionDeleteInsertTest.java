@@ -1,17 +1,5 @@
 package org.sirix.xquery.function.xml.diff;
 
-import static java.util.stream.Collectors.toList;
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.function.Predicate;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.XQuery;
 import org.custommonkey.xmlunit.DetailedDiff;
@@ -19,6 +7,7 @@ import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
 import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
@@ -27,16 +16,23 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import junit.framework.TestCase;
 
-public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.function.Predicate;
+
+public final class ExcelDiffWholeRevisionDeleteInsertTest {
 
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
@@ -47,13 +43,11 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
     XMLUnit.setIgnoreWhitespace(true);
   }
 
-  @Override
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
   }
 
-  @Override
   @After
   public void tearDown() throws SirixException, IOException {
     XmlTestHelper.closeEverything();
@@ -74,23 +68,16 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
     try (final var database = XmlTestHelper.getDatabaseWithDeweyIDsEnabled(PATHS.PATH1.getFile())) {
       XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
-
-      // Sort files list according to file names.
-      list.sort((first, second) -> {
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted((first, second) -> {
         final String firstName =
             first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
         final String secondName =
             second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
-        if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-          return -1;
-        } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-          return +1;
-        } else {
-          return 0;
-        }
-      });
+        return Integer.compare(Integer.parseInt(firstName), Integer.parseInt(secondName));
+      }).toList();
+
+      // Sort files list according to file names.
 
       boolean first = true;
 
@@ -120,7 +107,6 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);
-          @SuppressWarnings("unchecked")
           final List<Difference> differences = detDiff.getAllDifferences();
           for (final Difference difference : differences) {
             System.err.println("***********************");
@@ -128,8 +114,8 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
             System.err.println("***********************");
           }
 
-          assertTrue("pieces of XML are similar " + diff, diff.similar());
-          assertTrue("but are they identical? " + diff, diff.identical());
+          Assert.assertTrue("pieces of XML are similar " + diff, diff.similar());
+          Assert.assertTrue("but are they identical? " + diff, diff.identical());
         }
       }
     }
@@ -149,7 +135,7 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
-        final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final String content = out.toString(StandardCharsets.UTF_8);
         out.reset();
 
         System.out.println(content);
