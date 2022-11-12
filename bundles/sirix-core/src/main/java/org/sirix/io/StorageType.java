@@ -104,11 +104,8 @@ public enum StorageType {
     }
   };
 
-  final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY;
-
-  {
-    CACHE_REPOSITORY = new ConcurrentHashMap<>();
-  }
+  public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
+      new ConcurrentHashMap<>();
 
   /**
    * Get an instance of the storage backend.
