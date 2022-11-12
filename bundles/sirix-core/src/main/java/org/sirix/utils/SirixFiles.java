@@ -6,6 +6,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.stream.Stream;
 
 /**
  * Static methods for file operations.
@@ -14,7 +15,9 @@ import java.util.Comparator;
  */
 public final class SirixFiles {
 
-  /** Utility methods. */
+  /**
+   * Utility methods.
+   */
   private SirixFiles() {
     throw new AssertionError("May not be instantiated!");
   }
@@ -29,13 +32,22 @@ public final class SirixFiles {
   public static void recursiveRemove(final Path path) {
     try {
       if (Files.exists(path)) {
-        Files.walk(path)
-             .sorted(Comparator.reverseOrder())
-             .map(Path::toFile)
-             .forEach(File::delete);
+        Files.walk(path).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
       }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  public static boolean isDirectoryEmpty(Path path) {
+    if (Files.isDirectory(path)) {
+      try (final Stream<Path> entries = Files.list(path)) {
+        return entries.findFirst().isEmpty();
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
+
+    return false;
   }
 }
