@@ -40,6 +40,16 @@ import java.util.Map;
 public interface IOStorage {
 
   /**
+   * Data file name.
+   */
+  String FILENAME = "sirix.data";
+
+  /**
+   * Revisions file name.
+   */
+  String REVISIONS_FILENAME = "sirix.revisions";
+
+  /**
    * Beacon of first references.
    */
   int FIRST_BEACON = 200;
@@ -49,7 +59,7 @@ public interface IOStorage {
    */
   int OTHER_BEACON = Integer.BYTES;
 
- /**
+  /**
    * Getting a writer.
    *
    * @return an {@link Writer} instance
@@ -86,6 +96,10 @@ public interface IOStorage {
    * @param cache the cache to
    */
   default void loadRevisionFileDataIntoMemory(AsyncCache<Integer, RevisionFileData> cache) {
+    if (!cache.asMap().isEmpty()) {
+      return;
+    }
+
     final UberPage uberPage;
     if (exists()) {
       final Reader reader = createReader();

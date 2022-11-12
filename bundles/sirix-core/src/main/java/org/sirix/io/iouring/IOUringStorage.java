@@ -31,16 +31,6 @@ import java.util.concurrent.TimeUnit;
 public final class IOUringStorage implements IOStorage {
 
   /**
-   * Data file name.
-   */
-  private static final String FILENAME = "sirix.data";
-
-  /**
-   * Revisions file name.
-   */
-  private static final String REVISIONS_FILENAME = "sirix.revisions";
-
-  /**
    * Instance to storage.
    */
   private final Path file;

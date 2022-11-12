@@ -31,15 +31,19 @@ import org.sirix.io.memorymapped.MMStorage;
 import org.sirix.io.ram.RAMStorage;
 
 import java.io.RandomAccessFile;
+import java.nio.file.Path;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Specific backend types are specified in this enum.
  *
  * @author Johannes Lichtenberger
- *
  */
 public enum StorageType {
-  /** In memory backend. */
+  /**
+   * In memory backend.
+   */
   IN_MEMORY {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
@@ -47,33 +51,42 @@ public enum StorageType {
     }
   },
 
-  /** {@link RandomAccessFile} backend. */
+  /**
+   * {@link RandomAccessFile} backend.
+   */
   FILE {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final AsyncCache<Integer, RevisionFileData> cache =
+          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
       final var storage = new FileStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
     }
   },
 
-  /** FileChannel backend. */
+  /**
+   * FileChannel backend.
+   */
   FILE_CHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final AsyncCache<Integer, RevisionFileData> cache =
+          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
       final var storage = new FileChannelStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
     }
   },
 
-  /** Memory mapped backend. */
+  /**
+   * Memory mapped backend.
+   */
   MEMORY_MAPPED {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final AsyncCache<Integer, RevisionFileData> cache =
+          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
       final var storage = new MMStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
@@ -83,12 +96,19 @@ public enum StorageType {
   IO_URING {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
+      final AsyncCache<Integer, RevisionFileData> cache =
+          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
       final var storage = new IOUringStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
     }
   };
+
+  final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY;
+
+  {
+    CACHE_REPOSITORY = new ConcurrentHashMap<>();
+  }
 
   /**
    * Get an instance of the storage backend.
@@ -105,10 +125,17 @@ public enum StorageType {
    *
    * @param resourceConf determining the storage
    * @return an implementation of the {@link IOStorage} interface
-   * @throws SirixIOException if an IO-exception occurs
+   * @throws SirixIOException     if an IO-exception occurs
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
   public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
     return resourceConf.storageType.getInstance(resourceConf);
+  }
+
+  private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(
+      ResourceConfiguration resourceConf, ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> cacheRepository) {
+    final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                                      .resolve(IOStorage.FILENAME);
+    return cacheRepository.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
   }
 }
