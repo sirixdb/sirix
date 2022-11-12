@@ -88,18 +88,19 @@ public final class Databases {
     }
     boolean returnVal = true;
     // if file is existing, skipping
-    if (Files.exists(dbConfig.getDatabaseFile())) {
+    final var databaseFile = dbConfig.getDatabaseFile();
+    if (Files.exists(databaseFile) && !SirixFiles.isDirectoryEmpty(databaseFile)) {
       returnVal = false;
     } else {
       try {
-        Files.createDirectories(dbConfig.getDatabaseFile());
+        Files.createDirectories(databaseFile);
       } catch (UnsupportedOperationException | IOException | SecurityException e) {
         returnVal = false;
       }
       if (returnVal) {
         // creation of folder structure
         for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
-          final Path toCreate = dbConfig.getDatabaseFile().resolve(paths.getFile());
+          final Path toCreate = databaseFile.resolve(paths.getFile());
           if (paths.isFolder()) {
             try {
               Files.createDirectory(toCreate);
@@ -112,7 +113,7 @@ public final class Databases {
                 Files.createFile(toCreate);
               }
             } catch (final IOException e) {
-              SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
+              SirixFiles.recursiveRemove(databaseFile);
               throw new SirixIOException(e);
             }
           }
@@ -127,7 +128,7 @@ public final class Databases {
       // if something was not correct, delete the partly created
       // substructure
       if (!returnVal) {
-        SirixFiles.recursiveRemove(dbConfig.getDatabaseFile());
+        SirixFiles.recursiveRemove(databaseFile);
       }
     }
 
@@ -143,7 +144,8 @@ public final class Databases {
    */
   public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
     // check that database must be closed beforehand and if file is existing and folder is a sirix-database, delete it
-    if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)) {
+    if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)
+        && DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
       final var databaseConfiguration = DatabaseConfiguration.deserialize(dbFile);
       final var databaseType = databaseConfiguration.getDatabaseType();
 
