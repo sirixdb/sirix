@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -62,11 +61,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   /**
    * Buffers / page cache for each resource.
    */
-  private static final ConcurrentMap<Path, BufferManager> BUFFER_MANAGERS;
-
-  static {
-    BUFFER_MANAGERS = new ConcurrentHashMap<>();
-  }
+  private static final ConcurrentMap<Path, BufferManager> BUFFER_MANAGERS = new ConcurrentHashMap<>();
 
   /**
    * Central repository of all resource-ID/resource-name tuples.
@@ -290,6 +285,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       this.writeLocks.removeWriteLock(resourceFile);
 
       BUFFER_MANAGERS.remove(resourceFile);
+
+      StorageType.CACHE_REPOSITORY.remove(resourceFile);
     }
 
     return this;
