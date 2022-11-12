@@ -144,8 +144,35 @@ public final class Databases {
   public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
     // check that database must be closed beforehand and if file is existing and folder is a sirix-database, delete it
     if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)) {
-        // instantiate the database for deletion
-        SirixFiles.recursiveRemove(dbFile);
+      final var databaseConfiguration = DatabaseConfiguration.deserialize(dbFile);
+      final var databaseType = databaseConfiguration.getDatabaseType();
+
+      switch (databaseType) {
+        case XML -> removeXmlResources(dbFile);
+        case JSON -> removeJsonResources(dbFile);
+        default -> throw new IllegalStateException("Database type unknown!");
+      }
+
+      SirixFiles.recursiveRemove(dbFile);
+    }
+  }
+
+  private static void removeJsonResources(Path dbFile) {
+    try (final Database<?> database = openJsonDatabase(dbFile)) {
+      removeResources(database);
+    }
+  }
+
+  private static void removeXmlResources(Path dbFile) {
+    try (final Database<?> database = openXmlDatabase(dbFile)) {
+      removeResources(database);
+    }
+  }
+
+  private static void removeResources(Database<?> database) {
+    final var resourcePaths = database.listResources();
+    for (final var resourcePath : resourcePaths) {
+      database.removeResource(resourcePath.getFileName().toString());
     }
   }
 
