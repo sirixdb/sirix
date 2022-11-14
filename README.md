@@ -546,13 +546,7 @@ Plus we recommend using the Shenandoah GC:
 
 The REST-API is asynchronous at its very core. We use Vert.x, which is a toolkit built on top of Netty. It is heavily inspired by Node.js but for the JVM. As such, it uses event loop(s), which is thread(s), which never should by blocked by long-running CPU tasks or disk-bound I/O. We are using Kotlin with coroutines to keep the code simple. SirixDB uses OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance.
 
-### Start Docker Keycloak-Container using docker-compose
-For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test realm:
-
-1. `git clone https://github.com/sirixdb/sirix.git`
-2. `sudo docker-compose up keycloak`
-
-### Keycloak setup
+### Keycloak setup (Standalone Setup / Docker Hub Image)
 
 You can set up Keycloak as described in this excellent [tutorial](
 https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. You can skip steps 3 - 7 and 10, 11, and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests, the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image.
@@ -569,12 +563,44 @@ https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x
 10. Regarding Keycloak the `direct access` grant on the settings tab must be `enabled`.
 11. Our (user-/group-)roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. You can also assign `${databaseName}-` prefixed roles.
  
-### Start the SirixDB HTTP-Server and the Keycloak-Container using docker-compose
-Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image. For setting up both with docker compose:
+### Start Docker Keycloak-Container using docker-compose
+For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test realm:
 
-1. Make sure the folder /opt/var/sirix/sixix-data exists and is read and writable for the container.
-2. Change the keycloak URL in the configuration file ([configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) from "http://localhost:8080/auth/realms/sirixdb" to "http://sirix_keycloak_1:8080/auth/realms/sirixdb".
-3. `sudo docker-compose up`
+1. `git clone https://github.com/sirixdb/sirix.git`
+2. `sudo docker-compose up keycloak`
+
+### Start the SirixDB HTTP-Server and the Keycloak-Container using docker compose
+
+_This section describes setting up the Keycloak using `docker compose`. If you are looking for configuring keycloak from scratch, instructions for that is described in the previous section_
+
+For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test `sirixdb` realm:
+
+1. At first clone this repository with the following command (Or download .zip)
+    
+       git clone https://github.com/sirixdb/sirix.git
+
+2. `cd` into the sirix folder that was just cloned.
+    
+       cd sirix/
+
+3. Run the Keycloak container using `docker compose`
+
+       sudo docker compose up keycloak
+
+4. Visit `http://localhost:8080` and login to the admin console using username: `admin` and password: `admin`
+5. From the navigation panel on the left, select `Realm Settings` and verify that the `Name` field is set to `sirixdb`
+6. Select the client with Client ID `sirix`
+   1. Verify direct access grant enabled on.
+   2. Verify that `Access Type` is set to `confidential`
+   3. In the `credentials` tab
+      1. Verify that the Client Authenticatior is set to `Client Id and Secret`
+      2. Click on Regenerate Secret to generate a new secret. Set the value of the field named `client.secret` of [configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) and [configuration file 2](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/out/production/resources/sirix-conf.json) to this secret.
+      
+8. Set the value of the field named `keycloak.url` in [configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) and [configuration file 2](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/out/production/resources/sirix-conf.json) to `http://host.docker.internal:8080/auth/realms/sirixdb`
+9. Stop the docker container running Keycloak, either from Docker UI or pressing `Ctrl + C`.
+10. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
+
+        docker compose up
 
 ### SirixDB HTTP-Server Setup Without Docker/docker-compose
 
