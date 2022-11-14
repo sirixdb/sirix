@@ -519,7 +519,6 @@ You have to add the following JVM parameters currently:
 ```
 -ea
 --enable-preview
---add-modules=jdk.incubator.foreign
 --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED
 --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
 --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED
