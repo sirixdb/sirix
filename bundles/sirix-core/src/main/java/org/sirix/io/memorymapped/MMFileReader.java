@@ -23,7 +23,6 @@ package org.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -65,7 +64,7 @@ public final class MMFileReader implements Reader {
   /**
    * The hash function used to hash pages/page fragments.
    */
-  final HashFunction hashFunction;
+  final HashFunction hashFunction = Reader.hashFunction;
 
   /**
    * The type of data to serialize.
@@ -90,7 +89,6 @@ public final class MMFileReader implements Reader {
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    hashFunction = Hashing.sha256();
     this.byteHandler = checkNotNull(byteHandler);
     this.type = checkNotNull(type);
     this.pagePersitenter = checkNotNull(pagePersistenter);

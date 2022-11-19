@@ -86,15 +86,14 @@ public final class BitmapReferencesPage implements Page {
 
     final int initialSize;
 
-    if (referenceCount == Constants.UBPINP_REFERENCE_COUNT || referenceCount == Constants.INP_REFERENCE_COUNT
-        || referenceCount == Constants.PATHINP_REFERENCE_COUNT || referenceCount == Constants.NDP_NODE_COUNT) {
+    if (referenceCount == Constants.NDP_NODE_COUNT) {
       /*
-       * Currently backing array has an initial size of 8. Thus for the last layer of indirect pages
+       * Currently backing array has an initial size of 8. Thus, for the last layer of indirect pages
        * it has to resize the first time after 8 record pages, that is 512 * 8 records.
        */
       initialSize = referenceCount >> 6;
     } else {
-      // All pages which have less references are fully set (UberPage, RevisionRootPage...).
+      // All pages which have fewer references are fully set (UberPage, RevisionRootPage...).
       initialSize = referenceCount;
     }
 
@@ -191,7 +190,7 @@ public final class BitmapReferencesPage implements Page {
   }
 
   private int index(final int offset) {
-    BitSet offsetBitmap = new BitSet(bitmap.size());
+    var offsetBitmap = new BitSet(bitmap.size());
 
     offsetBitmap.set(offset);
 

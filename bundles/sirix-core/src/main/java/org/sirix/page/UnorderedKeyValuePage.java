@@ -23,7 +23,6 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
-import com.google.common.hash.Hashing;
 import it.unimi.dsi.fastutil.objects.Object2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import net.openhft.chronicle.bytes.Bytes;
@@ -167,7 +166,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
-    deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
+    deweyIDs = new Object2LongLinkedOpenHashMap<>((int) (Constants.NDP_NODE_COUNT * 1.25f));
     this.revision = pageReadOnlyTrx.getRevisionNumber();
     recordsStored = 0;
     areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -189,7 +188,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
-      deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
+      deweyIDs = new Object2LongLinkedOpenHashMap<>((int) (Constants.NDP_NODE_COUNT * 1.25f));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
       var byteBufferBytes = Bytes.elasticByteBuffer();
@@ -207,7 +206,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       byteBufferBytes.clear();
       byteBufferBytes = null;
     } else {
-      deweyIDs = new Object2LongLinkedOpenHashMap<>(Constants.NDP_NODE_COUNT);
+      deweyIDs = new Object2LongLinkedOpenHashMap<>((int) (Constants.NDP_NODE_COUNT * 1.25f));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
     }
 
@@ -377,7 +376,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     }
 
     out.writeByte(indexType.getID());
-    hashCode = Hashing.sha256().hashBytes(out.toByteArray()).asBytes();
+    hashCode = pageReadOnlyTrx.getReader().hashFunction.hashBytes(out.toByteArray()).asBytes();
     bytes = out;
   }
 

@@ -36,7 +36,6 @@ import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.node.NodeSerializerImpl;
 import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.settings.VersioningType;
-import org.sirix.utils.OS;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -161,8 +160,8 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE =
-     OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+  private static final StorageType STORAGE = StorageType.FILE_CHANNEL;
+    // OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -265,17 +264,17 @@ public final class ResourceConfiguration {
   /**
    * Determines if diffs are going to be stored or not.
    */
-  public final boolean storeDiffs;
+  private final boolean storeDiffs;
 
   /**
    * Determines if custom commit timestamps should be stored or not.
    */
-  public final boolean customCommitTimestamps;
+  private final boolean customCommitTimestamps;
 
   /**
    * Store the full node history of each record.
    */
-  public final boolean storeNodeHistory;
+  private final boolean storeNodeHistory;
 
   // END MEMBERS FOR FIXED FIELDS
 
@@ -299,7 +298,7 @@ public final class ResourceConfiguration {
     storageType = builder.type;
     byteHandlePipeline = builder.byteHandler;
     versioningType = builder.revisionKind;
-    hashType = builder.hashKind;
+    hashType = builder.hashType;
     maxNumberOfRevisionsToRestore = builder.maxNumberOfRevisionsToRestore;
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
@@ -398,14 +397,6 @@ public final class ResourceConfiguration {
     return resourceName;
   }
 
-  /**
-   * Get the resource name.
-   *
-   * @return the resource name
-   */
-  public String getResourceName() {
-    return resourceName;
-  }
 
   public boolean storeDiffs() {
     return storeDiffs;
@@ -542,10 +533,7 @@ public final class ResourceConfiguration {
       // Hashing function.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[6]);
-
-      if (!"Hashing.sha256()".equals(jsonReader.nextString())) {
-        throw new IllegalStateException("Hashing function not supported.");
-      }
+      jsonReader.nextString();
       // Text compression.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[7]);
@@ -640,7 +628,7 @@ public final class ResourceConfiguration {
     /**
      * Kind of integrity hash (rolling, postorder).
      */
-    private HashType hashKind = HASHKIND;
+    private HashType hashType = HASHKIND;
 
     /**
      * Number of revisions to restore a complete set of data.
@@ -756,7 +744,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder hashKind(final HashType hashKind) {
-      this.hashKind = checkNotNull(hashKind);
+      this.hashType = checkNotNull(hashKind);
       return this;
     }
 
@@ -853,7 +841,7 @@ public final class ResourceConfiguration {
       return MoreObjects.toStringHelper(this)
                         .add("Type", type)
                         .add("RevisionKind", revisionKind)
-                        .add("HashKind", hashKind)
+                        .add("HashKind", hashType)
                         .add("HashFunction", hashFunction)
                         .add("PathSummary", pathSummary)
                         .add("TextCompression", useTextCompression)

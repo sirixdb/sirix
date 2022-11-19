@@ -403,7 +403,6 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final StructNode oldNode = currentNode;
     StructNode newNode;
     try {
-      // Immediately return node from item list if node key negative.
       newNode = pageReadTrx.getRecord(nodeKey, IndexType.PATH_SUMMARY, 0);
     } catch (final SirixIOException e) {
       newNode = null;

@@ -25,6 +25,8 @@ import java.time.Instant;
  */
 public interface PageTrx extends PageReadOnlyTrx {
 
+  int BUFFER_SIZE = 65_000;
+
   Bytes<ByteBuffer> newBufferedBytesInstance();
 
   /**

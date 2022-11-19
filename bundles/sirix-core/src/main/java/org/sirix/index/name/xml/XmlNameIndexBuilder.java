@@ -7,16 +7,16 @@ import org.sirix.index.name.NameIndexBuilder;
 import org.sirix.node.immutable.xml.ImmutableElement;
 
 final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor {
-  private final NameIndexBuilder mBuilder;
+  private final NameIndexBuilder builder;
 
   XmlNameIndexBuilder(final NameIndexBuilder builder) {
-    mBuilder = builder;
+    this.builder = builder;
   }
 
   @Override
   public VisitResult visit(final ImmutableElement node) {
     final QNm name = node.getName();
 
-    return mBuilder.build(name, node);
+    return builder.build(name, node);
   }
 }

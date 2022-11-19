@@ -334,37 +334,4 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     return this;
   }
-
-  /**
-   * Convert the byte[] into a String to be used for logging and debugging.
-   *
-   * @param bytes the byte[] to be dumped
-   * @return the String representation
-   */
-  public static String dumpBytes(byte[] bytes) {
-    StringBuilder buffer = new StringBuilder("byte[");
-    buffer.append(bytes.length);
-    buffer.append("]: [");
-    for (byte aByte : bytes) {
-      buffer.append(aByte);
-      buffer.append(" ");
-    }
-    buffer.append("]");
-    return buffer.toString();
-  }
-
-  /**
-   * Convert the byteBuffer into a String to be used for logging and debugging.
-   *
-   * @param byteBuffer the byteBuffer to be dumped
-   * @return the String representation
-   */
-  public static String dumpBytes(ByteBuffer byteBuffer) {
-    byteBuffer.mark();
-    int length = byteBuffer.limit() - byteBuffer.position();
-    byte[] dst = new byte[length];
-    byteBuffer.get(dst);
-    byteBuffer.reset();
-    return dumpBytes(dst);
-  }
 }

@@ -1247,6 +1247,13 @@ final class XmlNodeTrxImpl extends
       } else if (getCurrentNode() instanceof StructNode) {
         final StructNode node = (StructNode) nodeReadOnlyTrx.getCurrentNode();
 
+//        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+//          descendantAxis.nextLong();
+//          System.out.println("path: " + getPathSummary().getPath());
+//          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+//          System.out.println("references: " + getPathSummary().getReferences());
+//        }
+
         // Remove subtree.
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext(); ) {
           axis.nextLong();
@@ -1266,9 +1273,31 @@ final class XmlNodeTrxImpl extends
           pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
         }
 
-        // Remove the name and value of subtree-root if necessary.
+//        getPathSummary().moveToDocumentRoot();
+//
+//        System.out.println("=====================");
+//
+//        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+//          descendantAxis.nextLong();
+//          System.out.println("path: " + getPathSummary().getPath());
+//          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+//          System.out.println("references: " + getPathSummary().getReferences());
+//        }
+
+//        removeNonStructural();
         removeName();
         removeValue();
+
+//        getPathSummary().moveToDocumentRoot();
+//
+//        System.out.println("=====================");
+//
+//        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+//          descendantAxis.nextLong();
+//          System.out.println("path: " + getPathSummary().getPath());
+//          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+//          System.out.println("references: " + getPathSummary().getReferences());
+//        }
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
@@ -1327,7 +1356,7 @@ final class XmlNodeTrxImpl extends
   }
 
   /**
-   * Remove non structural nodes of an {@link ElementNode}, that is namespaces and attributes.
+   * Remove non-structural nodes of an {@link ElementNode}, that is namespaces and attributes.
    *
    * @throws SirixException if anything goes wrong
    */
@@ -1652,7 +1681,7 @@ final class XmlNodeTrxImpl extends
       pageTrx.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     }
 
-    // Remove non structural nodes of old node.
+    // Remove non-structural nodes of old node.
     if (oldNode.getKind() == NodeKind.ELEMENT) {
       moveTo(oldNode.getNodeKey());
       removeNonStructural();

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018, Sirix
+ * Copyright (c) 2022, Sirix
  *
  * All rights reserved.
  *
@@ -30,8 +30,7 @@ package org.sirix.access.trx.node;
 import org.sirix.access.User;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
+ * @author Johannes Lichtenberger
  */
 public final class CommitCredentials {
   private final User user;

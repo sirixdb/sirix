@@ -29,6 +29,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class Databases {
 
+  /**
+   * Private constructor to prevent instantiation.
+   */
+  private Databases() {
+    throw new AssertionError("May not be instantiated!");
+  }
+
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(Databases.class));
 
   static {

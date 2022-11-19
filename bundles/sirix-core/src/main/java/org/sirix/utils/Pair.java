@@ -20,8 +20,9 @@
  */
 package org.sirix.utils;
 
-import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
+import java.util.Objects;
 
 /**
  * A Pair of objects.
@@ -31,10 +32,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 public class Pair<U, V> {
   /** The first reference. */
-  private final U mFirst;
+  private final U first;
 
   /** The second reference. */
-  private final V mSecond;
+  private final V second;
 
   /**
    * Constructs the pair.
@@ -43,8 +44,8 @@ public class Pair<U, V> {
    * @param second second reference
    */
   public Pair(@Nullable final U first, @Nullable final V second) {
-    mFirst = first;
-    mSecond = second;
+    this.first = first;
+    this.second = second;
   }
 
   /**
@@ -53,7 +54,7 @@ public class Pair<U, V> {
    * @return first reference
    */
   public U getFirst() {
-    return mFirst;
+    return first;
   }
 
   /**
@@ -62,12 +63,12 @@ public class Pair<U, V> {
    * @return second reference
    */
   public V getSecond() {
-    return mSecond;
+    return second;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(mFirst, mSecond);
+    return Objects.hash(first, second);
   }
 
   @Override
@@ -78,14 +79,14 @@ public class Pair<U, V> {
     @SuppressWarnings("unchecked")
     final Pair<U, V> otherPair = (Pair<U, V>) other;
 
-    return Objects.equals(mFirst, otherPair.mFirst) && Objects.equals(mSecond, otherPair.mSecond);
+    return Objects.equals(first, otherPair.first) && Objects.equals(second, otherPair.second);
   }
 
   @Override
   public String toString() {
-    return new StringBuilder("first: ").append(mFirst.toString())
+    return new StringBuilder("first: ").append(first.toString())
                                        .append(" second: ")
-                                       .append(mSecond.toString())
+                                       .append(second.toString())
                                        .toString();
   }
 }
