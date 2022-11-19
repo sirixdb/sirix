@@ -49,8 +49,10 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
-import java.io.Serial;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -66,13 +68,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * access to this transaction.
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
-
-  private static final int MAX_ENTRIES = 100;
-
-  /**
-   * The most recent references to leaf pages.
-   */
-  private final LinkedHashMap<IndexLogKey, PageReference> mostRecentReferencesToLeafOfSubtrees;
 
   /**
    * The storage type.
@@ -177,18 +172,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
-
-    mostRecentReferencesToLeafOfSubtrees = new LinkedHashMap<>(MAX_ENTRIES) {
-      private static final int MAX_ENTRIES = NodePageReadOnlyTrx.MAX_ENTRIES;
-
-      @Serial
-      private static final long serialVersionUID = 1;
-
-      @Override
-      protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageReference> eldest) {
-        return size() > MAX_ENTRIES;
-      }
-    };
   }
 
   private Page loadPage(final PageReference reference) {
@@ -211,32 +194,35 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       resourceBufferManager.getPageCache().remove(reference);
     }
     if (page != null) {
+      reference.setPage(page);
       return page;
     }
 
-    page = pageReader.read(reference, this);
+    if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
+        || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+      page = pageReader.read(reference, this);
+    }
 
     if (page != null) {
-      putIntoPageCacheAndAddInMemoryReferenceIfItIsNotAWriteTrx(reference, page);
+      reference.setPage(page);
+      putIntoPageCacheIfItIsNotAWriteTrx(reference, page);
     }
     return page;
   }
 
-  private void putIntoPageCacheAndAddInMemoryReferenceIfItIsNotAWriteTrx(PageReference reference, Page page) {
+  private void putIntoPageCacheIfItIsNotAWriteTrx(PageReference reference, Page page) {
     assert reference.getLogKey() == Constants.NULL_ID_INT && reference.getPersistentLogKey() == Constants.NULL_ID_LONG;
     if (trxIntentLog == null && !(page instanceof UberPage)) {
       // Put page into buffer manager.
       resourceBufferManager.getPageCache().put(reference, page);
-      reference.setPage(page);
     }
   }
 
   @Nullable
   private Page getFromTrxIntentLog(PageReference reference) {
-    Page page;
     // Try to get it from the transaction log if it's present.
     final PageContainer cont = trxIntentLog.get(reference, this);
-    page = cont == null ? null : cont.getComplete();
+    final Page page = cont == null ? null : cont.getComplete();
     return page;
   }
 
@@ -279,8 +265,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
       default -> throw new IllegalStateException();
     };
-
-    indexLogKey = null;
 
     if (page == null) {
       return null;
@@ -385,12 +369,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @throws SirixIOException if an I/O error occurs
    */
   private Page getPage(final PageReference reference) {
-    Page page = reference.getPage();
-
-    if (page == null) {
-      page = loadPage(reference);
-    }
-
+    var page = loadPage(reference);
     reference.setPage(page);
     return page;
   }
@@ -448,7 +427,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         && mostRecentlyReadRecordPage.indexType() == indexLogKey.getIndexType();
   }
 
-  @org.jetbrains.annotations.Nullable
+  @Nullable
   private Page getFromBufferManager(@NotNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
     if (trxIntentLog == null) {
       final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
@@ -465,7 +444,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return null;
   }
 
-  @org.jetbrains.annotations.Nullable
+  @Nullable
   private Page loadDataPageFromDurableStorageAndCombinePageFragments(@NotNull IndexLogKey indexLogKey,
       PageReference pageReferenceToRecordPage) {
     // Load list of page "fragments" from persistent storage.
@@ -609,24 +588,24 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   @Override
   public IndirectPage dereferenceIndirectPageReference(final PageReference reference) {
-    IndirectPage page = (IndirectPage) reference.getPage();
-    if (page != null) {
-      return page;
-    }
+//    IndirectPage page = (IndirectPage) reference.getPage();
+//    if (page != null) {
+//      return page;
+//    }
+//
+//    if (trxIntentLog != null) {
+//      // Try to get it from the transaction log if it's present.
+//      final PageContainer cont = trxIntentLog.get(reference, this);
+//      page = cont == null ? null : (IndirectPage) cont.getComplete();
+//    }
+//
+//    if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
+//        || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+//      // Then try to get it from the page cache which might read it from the persistent storage on a cache miss.
+//      page = (IndirectPage) loadPage(reference);
+//    }
 
-    if (trxIntentLog != null) {
-      // Try to get it from the transaction log if it's present.
-      final PageContainer cont = trxIntentLog.get(reference, this);
-      page = cont == null ? null : (IndirectPage) cont.getComplete();
-    }
-
-    if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
-        || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-      // Then try to get it from the page cache which might read it from the persistent storage on a cache miss.
-      page = (IndirectPage) loadPage(reference);
-    }
-
-    return page;
+    return (IndirectPage) loadPage(reference);
   }
 
   /**
@@ -642,14 +621,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final @NonNegative long pageKey,
       final int indexNumber, final @NonNull IndexType indexType, final RevisionRootPage revisionRootPage) {
     assertNotClosed();
-
-    var indexLogKey = new IndexLogKey(indexType, pageKey, indexNumber, revisionRootPage.getRevision());
-    var referenceToLeafPage = mostRecentReferencesToLeafOfSubtrees.get(indexLogKey);
-
-    if (referenceToLeafPage != null) {
-      indexLogKey = null;
-      return referenceToLeafPage;
-    }
 
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(startReference);
@@ -677,8 +648,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         }
       }
     }
-
-    mostRecentReferencesToLeafOfSubtrees.put(indexLogKey, reference);
 
     // Return reference to leaf of indirect tree.
     return reference;

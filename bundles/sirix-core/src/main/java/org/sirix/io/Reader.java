@@ -21,6 +21,8 @@
 
 package org.sirix.io;
 
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
@@ -41,6 +43,9 @@ import java.util.concurrent.Executors;
  * @author Johannes Lichtenberger
  */
 public interface Reader extends AutoCloseable {
+
+  /** Hash function to use for hashing pages. */
+  HashFunction hashFunction = Hashing.murmur3_128();
 
   /** Executor Service used for the async read. */
   ExecutorService POOL = Executors.newVirtualThreadPerTaskExecutor();

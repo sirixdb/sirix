@@ -7,16 +7,16 @@ import org.sirix.index.name.NameIndexBuilder;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 
 final class JsonNameIndexBuilder extends AbstractJsonNodeVisitor {
-  private final NameIndexBuilder mBuilder;
+  private final NameIndexBuilder builder;
 
   public JsonNameIndexBuilder(final NameIndexBuilder builder) {
-    mBuilder = builder;
+    this.builder = builder;
   }
 
   @Override
   public VisitResult visit(final ImmutableObjectKeyNode node) {
     final QNm name = node.getName();
 
-    return mBuilder.build(name, node);
+    return builder.build(name, node);
   }
 }

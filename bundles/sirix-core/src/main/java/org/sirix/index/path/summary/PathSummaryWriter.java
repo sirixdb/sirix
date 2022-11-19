@@ -635,7 +635,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void removePathSummaryNode(final RemoveSubtreePath remove) {
     // Remove all descendant nodes.
     if (remove == RemoveSubtreePath.YES) {
-      for (final Axis axis = new DescendantAxis(pathSummaryReader); axis.hasNext(); ) {
+      for (final Axis axis = new PostOrderAxis(pathSummaryReader); axis.hasNext(); ) {
         axis.nextLong();
         pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
         pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
@@ -674,6 +674,18 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
     pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
     pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+
+//    pathSummaryReader.moveToDocumentRoot();
+//
+//    System.out.println("removed: =====================");
+//
+//    for (final var descendantAxis = new DescendantAxis(pathSummaryReader); descendantAxis.hasNext(); ) {
+//      descendantAxis.nextLong();
+//      System.out.println("path: " + pathSummaryReader.getPath());
+//      System.out.println("nodeKey: " + pathSummaryReader.getNodeKey());
+//      System.out.println("rightSiblingKey: " + pathSummaryReader.getRightSiblingKey());
+//      System.out.println("references: " + pathSummaryReader.getReferences());
+//    }
   }
 
   private void deleteOrDecrement() {
@@ -704,7 +716,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       if (pathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);
       } else {
-        assert page.getCount(node.getLocalNameKey(), nodeKind, pageTrx) != 0;
         if (pathSummaryReader.getReferences() > 1) {
           final PathNode pathNode =
               pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);

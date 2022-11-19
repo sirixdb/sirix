@@ -21,8 +21,8 @@ public interface DatabaseManager {
     /**
      * Creates a new Json database subcomponent.
      *
-     * <p>This method is declare here in order to create a link between this component and
-     * {@link JsonLocalDatabaseComponent}, as parent component and sub-component, respectively.
+     * <p>This method is declared here in order to create a link between this component and
+     * {@link JsonLocalDatabaseComponent}, as parent component and subcomponent, respectively.
      * Hence, it should not be called. Use {@link #jsonDatabaseFactory()} instead.
      *
      * @return A builder, used to create a new json database subcomponent.
@@ -33,8 +33,8 @@ public interface DatabaseManager {
     /**
      * Creates a new Json database subcomponent.
      *
-     * <p>This method is declare here in order to create a link between this component and
-     * {@link XmlLocalDatabaseComponent}, as parent component and sub-component, respectively.
+     * <p>This method is declared here in order to create a link between this component and
+     * {@link XmlLocalDatabaseComponent}, as parent component and subcomponent, respectively.
      * Hence, it should not be called. Use {@link #xmlDatabaseFactory()} instead.
      *
      * @return A builder, used to create a new json database subcomponent.

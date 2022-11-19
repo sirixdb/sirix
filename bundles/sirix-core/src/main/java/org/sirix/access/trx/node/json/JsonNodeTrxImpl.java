@@ -190,7 +190,7 @@ final class JsonNodeTrxImpl extends
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
 
     deweyIDManager = new JsonDeweyIDManager(this);
-    storeNodeHistory = resourceManager.getResourceConfig().storeNodeHistory;
+    storeNodeHistory = resourceManager.getResourceConfig().storeNodeHistory();
   }
 
   @Override
@@ -905,13 +905,14 @@ final class JsonNodeTrxImpl extends
   }
 
   private long getPathNodeKey(final ImmutableNode node, final String name, final NodeKind kind) {
-    moveToParentObjectKeyArrayOrDocumentRoot();
+    if (buildPathSummary) {
+      moveToParentObjectKeyArrayOrDocumentRoot();
+      final long pathNodeKey = pathSummaryWriter.getPathNodeKey(new QNm(name), kind);
+      nodeReadOnlyTrx.setCurrentNode(node);
+      return pathNodeKey;
+    }
 
-    final long pathNodeKey = buildPathSummary ? pathSummaryWriter.getPathNodeKey(new QNm(name), kind) : 0;
-
-    nodeReadOnlyTrx.setCurrentNode(node);
-
-    return pathNodeKey;
+    return 0;
   }
 
   private void moveToParentObjectKeyArrayOrDocumentRoot() {
@@ -2562,7 +2563,8 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType,
+      PageTrx pageTrx) {
     return new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
   }
 

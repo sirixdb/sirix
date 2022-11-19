@@ -103,31 +103,6 @@ public final class JsonShredderTest {
     }
   }
 
-  // TODO: JMH test
-  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Disabled
-  @Test
-  public void testChicago() {
-    logger.info("start");
-    final var jsonPath = JSON.resolve("cityofchicago.json");
-    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      createResource(jsonPath, database);
-//      database.removeResource(JsonTestHelper.RESOURCE);
-//
-//      createResource(jsonPath, database);
-//      database.removeResource(JsonTestHelper.RESOURCE);
-//
-//      createResource(jsonPath, database);
-//      database.removeResource(JsonTestHelper.RESOURCE);
-//
-//      createResource(jsonPath, database);
-//      database.removeResource(JsonTestHelper.RESOURCE);
-//
-//      createResource(jsonPath, database);
-    }
-  }
-
   private void createResource(Path jsonPath, Database<JsonResourceSession> database) {
     var stopWatch = new StopWatch();
     stopWatch.start();
@@ -139,7 +114,7 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.IO_URING)
+                                                 .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -153,6 +128,31 @@ public final class JsonShredderTest {
   @Test
   public void testLarge() throws IOException {
     test("CVX.json");
+  }
+
+  // TODO: JMH test
+  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
+  @Disabled
+  @Test
+  public void testChicago() {
+    logger.info("start");
+    final var jsonPath = JSON.resolve("cityofchicago.json");
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      createResource(jsonPath, database);
+      //      database.removeResource(JsonTestHelper.RESOURCE);
+      //
+      //      createResource(jsonPath, database);
+      //      database.removeResource(JsonTestHelper.RESOURCE);
+      //
+      //      createResource(jsonPath, database);
+      //      database.removeResource(JsonTestHelper.RESOURCE);
+      //
+      //      createResource(jsonPath, database);
+      //      database.removeResource(JsonTestHelper.RESOURCE);
+      //
+      //      createResource(jsonPath, database);
+    }
   }
 
   @Test

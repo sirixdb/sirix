@@ -23,7 +23,6 @@ package org.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -64,7 +63,7 @@ public final class FileChannelReader implements Reader {
   /**
    * The hash function used to hash pages/page fragments.
    */
-  final HashFunction hashFunction;
+  final HashFunction hashFunction = Reader.hashFunction;
 
   /**
    * Data file channel.
@@ -98,7 +97,6 @@ public final class FileChannelReader implements Reader {
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    hashFunction = Hashing.sha256();
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     byteHandler = checkNotNull(handler);

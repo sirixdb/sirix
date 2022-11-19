@@ -23,7 +23,6 @@ package org.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
 import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -66,7 +65,7 @@ public final class IOUringReader implements Reader {
   /**
    * The hash function used to hash pages/page fragments.
    */
-  final HashFunction hashFunction;
+  final HashFunction hashFunction = Reader.hashFunction;
 
   /**
    * Data file.
@@ -100,7 +99,6 @@ public final class IOUringReader implements Reader {
   public IOUringReader(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final ByteHandler handler,
       final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    hashFunction = Hashing.sha256();
     this.dataFile = dataFile;
     this.revisionsOffsetFile = revisionsOffsetFile;
     byteHandler = checkNotNull(handler);

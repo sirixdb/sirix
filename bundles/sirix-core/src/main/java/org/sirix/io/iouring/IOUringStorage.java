@@ -47,10 +47,7 @@ public final class IOUringStorage implements IOStorage {
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
 
-  private static final EventExecutor eventExecutor =
-      EventExecutor.builder()
-              .entries(1024)
-              .build();
+  private static final EventExecutor eventExecutor = EventExecutor.builder().entries(1024).build();
 
   private AsyncFile dataFile;
 

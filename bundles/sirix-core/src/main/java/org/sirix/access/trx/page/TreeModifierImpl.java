@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, SirixDB
+ * Copyright (c) 2022, SirixDB
  *
  * All rights reserved.
  *
@@ -39,7 +39,7 @@ import org.sirix.page.UberPage;
 import org.sirix.settings.Constants;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
  */
 public final class TreeModifierImpl implements TreeModifier {
 
