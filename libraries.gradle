@@ -20,6 +20,7 @@ implLibraries = [
         brackit                     : 'io.sirix:brackit:0.3-SNAPSHOT',
         caffeine                    : 'com.github.ben-manes.caffeine:caffeine:2.8.1',
         snappyJava                  : 'org.xerial.snappy:snappy-java:1.1.8.4',
+        lz4                         : 'org.lz4:lz4-java:1.8.0',
         browniesCollections         : 'org.magicwerk:brownies-collections:0.9.14',
         tink                        : 'com.google.crypto.tink:tink:1.2.1',
         kotlinStdlib                : 'org.jetbrains.kotlin:kotlin-stdlib:1.3.61',

@@ -1661,16 +1661,20 @@ final class JsonNodeTrxImpl extends
     nodeHashing.adaptHashesWithAdd();
 
     // Get the path node key.
-    moveToParentObjectKeyArrayOrDocumentRoot();
-
     final long pathNodeKey;
 
-    if (isObjectKey()) {
-      pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
-    } else if (isArray()) {
-      pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
+    if (buildPathSummary) {
+      moveToParentObjectKeyArrayOrDocumentRoot();
+
+      if (isObjectKey()) {
+        pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
+      } else if (isArray()) {
+        pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
+      } else {
+        pathNodeKey = -1;
+      }
     } else {
-      pathNodeKey = -1;
+      pathNodeKey = 0;
     }
 
     nodeReadOnlyTrx.setCurrentNode(node);

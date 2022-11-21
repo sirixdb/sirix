@@ -188,12 +188,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     page = resourceBufferManager.getPageCache().get(reference);
-    if (trxIntentLog == null) {
-      // Putting to the transaction log afterwards would otherwise render the cached entry invalid
-      // as the reference log key is set and the key is reset to Constants.NULL_ID_LONG.
-      resourceBufferManager.getPageCache().remove(reference);
-    }
     if (page != null) {
+      if (trxIntentLog != null) {
+        // Putting to the transaction log afterwards would otherwise render the cached entry invalid
+        // as the reference log key is set and the key is reset to Constants.NULL_ID_LONG.
+        resourceBufferManager.getPageCache().remove(reference);
+      }
       reference.setPage(page);
       return page;
     }
@@ -514,8 +514,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final var pageFragments = pageReference.getPageFragments();
 
-    final KeyValuePage<DataRecord> page = (KeyValuePage<DataRecord>) pageReader.read(pageReference, this);
+    KeyValuePage<DataRecord> page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReference);
+    if (page == null) {
+      page = (KeyValuePage<DataRecord>) pageReader.read(pageReference, this);
+      resourceBufferManager.getPageCache().put(pageReference, page);
+    }
     pages.add(page);
+
 
     if (pageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
       return pages;
@@ -538,11 +543,22 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
+    final var pageReference = new PageReference().setKey(pageFragmentKey.key());
+    final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
+    if (pageFromBufferManager != null) {
+      return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
+    }
     final var pageReadOnlyTrx = resourceSession.beginPageReadOnlyTrx(pageFragmentKey.revision());
     return (CompletableFuture<KeyValuePage<DataRecord>>) pageReadOnlyTrx.getReader()
                                                                         .readAsync(new PageReference().setKey(
                                                                             pageFragmentKey.key()), pageReadOnlyTrx)
-                                                                        .whenComplete((page, exception) -> pageReadOnlyTrx.close());
+                                                                        .whenComplete((page, exception) -> {
+                                                                          resourceBufferManager.getPageCache()
+                                                                                               .put(new PageReference().setKey(
+                                                                                                        pageFragmentKey.key()),
+                                                                                                    page);
+                                                                          pageReadOnlyTrx.close();
+                                                                        });
   }
 
   static CompletableFuture<List<KeyValuePage<DataRecord>>> sequence(
@@ -588,23 +604,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   @Override
   public IndirectPage dereferenceIndirectPageReference(final PageReference reference) {
-//    IndirectPage page = (IndirectPage) reference.getPage();
-//    if (page != null) {
-//      return page;
-//    }
-//
-//    if (trxIntentLog != null) {
-//      // Try to get it from the transaction log if it's present.
-//      final PageContainer cont = trxIntentLog.get(reference, this);
-//      page = cont == null ? null : (IndirectPage) cont.getComplete();
-//    }
-//
-//    if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
-//        || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-//      // Then try to get it from the page cache which might read it from the persistent storage on a cache miss.
-//      page = (IndirectPage) loadPage(reference);
-//    }
-
     return (IndirectPage) loadPage(reference);
   }
 

@@ -221,9 +221,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       assert setBit >= 0;
       final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
       final int dataSize = in.readInt();
-      final byte[] data = new byte[dataSize];
-      in.read(data);
-      BytesUtils.doWrite(byteBufferBytes, data);
+      in.read(byteBufferBytes, dataSize);
       final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, null, pageReadOnlyTrx);
       byteBufferBytes.clear();
       final var offset = PageReadOnlyTrx.recordPageOffset(key);

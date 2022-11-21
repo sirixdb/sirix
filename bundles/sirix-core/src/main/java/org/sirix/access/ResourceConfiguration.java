@@ -690,7 +690,7 @@ public final class ResourceConfiguration {
       this.resource = checkNotNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
+      byteHandler = new ByteHandlePipeline(new SnappyCompressor());//new LZ4Compressor()); // new Encryptor(path));
     }
 
     /**

@@ -17,6 +17,7 @@ dependencies {
     api implLibraries.fastUtil
     api implLibraries.amazonCorettoCryptoProvider
     api implLibraries.iouring
+    api implLibraries.lz4
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections

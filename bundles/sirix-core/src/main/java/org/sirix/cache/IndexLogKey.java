@@ -73,7 +73,7 @@ public final class IndexLogKey {
     if (obj == null || obj.getClass() != this.getClass())
       return false;
     var that = (IndexLogKey) obj;
-    return Objects.equals(this.indexType, that.indexType) && this.recordPageKey == that.recordPageKey
+    return this.indexType == that.indexType && this.recordPageKey == that.recordPageKey
         && this.indexNumber == that.indexNumber && this.revisionNumber == that.revisionNumber;
   }
 

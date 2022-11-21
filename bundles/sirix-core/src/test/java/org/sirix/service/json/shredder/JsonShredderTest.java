@@ -37,7 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public final class JsonShredderTest {
 
-  /** {@link LogWrapper} reference. */
+  /**
+   * {@link LogWrapper} reference.
+   */
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(JsonShredder.class));
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
@@ -81,7 +83,7 @@ public final class JsonShredderTest {
         count++;
       }
 
-      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)  + " s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
 
       stopWatch = new StopWatch();
       stopWatch.start();
@@ -101,33 +103,6 @@ public final class JsonShredderTest {
 
       logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
     }
-  }
-
-  private void createResource(Path jsonPath, Database<JsonResourceSession> database) {
-    var stopWatch = new StopWatch();
-    stopWatch.start();
-    database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                 .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                 .buildPathSummary(true)
-                                                 .storeDiffs(true)
-                                                 .storeNodeHistory(false)
-                                                 .storeChildCount(true)
-                                                 .hashKind(HashType.ROLLING)
-                                                 .useTextCompression(false)
-                                                 .storageType(StorageType.FILE_CHANNEL)
-                                                 .useDeweyIDs(false)
-                                                 .build());
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx(262_144 << 1)) {
-      trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
-    }
-
-    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
-  }
-
-  @Test
-  public void testLarge() throws IOException {
-    test("CVX.json");
   }
 
   // TODO: JMH test
@@ -153,6 +128,34 @@ public final class JsonShredderTest {
       //
       //      createResource(jsonPath, database);
     }
+  }
+
+  private void createResource(Path jsonPath, Database<JsonResourceSession> database) {
+    var stopWatch = new StopWatch();
+    stopWatch.start();
+    database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                 .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                 .buildPathSummary(true)
+                                                 .storeDiffs(true)
+                                                 .storeNodeHistory(false)
+                                                 .storeChildCount(true)
+                                                 .hashKind(HashType.ROLLING)
+                                                 .useTextCompression(false)
+                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .useDeweyIDs(false)
+                                              //   .byteHandlerPipeline(new ByteHandlePipeline(new LZ4Compressor()))
+                                                 .build());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx(262_144 << 1)) {
+      trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+    }
+
+    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+  }
+
+  @Test
+  public void testLarge() throws IOException {
+    test("CVX.json");
   }
 
   @Test

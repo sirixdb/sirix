@@ -446,7 +446,8 @@ public enum NodeKind implements NodePersistenter {
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
       final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
-      final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, null, 0, revisionNumber, (SirixDeweyID) null);
+      final NodeDelegate delegate =
+          new NodeDelegate(recordID, 0, hashFunction, null, 0, revisionNumber, (SirixDeweyID) null);
       return new DeletedNode(delegate);
     }
 
@@ -1758,7 +1759,13 @@ public enum NodeKind implements NodePersistenter {
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
     final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
-    return new NodeDelegate(recordID, parentKey, hashFunction, null, previousRevision, lastModifiedRevision, (SirixDeweyID) null);
+    return new NodeDelegate(recordID,
+                            parentKey,
+                            hashFunction,
+                            null,
+                            previousRevision,
+                            lastModifiedRevision,
+                            (SirixDeweyID) null);
   }
 
   private static NodeDelegate deserializeNodeDelegate(final BytesIn<ByteBuffer> source,
@@ -1841,8 +1848,15 @@ public enum NodeKind implements NodePersistenter {
       descendantCount = getVarLong(source) + childCount;
     }
 
-    if (isJsonNode)
-      return new StructNodeDelegate(nodeDel, firstChild, lastChild, rightSibling, leftSibling, childCount, descendantCount);
+    if (isJsonNode) {
+      return new StructNodeDelegate(nodeDel,
+                                    firstChild,
+                                    lastChild,
+                                    rightSibling,
+                                    leftSibling,
+                                    childCount,
+                                    descendantCount);
+    }
 
     return new StructNodeDelegate(nodeDel, firstChild, rightSibling, leftSibling, childCount, descendantCount);
   }

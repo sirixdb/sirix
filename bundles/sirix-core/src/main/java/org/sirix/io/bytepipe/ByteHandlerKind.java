@@ -27,6 +27,10 @@
  */
 package org.sirix.io.bytepipe;
 
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -34,9 +38,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -58,6 +59,18 @@ public enum ByteHandlerKind {
     @Override
     public ByteHandler deserialize(JsonReader reader) {
       return callDefaultConstructor(reader, SnappyCompressor.class.getName());
+    }
+
+    @Override
+    public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
+      serializeDefaultConstructor(byteHandler, writer);
+    }
+  },
+
+  LZ4_COMPRESSOR(LZ4Compressor.class) {
+    @Override
+    public ByteHandler deserialize(JsonReader reader) {
+      return callDefaultConstructor(reader, LZ4Compressor.class.getName());
     }
 
     @Override
