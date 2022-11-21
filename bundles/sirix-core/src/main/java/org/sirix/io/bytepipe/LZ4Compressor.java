@@ -1,7 +1,7 @@
 package org.sirix.io.bytepipe;
 
-import org.xerial.snappy.SnappyInputStream;
-import org.xerial.snappy.SnappyOutputStream;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,22 +9,26 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 
 /**
- * Snappy compression/decompression.
+ * LZ4 compression/decompression.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class SnappyCompressor implements ByteHandler {
+public final class LZ4Compressor implements ByteHandler {
 
   @Override
   public OutputStream serialize(final OutputStream toSerialize) {
-    return new SnappyOutputStream(toSerialize);
+    try {
+      return new LZ4FrameOutputStream(toSerialize);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
   public InputStream deserialize(final InputStream toDeserialize) {
     try {
-      return new SnappyInputStream(toDeserialize);
+      return new LZ4FrameInputStream(toDeserialize);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -32,6 +36,6 @@ public final class SnappyCompressor implements ByteHandler {
 
   @Override
   public ByteHandler getInstance() {
-    return new SnappyCompressor();
+    return new LZ4Compressor();
   }
 }

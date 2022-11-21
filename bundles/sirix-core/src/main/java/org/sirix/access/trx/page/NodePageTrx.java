@@ -34,7 +34,6 @@ import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.BufferManager;
-import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
@@ -133,7 +132,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private final boolean isBoundToNodeTrx;
 
-  private record IndexLogKeyToPageContainer(IndexLogKey indexLogKey, PageContainer pageContainer) {
+  private record IndexLogKeyToPageContainer(IndexType indexType, long recordPageKey, @NonNegative int indexNumber,
+                                            @NonNegative int revisionNumber, PageContainer pageContainer) {
   }
 
   /**
@@ -172,7 +172,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
     this.bufferManager = checkNotNull(bufferManager);
-    mostRecentPageContainer = new IndexLogKeyToPageContainer(new IndexLogKey(IndexType.DOCUMENT, -1, -1, -1), null);
+    mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = mostRecentPageContainer;
   }
 
@@ -495,8 +495,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   private PageContainer getMostRecentPageContainer(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
-    var indexLogKey = new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
-    PageContainer pageContainer = getMostRecentPageContainer(indexLogKey);
+    PageContainer pageContainer =
+        getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
 
     if (pageContainer != null) {
       return pageContainer;
@@ -508,11 +508,17 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Nullable
-  private PageContainer getMostRecentPageContainer(IndexLogKey indexLogKey) {
+  private PageContainer getMostRecentPageContainer(IndexType indexType, long recordPageKey,
+      @NonNegative int indexNumber, @NonNegative int revisionNumber) {
     var pageContainer =
-        mostRecentPageContainer.indexLogKey.equals(indexLogKey) ? mostRecentPageContainer.pageContainer : null;
+        (mostRecentPageContainer.indexType == indexType && mostRecentPageContainer.recordPageKey == recordPageKey
+            && mostRecentPageContainer.indexNumber == indexNumber
+            && mostRecentPageContainer.revisionNumber == revisionNumber) ? mostRecentPageContainer.pageContainer : null;
     if (pageContainer == null) {
-      pageContainer = secondMostRecentPageContainer.indexLogKey.equals(indexLogKey)
+      pageContainer = (secondMostRecentPageContainer.indexType == indexType
+          && secondMostRecentPageContainer.recordPageKey == recordPageKey
+          && secondMostRecentPageContainer.indexNumber == indexNumber
+          && secondMostRecentPageContainer.revisionNumber == revisionNumber)
           ? secondMostRecentPageContainer.pageContainer
           : null;
     }
@@ -533,8 +539,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     assert recordPageKey >= 0;
     assert indexType != null;
 
-    var indexLogKey = new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
-    PageContainer pageContainer = getMostRecentPageContainer(indexLogKey);
+    PageContainer pageContainer =
+        getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
 
     if (pageContainer != null) {
       return pageContainer;
@@ -574,7 +580,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     secondMostRecentPageContainer = mostRecentPageContainer;
-    mostRecentPageContainer = new IndexLogKeyToPageContainer(indexLogKey, pageContainer);
+    mostRecentPageContainer = new IndexLogKeyToPageContainer(indexType,
+                                                             recordPageKey,
+                                                             indexNumber,
+                                                             newRevisionRootPage.getRevision(),
+                                                             pageContainer);
 
     return pageContainer;
   }

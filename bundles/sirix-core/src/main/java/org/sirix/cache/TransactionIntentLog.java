@@ -137,7 +137,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     map.remove(key);
 
     key.setKey(Constants.NULL_ID_LONG);
-    key.setPage(null);
+    key.setPage(value.getModified());
     key.setLogKey(logKey++);
     key.setPersistentLogKey(Constants.NULL_ID_LONG);
     map.put(key, value);

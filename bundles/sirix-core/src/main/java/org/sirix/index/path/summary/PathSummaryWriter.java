@@ -155,8 +155,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                                        new PathKindFilter(pathSummaryReader, pathKind));
     long retVal;
     if (axis.hasNext()) {
-      axis.nextLong();
-      retVal = pathSummaryReader.getNodeKey();
+      retVal = axis.nextLong();
       final PathNode pathNode = pageTrx.prepareRecordForModification(retVal, IndexType.PATH_SUMMARY, 0);
       pathNode.incrementReferenceCount();
       pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
