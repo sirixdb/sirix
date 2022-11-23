@@ -17,8 +17,6 @@ import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.xml.XmlPCRCollector;
 import org.sirix.index.path.xml.XmlPathIndexImpl;
-import org.sirix.node.interfaces.DataRecord;
-import org.sirix.page.UnorderedKeyValuePage;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -29,21 +27,6 @@ import java.util.Set;
  * @author Johannes Lichtenberger
  */
 public final class XmlIndexController extends AbstractIndexController<XmlNodeReadOnlyTrx, XmlNodeTrx> {
-
-  /**
-   * Type of change.
-   */
-  public enum ChangeType {
-    /**
-     * Insertion.
-     */
-    INSERT,
-
-    /**
-     * Deletion.
-     */
-    DELETE
-  }
 
   /**
    * Constructor.

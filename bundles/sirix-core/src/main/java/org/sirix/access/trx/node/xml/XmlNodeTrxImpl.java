@@ -26,7 +26,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.trx.node.*;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.Movement;
 import org.sirix.api.PageTrx;

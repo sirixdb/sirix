@@ -31,8 +31,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.*;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -776,7 +776,7 @@ final class JsonNodeTrxImpl extends
 
       nodeReadOnlyTrx.setCurrentNode(node);
 
-      indexController.notifyChange(ChangeType.INSERT, node, pathNodeKey);
+      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       insertValue(value);
 

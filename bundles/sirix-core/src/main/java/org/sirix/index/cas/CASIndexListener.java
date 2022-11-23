@@ -4,7 +4,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;
