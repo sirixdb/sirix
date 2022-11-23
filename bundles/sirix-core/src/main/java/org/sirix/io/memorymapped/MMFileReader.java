@@ -23,24 +23,24 @@ package org.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.BytesUtils;
+import org.sirix.io.AbstractReader;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.*;
+import org.sirix.page.PagePersister;
+import org.sirix.page.PageReference;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.time.Instant;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -50,31 +50,17 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @author Johannes Lichtenberger
  */
-public final class MMFileReader implements Reader {
+public final class MMFileReader extends AbstractReader {
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
   static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
   static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG;
 
   /**
-   * Inflater to decompress.
-   */
-  final ByteHandler byteHandler;
-
-  /**
    * The hash function used to hash pages/page fragments.
    */
   final HashFunction hashFunction = Reader.hashFunction;
 
-  /**
-   * The type of data to serialize.
-   */
-  private final SerializationType type;
-
-  /**
-   * Used to serialize/deserialize pages.
-   */
-  private final PagePersister pagePersitenter;
   private final MemorySegment dataFileSegment;
 
   private final MemorySegment revisionsOffsetFileSegment;
@@ -89,9 +75,7 @@ public final class MMFileReader implements Reader {
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    this.byteHandler = checkNotNull(byteHandler);
-    this.type = checkNotNull(type);
-    this.pagePersitenter = checkNotNull(pagePersistenter);
+    super(byteHandler, pagePersistenter, type);
     this.dataFileSegment = checkNotNull(dataFileSegment);
     this.revisionsOffsetFileSegment = checkNotNull(revisionFileSegment);
     this.cache = checkNotNull(cache);
@@ -131,15 +115,6 @@ public final class MMFileReader implements Reader {
   }
 
   @Override
-  public PageReference readUberPageReference() {
-    final PageReference uberPageReference = new PageReference();
-    uberPageReference.setKey(0);
-    final UberPage page = (UberPage) read(uberPageReference, null);
-    uberPageReference.setPage(page);
-    return uberPageReference;
-  }
-
-  @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
@@ -168,16 +143,6 @@ public final class MMFileReader implements Reader {
     final var timestamp =
         Instant.ofEpochMilli(revisionsOffsetFileSegment.get(LAYOUT_LONG, fileOffset + LAYOUT_LONG.byteSize()));
     return new RevisionFileData(revisionOffset, timestamp);
-  }
-
-  private Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
-    // perform byte operations
-    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
-    BytesUtils.doWrite(input, inputStream.readAllBytes());
-    final var deserializedPage = pagePersitenter.deserializePage(pageReadTrx, input, type);
-    input.clear();
-    return deserializedPage;
   }
 
   @Override

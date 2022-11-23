@@ -186,7 +186,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       final byte[] serializedPage;
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
-           final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
+           final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
         dataOutput.write(byteArray);
         dataOutput.flush();
         serializedPage = output.toByteArray();
