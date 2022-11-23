@@ -23,13 +23,11 @@ package org.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.BytesUtils;
+import org.sirix.io.AbstractReader;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
@@ -37,14 +35,11 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
@@ -53,12 +48,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public final class FileChannelReader implements Reader {
-
-  /**
-   * Inflater to decompress.
-   */
-  final ByteHandler byteHandler;
+public final class FileChannelReader extends AbstractReader {
 
   /**
    * The hash function used to hash pages/page fragments.
@@ -75,16 +65,6 @@ public final class FileChannelReader implements Reader {
    */
   private final FileChannel revisionsOffsetFileChannel;
 
-  /**
-   * The type of data to serialize.
-   */
-  private final SerializationType type;
-
-  /**
-   * Used to serialize/deserialze pages.
-   */
-  private final PagePersister pagePersiter;
-
   private final Cache<Integer, RevisionFileData> cache;
 
   /**
@@ -97,11 +77,9 @@ public final class FileChannelReader implements Reader {
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
+    super (handler, pagePersistenter, type);
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
-    byteHandler = checkNotNull(handler);
-    this.type = checkNotNull(type);
-    pagePersiter = checkNotNull(pagePersistenter);
     this.cache = cache;
   }
 
@@ -134,7 +112,7 @@ public final class FileChannelReader implements Reader {
       final byte[] page = buffer.array();
 
       // Perform byte operations.
-      return getPage(pageReadTrx, page);
+      return deserialize(pageReadTrx, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -166,20 +144,10 @@ public final class FileChannelReader implements Reader {
       buffer.get(page);
 
       // Perform byte operations.
-      return (RevisionRootPage) getPage(pageReadTrx, page);
+      return (RevisionRootPage) deserialize(pageReadTrx, page);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
-  }
-
-  @NotNull
-  private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
-    final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
-    BytesUtils.doWrite(input, inputStream.readAllBytes());
-    final var deserializedPage = pagePersiter.deserializePage(pageReadTrx, input, type);
-    input.clear();
-    return deserializedPage;
   }
 
   @Override

@@ -104,6 +104,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void notifyChange(final ChangeType type, @NonNull final ImmutableNode node, final long pathNodeKey) {
+    if (listeners.isEmpty()) {
+      return;
+    }
     for (final ChangeListener listener : listeners) {
       listener.listen(type, node, pathNodeKey);
     }
