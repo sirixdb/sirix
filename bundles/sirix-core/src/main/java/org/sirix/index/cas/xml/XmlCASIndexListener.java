@@ -1,7 +1,7 @@
 package org.sirix.index.cas.xml;
 
 import org.brackit.xquery.atomic.Str;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.cas.CASIndexListener;
 import org.sirix.node.interfaces.ValueNode;

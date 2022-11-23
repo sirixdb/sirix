@@ -6,11 +6,10 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.*;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.*;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.cas.CASIndex;
@@ -20,9 +19,9 @@ import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.Collections;
@@ -34,6 +33,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
+
   /**
    * The index types.
    */

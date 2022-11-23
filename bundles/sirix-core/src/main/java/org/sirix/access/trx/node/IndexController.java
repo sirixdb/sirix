@@ -8,7 +8,6 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.node.Node;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.xml.XmlIndexController;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.*;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
@@ -18,12 +17,12 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.Indexes;
 import org.sirix.index.SearchMode;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.cas.CASFilter;
+import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.name.NameFilter;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
+import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 import java.io.FileInputStream;
@@ -36,6 +35,21 @@ import java.util.Set;
 
 
 public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
+
+  /**
+   * Type of change.
+   */
+  enum ChangeType {
+    /**
+     * Insertion.
+     */
+    INSERT,
+
+    /**
+     * Deletion.
+     */
+    DELETE
+  }
 
   /**
    * Determines if an index of the specified type is available.

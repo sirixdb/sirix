@@ -2,7 +2,7 @@ package org.sirix.index.name.json;
 
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.name.NameIndexListener;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
