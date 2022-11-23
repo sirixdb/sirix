@@ -98,8 +98,7 @@ public final class MMFileReader implements Reader {
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference,
-      final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       long offset;
 

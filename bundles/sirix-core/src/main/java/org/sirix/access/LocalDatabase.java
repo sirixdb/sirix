@@ -59,7 +59,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private volatile boolean isClosed;
 
   /**
-   * Buffers / page cache for each resource.
+   * Buffer managers / page cache for each resource.
    */
   private static final ConcurrentMap<Path, BufferManager> BUFFER_MANAGERS = new ConcurrentHashMap<>();
 
@@ -120,9 +120,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
     if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
-      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(100, 50, 150, 50_000_000));
+      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(100, 10_000, 100_000, 50_000_000));
     } else {
-      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(5_000, 1_000, 1_000, 50_000_000));
+      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(50_000, 10_000, 100_000, 50_000_000));
     }
   }
 

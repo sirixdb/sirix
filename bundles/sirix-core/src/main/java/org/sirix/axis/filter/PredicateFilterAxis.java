@@ -21,11 +21,12 @@
 
 package org.sirix.axis.filter;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -93,7 +94,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
    */
   private boolean isBooleanFalse() {
     if (getTrx() instanceof XmlNodeReadOnlyTrx) {
-      final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+      final XmlNodeReadOnlyTrx rtx = asXmlNodeReadTrx();
       if (rtx.getNodeKey() >= 0) {
         return false;
       } else { // is AtomicValue

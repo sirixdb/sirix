@@ -21,10 +21,11 @@
 
 package org.sirix.axis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.settings.Fixed;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -53,7 +54,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
    * @param parentAxis inner nested axis
    */
   public NonStructuralWrapperAxis(final Axis parentAxis) {
-    super(parentAxis.asXdmNodeReadTrx());
+    super(parentAxis.asXmlNodeReadTrx());
     mParentAxis = checkNotNull(parentAxis);
   }
 
@@ -70,7 +71,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XmlNodeReadOnlyTrx trx = mParentAxis.asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx trx = mParentAxis.asXmlNodeReadTrx();
     if (mParentAxis.includeSelf() == IncludeSelf.NO || !mFirst) {
       final long nodeKey = nonStructural(trx);
       if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {

@@ -96,16 +96,16 @@ public class ExceptAxis extends AbstractAxis {
     // first all items of the second operand are stored in the set.
     while (mOp2.hasNext()) {
       key = mOp2.next();
-      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
+      if (asXmlNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
-      mDupSet.add(asXdmNodeReadTrx().getNodeKey());
+      mDupSet.add(asXmlNodeReadTrx().getNodeKey());
     }
 
     while (mOp1.hasNext()) {
       key = mOp1.next();
-      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
+      if (asXmlNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -114,7 +114,7 @@ public class ExceptAxis extends AbstractAxis {
       // it is
       // not also an item of the result set of the second operand
       // sequence.
-      if (mDupSet.add(asXdmNodeReadTrx().getNodeKey())) {
+      if (mDupSet.add(asXmlNodeReadTrx().getNodeKey())) {
         return true;
       }
     }

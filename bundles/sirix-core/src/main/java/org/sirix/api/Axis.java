@@ -8,7 +8,6 @@ import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
-import com.google.common.collect.PeekingIterator;
 
 /**
  * Interface for all axis, excluding temporal XPath axis.
@@ -29,7 +28,7 @@ public interface Axis extends LongIterable, LongIterator, SirixAxis {
    * @return the transaction
    * @throws ClassCastException if the node cursor is no {@link XmlNodeReadOnlyTrx}
    */
-  XmlNodeReadOnlyTrx asXdmNodeReadTrx();
+  XmlNodeReadOnlyTrx asXmlNodeReadTrx();
 
   /**
    * Foreach-iterator calling a {@link org.sirix.api.visitor.NodeVisitor} for each iteration.

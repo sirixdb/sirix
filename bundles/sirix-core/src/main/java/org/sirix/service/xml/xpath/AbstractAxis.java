@@ -202,7 +202,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public XmlNodeReadOnlyTrx asXdmNodeReadTrx() {
+  public XmlNodeReadOnlyTrx asXmlNodeReadTrx() {
     if (rtx instanceof XmlNodeReadOnlyTrx rtx) {
       return rtx;
     }

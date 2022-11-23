@@ -164,14 +164,14 @@ public final class Matching {
       if (rtxOld.getKind() == NodeKind.ELEMENT) {
         for (int i = 0, nspCount = rtxOld.getNamespaceCount(); i < nspCount; i++) {
           rtxOld.moveToNamespace(i);
-          retVal += isInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))
+          retVal += isInSubtree.get(nodeY, partner(axis.asXmlNodeReadTrx().getNodeKey()))
               ? 1
               : 0;
           rtxOld.moveToParent();
         }
         for (int i = 0, attCount = rtxOld.getAttributeCount(); i < attCount; i++) {
           rtxOld.moveToAttribute(i);
-          retVal += isInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))
+          retVal += isInSubtree.get(nodeY, partner(axis.asXmlNodeReadTrx().getNodeKey()))
               ? 1
               : 0;
           rtxOld.moveToParent();

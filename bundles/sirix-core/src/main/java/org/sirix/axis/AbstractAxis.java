@@ -21,11 +21,7 @@
 
 package org.sirix.axis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
-
-import java.util.NoSuchElementException;
-
+import com.google.common.base.MoreObjects;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.Axis;
@@ -36,13 +32,18 @@ import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
-import com.google.common.base.MoreObjects;
+
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced for loop available
  * since Java 5.
- *
+ * </p>
+ * <p>
  * Override the "template method" {@code nextKey()} to implement an axis. Return {@code done()} if
  * the axis has no more "elements".
  * </p>
@@ -253,7 +254,7 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public XmlNodeReadOnlyTrx asXdmNodeReadTrx() {
+  public XmlNodeReadOnlyTrx asXmlNodeReadTrx() {
     if (nodeCursor instanceof XmlNodeReadOnlyTrx) {
       return (XmlNodeReadOnlyTrx) nodeCursor;
     }

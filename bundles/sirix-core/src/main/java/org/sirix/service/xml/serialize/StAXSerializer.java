@@ -21,20 +21,6 @@
 
 package org.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLEventFactory;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.events.Attribute;
-import javax.xml.stream.events.Namespace;
-import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -44,6 +30,22 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.node.NodeKind;
 import org.sirix.utils.XMLToken;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.Attribute;
+import javax.xml.stream.events.Namespace;
+import javax.xml.stream.events.XMLEvent;
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  *
@@ -193,13 +195,13 @@ public final class StAXSerializer implements XMLEventReader {
   @Override
   public void close() throws XMLStreamException {
     if (mCloseRtx) {
-      mAxis.asXdmNodeReadTrx().close();
+      mAxis.asXmlNodeReadTrx().close();
     }
   }
 
   @Override
   public String getElementText() throws XMLStreamException {
-    final XmlNodeReadOnlyTrx rtx = mAxis.asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = mAxis.asXmlNodeReadTrx();
     final long nodeKey = rtx.getNodeKey();
 
     /*
@@ -265,7 +267,7 @@ public final class StAXSerializer implements XMLEventReader {
         mKey = mAxis.next();
 
         if (mNextTag) {
-          if (mAxis.asXdmNodeReadTrx().getKind() != NodeKind.ELEMENT) {
+          if (mAxis.asXmlNodeReadTrx().getKind() != NodeKind.ELEMENT) {
             throw new XMLStreamException("The next tag isn't a start- or end-tag!");
           }
           mNextTag = false;
@@ -275,7 +277,7 @@ public final class StAXSerializer implements XMLEventReader {
         mEmitEndDocument = false;
         mEvent = mFac.createEndDocument();
       } else {
-        emit(mAxis.asXdmNodeReadTrx());
+        emit(mAxis.asXmlNodeReadTrx());
       }
     } catch (final IOException e) {
       throw new IllegalStateException(e);
@@ -293,8 +295,8 @@ public final class StAXSerializer implements XMLEventReader {
 
   @Override
   public XMLEvent peek() throws XMLStreamException {
-    final long currNodeKey = mAxis.asXdmNodeReadTrx().getNodeKey();
-    final XmlNodeReadOnlyTrx rtx = mAxis.asXdmNodeReadTrx();
+    final long currNodeKey = mAxis.asXmlNodeReadTrx().getNodeKey();
+    final XmlNodeReadOnlyTrx rtx = mAxis.asXmlNodeReadTrx();
 
     if (!mHasNext && mEmitEndDocument) {
       mEvent = mFac.createEndDocument();
@@ -366,12 +368,12 @@ public final class StAXSerializer implements XMLEventReader {
     assert nodeKind != null;
     switch (nodeKind) {
       case ELEMENT:
-        emitEndTag(mAxis.asXdmNodeReadTrx());
+        emitEndTag(mAxis.asXmlNodeReadTrx());
         break;
       case PROCESSING_INSTRUCTION:
       case COMMENT:
       case TEXT:
-        emitNode(mAxis.asXdmNodeReadTrx());
+        emitNode(mAxis.asXmlNodeReadTrx());
         break;
       // $CASES-OMITTED$
       default:

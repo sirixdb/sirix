@@ -21,11 +21,12 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import java.util.Arrays;
-import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * <p>
@@ -92,7 +93,7 @@ public class SequenceAxis extends AbstractAxis {
       mCurrent = mSeq.get(mNum++);
 
       // mCurrent.getTransaction().moveTo(getTransaction().getKey());
-      mCurrent.reset(asXdmNodeReadTrx().getNodeKey());
+      mCurrent.reset(asXmlNodeReadTrx().getNodeKey());
       // mCurrent.resetToLastKey();
       if (mCurrent.hasNext()) {
         key = mCurrent.next();

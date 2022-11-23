@@ -21,13 +21,15 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.List;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
+
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -93,9 +95,9 @@ public class SomeExpr extends AbstractExpression {
       }
     }
 
-    final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
+    final int itemKey = asXmlNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-            asXdmNodeReadTrx().keyForName("xs:boolean")));
+                        asXmlNodeReadTrx().keyForName("xs:boolean")));
     key = itemKey;
 
   }

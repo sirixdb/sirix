@@ -39,13 +39,13 @@ public class Function {
     final FuncDef ebv = FuncDef.BOOLEAN;
     final List<Axis> param = new ArrayList<Axis>();
     param.add(axis);
-    final AbstractAxis bAxis = new FNBoolean(axis.asXdmNodeReadTrx(), param, ebv.getMin(), ebv.getMax(),
-        axis.asXdmNodeReadTrx().keyForName(ebv.getReturnType()));
+    final AbstractAxis bAxis = new FNBoolean(axis.asXmlNodeReadTrx(), param, ebv.getMin(), ebv.getMax(),
+                                             axis.asXmlNodeReadTrx().keyForName(ebv.getReturnType()));
     if (bAxis.hasNext()) {
       bAxis.next();
-      final boolean result = Boolean.parseBoolean(bAxis.asXdmNodeReadTrx().getValue());
+      final boolean result = Boolean.parseBoolean(bAxis.asXmlNodeReadTrx().getValue());
       if (!bAxis.hasNext()) {
-        bAxis.reset(axis.asXdmNodeReadTrx().getNodeKey());
+        bAxis.reset(axis.asXmlNodeReadTrx().getNodeKey());
 
         return result;
       }

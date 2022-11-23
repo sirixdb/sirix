@@ -103,7 +103,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
           try {
             final AtomicValue result = (AtomicValue) operate(mItem1, mItem2);
             // add retrieved AtomicValue to item list
-            final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
+            final int itemKey = asXmlNodeReadTrx().getItemList().addItem(result);
             key = itemKey;
 
             return true;
@@ -115,7 +115,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
 
       if (XPATH_10_COMP) { // and empty sequence, return NaN
         final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
-        final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
+        final int itemKey = asXmlNodeReadTrx().getItemList().addItem(result);
         key = itemKey;
         return true;
       }
@@ -135,7 +135,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
    */
   private AtomicValue atomize(final Axis mOperand) {
 
-    final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = asXmlNodeReadTrx();
     int type = rtx.getTypeKey();
     AtomicValue atom;
 
@@ -144,7 +144,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
           || type == rtx.keyForName("xs:boolean") || type == rtx.keyForName("xs:string")
           || type == rtx.keyForName("xs:integer") || type == rtx.keyForName("xs:float")
           || type == rtx.keyForName("xs:decimal")) {
-        Function.fnnumber(mOperand.asXdmNodeReadTrx());
+        Function.fnnumber(mOperand.asXmlNodeReadTrx());
       }
 
       atom = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());

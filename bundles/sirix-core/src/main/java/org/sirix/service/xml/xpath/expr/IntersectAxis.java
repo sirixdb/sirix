@@ -21,13 +21,14 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * <p>
@@ -93,18 +94,18 @@ public class IntersectAxis extends AbstractAxis {
     // store all item keys of the first sequence to the set.
     while (mOp1.hasNext()) {
       key = mOp1.next();
-      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
+      if (asXmlNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
 
-      mDupSet.add(asXdmNodeReadTrx().getNodeKey());
+      mDupSet.add(asXmlNodeReadTrx().getNodeKey());
     }
 
     while (mOp2.hasNext()) {
       key = mOp2.next();
 
-      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
+      if (asXmlNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -112,7 +113,7 @@ public class IntersectAxis extends AbstractAxis {
       // return true, if item key is already in the set -> item is
       // contained in
       // both input sequences.
-      if (!mDupSet.add(asXdmNodeReadTrx().getNodeKey())) {
+      if (!mDupSet.add(asXmlNodeReadTrx().getNodeKey())) {
         return true;
       }
     }

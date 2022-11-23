@@ -354,6 +354,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(this, reference, bufferBytes);
 
+    // Will only be used once the UberPage is written to durable storage.
+    bufferManager.getPageCache().put(reference, page);
+
     container.getComplete().clearPage();
     page.clearPage();
     page = null;
@@ -361,9 +364,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Remove page reference.
     reference.setPage(null);
-
-    // Will only be used once the UberPage is written to durable storage.
-    //bufferManager.getPageCache().put(reference, page);
   }
 
   @Override
@@ -426,6 +426,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       log.truncate();
+      System.gc();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {

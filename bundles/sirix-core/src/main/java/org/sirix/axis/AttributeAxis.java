@@ -54,12 +54,12 @@ public final class AttributeAxis extends AbstractAxis {
     // Move back to element, if there was already an attribute found. In
     // this case the current node was set to an attribute by resetToLastKey().
     if (mNextIndex > 0) {
-      assert asXdmNodeReadTrx().getKind() == NodeKind.ATTRIBUTE;
-      asXdmNodeReadTrx().moveToParent();
+      assert asXmlNodeReadTrx().getKind() == NodeKind.ATTRIBUTE;
+      asXmlNodeReadTrx().moveToParent();
     }
 
-    if (asXdmNodeReadTrx().getKind() == NodeKind.ELEMENT) {
-      final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) asXdmNodeReadTrx();
+    if (asXmlNodeReadTrx().getKind() == NodeKind.ELEMENT) {
+      final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) asXmlNodeReadTrx();
       if (mNextIndex < rtx.getAttributeCount()) {
         final long key = rtx.getAttributeKey(mNextIndex);
         mNextIndex += 1;

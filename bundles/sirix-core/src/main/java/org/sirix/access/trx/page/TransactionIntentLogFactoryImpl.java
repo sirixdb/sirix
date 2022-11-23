@@ -60,7 +60,7 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
                                        .resolve("intent-log");
 
     try {
-      if (Files.exists(logFile)) {
+      if (Files.exists(logFile) && Files.size(logFile) > 0) {
         Files.delete(logFile);
         Files.createFile(logFile);
       }

@@ -215,9 +215,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     for (final Axis axis =
         new LevelOrderAxis.Builder(rtx).includeSelf().includeNonStructuralNodes().build(); axis.hasNext();) {
       axis.nextLong();
-      final long nodeKey = axis.asXdmNodeReadTrx().getNodeKey();
+      final long nodeKey = axis.asXmlNodeReadTrx().getNodeKey();
       doFirstFSMEStep(wtx, rtx);
-      axis.asXdmNodeReadTrx().moveTo(nodeKey);
+      axis.asXmlNodeReadTrx().moveTo(nodeKey);
     }
   }
 
@@ -373,7 +373,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private static void markOutOfOrder(final XmlNodeReadOnlyTrx rtx, final Map<Long, Boolean> inOrder) {
     for (final AbstractAxis axis = new ChildAxis(rtx); axis.hasNext();) {
       axis.nextLong();
-      inOrder.put(axis.asXdmNodeReadTrx().getNodeKey(), false);
+      inOrder.put(axis.asXmlNodeReadTrx().getNodeKey(), false);
     }
   }
 
@@ -683,8 +683,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext(); ) {
             oldAxis.nextLong();
             newAxis.nextLong();
-            final XmlNodeReadOnlyTrx oldRtx = oldAxis.asXdmNodeReadTrx();
-            final XmlNodeReadOnlyTrx newRtx = newAxis.asXdmNodeReadTrx();
+            final XmlNodeReadOnlyTrx oldRtx = oldAxis.asXmlNodeReadTrx();
+            final XmlNodeReadOnlyTrx newRtx = newAxis.asXmlNodeReadTrx();
             process(oldRtx.getNodeKey(), newRtx.getNodeKey());
             final long newNodeKey = newRtx.getNodeKey();
             final long oldNodeKey = oldRtx.getNodeKey();
@@ -696,12 +696,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                   for (int j = 0, oldAttCount = oldRtx.getAttributeCount(); j < oldAttCount; j++) {
                     wtx.moveToAttribute(j);
                     if (wtx.getName().equals(rtx.getName())) {
-                      process(oldAxis.asXdmNodeReadTrx().getNodeKey(), newAxis.asXdmNodeReadTrx().getNodeKey());
+                      process(oldAxis.asXmlNodeReadTrx().getNodeKey(), newAxis.asXmlNodeReadTrx().getNodeKey());
                       break;
                     }
-                    oldAxis.asXdmNodeReadTrx().moveTo(oldNodeKey);
+                    oldAxis.asXmlNodeReadTrx().moveTo(oldNodeKey);
                   }
-                  newAxis.asXdmNodeReadTrx().moveTo(newNodeKey);
+                  newAxis.asXmlNodeReadTrx().moveTo(newNodeKey);
                 }
               }
               if (newRtx.getNamespaceCount() > 0) {
@@ -716,14 +716,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                       process(wtx.getNodeKey(), rtx.getNodeKey());
                       break;
                     }
-                    oldAxis.asXdmNodeReadTrx().moveTo(oldNodeKey);
+                    oldAxis.asXmlNodeReadTrx().moveTo(oldNodeKey);
                   }
-                  newAxis.asXdmNodeReadTrx().moveTo(newNodeKey);
+                  newAxis.asXmlNodeReadTrx().moveTo(newNodeKey);
                 }
               }
             }
 
-            newAxis.asXdmNodeReadTrx().moveTo(newNodeKey);
+            newAxis.asXmlNodeReadTrx().moveTo(newNodeKey);
           }
         }
       }
@@ -990,10 +990,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final long nodeKey = rtx.getNodeKey();
     for (final Axis axis = new PostOrderAxis(rtx); axis.hasNext();) {
       axis.nextLong();
-      if (axis.asXdmNodeReadTrx().getNodeKey() == nodeKey) {
+      if (axis.asXmlNodeReadTrx().getNodeKey() == nodeKey) {
         break;
       }
-      axis.asXdmNodeReadTrx().acceptVisitor(visitor);
+      axis.asXmlNodeReadTrx().acceptVisitor(visitor);
     }
     rtx.acceptVisitor(visitor);
   }
@@ -1013,10 +1013,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final long nodeKey = rtx.getNodeKey();
     for (final var axis = new PostOrderAxis(rtx); axis.hasNext();) {
       axis.nextLong();
-      if (axis.asXdmNodeReadTrx().getNodeKey() == nodeKey) {
+      if (axis.asXmlNodeReadTrx().getNodeKey() == nodeKey) {
         break;
       }
-      axis.asXdmNodeReadTrx().acceptVisitor(visitor);
+      axis.asXmlNodeReadTrx().acceptVisitor(visitor);
     }
     rtx.acceptVisitor(visitor);
   }

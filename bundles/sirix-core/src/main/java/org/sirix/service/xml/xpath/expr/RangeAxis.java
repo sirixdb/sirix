@@ -85,12 +85,12 @@ public class RangeAxis extends AbstractAxis {
 
     if (mFirst) {
       mFirst = false;
-      if (mFrom.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
-        mStart = Integer.parseInt(((XmlNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getValue());
+      if (mFrom.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mFrom.asXmlNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+        mStart = Integer.parseInt(((XmlNodeReadOnlyTrx) mFrom.asXmlNodeReadTrx()).getValue());
 
-        if (mTo.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+        if (mTo.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mTo.asXmlNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
 
-          mEnd = Integer.parseInt(((XmlNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getValue());
+          mEnd = Integer.parseInt(((XmlNodeReadOnlyTrx) mTo.asXmlNodeReadTrx()).getValue());
 
         } else {
           // at least one operand is the empty sequence
@@ -105,9 +105,9 @@ public class RangeAxis extends AbstractAxis {
     }
 
     if (mStart <= mEnd) {
-      final int itemKey = asXdmNodeReadTrx().getItemList()
-                                  .addItem(new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
-                                      asXdmNodeReadTrx().keyForName("xs:integer")));
+      final int itemKey = asXmlNodeReadTrx().getItemList()
+                                            .addItem(new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
+                                                                     asXmlNodeReadTrx().keyForName("xs:integer")));
       key = itemKey;
       mStart++;
       return true;

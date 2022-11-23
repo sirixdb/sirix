@@ -240,7 +240,7 @@ public final class LevelOrderAxis extends AbstractAxis {
   /** Process an element node. */
   private void processElement() {
     if (getCursor() instanceof XmlNodeReadOnlyTrx) {
-      final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+      final XmlNodeReadOnlyTrx rtx = asXmlNodeReadTrx();
       if (rtx.getKind() == NodeKind.ELEMENT && includeNodes == IncludeNodes.NONSTRUCTURAL) {
         for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
           rtx.moveToNamespace(i);
