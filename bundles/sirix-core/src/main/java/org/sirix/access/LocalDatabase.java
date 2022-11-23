@@ -27,7 +27,6 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -57,11 +56,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * Determines if the database instance is in the closed state or not.
    */
   private volatile boolean isClosed;
-
-  /**
-   * Buffer managers / page cache for each resource.
-   */
-  private static final ConcurrentMap<Path, BufferManager> BUFFER_MANAGERS = new ConcurrentHashMap<>();
 
   /**
    * Central repository of all resource-ID/resource-name tuples.
@@ -95,6 +89,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final WriteLocksRegistry writeLocks;
 
   /**
+   * The resource buffer managers.
+   */
+  private final ConcurrentMap<Path, BufferManager> bufferManagers;
+
+  /**
    * Constructor.
    *
    * @param transactionManager A manager for database transactions.
@@ -113,16 +112,16 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     this.resourceStore = resourceStore;
     this.resourceManagers = resourceManagers;
     this.writeLocks = writeLocks;
-    resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
-
+    this.resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
+    this.bufferManagers = Databases.getBufferManager(dbConfig.getDatabaseFile());
   }
 
   private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
     if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
-      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(100, 10_000, 100_000, 50_000_000));
+      bufferManagers.put(resourceFile, new BufferManagerImpl(100, 10_000, 100_000, 50_000_000));
     } else {
-      BUFFER_MANAGERS.put(resourceFile, new BufferManagerImpl(50_000, 10_000, 100_000, 50_000_000));
+      bufferManagers.put(resourceFile, new BufferManagerImpl(50_000, 10_000, 100_000, 50_000_000));
     }
   }
 
@@ -151,11 +150,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
     // Add resource to buffer manager mapping.
-    if (!BUFFER_MANAGERS.containsKey(resourcePath)) {
+    if (!bufferManagers.containsKey(resourcePath)) {
       addResourceToBufferManagerMapping(resourcePath, resourceConfig);
     }
 
-    return resourceStore.beginResourceSession(resourceConfig, BUFFER_MANAGERS.get(resourcePath), resourcePath);
+    return resourceStore.beginResourceSession(resourceConfig, bufferManagers.get(resourcePath), resourcePath);
   }
 
   @Override
@@ -223,7 +222,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       SirixFiles.recursiveRemove(resourceConfig.resourcePath);
     }
 
-    if (!BUFFER_MANAGERS.containsKey(path)) {
+    if (!bufferManagers.containsKey(path)) {
       addResourceToBufferManagerMapping(path, resourceConfig);
     }
 
@@ -284,7 +283,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       this.writeLocks.removeWriteLock(resourceFile);
 
-      BUFFER_MANAGERS.remove(resourceFile);
+      bufferManagers.remove(resourceFile);
 
       StorageType.CACHE_REPOSITORY.remove(resourceFile);
     }

@@ -215,7 +215,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
     final int normalEntrySize = in.readInt();
     var setBit = -1;
-    var byteBufferBytes = Bytes.elasticByteBuffer(25);
+    var byteBufferBytes = Bytes.elasticByteBuffer(50);
     for (int index = 0; index < normalEntrySize; index++) {
       setBit = entriesBitmap.nextSetBit(setBit + 1);
       assert setBit >= 0;

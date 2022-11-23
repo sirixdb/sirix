@@ -91,20 +91,19 @@ public class XmlResourceSessionTest {
   public void testNonExisting() {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    assertTrue(database == database2);
+    assertSame(database, database2);
   }
 
   @Test
   public void testInsertChild() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
-      assertNotNull(wtx.moveToDocumentRoot());
+      wtx.moveToDocumentRoot();
       assertEquals(NodeKind.XML_DOCUMENT, wtx.getKind());
 
-      assertNotNull(wtx.moveToFirstChild());
+      wtx.moveToFirstChild();
       assertEquals(NodeKind.ELEMENT, wtx.getKind());
-      assertEquals("p:a",
-          new StringBuilder(wtx.getName().getPrefix()).append(":").append(wtx.getName().getLocalName()).toString());
+      assertEquals("p:a", wtx.getName().getPrefix() + ":" + wtx.getName().getLocalName());
 
       wtx.rollback();
     }
@@ -216,7 +215,7 @@ public class XmlResourceSessionTest {
     wtx.close();
 
     final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    assertEquals(false, rtx.moveTo(14L));
+    assertFalse(rtx.moveTo(14L));
     rtx.close();
     rtx.close();
     holder.getResourceManager().close();
