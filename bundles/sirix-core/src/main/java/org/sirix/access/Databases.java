@@ -4,6 +4,7 @@ import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
 import org.sirix.api.*;
 import org.sirix.api.json.JsonResourceSession;
 import org.sirix.api.xml.XmlResourceSession;
+import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
@@ -18,6 +19,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -41,6 +44,11 @@ public final class Databases {
   static {
     com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
   }
+
+  /**
+   * Buffer managers / page cache for each resource.
+   */
+  private static final ConcurrentMap<Path, ConcurrentMap<Path, BufferManager>> BUFFER_MANAGERS = new ConcurrentHashMap<>();
 
   /**
    * DI component that manages the database.
@@ -163,6 +171,7 @@ public final class Databases {
         }
       }
 
+      BUFFER_MANAGERS.remove(dbFile);
       SirixFiles.recursiveRemove(dbFile);
     }
   }
@@ -274,5 +283,9 @@ public final class Databases {
    */
   public static synchronized boolean existsDatabase(final Path dbPath) {
     return Files.exists(dbPath) && DatabaseConfiguration.DatabasePaths.compareStructure(dbPath) == 0;
+  }
+
+  public static ConcurrentMap<Path, BufferManager> getBufferManager(Path databaseFile) {
+    return BUFFER_MANAGERS.computeIfAbsent(databaseFile, (unused) -> new ConcurrentHashMap<>());
   }
 }
