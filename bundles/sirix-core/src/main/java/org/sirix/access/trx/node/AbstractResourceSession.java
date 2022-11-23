@@ -49,7 +49,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -408,7 +407,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     // Make sure not to exceed available number of write transactions.
     try {
-      if (!writeLock.tryAcquire(20, TimeUnit.SECONDS)) {
+      if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
         throw new SirixUsageException(
             "No read-write transaction available, please close the running read-write transaction first.");
       }

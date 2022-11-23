@@ -103,23 +103,23 @@ public class FNString extends AbstractFunction {
   private String getStrValue() {
     final StringBuilder value = new StringBuilder();
 
-    if (asXdmNodeReadTrx().getNodeKey() >= 0) { // is node
-      if (asXdmNodeReadTrx().getKind() == NodeKind.ATTRIBUTE || asXdmNodeReadTrx().getKind() == NodeKind.TEXT) {
-        value.append(asXdmNodeReadTrx().getValue());
-      } else if (asXdmNodeReadTrx().getKind() == NodeKind.XML_DOCUMENT || asXdmNodeReadTrx().getKind() == NodeKind.ELEMENT) {
-        final Axis axis = new FilterAxis(new DescendantAxis(asXdmNodeReadTrx()), new TextFilter(asXdmNodeReadTrx()));
+    if (asXmlNodeReadTrx().getNodeKey() >= 0) { // is node
+      if (asXmlNodeReadTrx().getKind() == NodeKind.ATTRIBUTE || asXmlNodeReadTrx().getKind() == NodeKind.TEXT) {
+        value.append(asXmlNodeReadTrx().getValue());
+      } else if (asXmlNodeReadTrx().getKind() == NodeKind.XML_DOCUMENT || asXmlNodeReadTrx().getKind() == NodeKind.ELEMENT) {
+        final Axis axis = new FilterAxis(new DescendantAxis(asXmlNodeReadTrx()), new TextFilter(asXmlNodeReadTrx()));
         while (axis.hasNext()) {
           axis.next();
           if (value.length() > 0) {
             value.append(" ");
           }
-          value.append(asXdmNodeReadTrx().getValue());
+          value.append(asXmlNodeReadTrx().getValue());
         }
       } else {
         throw new IllegalStateException();
       }
     } else {
-      value.append(asXdmNodeReadTrx().getValue());
+      value.append(asXmlNodeReadTrx().getValue());
     }
 
     return value.toString();

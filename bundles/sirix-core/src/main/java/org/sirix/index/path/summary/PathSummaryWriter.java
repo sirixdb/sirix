@@ -171,8 +171,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Move path summary cursor to the path node which is references by the current node.
    */
   private void movePathSummary() {
-    if (nodeRtx.getKind() == NodeKind.OBJECT)
+    if (nodeRtx.getKind() == NodeKind.OBJECT) {
       nodeRtx.moveToParent();
+    }
 
     if (nodeRtx.getKind() == NodeKind.OBJECT_KEY) {
       pathSummaryReader.moveTo(((ImmutableObjectKeyNode) nodeRtx.getNode()).getPathNodeKey());

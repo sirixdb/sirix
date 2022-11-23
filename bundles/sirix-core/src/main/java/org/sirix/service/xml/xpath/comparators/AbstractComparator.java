@@ -40,13 +40,13 @@ public abstract class AbstractComparator extends AbstractAxis {
   private final CompKind mComp;
 
   /** First value of the comparison. */
-  private final Axis mOperand1;
+  private final Axis operand1;
 
   /** Second value of the comparison. */
-  private final Axis mOperand2;
+  private final Axis operand2;
 
   /** Is first evaluation? */
-  private boolean mIsFirst;
+  private boolean isFirst;
 
   /**
    * Constructor. Initializes the internal state.
@@ -60,21 +60,21 @@ public abstract class AbstractComparator extends AbstractAxis {
       final CompKind mComp) {
     super(mRtx);
     this.mComp = mComp;
-    this.mOperand1 = mOperand1;
-    this.mOperand2 = mOperand2;
-    mIsFirst = true;
+    this.operand1 = mOperand1;
+    this.operand2 = mOperand2;
+    isFirst = true;
   }
 
   @Override
   public final void reset(final long mNodeKey) {
     super.reset(mNodeKey);
-    mIsFirst = true;
-    if (mOperand1 != null) {
-      mOperand1.reset(mNodeKey);
+    isFirst = true;
+    if (operand1 != null) {
+      operand1.reset(mNodeKey);
     }
 
-    if (mOperand2 != null) {
-      mOperand2.reset(mNodeKey);
+    if (operand2 != null) {
+      operand2.reset(mNodeKey);
     }
   }
 
@@ -82,31 +82,31 @@ public abstract class AbstractComparator extends AbstractAxis {
   public final boolean hasNext() {
     resetToLastKey();
 
-    if (mIsFirst) {
-      mIsFirst = false;
+    if (isFirst) {
+      isFirst = false;
 
       // TODO: why?
-      if (!(mOperand1 instanceof LiteralExpr)) {
-        mOperand1.reset(asXdmNodeReadTrx().getNodeKey());
+      if (!(operand1 instanceof LiteralExpr)) {
+        operand1.reset(asXmlNodeReadTrx().getNodeKey());
       }
 
       // TODO: why?
-      if (!(mOperand2 instanceof LiteralExpr)) {
-        mOperand2.reset(asXdmNodeReadTrx().getNodeKey());
+      if (!(operand2 instanceof LiteralExpr)) {
+        operand2.reset(asXmlNodeReadTrx().getNodeKey());
       }
 
       /*
        * Evaluates the comparison. First atomizes both operands and then executes the comparison on
        * them. At the end, the transaction is set to the retrieved result item.
        */
-      if (mOperand1.hasNext()) {
-        key = mOperand1.next();
+      if (operand1.hasNext()) {
+        key = operand1.nextLong();
         try {
           // atomize operands
-          final AtomicValue[] operandOne = atomize(mOperand1);
-          if (mOperand2.hasNext()) {
-            key = mOperand2.next();
-            final AtomicValue[] operandTwo = atomize(mOperand2);
+          final AtomicValue[] operandOne = atomize(operand1);
+          if (operand2.hasNext()) {
+            key = operand2.nextLong();
+            final AtomicValue[] operandTwo = atomize(operand2);
 
             hook(operandOne, operandTwo);
             try {
@@ -115,7 +115,7 @@ public abstract class AbstractComparator extends AbstractAxis {
               final AtomicValue result = new AtomicValue(resultValue);
 
               // add retrieved AtomicValue to item list
-              final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
+              final int itemKey = asXmlNodeReadTrx().getItemList().addItem(result);
               key = itemKey;
             } catch (SirixXPathException e) {
               throw new RuntimeException(e);

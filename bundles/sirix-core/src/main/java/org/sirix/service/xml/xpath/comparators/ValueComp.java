@@ -61,7 +61,7 @@ public class ValueComp extends AbstractComparator {
   @Override
   protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
 
-    final XmlNodeReadOnlyTrx trx = asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx trx = asXmlNodeReadTrx();
 
     int type = trx.getTypeKey();
 
@@ -70,7 +70,7 @@ public class ValueComp extends AbstractComparator {
       type = trx.keyForName("xs:string");
     }
 
-    final AtomicValue atomized = new AtomicValue(((XmlNodeReadOnlyTrx) mOperand.asXdmNodeReadTrx()).getValue().getBytes(), type);
+    final AtomicValue atomized = new AtomicValue(((XmlNodeReadOnlyTrx) mOperand.asXmlNodeReadTrx()).getValue().getBytes(), type);
     final AtomicValue[] op = {atomized};
 
     // (4.) the operands must be singletons in case of a value comparison

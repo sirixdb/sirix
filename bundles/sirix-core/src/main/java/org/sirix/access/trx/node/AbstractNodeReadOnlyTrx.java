@@ -251,7 +251,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           newNode = null;
         }
       } else {
-        newNode = getPageTransaction().getRecord(nodeKey, IndexType.DOCUMENT, -1);
+        newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
       }
     } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
       newNode = null;

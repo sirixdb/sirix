@@ -134,7 +134,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
 
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
-    final var lock = isAutoCommitting ? new ReentrantLock() : null;
+    final var lock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
     return new JsonNodeTrxImpl(this.databaseName,
             this,
             nodeReadOnlyTrx,

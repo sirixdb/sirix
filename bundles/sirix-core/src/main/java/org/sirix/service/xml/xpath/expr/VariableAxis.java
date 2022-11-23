@@ -21,13 +21,15 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.List;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>
@@ -86,7 +88,7 @@ public class VariableAxis extends AbstractAxis {
    */
   private void notifyObs() {
     for (final VarRefExpr varRef : mVarRefs) {
-      varRef.update(asXdmNodeReadTrx().getNodeKey());
+      varRef.update(asXmlNodeReadTrx().getNodeKey());
     }
   }
 

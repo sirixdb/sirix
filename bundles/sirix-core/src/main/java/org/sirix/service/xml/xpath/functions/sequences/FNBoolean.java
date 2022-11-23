@@ -72,7 +72,7 @@ public class FNBoolean extends AbstractFunction {
     if (axis.hasNext()) {
       key = axis.next();
 
-      final XmlNodeReadOnlyTrx rtx = axis.asXdmNodeReadTrx();
+      final XmlNodeReadOnlyTrx rtx = axis.asXmlNodeReadTrx();
 
       if (rtx.getNodeKey() >= 0) { // first item is a real node
                                    // ->

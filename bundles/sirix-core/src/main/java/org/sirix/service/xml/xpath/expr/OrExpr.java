@@ -121,9 +121,9 @@ public class OrExpr extends AbstractExpression {
     // function.
 
     // add result item to list and set the item as the current item
-    final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
+    final int itemKey = asXmlNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(result)),
-            asXdmNodeReadTrx().keyForName("xs:boolean")));
+                        asXmlNodeReadTrx().keyForName("xs:boolean")));
     key = itemKey;
 
   }

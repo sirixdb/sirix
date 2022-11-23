@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018, Sirix
+ * Copyright (c) 2022, Sirix
  *
  * All rights reserved.
  *

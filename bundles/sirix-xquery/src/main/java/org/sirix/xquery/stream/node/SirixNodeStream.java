@@ -1,13 +1,14 @@
 package org.sirix.xquery.stream.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * {@link Stream}, wrapping a Sirix {@link Axis}.
@@ -37,7 +38,7 @@ public final class SirixNodeStream implements Stream<XmlDBNode> {
   public XmlDBNode next() throws DocumentException {
     if (axis.hasNext()) {
       axis.nextLong();
-      return new XmlDBNode(axis.asXdmNodeReadTrx(), collection);
+      return new XmlDBNode(axis.asXmlNodeReadTrx(), collection);
     }
     return null;
   }

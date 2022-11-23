@@ -58,7 +58,7 @@ public class DivOpAxis extends AbstractObAxis {
       throws SirixXPathException {
 
     final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
-    final int typeKey = asXdmNodeReadTrx().keyForName(returnType.getStringRepr());
+    final int typeKey = asXmlNodeReadTrx().keyForName(returnType.getStringRepr());
 
     final byte[] value;
 
