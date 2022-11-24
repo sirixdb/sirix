@@ -24,7 +24,7 @@ package org.sirix.io.iouring;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import net.openhft.chronicle.bytes.Bytes;
 import one.jasyncfio.AsyncFile;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
@@ -48,18 +48,11 @@ import java.util.concurrent.TimeoutException;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * File Writer for providing read/write access for file as a Sirix backend.
+ * File writer for providing read/write access for file as a Sirix backend.
  *
- * @author Marc Kramis, Seabix
- * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
 public final class IOUringWriter extends AbstractForwardingReader implements Writer {
-
-  private static final byte UBER_PAGE_BYTE_ALIGN = 100;
-  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
-  public static final int FLUSH_SIZE = 64_000;
 
   /**
    * Random access to work on.
@@ -160,7 +153,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return offset;
   }
 
-  @NotNull
+  @NonNull
   private IOUringWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes, long offset) {
     try {
@@ -171,7 +164,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     }
   }
 
-  @NotNull
+  @NonNull
   private IOUringWriter writePage(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
@@ -263,15 +256,15 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
           final ByteBuffer firstUberPageBuffer =
-              ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+              ByteBuffer.allocateDirect(Writer.UBER_PAGE_BYTE_ALIGN).order(ByteOrder.nativeOrder());
           firstUberPageBuffer.put(serializedPage);
           firstUberPageBuffer.position(0);
           revisionsFile.write(firstUberPageBuffer, 0L).join();
           final ByteBuffer secondUberPageBuffer =
-              ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+              ByteBuffer.allocateDirect(Writer.UBER_PAGE_BYTE_ALIGN).order(ByteOrder.nativeOrder());
           secondUberPageBuffer.put(serializedPage);
           secondUberPageBuffer.position(0);
-          revisionsFile.write(secondUberPageBuffer, (long) IOStorage.FIRST_BEACON >> 1).join();
+          revisionsFile.write(secondUberPageBuffer, (long) Writer.UBER_PAGE_BYTE_ALIGN).join();
           revisionsFile.dataSync().join();
         }
       }

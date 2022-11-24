@@ -53,11 +53,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class FileChannelWriter extends AbstractForwardingReader implements Writer {
 
-  private static final byte UBER_PAGE_BYTE_ALIGN = 100;
-  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
-  public static final int FLUSH_SIZE = 64_000;
-
   /**
    * Random access to work on.
    */
@@ -240,12 +235,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
                                                                              Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
         } else if (page instanceof UberPage && isFirstUberPage) {
-          ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.FIRST_BEACON >> 1).order(ByteOrder.nativeOrder());
+          ByteBuffer buffer = ByteBuffer.allocateDirect(Writer.UBER_PAGE_BYTE_ALIGN).order(ByteOrder.nativeOrder());
           buffer.put(serializedPage);
           buffer.position(0);
           revisionsFileChannel.write(buffer, 0);
           buffer.position(0);
-          revisionsFileChannel.write(buffer, IOStorage.FIRST_BEACON >> 1);
+          revisionsFileChannel.write(buffer, Writer.UBER_PAGE_BYTE_ALIGN);
           buffer = null;
         }
       }

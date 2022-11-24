@@ -21,7 +21,24 @@
 
 package org.sirix.service.xml.shredder;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceSession;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.service.InsertPosition;
+import org.sirix.service.ShredderCommit;
+import org.sirix.settings.Constants;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.*;
+import javax.xml.stream.events.*;
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -31,32 +48,8 @@ import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.Callable;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
-import javax.xml.stream.events.Attribute;
-import javax.xml.stream.events.Comment;
-import javax.xml.stream.events.Namespace;
-import javax.xml.stream.events.ProcessingInstruction;
-import javax.xml.stream.events.StartElement;
-import javax.xml.stream.events.XMLEvent;
-import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceSession;
-import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.service.InsertPosition;
-import org.sirix.service.ShredderCommit;
-import org.sirix.settings.Constants;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * This class appends a given {@link XMLStreamReader} to a {@link XmlNodeTrx} . The content of the
@@ -100,7 +93,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     private final XmlNodeTrx wtx;
 
     /** {@link XMLEventReader} implementation. */
-    private final XMLEventReader mReader;
+    private final XMLEventReader reader;
 
     /** Insertion position. */
     private final InsertPosition insert;
@@ -125,7 +118,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      */
     public Builder(final XmlNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
       this.wtx = checkNotNull(wtx);
-      mReader = checkNotNull(reader);
+      this.reader = checkNotNull(reader);
       this.insert = checkNotNull(insert);
     }
 
@@ -179,7 +172,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   private XmlShredder(final Builder builder) {
     super(builder.wtx, builder.insert);
     wtx = builder.wtx;
-    reader = builder.mReader;
+    reader = builder.reader;
     insert = builder.insert;
     includeComments = builder.includeComments;
     includePIs = builder.includePIs;
