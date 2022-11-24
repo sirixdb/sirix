@@ -51,10 +51,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class FileWriter extends AbstractForwardingReader implements Writer {
 
-  private static final short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
-
-  private static final byte PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
-
   /**
    * Random access to work on.
    */

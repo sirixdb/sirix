@@ -52,7 +52,7 @@ public interface IOStorage {
   /**
    * Beacon of first references.
    */
-  int FIRST_BEACON = 200;
+  int FIRST_BEACON = Writer.UBER_PAGE_BYTE_ALIGN << 1;
 
   /**
    * Beacon of the other references.
