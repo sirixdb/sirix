@@ -60,6 +60,16 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    */
   private final int level;
 
+  private PathNode firstChild;
+
+  private PathNode lastChild;
+
+  private PathNode parent;
+
+  private PathNode leftSibling;
+
+  private PathNode rightSibling;
+
   /**
    * Constructor.
    *
@@ -257,7 +267,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   @Override
-  public void setPathNodeKey(final long pNodeKey) {
+  public void setPathNodeKey(final long nodeKey) {
     throw new UnsupportedOperationException();
   }
 
@@ -271,6 +281,43 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     return name;
   }
 
+  public void setFirstChild(PathNode pathNode) {
+    firstChild = pathNode;
+  }
 
+  public void setLastChild(PathNode pathNode) {
+    lastChild = pathNode;
+  }
 
+  public void setParent(PathNode pathNode) {
+    parent = pathNode;
+  }
+
+  public void setLeftSibling(PathNode pathNode) {
+    leftSibling = pathNode;
+  }
+
+  public void setRightSibling(PathNode pathNode) {
+    rightSibling = pathNode;
+  }
+
+  public PathNode getFirstChild() {
+    return firstChild;
+  }
+
+  public PathNode getLastChild() {
+    return lastChild;
+  }
+
+  public PathNode getParent() {
+    return parent;
+  }
+
+  public PathNode getLeftSibling() {
+    return leftSibling;
+  }
+
+  public PathNode getRightSibling() {
+    return rightSibling;
+  }
 }

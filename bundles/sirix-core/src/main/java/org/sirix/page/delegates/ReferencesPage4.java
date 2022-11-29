@@ -87,7 +87,6 @@ public final class ReferencesPage4 implements Page {
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
       pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
-      pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
       references.add(pageReference);
     }
   }

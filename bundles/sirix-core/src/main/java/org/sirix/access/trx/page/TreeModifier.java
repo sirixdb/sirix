@@ -32,11 +32,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
-import org.sirix.page.IndirectPage;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

@@ -89,19 +89,9 @@ public final class FileChannelReader extends AbstractReader {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
-      final long position;
+      final long position = reference.getKey();
+      dataFileChannel.read(buffer, position);
 
-      switch (type) {
-        case DATA -> {
-          position = reference.getKey();
-          dataFileChannel.read(buffer, position);
-        }
-        case TRANSACTION_INTENT_LOG -> {
-          position = reference.getPersistentLogKey();
-          dataFileChannel.read(buffer, position);
-        }
-        default -> throw new IllegalStateException();
-      }
       buffer.flip();
       final int dataLength = buffer.getInt();
 

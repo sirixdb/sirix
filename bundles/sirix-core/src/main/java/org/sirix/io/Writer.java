@@ -36,13 +36,13 @@ import java.nio.ByteBuffer;
  */
 public interface Writer extends Reader {
 
-  short UBER_PAGE_BYTE_ALIGN = 4096;
+  short UBER_PAGE_BYTE_ALIGN = 512;
 
   short REVISION_ROOT_PAGE_BYTE_ALIGN = 256; // Must be a power of two.
 
   byte PAGE_FRAGMENT_BYTE_ALIGN = 8; // Must be a power of two.
 
-  int FLUSH_SIZE = 128_000;
+  int FLUSH_SIZE = 64_000;
 
   /**
    * Writing a page related to the reference.

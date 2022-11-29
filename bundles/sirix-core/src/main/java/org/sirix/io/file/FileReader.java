@@ -112,14 +112,7 @@ public final class FileReader implements Reader {
   public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
-      switch (serializationType) {
-        case DATA -> dataFile.seek(reference.getKey());
-        case TRANSACTION_INTENT_LOG -> dataFile.seek(reference.getPersistentLogKey());
-        default -> {
-        }
-        // Must not happen.
-      }
-
+      dataFile.seek(reference.getKey());
       final int dataLength = dataFile.readInt();
       //      reference.setLength(dataLength + FileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];

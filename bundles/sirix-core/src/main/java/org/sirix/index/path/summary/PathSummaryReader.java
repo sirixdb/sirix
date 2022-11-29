@@ -3,6 +3,8 @@ package org.sirix.index.path.summary;
 import com.google.common.base.MoreObjects;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -79,7 +81,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * The path cache.
    */
-  private final Map<Path<QNm>, Set<Long>> pathCache;
+  private final Map<Path<QNm>, LongSet> pathCache;
 
   private boolean init = true;
 
@@ -105,21 +107,56 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     pathNodeMapping = new Long2ObjectOpenHashMap<>();
     qnmMapping = new HashMap<>();
     boolean first = true;
+    PathNode previousPathNode = null;
     var axis = new DescendantAxis(this, IncludeSelf.YES);
     while (axis.hasNext()) {
       final var nodeKey = axis.nextLong();
-      pathNodeMapping.put(nodeKey, this.getStructuralNode());
+      final var structuralNode = this.getStructuralNode();
+      pathNodeMapping.put(nodeKey, structuralNode);
 
       if (first) {
         first = false;
       } else {
-        final var pathNodes = qnmMapping.getOrDefault(this.getName(), new HashSet<>());
-        pathNodes.add(this.getPathNode());
-        qnmMapping.put(this.getName(), pathNodes);
+        final var pathNode = this.getPathNode();
+        if (pageReadTrx instanceof NodeReadOnlyTrx) {
+          updateInMemoryNodeRelations(previousPathNode, structuralNode, pathNode);
+        }
+        qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
+        previousPathNode = pathNode;
       }
     }
 
     init = false;
+  }
+
+  private void updateInMemoryNodeRelations(PathNode previousPathNode, StructNode structuralNode, PathNode pathNode) {
+    if (previousPathNode != null) {
+      if (!structuralNode.hasLeftSibling()) {
+        previousPathNode.setFirstChild(pathNode);
+        previousPathNode.setLastChild(pathNode);
+        pathNode.setParent(previousPathNode);
+      } else {
+        if (previousPathNode.getNodeKey() == structuralNode.getLeftSiblingKey()) {
+          previousPathNode.setRightSibling(pathNode);
+          pathNode.setLeftSibling(previousPathNode);
+        } else {
+          final var leftSiblingPathNode = (PathNode) pathNodeMapping.get(structuralNode.getLeftSiblingKey());
+          leftSiblingPathNode.setRightSibling(pathNode);
+          pathNode.setLeftSibling(leftSiblingPathNode);
+        }
+      }
+
+      if (structuralNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+        if (pathNode.getParent() == null) {
+          final var parentPathNode = (PathNode) pathNodeMapping.get(structuralNode.getParentKey());
+          pathNode.setParent(parentPathNode);
+        }
+        if (!structuralNode.hasRightSibling()) {
+          final var parentPathNode = (PathNode) pathNodeMapping.get(structuralNode.getParentKey());
+          parentPathNode.setLastChild(pathNode);
+        }
+      }
+    }
   }
 
   @Override
@@ -161,14 +198,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   // package private, only used in writer to keep the mapping always up-to-date
   void putQNameMapping(final PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes = qnmMapping.get(name) == null ? new HashSet<>() : qnmMapping.get(name);
+    final Set<PathNode> pathNodes = qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>());
     pathNodes.add(node);
     qnmMapping.put(name, pathNodes);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
   void removeQNameMapping(final @NonNegative PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes = qnmMapping.get(name) == null ? new HashSet<>() : qnmMapping.get(name);
+    final Set<PathNode> pathNodes = qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>());
     if (pathNodes.size() == 1) {
       qnmMapping.remove(name);
     } else {
@@ -294,12 +331,6 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public PathNode getPathNodeForPathNodeKey(final @NonNegative long pathNodeKey) {
     assertNotClosed();
 
-    if (pathNodeKey < 0) {
-      throw new IllegalArgumentException("Key not supported.");
-    } else if (pathNodeKey == 0) {
-      return null;
-    }
-
     return (PathNode) pathNodeMapping.get(pathNodeKey);
   }
 
@@ -322,16 +353,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */
-  public Set<Long> getPCRsForPath(final Path<QNm> path, final boolean useCache) throws PathException {
-    final Set<Long> pcrSet;
+  public LongSet getPCRsForPath(final Path<QNm> path, final boolean useCache) throws PathException {
+    final LongSet pcrSet;
     if (useCache) {
-      if (pathCache.containsKey(path) && pathCache.get(path) != null) {
-        return pathCache.get(path);
-      } else {
-        pcrSet = new HashSet<>();
-      }
+      pcrSet = pathCache.computeIfAbsent(path, (unused) -> new LongOpenHashSet());
     } else {
-      pcrSet = new HashSet<>();
+      pcrSet = new LongOpenHashSet();
     }
 
     final boolean isAttributePattern = path.isAttribute();
@@ -381,21 +408,22 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
     if (currentNode instanceof PathNode) {
       return (PathNode) currentNode;
-    } else {
-      return null;
     }
+    return null;
   }
 
   @Override
   public boolean moveTo(final long nodeKey) {
     assertNotClosed();
 
-    if (!init) {
+    if (!init && nodeKey != 0) {
       final PathNode node = getPathNodeForPathNodeKey(nodeKey);
 
       if (node != null) {
         currentNode = node;
         return true;
+      } else {
+        return false;
       }
     }
 

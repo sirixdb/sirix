@@ -204,30 +204,28 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
         }
       }
 
-      if (!(page instanceof UberPage) && offsetToAdd > 0) {
-        bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
-      }
+      final var pageBuffer = ByteBuffer.allocateDirect(serializedPage.length + IOStorage.OTHER_BEACON + offsetToAdd)
+                                       .order(ByteOrder.nativeOrder());
 
-      bufferedBytes.writeInt(serializedPage.length);
-      bufferedBytes.write(serializedPage);
+//      if (!(page instanceof UberPage) && offsetToAdd > 0) {
+//        var buffer = new byte[(int) offsetToAdd];
+//        pageBuffer.put(buffer);
+//      }
+
+      pageBuffer.putInt(serializedPage.length);
+      pageBuffer.put(serializedPage);
 
       if (page instanceof UberPage && offsetToAdd > 0) {
         final byte[] bytesToAdd = new byte[(int) offsetToAdd];
-        bufferedBytes.write(bytesToAdd);
+        pageBuffer.put(bytesToAdd);
       }
 
-      if (bufferedBytes.writePosition() > FLUSH_SIZE) {
-        bufferedBytes = flushBuffer((PageTrx) pageReadOnlyTrx, bufferedBytes);
-      }
+      pageBuffer.flip();
+
+      dataFile.write(pageBuffer, offset).join();
 
       // Remember page coordinates.
-      switch (serializationType) {
-        case DATA -> pageReference.setKey(offset);
-        case TRANSACTION_INTENT_LOG -> pageReference.setPersistentLogKey(offset);
-        default -> {
-          // Must not happen.
-        }
-      }
+      pageReference.setKey(offset);
 
       if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
         pageReference.setHash(unorderedKeyValuePage.getHashCode());
@@ -291,31 +289,17 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   @Override
   public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes) {
-    try {
-      if (bufferedBytes.writePosition() > 0) {
-        bufferedBytes = flushBuffer((PageTrx) pageReadOnlyTrx, bufferedBytes);
-      }
+    isFirstUberPage = true;
+    writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, 0);
+    isFirstUberPage = false;
+    writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
-      isFirstUberPage = true;
-      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, 0);
-      isFirstUberPage = false;
-      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
-
-      final var buffer = bufferedBytes.underlyingObject().rewind();
-      buffer.limit((int) bufferedBytes.readLimit());
-      dataFile.write(buffer, 0L).join();
-      dataFile.dataSync().join();
-      ((PageTrx) pageReadOnlyTrx).newBufferedBytesInstance();
-      bufferedBytes.clear();
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
+    dataFile.dataSync().join();
 
     return this;
   }
 
-  private Bytes<ByteBuffer> flushBuffer(final PageTrx pageTrx, final Bytes<ByteBuffer> bufferedBytes)
-      throws IOException {
+  private void flushBuffer(final PageTrx pageTrx, final ByteBuffer buffer) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 
@@ -326,11 +310,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       offset = fileSize;
     }
 
-    final var buffer = bufferedBytes.underlyingObject().rewind();
-    buffer.limit((int) bufferedBytes.readLimit());
     dataFile.write(buffer, offset).join();
-    bufferedBytes.clear();
-    return pageTrx.newBufferedBytesInstance();
   }
 
   @Override

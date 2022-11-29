@@ -27,8 +27,8 @@ import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
@@ -63,7 +63,7 @@ public final class FileStorage implements IOStorage {
   /**
    * Byte handler pipeline.
    */
-  private final ByteHandlePipeline byteHandlerPipeline;
+  private final ByteHandlerPipeline byteHandlerPipeline;
 
   /**
    * The revision file cache.
@@ -94,7 +94,7 @@ public final class FileStorage implements IOStorage {
 
       return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
                             new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-                            new ByteHandlePipeline(byteHandlerPipeline),
+                            new ByteHandlerPipeline(byteHandlerPipeline),
                             SerializationType.DATA,
                             new PagePersister(),
                             cache.synchronous());
@@ -126,7 +126,7 @@ public final class FileStorage implements IOStorage {
 
       final var randomAccessDataFile = new RandomAccessFile(dataFilePath.toFile(), "rw");
       final var randomAccessRevisionDataFile = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw");
-      final var byteHandlerPipe = new ByteHandlePipeline(byteHandlerPipeline);
+      final var byteHandlerPipe = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
       final var reader = new FileReader(randomAccessDataFile,

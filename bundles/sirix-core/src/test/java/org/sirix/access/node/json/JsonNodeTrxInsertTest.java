@@ -1,9 +1,9 @@
 package org.sirix.access.node.json;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
@@ -24,17 +24,17 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public final class JsonNodeTrxInsertTest {
-  @Before
+  @BeforeEach
   public void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
     JsonTestHelper.closeEverything();
   }
 
-  @Ignore
+  @Disabled
   @Test
   public void testInsertingTopLevelDocuments() {
     final var resource = "smallInsertions";
@@ -80,7 +80,7 @@ public final class JsonNodeTrxInsertTest {
     }
   }
 
-  @Ignore
+  @Disabled
   @Test
   public void testSerializeTopLevelDocuments() throws IOException {
     final var resource = "smallInsertions";

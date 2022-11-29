@@ -28,19 +28,7 @@
 package org.sirix.access.trx.page;
 
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.file.FileReader;
-import org.sirix.io.file.FileWriter;
-import org.sirix.page.PagePersister;
-import org.sirix.page.SerializationType;
-
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -55,33 +43,34 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
 
   @Override
   public TransactionIntentLog createTrxIntentLog(final ResourceConfiguration resourceConfig) {
-    final Path logFile = resourceConfig.getResource()
-                                       .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
-                                       .resolve("intent-log");
-
-    try {
-      if (Files.exists(logFile) && Files.size(logFile) > 0) {
-        Files.delete(logFile);
-        Files.createFile(logFile);
-      }
-
-      final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
-
-      final FileReader reader = new FileReader(file,
-                                               null,
-                                               new ByteHandlePipeline(resourceConfig.byteHandlePipeline),
-                                               SerializationType.TRANSACTION_INTENT_LOG,
-                                               new PagePersister(),
-                                               null);
-
-      final FileWriter fileWriter =
-          new FileWriter(file, null, SerializationType.TRANSACTION_INTENT_LOG, new PagePersister(), null, reader);
-
-      final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter);
-
-      return new TransactionIntentLog(persistentFileCache, 1 << 19);
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
+//    final Path logFile = resourceConfig.getResource()
+//                                       .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
+//                                       .resolve("intent-log");
+//
+//    try {
+//      if (Files.exists(logFile) && Files.size(logFile) > 0) {
+//        Files.delete(logFile);
+//        Files.createFile(logFile);
+//      }
+//
+//      final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
+//
+//      final FileReader reader = new FileReader(file,
+//                                               null,
+//                                               new ByteHandlePipeline(resourceConfig.byteHandlePipeline),
+//                                               SerializationType.TRANSACTION_INTENT_LOG,
+//                                               new PagePersister(),
+//                                               null);
+//
+//      final FileWriter fileWriter =
+//          new FileWriter(file, null, SerializationType.TRANSACTION_INTENT_LOG, new PagePersister(), null, reader);
+//
+//      final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter);
+//
+//      return new TransactionIntentLog(persistentFileCache, 1 << 19);
+//    } catch (final IOException e) {
+//      throw new UncheckedIOException(e);
+//    }
+    return new TransactionIntentLog(1 << 19);
   }
 }

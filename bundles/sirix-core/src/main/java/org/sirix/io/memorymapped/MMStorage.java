@@ -28,8 +28,8 @@ import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.sirix.io.filechannel.FileChannelReader;
 import org.sirix.io.filechannel.FileChannelWriter;
 import org.sirix.page.PagePersister;
@@ -70,7 +70,7 @@ public final class MMStorage implements IOStorage {
   /**
    * Byte handler pipeline.
    */
-  private final ByteHandlePipeline byteHandlerPipeline;
+  private final ByteHandlerPipeline byteHandlerPipeline;
 
   final Semaphore semaphore = new Semaphore(1);
 
@@ -126,7 +126,7 @@ public final class MMStorage implements IOStorage {
                                                                               dataFileSession);
         return new MMFileReader(dataFileSegment,
                                 revisionsOffsetFileSegment,
-                                new ByteHandlePipeline(byteHandlerPipeline),
+                                new ByteHandlerPipeline(byteHandlerPipeline),
                                 SerializationType.DATA,
                                 new PagePersister(),
                                 cache.synchronous());
@@ -171,7 +171,7 @@ public final class MMStorage implements IOStorage {
       createDataFileChannelIfNotInitialized(dataFilePath);
       createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
 
-      final var byteHandlePipeline = new ByteHandlePipeline(byteHandlerPipeline);
+      final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
       final var reader = new FileChannelReader(dataFileChannel,

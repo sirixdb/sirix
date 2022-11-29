@@ -1,20 +1,18 @@
 package org.sirix.io.bytepipe;
 
-import static org.testng.AssertJUnit.assertFalse;
-import static org.testng.AssertJUnit.assertTrue;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Arrays;
+import com.google.common.io.ByteStreams;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixIOException;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
-import com.google.common.io.ByteStreams;
+
+import java.io.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+
+import static org.testng.AssertJUnit.assertFalse;
+import static org.testng.AssertJUnit.assertTrue;
 
 /**
  * Byte handler test.
@@ -86,10 +84,10 @@ public final class ByteHandlerTest {
     Object[][] returnVal = {{ByteHandler.class,
         new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(),
             new SnappyCompressor(),
-            new ByteHandlePipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
-            new ByteHandlePipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath)),
-            new ByteHandlePipeline(new Encryptor(encryptionKeyPath), new SnappyCompressor()),
-            new ByteHandlePipeline(new SnappyCompressor(), new Encryptor(encryptionKeyPath))}}};
+            new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
+            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath)),
+            new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new SnappyCompressor()),
+            new ByteHandlerPipeline(new SnappyCompressor(), new Encryptor(encryptionKeyPath))}}};
     return returnVal;
   }
 

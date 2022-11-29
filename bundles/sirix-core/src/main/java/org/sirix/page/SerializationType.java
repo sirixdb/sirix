@@ -28,13 +28,12 @@
 package org.sirix.page;
 
 import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.PageFragmentKey;
 import org.sirix.settings.Constants;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -48,113 +47,6 @@ import java.util.List;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public enum SerializationType {
-  /**
-   * The transaction intent log.
-   */
-  TRANSACTION_INTENT_LOG {
-    @Override
-    public void serializeBitmapReferencesPage(Bytes<ByteBuffer> out, List<PageReference> pageReferences,
-        BitSet bitmap) {
-      assert out != null;
-      assert pageReferences != null;
-
-      serializeBitSet(out, bitmap);
-
-      for (final PageReference pageReference : pageReferences) {
-        out.writeInt(pageReference.getLogKey());
-      }
-    }
-
-    @Override
-    public void serializeReferencesPage4(Bytes<ByteBuffer> out, List<PageReference> pageReferences,
-        List<Short> offsets) {
-      assert out != null;
-      assert pageReferences != null;
-      out.writeByte((byte) pageReferences.size());
-      for (int i = 0, size = pageReferences.size(); i < size; i++) {
-        final PageReference pageReference = pageReferences.get(i);
-        final short offset = offsets.get(i);
-        out.writeInt(pageReference.getLogKey());
-        out.writeShort(offset);
-      }
-    }
-
-    @Override
-    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
-        Bytes<ByteBuffer> in) {
-      assert in != null;
-
-      final BitSet bitmap = deserializeBitSet(in);
-
-      final int length = bitmap.cardinality();
-
-      final List<PageReference> references = new GapList<>(length);
-
-      for (int offset = 0; offset < length; offset++) {
-        final int key = in.readInt();
-        final PageReference reference = new PageReference();
-        reference.setLogKey(key);
-        references.add(offset, reference);
-      }
-
-      return new DeserializedBitmapReferencesPageTuple(references, bitmap);
-    }
-
-    @Override
-    public DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<ByteBuffer> in) {
-      final byte size = in.readByte();
-      final List<PageReference> pageReferences = new ArrayList<>(4);
-      final List<Short> offsets = new ArrayList<>(4);
-      for (int i = 0; i < size; i++) {
-        final int key = in.readInt();
-        final var pageReference = new PageReference().setLogKey(key);
-        pageReferences.add(pageReference);
-        offsets.add(in.readShort());
-      }
-      return new DeserializedReferencesPage4Tuple(pageReferences, offsets);
-    }
-
-    @Override
-    public void serializeFullReferencesPage(Bytes<ByteBuffer> out, PageReference[] pageReferences) {
-      try {
-        final BitSet bitSet = new BitSet(Constants.INP_REFERENCE_COUNT);
-        for (int i = 0, size = pageReferences.length; i < size; i++) {
-          if (pageReferences[i] != null) {
-            bitSet.set(i, true);
-          }
-        }
-        serializeBitSet(out, bitSet);
-
-        for (final PageReference pageReference : pageReferences) {
-          if (pageReference != null) {
-            out.writeLong(pageReference.getPersistentLogKey());
-            writePageFragments(out, pageReference);
-          }
-        }
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
-    }
-
-    @Override
-    public PageReference[] deserializeFullReferencesPage(Bytes<ByteBuffer> in) {
-      try {
-        final PageReference[] references = new PageReference[Constants.INP_REFERENCE_COUNT];
-        final BitSet bitSet = deserializeBitSet(in);
-
-        for (int i = bitSet.nextSetBit(0); i >= 0; i = bitSet.nextSetBit(i + 1)) {
-          final var pageReference = new PageReference();
-          pageReference.setPersistentLogKey(in.readLong());
-          readPageFragments(in, pageReference);
-          references[i] = pageReference;
-        }
-
-        return references;
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
-      }
-    }
-  },
 
   /**
    * The actual data.

@@ -90,7 +90,7 @@ public interface Page extends AutoCloseable {
     //    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
 
     for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
+      if (reference.getLogKey() != Constants.NULL_ID_INT) {
         pageWriteTrx.commit(reference);
       }
     }

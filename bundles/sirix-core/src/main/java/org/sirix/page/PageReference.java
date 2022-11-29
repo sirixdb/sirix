@@ -21,17 +21,15 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import com.google.common.base.MoreObjects;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sirix.page.interfaces.Page;
+import org.sirix.page.interfaces.PageFragmentKey;
+import org.sirix.settings.Constants;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
-import org.sirix.page.interfaces.Page;
-import org.sirix.page.interfaces.PageFragmentKey;
-import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
 
 /**
  * <p>
@@ -50,9 +48,6 @@ public final class PageReference {
 
   /** Log key. */
   private int logKey = Constants.NULL_ID_INT;
-
-  /** Persistent log key. */
-  private long persistentLogKey = Constants.NULL_ID_LONG;
 
   /** The hash in bytes, generated from the referenced page-fragment. */
   private byte[] hashInBytes;
@@ -78,7 +73,6 @@ public final class PageReference {
     page = reference.page;
     key = reference.key;
     hashInBytes = reference.hashInBytes;
-    persistentLogKey = reference.persistentLogKey;
     pageFragments = reference.pageFragments;
   }
 
@@ -169,31 +163,10 @@ public final class PageReference {
     return this;
   }
 
-  /**
-   * Get log-key.
-   *
-   * @return log key
-   */
-  public long getPersistentLogKey() {
-    return persistentLogKey;
-  }
-
-  /**
-   * Set log-key.
-   *
-   * @param key key of this reference set by the transaction intent log.
-   */
-  public PageReference setPersistentLogKey(final long key) {
-    hash = 0;
-    persistentLogKey = key;
-    return this;
-  }
-
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("logKey", logKey)
-                      .add("persistentLogKey", persistentLogKey)
                       .add("key", key)
                       .add("page", page)
                       .add("pageFragments", pageFragments)
@@ -203,7 +176,7 @@ public final class PageReference {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = Objects.hash(logKey, key, persistentLogKey);
+      hash = Objects.hash(logKey, key);
     }
     return hash;
   }
@@ -211,8 +184,7 @@ public final class PageReference {
   @Override
   public boolean equals(final @Nullable Object other) {
     if (other instanceof PageReference otherPageRef) {
-      return otherPageRef.logKey == logKey && otherPageRef.key == key
-          && otherPageRef.persistentLogKey == persistentLogKey;
+      return otherPageRef.logKey == logKey && otherPageRef.key == key;
     }
     return false;
   }

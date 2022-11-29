@@ -46,9 +46,8 @@ public class ForEach extends RecursiveAction {
   private void work(TransactionIntentLog log, PageReadOnlyTrx pageTrx, PageReference[] references, int from, int to) {
     for (int j = from; j < to; j++) {
       final var reference = references[j];
-      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
-          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-        final PageContainer container = log.get(reference, pageTrx);
+      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
+        final PageContainer container = log.get(reference);
         final Page page = container.getModified();
 
         if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {

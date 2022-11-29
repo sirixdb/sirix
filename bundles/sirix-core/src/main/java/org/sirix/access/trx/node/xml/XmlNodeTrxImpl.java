@@ -567,32 +567,30 @@ final class XmlNodeTrxImpl extends
     }
 
     try {
-      if (getCurrentNode() instanceof StructNode && !isDocumentRoot()) {
-        checkAccessAndCommit();
-
-        final long key = getCurrentNode().getNodeKey();
-        moveToParent();
-        final long pathNodeKey = buildPathSummary ? pathSummaryWriter.getPathNodeKey(name, NodeKind.ELEMENT) : 0;
-        moveTo(key);
-
-        final long parentKey = getCurrentNode().getParentKey();
-        final long leftSibKey = getCurrentNode().getNodeKey();
-        final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
-
-        final SirixDeweyID id = deweyIDManager.newRightSiblingID();
-        final ElementNode node =
-            nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
-
-        nodeReadOnlyTrx.setCurrentNode(node);
-        adaptForInsert(node, InsertPos.ASRIGHTSIBLING);
-        nodeReadOnlyTrx.setCurrentNode(node);
-        nodeHashing.adaptHashesWithAdd();
-
-        return this;
-      } else {
+      if (!(getCurrentNode() instanceof StructNode && !isDocumentRoot())) {
         throw new SirixUsageException(
             "Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
       }
+      checkAccessAndCommit();
+
+      final long key = getCurrentNode().getNodeKey();
+      moveToParent();
+      final long pathNodeKey = buildPathSummary ? pathSummaryWriter.getPathNodeKey(name, NodeKind.ELEMENT) : 0;
+      moveTo(key);
+
+      final long parentKey = getCurrentNode().getParentKey();
+      final long leftSibKey = getCurrentNode().getNodeKey();
+      final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+
+      final SirixDeweyID id = deweyIDManager.newRightSiblingID();
+      final ElementNode node = nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+
+      nodeReadOnlyTrx.setCurrentNode(node);
+      adaptForInsert(node, InsertPos.ASRIGHTSIBLING);
+      nodeReadOnlyTrx.setCurrentNode(node);
+      nodeHashing.adaptHashesWithAdd();
+
+      return this;
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -1247,12 +1245,12 @@ final class XmlNodeTrxImpl extends
       } else if (getCurrentNode() instanceof StructNode) {
         final StructNode node = (StructNode) nodeReadOnlyTrx.getCurrentNode();
 
-//        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
-//          descendantAxis.nextLong();
-//          System.out.println("path: " + getPathSummary().getPath());
-//          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
-//          System.out.println("references: " + getPathSummary().getReferences());
-//        }
+        //        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+        //          descendantAxis.nextLong();
+        //          System.out.println("path: " + getPathSummary().getPath());
+        //          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+        //          System.out.println("references: " + getPathSummary().getReferences());
+        //        }
 
         // Remove subtree.
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext(); ) {
@@ -1273,31 +1271,31 @@ final class XmlNodeTrxImpl extends
           pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
         }
 
-//        getPathSummary().moveToDocumentRoot();
-//
-//        System.out.println("=====================");
-//
-//        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
-//          descendantAxis.nextLong();
-//          System.out.println("path: " + getPathSummary().getPath());
-//          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
-//          System.out.println("references: " + getPathSummary().getReferences());
-//        }
+        //        getPathSummary().moveToDocumentRoot();
+        //
+        //        System.out.println("=====================");
+        //
+        //        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+        //          descendantAxis.nextLong();
+        //          System.out.println("path: " + getPathSummary().getPath());
+        //          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+        //          System.out.println("references: " + getPathSummary().getReferences());
+        //        }
 
-//        removeNonStructural();
+        //        removeNonStructural();
         removeName();
         removeValue();
 
-//        getPathSummary().moveToDocumentRoot();
-//
-//        System.out.println("=====================");
-//
-//        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
-//          descendantAxis.nextLong();
-//          System.out.println("path: " + getPathSummary().getPath());
-//          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
-//          System.out.println("references: " + getPathSummary().getReferences());
-//        }
+        //        getPathSummary().moveToDocumentRoot();
+        //
+        //        System.out.println("=====================");
+        //
+        //        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+        //          descendantAxis.nextLong();
+        //          System.out.println("path: " + getPathSummary().getPath());
+        //          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+        //          System.out.println("references: " + getPathSummary().getReferences());
+        //        }
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
@@ -1976,7 +1974,8 @@ final class XmlNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType,
+      PageTrx pageTrx) {
     return new XmlNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
   }
 
