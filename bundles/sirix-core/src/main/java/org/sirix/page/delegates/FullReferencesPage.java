@@ -90,7 +90,6 @@ public final class FullReferencesPage implements Page {
         pageReference.setKey(pageReferenceToClone.getKey());
         pageReference.setLogKey(pageReferenceToClone.getLogKey());
         pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-        pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
       }
 
       references[index] = pageReference;
@@ -158,8 +157,7 @@ public final class FullReferencesPage implements Page {
 //    ForkJoinPool.commonPool().invoke(new ForEach(log, pageWriteTrx, references, 0, references.length));
 
     for (final PageReference reference : references) {
-      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
-          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
         pageWriteTrx.commit(reference);
       }
     }

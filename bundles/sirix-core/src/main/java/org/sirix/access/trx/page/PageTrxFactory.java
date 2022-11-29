@@ -120,9 +120,6 @@ public final class PageTrxFactory {
                                                                 new RevisionRootPageReader(),
                                                                 log);
 
-    // Set page read trx for trx intent log.
-    log.setPageReadOnlyTrx(pageRtx);
-
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
     final RevisionRootPage newRevisionRootPage =
@@ -142,7 +139,7 @@ public final class PageTrxFactory {
 
       page.createPathSummaryTree(this.databaseType, pageRtx, 0, log);
 
-      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx))) {
+      if (log.get(newRevisionRootPage.getPathSummaryPageReference()) == null) {
         log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
       }
     }
@@ -164,29 +161,30 @@ public final class PageTrxFactory {
         throw new IllegalStateException("Resource manager type not known.");
       }
     } else {
-      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getNamePageReference(), pageRtx))) {
+      if (log.get(newRevisionRootPage.getNamePageReference()) == null) {
         final Page namePage = pageRtx.getNamePage(newRevisionRootPage);
         log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));
       }
 
-      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getCASPageReference(), pageRtx))) {
+      if (log.get(newRevisionRootPage.getCASPageReference()) == null) {
         final Page casPage = pageRtx.getCASPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
       }
 
-      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathPageReference(), pageRtx))) {
+      if (log.get(newRevisionRootPage.getPathPageReference()) == null) {
         final Page pathPage = pageRtx.getPathPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
       }
 
-      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getDeweyIdPageReference(), pageRtx))) {
+      if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
         final Page deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
       final Page indirectPage =
           pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
-      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
+      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(),
+              PageContainer.getInstance(indirectPage, indirectPage));
 
       final var revisionRootPageReference = new PageReference();
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));

@@ -21,10 +21,6 @@
 
 package org.sirix.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Database;
@@ -34,8 +30,9 @@ import org.sirix.exception.SirixException;
 import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
+import static org.junit.Assert.*;
+
 /**
- *
  * <p>
  * This class creates an XML document that contains all features seen in the Extensible Markup
  * Language (XML) 1.1 (Second Edition) as well as the Namespaces in XML 1.1 (Second Edition).

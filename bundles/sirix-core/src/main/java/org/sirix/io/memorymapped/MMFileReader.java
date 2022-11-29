@@ -84,25 +84,8 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
-      long offset;
-
-      final int dataLength = switch (type) {
-        case DATA -> {
-          if (reference.getKey() < 0) {
-            throw new SirixIOException("Reference key is not valid: " + reference.getKey());
-          }
-          offset = reference.getKey() + LAYOUT_INT.byteSize();
-          yield dataFileSegment.get(LAYOUT_INT, reference.getKey());
-        }
-        case TRANSACTION_INTENT_LOG -> {
-          if (reference.getLogKey() < 0) {
-            throw new SirixIOException("Reference log key is not valid: " + reference.getPersistentLogKey());
-          }
-          offset = reference.getPersistentLogKey() + LAYOUT_INT.byteSize();
-          yield dataFileSegment.get(LAYOUT_INT, reference.getPersistentLogKey());
-        }
-        default -> throw new AssertionError();
-      };
+      final long offset = reference.getKey() + LAYOUT_INT.byteSize();
+      final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
 
       final byte[] page = new byte[dataLength];
 

@@ -12,7 +12,7 @@ import java.util.List;
  * @author Sebastian Graf, University of Konstanz
  *
  */
-public final class ByteHandlePipeline implements ByteHandler {
+public final class ByteHandlerPipeline implements ByteHandler {
 
   /** Pipeline for all byte handlers. */
   private final List<ByteHandler> byteHandlers;
@@ -22,7 +22,7 @@ public final class ByteHandlePipeline implements ByteHandler {
    *
    * @param pipeline pipeline to copy
    */
-  public ByteHandlePipeline(final ByteHandlePipeline pipeline) {
+  public ByteHandlerPipeline(final ByteHandlerPipeline pipeline) {
     byteHandlers = new ArrayList<>(pipeline.byteHandlers.size());
     for (final ByteHandler handler : pipeline.byteHandlers) {
       byteHandlers.add(handler.getInstance());
@@ -35,7 +35,7 @@ public final class ByteHandlePipeline implements ByteHandler {
    *
    * @param parts to be stored, Order is important!
    */
-  public ByteHandlePipeline(final ByteHandler... parts) {
+  public ByteHandlerPipeline(final ByteHandler... parts) {
     byteHandlers = new ArrayList<>();
 
     if (parts != null) {
@@ -72,6 +72,6 @@ public final class ByteHandlePipeline implements ByteHandler {
 
   @Override
   public ByteHandler getInstance() {
-    return new ByteHandlePipeline();
+    return new ByteHandlerPipeline();
   }
 }

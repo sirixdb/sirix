@@ -7,8 +7,8 @@ import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
@@ -46,7 +46,7 @@ public final class FileChannelStorage implements IOStorage {
   /**
    * Byte handler pipeline.
    */
-  private final ByteHandlePipeline byteHandlerPipeline;
+  private final ByteHandlerPipeline byteHandlerPipeline;
 
   private FileChannel revisionsOffsetFileChannel;
 
@@ -90,7 +90,7 @@ public final class FileChannelStorage implements IOStorage {
 
       return new FileChannelReader(dataFileChannel,
                                    revisionsOffsetFileChannel,
-                                   new ByteHandlePipeline(byteHandlerPipeline),
+                                   new ByteHandlerPipeline(byteHandlerPipeline),
                                    SerializationType.DATA,
                                    new PagePersister(),
                                    cache.synchronous());
@@ -141,7 +141,7 @@ public final class FileChannelStorage implements IOStorage {
       createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
       createDataFileChannelIfNotInitialized(dataFilePath);
 
-      final var byteHandlePipeline = new ByteHandlePipeline(byteHandlerPipeline);
+      final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
       final var reader = new FileChannelReader(dataFileChannel,

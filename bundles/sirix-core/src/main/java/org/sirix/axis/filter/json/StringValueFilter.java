@@ -42,7 +42,7 @@ public final class StringValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx>
   }
 
   @Override
-  public final boolean filter() {
+  public boolean filter() {
     return getTrx().getKind() == NodeKind.STRING_VALUE;
   }
 

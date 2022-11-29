@@ -46,7 +46,6 @@ import static org.junit.Assert.fail;
 
 /**
  * Helper class for offering convenient usage of the {@link JsonResourceSession} for test cases.
- *
  * This includes instantiation of databases plus resources.
  *
  * @author Johannes Lichtenberger
@@ -193,8 +192,8 @@ public final class JsonTestHelper {
    */
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final JsonResourceSession manager = database.beginResourceSession(RESOURCE);
-         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+    try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
     }

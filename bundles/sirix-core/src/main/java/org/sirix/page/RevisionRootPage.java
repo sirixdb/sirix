@@ -474,8 +474,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
                                       final TransactionIntentLog log) {
     PageReference reference = getIndirectDocumentIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT
-            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+            && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.DOCUMENT, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInDocumentIndex();
     }
@@ -493,8 +492,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
                                           final TransactionIntentLog log) {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT
-            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+            && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.CHANGED_NODES, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInChangedNodesIndex();
     }
@@ -512,8 +510,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
                                                final TransactionIntentLog log) {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT
-            && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+            && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.RECORD_TO_REVISIONS, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
     }

@@ -29,9 +29,9 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.ByteHandlerKind;
+import org.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.node.NodeSerializerImpl;
 import org.sirix.node.interfaces.RecordSerializer;
@@ -210,7 +210,7 @@ public final class ResourceConfiguration {
   /**
    * Byte handler pipeline.
    */
-  public final ByteHandlePipeline byteHandlePipeline;
+  public final ByteHandlerPipeline byteHandlePipeline;
 
   /**
    * Path for the resource to be associated.
@@ -521,7 +521,7 @@ public final class ResourceConfiguration {
         jsonReader.endObject();
       }
       jsonReader.endArray();
-      final ByteHandlePipeline pipeline = new ByteHandlePipeline(handlerList.toArray(new ByteHandler[0]));
+      final ByteHandlerPipeline pipeline = new ByteHandlerPipeline(handlerList.toArray(new ByteHandler[0]));
       // Storage type.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[4]);
@@ -653,7 +653,7 @@ public final class ResourceConfiguration {
     /**
      * Byte handler pipeline.
      */
-    private ByteHandlePipeline byteHandler;
+    private ByteHandlerPipeline byteHandler;
 
     /**
      * Determines if DeweyIDs should be used or not.
@@ -690,7 +690,7 @@ public final class ResourceConfiguration {
       this.resource = checkNotNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlePipeline(new SnappyCompressor());//new LZ4Compressor()); // new Encryptor(path));
+      byteHandler = new ByteHandlerPipeline(new SnappyCompressor());//new LZ4Compressor()); // new Encryptor(path));
     }
 
     /**
@@ -754,7 +754,7 @@ public final class ResourceConfiguration {
      * @param byteHandler byte handler pipeline
      * @return reference to the builder object
      */
-    public Builder byteHandlerPipeline(final ByteHandlePipeline byteHandler) {
+    public Builder byteHandlerPipeline(final ByteHandlerPipeline byteHandler) {
       this.byteHandler = checkNotNull(byteHandler);
       return this;
     }

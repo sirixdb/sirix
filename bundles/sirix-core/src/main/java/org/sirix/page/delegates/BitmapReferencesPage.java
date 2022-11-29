@@ -133,7 +133,6 @@ public final class BitmapReferencesPage implements Page {
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
       pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-      pageReference.setPersistentLogKey(pageReferenceToClone.getPersistentLogKey());
       references.add(offset, pageReference);
     }
   }

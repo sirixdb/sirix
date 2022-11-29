@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -39,44 +39,48 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class PredicateFilterAxis extends AbstractAxis {
 
-  /** First run. */
-  private boolean mIsFirst;
+  /**
+   * First run.
+   */
+  private boolean isFirst;
 
-  /** Predicate axis. */
-  private final Axis mPredicate;
+  /**
+   * Predicate axis.
+   */
+  private final Axis predicate;
 
   /**
    * Constructor. Initializes the internal state.
    *
    * @param nodeCursor exclusive (immutable) cursor to iterate with
-   * @param predicate predicate expression
+   * @param predicate  predicate expression
    */
   public PredicateFilterAxis(final NodeCursor nodeCursor, final Axis predicate) {
     super(nodeCursor);
-    mIsFirst = true;
-    mPredicate = checkNotNull(predicate);
+    isFirst = true;
+    this.predicate = checkNotNull(predicate);
   }
 
   @Override
   public final void reset(final long nodeKey) {
     super.reset(nodeKey);
-    if (mPredicate != null) {
-      mPredicate.reset(nodeKey);
+    if (predicate != null) {
+      predicate.reset(nodeKey);
     }
-    mIsFirst = true;
+    isFirst = true;
   }
 
   @Override
   protected long nextKey() {
     // A predicate has to evaluate to true only once.
-    if (mIsFirst) {
-      mIsFirst = false;
+    if (isFirst) {
+      isFirst = false;
 
       final long currKey = getCursor().getNodeKey();
-      mPredicate.reset(currKey);
+      predicate.reset(currKey);
 
-      if (mPredicate.hasNext()) {
-        mPredicate.next();
+      if (predicate.hasNext()) {
+        predicate.next();
         if (isBooleanFalse()) {
           return done();
         }

@@ -120,7 +120,7 @@ public final class TreeModifierImpl implements TreeModifier {
 
   private IndirectPage dereferenceOldIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       PageReference reference) throws AssertionError {
-    final PageContainer cont = log.get(reference, pageRtx);
+    final PageContainer cont = log.get(reference);
     IndirectPage oldPage = cont == null ? null : (IndirectPage) cont.getComplete();
     if (oldPage == null) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
@@ -169,7 +169,7 @@ public final class TreeModifierImpl implements TreeModifier {
   @Override
   public IndirectPage prepareIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       final PageReference reference) {
-    final PageContainer cont = log.get(reference, pageRtx);
+    final PageContainer cont = log.get(reference);
     IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
     if (page == null) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {

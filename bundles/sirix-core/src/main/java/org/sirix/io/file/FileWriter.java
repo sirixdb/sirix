@@ -173,13 +173,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       dataFile.write(writtenPage);
 
       // Remember page coordinates.
-      switch (type) {
-        case DATA -> pageReference.setKey(offset);
-        case TRANSACTION_INTENT_LOG -> pageReference.setPersistentLogKey(offset);
-        default -> {
-        }
-        // Must not happen.
-      }
+      pageReference.setKey(offset);
 
       if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
         pageReference.setHash(unorderedKeyValuePage.getHashCode());

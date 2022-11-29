@@ -109,19 +109,9 @@ public final class IOUringReader extends AbstractReader {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
-      final long position;
+      final long position = reference.getKey();
+      dataFile.read(buffer, position).join();
 
-      switch (type) {
-        case DATA -> {
-          position = reference.getKey();
-          dataFile.read(buffer, position).join();
-        }
-        case TRANSACTION_INTENT_LOG -> {
-          position = reference.getPersistentLogKey();
-          dataFile.read(buffer, position).join();
-        }
-        default -> throw new IllegalStateException();
-      }
       buffer.flip();
       final int dataLength = buffer.getInt();
 

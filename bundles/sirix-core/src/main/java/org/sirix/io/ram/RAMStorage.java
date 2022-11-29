@@ -9,7 +9,7 @@ import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
@@ -52,9 +52,9 @@ public final class RAMStorage implements IOStorage {
   private final ConcurrentMap<Integer, Long> mUberPageKey;
 
   /**
-   * {@link ByteHandlePipeline} reference.
+   * {@link ByteHandlerPipeline} reference.
    */
-  private final ByteHandlePipeline mHandler;
+  private final ByteHandlerPipeline mHandler;
 
   /**
    * {@link RAMAccess} reference.
@@ -119,7 +119,7 @@ public final class RAMStorage implements IOStorage {
   }
 
   @Override
-  public ByteHandlePipeline getByteHandler() {
+  public ByteHandlerPipeline getByteHandler() {
     return mHandler;
   }
 
