@@ -118,7 +118,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         first = false;
       } else {
         final var pathNode = this.getPathNode();
-        if (pageReadTrx instanceof NodeReadOnlyTrx) {
+        if (!(pageReadTrx instanceof PageTrx)) {
           updateInMemoryNodeRelations(previousPathNode, structuralNode, pathNode);
         }
         qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
