@@ -18,198 +18,277 @@
  * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+package org.sirix.axis
 
-package org.sirix.axis;
+import com.google.common.collect.ImmutableList
+import com.google.common.collect.testing.IteratorFeature
+import com.google.common.collect.testing.IteratorTester
+import org.checkerframework.org.apache.commons.lang3.time.StopWatch
+import org.junit.After
+import org.junit.Before
+import org.junit.Ignore
+import org.junit.Test
+import org.sirix.Holder
+import org.sirix.JsonTestHelper
+import org.sirix.XmlTestHelper
+import org.sirix.access.DatabaseConfiguration
+import org.sirix.access.Databases
+import org.sirix.access.ResourceConfiguration
+import org.sirix.access.trx.node.HashType
+import org.sirix.api.Database
+import org.sirix.api.NodeCursor
+import org.sirix.api.json.JsonResourceSession
+import org.sirix.io.StorageType
+import org.sirix.service.json.shredder.JsonShredder
+import org.sirix.settings.Fixed
+import org.sirix.settings.VersioningType
+import org.sirix.utils.LogWrapper
+import org.slf4j.LoggerFactory
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.time.Duration
+import java.time.LocalDateTime
+import java.util.concurrent.TimeUnit
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.testing.IteratorFeature;
-import com.google.common.collect.testing.IteratorTester;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.sirix.Holder;
-import org.sirix.XmlTestHelper;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceSession;
-import org.sirix.exception.SirixException;
-import org.sirix.settings.Fixed;
+class CoroutineDescendantAxisTest {
+    private var holder: Holder? = null
+    @Before
+    fun setUp() {
+        XmlTestHelper.deleteEverything()
+        XmlTestHelper.createTestDocument()
+        holder = Holder.generateRtx()
+    }
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.Iterator;
+    @After
+    fun tearDown() {
+        holder!!.close()
+        XmlTestHelper.closeEverything()
+    }
 
-public class CoroutineDescendantAxisTest {
+    @Test
+    fun testIterate() {
+        val rm = holder!!.resourceManager
+        val rtx = holder!!.xmlNodeReadTrx
+        rtx.moveToDocumentRoot()
+        AbsAxisTest.testAxisConventions(
+            CoroutineDescendantAxis(rm),
+            longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
+        )
+        object : IteratorTester<Long?>(
+            ITERATIONS,
+            IteratorFeature.UNMODIFIABLE,
+            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+            null
+        ) {
+            override fun newTargetIterator(): Iterator<Long> {
+                return CoroutineDescendantAxis(rm)
+            }
+        }.test()
+        rtx.moveTo(1L)
+        AbsAxisTest.testAxisConventions(
+            CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx),
+            longArrayOf(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
+        )
+        object : IteratorTester<Long?>(
+            ITERATIONS,
+            IteratorFeature.UNMODIFIABLE,
+            ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+            null
+        ) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx = holder!!.xmlNodeReadTrx
+                rtx.moveTo(1L)
+                return CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx)
+            }
+        }.test()
+        rtx.moveTo(9L)
+        AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx), longArrayOf(11L, 12L))
+        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L), null) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx = holder!!.xmlNodeReadTrx
+                rtx.moveTo(9L)
+                return CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx)
+            }
+        }.test()
+        rtx.moveTo(13L)
+        AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx), longArrayOf())
+        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, emptyList<Long>(), null) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx = holder!!.xmlNodeReadTrx
+                rtx.moveTo(13L)
+                return CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx)
+            }
+        }.test()
+    }
 
-  private static final int ITERATIONS = 5;
-
-  private Holder holder;
-
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
-
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
-
-  @Test
-  public void testIterate() throws SirixException {
-    final XmlResourceSession rm = holder.getResourceManager();
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-
-    rtx.moveToDocumentRoot();
-
-    AbsAxisTest.testAxisConventions(
-        new CoroutineDescendantAxis<>(rm), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        return new CoroutineDescendantAxis<>(rm);
-      }
-    }.test();
-
-    rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(
-        new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-        rtx.moveTo(1L);
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx);
-      }
-    }.test();
-
-    rtx.moveTo(9L);
-    AbsAxisTest.testAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {11L, 12L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L),
-            null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-        rtx.moveTo(9L);
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx);
-      }
-    }.test();
-
-    rtx.moveTo(13L);
-    AbsAxisTest.testAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx), new long[] {});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            Collections.<Long>emptyList(), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-        rtx.moveTo(13L);
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.NO, rtx);
-      }
-    }.test();
-  }
-
-  @Test
-  public void testIterateIncludingSelf() throws SirixException {
-    final XmlResourceSession rm = holder.getResourceManager();
-    final NodeCursor rtx = rm.beginNodeReadOnlyTrx();
-
-    AbsAxisTest.testAxisConventions(
-        new CoroutineDescendantAxis<>(rm, IncludeSelf.YES),
-        new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L,
-            12L, 13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+    @Test
+    fun testIterateIncludingSelf() {
+        val rm = holder!!.resourceManager
+        val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
+        AbsAxisTest.testAxisConventions(
+            CoroutineDescendantAxis(rm, IncludeSelf.YES), longArrayOf(
+                Fixed.DOCUMENT_NODE_KEY.standardProperty, 1L, 4L, 5L, 6L, 7L, 8L,
+                9L, 11L, 12L, 13L
+            )
+        )
+        object : IteratorTester<Long?>(
+            ITERATIONS,
+            IteratorFeature.UNMODIFIABLE,
             ImmutableList.of(
-                    Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L,
-                    13L),
-            null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.YES);
-      }
-    }.test();
+                Fixed.DOCUMENT_NODE_KEY.standardProperty,
+                1L,
+                4L,
+                5L,
+                6L,
+                7L,
+                8L,
+                9L,
+                11L,
+                12L,
+                13L
+            ),
+            null
+        ) {
+            override fun newTargetIterator(): Iterator<Long> {
+                return CoroutineDescendantAxis(rm, IncludeSelf.YES)
+            }
+        }.test()
+        rtx.moveTo(1L)
+        AbsAxisTest.testAxisConventions(
+            CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx),
+            longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
+        )
+        object : IteratorTester<Long?>(
+            ITERATIONS,
+            IteratorFeature.UNMODIFIABLE,
+            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+            null
+        ) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
+                rtx.moveTo(1L)
+                return CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx)
+            }
+        }.test()
+        rtx.moveTo(9L)
+        AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx), longArrayOf(9L, 11L, 12L))
+        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(9L, 11L, 12L), null) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
+                rtx.moveTo(9L)
+                return CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx)
+            }
+        }.test()
+        rtx.moveTo(13L)
+        AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx), longArrayOf(13L))
+        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L), null) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
+                rtx.moveTo(13L)
+                return CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx)
+            }
+        }.test()
+    }
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(
-        new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx),
-        new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final NodeCursor rtx = rm.beginNodeReadOnlyTrx();
-        rtx.moveTo(1L);
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx);
-      }
-    }.test();
+    @Test
+    fun testIterationTime() {
+        val rtx = holder!!.xmlNodeReadTrx
+        val rm = holder!!.resourceManager
+        rtx.moveToDocumentRoot()
+        val time1 = LocalDateTime.now()
+        AbsAxisTest.testAxisConventions(
+            CoroutineDescendantAxis(rm),
+            longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
+        )
+        object : IteratorTester<Long?>(
+            ITERATIONS,
+            IteratorFeature.UNMODIFIABLE,
+            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+            null
+        ) {
+            override fun newTargetIterator(): Iterator<Long> {
+                return CoroutineDescendantAxis(rm)
+            }
+        }.test()
+        val time2 = LocalDateTime.now()
+        AbsAxisTest.testAxisConventions(DescendantAxis(rtx), longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L))
+        object : IteratorTester<Long?>(
+            ITERATIONS,
+            IteratorFeature.UNMODIFIABLE,
+            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+            null
+        ) {
+            override fun newTargetIterator(): Iterator<Long> {
+                val rtx = holder!!.xmlNodeReadTrx
+                rtx.moveToDocumentRoot()
+                return DescendantAxis(rtx)
+            }
+        }.test()
+        val time3 = LocalDateTime.now()
+        println("CoroutineDescendantAxis -> " + Duration.between(time1, time2).toMillis())
+        println("DescendantAxis -> " + Duration.between(time2, time3).toMillis())
+    }
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testAxisConventions(
-        new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx), new long[] {9L, 11L, 12L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(9L, 11L, 12L), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final NodeCursor rtx = rm.beginNodeReadOnlyTrx();
-        rtx.moveTo(9L);
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx);
-      }
-    }.test();
+    @Ignore
+    @Test
+    fun testChicago() {
+        //JsonTestHelper.deleteEverything()
+        try {
+            val jsonPath = JSON.resolve("cityofchicago.json")
+            Databases.createJsonDatabase(DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.file))
+            Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.file).use { database ->
+               // createResource(jsonPath, database)
+                database.beginResourceSession(JsonTestHelper.RESOURCE).use { session ->
+                    session.beginNodeReadOnlyTrx().use { rtx ->
+                        val axis = CoroutineDescendantAxis(session)
+                        val stopWatch = StopWatch()
+                        logger.info("start")
+                        stopWatch.start()
+                        logger.info("Max node key: " + rtx.maxNodeKey)
+                        var count = 0
+                        while (axis.hasNext()) {
+                            val nodeKey = axis.nextLong()
+                            if (count % 50000000L == 0L) {
+                                logger.info("nodeKey: $nodeKey")
+                            }
+                            count++
+                        }
+                        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].")
+                    }
+                }
+            }
+        } finally {
+            JsonTestHelper.closeEverything()
+        }
+    }
 
-    rtx.moveTo(13L);
-    AbsAxisTest.testAxisConventions(new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx), new long[] {13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L),
-            null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final NodeCursor rtx = rm.beginNodeReadOnlyTrx();
-        rtx.moveTo(13L);
-        return new CoroutineDescendantAxis<>(rm, IncludeSelf.YES, rtx);
-      }
-    }.test();
-  }
+    private fun createResource(jsonPath: Path, database: Database<JsonResourceSession>) {
+        logger.info(" start shredding ")
+        val stopWatch = StopWatch()
+        stopWatch.start()
+        database.createResource(
+            ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                .buildPathSummary(true)
+                .storeDiffs(true)
+                .storeNodeHistory(false)
+                .storeChildCount(true)
+                .hashKind(HashType.ROLLING)
+                .useTextCompression(false)
+                .storageType(StorageType.FILE_CHANNEL) //.byteHandlerPipeline(new ByteHandlerPipeline())
+                .useDeweyIDs(false) //   .byteHandlerPipeline(new ByteHandlePipeline(new LZ4Compressor()))
+                .build()
+        )
+        database.beginResourceSession(JsonTestHelper.RESOURCE).use { session ->
+            session.beginNodeTrx(262144 shl 3)
+                .use { trx -> trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath)) }
+        }
+        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].")
+    }
 
-  @Test
-  public void testIterationTime() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-    final XmlResourceSession rm = holder.getResourceManager();
-
-    rtx.moveToDocumentRoot();
-
-    LocalDateTime time1 = LocalDateTime.now();
-
-    AbsAxisTest.testAxisConventions(
-            new CoroutineDescendantAxis<>(rm), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        return new CoroutineDescendantAxis<>(rm);
-      }
-    }.test();
-
-    LocalDateTime time2 = LocalDateTime.now();
-
-    AbsAxisTest.testAxisConventions(
-            new DescendantAxis(rtx), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-      @Override
-      protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
-        rtx.moveToDocumentRoot();
-        return new DescendantAxis(rtx);
-      }
-    }.test();
-
-    LocalDateTime time3 = LocalDateTime.now();
-
-    System.out.println("CoroutineDescendantAxis -> " + Duration.between(time1, time2).toMillis());
-    System.out.println("DescendantAxis -> " + Duration.between(time2, time3).toMillis());
-  }
+    companion object {
+        private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxisTest::class.java))
+        private val JSON = Paths.get("src", "test", "resources", "json")
+        private const val ITERATIONS = 5
+    }
 }
