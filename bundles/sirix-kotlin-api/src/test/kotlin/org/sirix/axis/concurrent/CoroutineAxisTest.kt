@@ -1,127 +1,148 @@
-package org.sirix.axis.concurrent;
+package org.sirix.axis.concurrent
 
-import org.junit.Before;
-import org.junit.Test;
-import org.sirix.Holder;
-import org.sirix.XmlTestHelper;
-import org.sirix.api.Axis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.NestedAxis;
-import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xml.XmlNameFilter;
-import org.sirix.service.xml.shredder.XmlShredder;
+import org.junit.Assert
+import org.junit.Before
+import org.junit.Test
+import org.sirix.Holder
+import org.sirix.XmlTestHelper
+import org.sirix.api.Axis
+import org.sirix.axis.ChildAxis
+import org.sirix.axis.DescendantAxis
+import org.sirix.axis.IncludeSelf
+import org.sirix.axis.NestedAxis
+import org.sirix.axis.filter.FilterAxis
+import org.sirix.axis.filter.xml.XmlNameFilter
+import org.sirix.service.xml.shredder.XmlShredder
+import java.nio.file.Paths
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
-/** Test {@link CoroutineAxis}. */
-public class CoroutineAxisTest {
-
-    /** XML file name to test. */
-    private static final String XMLFILE = "10mb.xml";
-
-    /** Path to XML file. */
-    private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
-
-    private Holder holder;
+/** Test [CoroutineAxis].  */
+class CoroutineAxisTest {
+    private var holder: Holder? = null
 
     /**
      * Method is called once before each test. It deletes all states, shreds XML file to database and
      * initializes the required variables.
      */
     @Before
-    public void setUp() {
+    fun setUp() {
         try {
-            XmlTestHelper.deleteEverything();
-            XmlShredder.main(XML.toAbsolutePath().toString(), XmlTestHelper.PATHS.PATH1.getFile().toAbsolutePath().toString());
-            holder = Holder.generateRtx();
-        } catch (final Exception e) {
-            e.printStackTrace();
+            XmlTestHelper.deleteEverything()
+            XmlShredder.main(
+                XML.toAbsolutePath().toString(),
+                XmlTestHelper.PATHS.PATH1.file.toAbsolutePath().toString()
+            )
+            holder = Holder.generateRtx()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-    }
-
-
-    /**
-     * Test coroutine.
-     */
-    @Test
-    public void testCoroutine() {
-        /* query: //regions/africa//location */
-        final int resultNumber = 55;
-        final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var secondConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var thirdConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var thirdRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final Axis axis =
-                new NestedAxis(
-                        new NestedAxis(
-                                new CoroutineAxis<>(firstConcurrRtx,
-                                        new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
-                                                new XmlNameFilter(firstRtx, "regions"))),
-                                new CoroutineAxis<>(secondConcurrRtx,
-                                        new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
-                        new CoroutineAxis<>(thirdConcurrRtx,
-                                new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XmlNameFilter(thirdRtx, "location"))));
-
-        for (int i = 0; i < resultNumber; i++) {
-            assertTrue(axis.hasNext());
-            axis.nextLong();
-        }
-        assertFalse(axis.hasNext());
     }
 
     /**
      * Test coroutine.
      */
     @Test
-    public void testPartCoroutineDescAxis1() {
+    fun testCoroutine() {
         /* query: //regions/africa//location */
-        final int resultNumber = 55;
-        final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var axis = new NestedAxis(
-                new NestedAxis(
-                        new CoroutineAxis<>(firstConcurrRtx,
-                                new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-                                        new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions"))),
-                        new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
-                new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-                        new XmlNameFilter(firstConcurrRtx, "location")));
-
-        for (int i = 0; i < resultNumber; i++) {
-            assertTrue(axis.hasNext());
-            axis.nextLong();
+        val resultNumber = 55
+        val firstConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val secondConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val thirdConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val firstRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val secondRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val thirdRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val axis: Axis = NestedAxis(
+            NestedAxis(
+                CoroutineAxis(
+                    firstConcurrRtx,
+                    FilterAxis(
+                        DescendantAxis(firstRtx, IncludeSelf.YES),
+                        XmlNameFilter(firstRtx, "regions")
+                    )
+                ),
+                CoroutineAxis(
+                    secondConcurrRtx,
+                    FilterAxis(ChildAxis(secondRtx), XmlNameFilter(secondRtx, "africa"))
+                )
+            ),
+            CoroutineAxis(
+                thirdConcurrRtx,
+                FilterAxis(DescendantAxis(thirdRtx, IncludeSelf.YES), XmlNameFilter(thirdRtx, "location"))
+            )
+        )
+        for (i in 0 until resultNumber) {
+            Assert.assertTrue(axis.hasNext())
+            axis.nextLong()
         }
-        assertFalse(axis.hasNext());
+        Assert.assertFalse(axis.hasNext())
     }
 
     /**
      * Test coroutine.
      */
     @Test
-    public void testPartConcurrentDescAxis2() {
+    fun testPartCoroutineDescAxis1() {
         /* query: //regions/africa//location */
-        final int resultNumber = 55;
-        final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-        final var axis = new NestedAxis(
-                new NestedAxis(
-                        new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-                                new XmlNameFilter(firstConcurrRtx, "regions")),
-                        new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
-                new CoroutineAxis<>(firstConcurrRtx,
-                        new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-                                new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
-
-        for (int i = 0; i < resultNumber; i++) {
-            assertTrue(axis.hasNext());
-            axis.nextLong();
+        val resultNumber = 55
+        val firstConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val axis = NestedAxis(
+            NestedAxis(
+                CoroutineAxis(
+                    firstConcurrRtx,
+                    FilterAxis(
+                        DescendantAxis(holder!!.xmlNodeReadTrx, IncludeSelf.YES),
+                        XmlNameFilter(holder!!.xmlNodeReadTrx, "regions")
+                    )
+                ),
+                FilterAxis(ChildAxis(firstConcurrRtx), XmlNameFilter(firstConcurrRtx, "africa"))
+            ),
+            FilterAxis(
+                DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+                XmlNameFilter(firstConcurrRtx, "location")
+            )
+        )
+        for (i in 0 until resultNumber) {
+            Assert.assertTrue(axis.hasNext())
+            axis.nextLong()
         }
-        assertFalse(axis.hasNext());
+        Assert.assertFalse(axis.hasNext())
+    }
+
+    /**
+     * Test coroutine.
+     */
+    @Test
+    fun testPartConcurrentDescAxis2() {
+        /* query: //regions/africa//location */
+        val resultNumber = 55
+        val firstConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val axis = NestedAxis(
+            NestedAxis(
+                FilterAxis(
+                    DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+                    XmlNameFilter(firstConcurrRtx, "regions")
+                ),
+                FilterAxis(ChildAxis(firstConcurrRtx), XmlNameFilter(firstConcurrRtx, "africa"))
+            ),
+            CoroutineAxis(
+                firstConcurrRtx,
+                FilterAxis(
+                    DescendantAxis(holder!!.xmlNodeReadTrx, IncludeSelf.YES),
+                    XmlNameFilter(holder!!.xmlNodeReadTrx, "location")
+                )
+            )
+        )
+        for (i in 0 until resultNumber) {
+            Assert.assertTrue(axis.hasNext())
+            axis.nextLong()
+        }
+        Assert.assertFalse(axis.hasNext())
+    }
+
+    companion object {
+        /** XML file name to test.  */
+        private const val XMLFILE = "10mb.xml"
+
+        /** Path to XML file.  */
+        private val XML = Paths.get("src", "test", "resources", XMLFILE)
     }
 }
