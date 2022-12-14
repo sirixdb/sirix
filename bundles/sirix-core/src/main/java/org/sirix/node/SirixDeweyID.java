@@ -170,7 +170,17 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   private byte[] bytes;
-
+  /**
+   * @param divisionPart - the deweyID represented as a String
+   * @return divisionValues - The values of a deweyID as an array of integers
+   *
+   * This function takes in a String divisionPart (ex: "1.3.4")
+   * if the string does not have a seperator at the end, it will add one
+   * the string is then split into an array of strings, with the seperator "." used as a delimiter
+   * divisionValues is then intialized with a fixed length according to the length of the split string
+   * For each string in divisions, the function will try to parse the string into an integer.
+   * If there is an exception, divisionPart has an invalid value.
+   */
   private int[] parseDivisionValues(String divisionPart) {
     if (divisionPart.charAt(divisionPart.length() - 1) != '.')
       divisionPart += '.';
