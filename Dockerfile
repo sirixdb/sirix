@@ -1,7 +1,7 @@
 # Stage-1
 # Build jar
 
-FROM gradle:7.5.1-jdk19 as builder
+FROM 7.6.0-jdk19 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
