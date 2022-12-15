@@ -174,8 +174,8 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
    * This will take in a deweyID represented as a String, and output an array of integers
    * representing the values contained within the deweyID sans seperators
    *
-   * @param divisionPart - the deweyID represented as a String
-   * @return divisionValues - The values of a deweyID as an array of integers
+   * @param divisionPart the deweyID represented as a String
+   * @return divisionValues The values of a deweyID as an array of integers
    */
   private int[] parseDivisionValues(String divisionPart) {
     if (divisionPart.charAt(divisionPart.length() - 1) != '.')
