@@ -1,5 +1,6 @@
 package org.sirix.xquery.compiler.expression;
 
+import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.Tuple;
@@ -53,6 +54,7 @@ public final class IndexExpr implements Expr {
     databaseName = (String) properties.get("databaseName");
     resourceName = (String) properties.get("resourceName");
     revision = (Integer) properties.get("revision");
+    //noinspection unchecked
     indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) properties.get("indexDefs");
   }
 
@@ -74,7 +76,7 @@ public final class IndexExpr implements Expr {
 
     final var indexType = (IndexType) properties.get("indexType");
     final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
-    final var pathSegmentNamesToArrayIndexes =
+    @SuppressWarnings("unchecked") final var pathSegmentNamesToArrayIndexes =
         (Deque<QueryPathSegment>) properties.get("pathSegmentNamesToArrayIndexes");
 
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
@@ -100,9 +102,9 @@ public final class IndexExpr implements Expr {
           final var comparisonType = (String) properties.get("comparator");
           final Atomic atomicUpperBound = (Atomic) properties.get("upperBoundAtomic");
           final String comparisonUpperBound = (String) properties.get("upperBoundComparator");
+          final SearchMode searchMode = getSearchMode(comparisonType);
 
           if (atomicUpperBound != null && comparisonUpperBound != null) {
-            final SearchMode searchMode = getSearchMode(comparisonType);
             final SearchMode searchModeUpperBound = getSearchMode(comparisonUpperBound);
 
             if ((searchMode != SearchMode.GREATER && searchMode != SearchMode.GREATER_OR_EQUAL) || (
@@ -127,11 +129,7 @@ public final class IndexExpr implements Expr {
                                          nodeKeys,
                                          false);
 
-            indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
-
-            nodeKeys = new ArrayList<>();
           } else {
-            final SearchMode searchMode = getSearchMode(comparisonType);
 
             final var casFilter =
                 new CASFilter(new HashSet<>(entrySet.getValue()), atomic, searchMode, new JsonPCRCollector(rtx));
@@ -146,10 +144,9 @@ public final class IndexExpr implements Expr {
                                          nodeKeys,
                                          false);
 
-            indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
-
-            nodeKeys = new ArrayList<>();
           }
+          indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
+          nodeKeys = new ArrayList<>();
         }
         case NAME -> {
           final Iterator<NodeReferences> nodeReferencesIterator = indexController.openNameIndex(rtx.getPageTrx(),
@@ -206,7 +203,8 @@ public final class IndexExpr implements Expr {
       });
       case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
         final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
-        final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
+        @SuppressWarnings(
+            "unchecked") final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
         final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
         final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
         nodeKeysOfIndex.forEach(nodeKey -> {
@@ -238,7 +236,7 @@ public final class IndexExpr implements Expr {
   }
 
   private SearchMode getSearchMode(String comparisonType) {
-    final SearchMode searchMode = switch (comparisonType) {
+    return switch (comparisonType) {
       case "ValueCompGT", "GeneralCompGT" -> SearchMode.GREATER;
       case "ValueCompLT", "GeneralCompLT" -> SearchMode.LOWER;
       case "ValueCompEQ", "GeneralCompEQ" -> SearchMode.EQUAL;
@@ -246,8 +244,6 @@ public final class IndexExpr implements Expr {
       case "ValueCompLE", "GeneralCompLE" -> SearchMode.LOWER_OR_EQUAL;
       case null, default -> throw new IllegalStateException("Unexpected value: " + comparisonType);
     };
-
-    return searchMode;
   }
 
   private void checkIfIndexNodeIsApplicable(JsonResourceSession manager, JsonNodeReadOnlyTrx rtx,
@@ -256,10 +252,12 @@ public final class IndexExpr implements Expr {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
     try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
-        final var currNodeKeys = new HashSet<>(currentNodeReferences.getNodeKeys());
+        final var currNodeKeys = new LongLinkedOpenHashSet(currentNodeReferences.getNodeKeys().toArray());
         // if array numberOfArrayIndexes are given (only some might be specified we have to drop false positive nodes
         if (numberOfArrayIndexes != 0 || checkPathBecauseOfFieldNameChecks) {
-          for (final long nodeKey : currentNodeReferences.getNodeKeys()) {
+          final var nodeKeyIter =  currentNodeReferences.getNodeKeys().getLongIterator();
+          while (nodeKeyIter.hasNext()) {
+            final var nodeKey = nodeKeyIter.next();
             final var currentPathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
             pathSegmentNamesToArrayIndexes.forEach(pathSegmentNameToArrayIndex -> {
               final var currentIndexes = new ArrayDeque<>(pathSegmentNameToArrayIndex.arrayIndexes());
