@@ -127,10 +127,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   /**
    * Copy constructor.
    *
-   * @param pageReadOnlyTrx the page read-only trx
    * @param pageToClone     the page to clone
    */
-  public UnorderedKeyValuePage(final PageReadOnlyTrx pageReadOnlyTrx, final UnorderedKeyValuePage pageToClone) {
+  public UnorderedKeyValuePage(final UnorderedKeyValuePage pageToClone) {
     addedReferences = pageToClone.addedReferences;
     references = pageToClone.references;
     recordPageKey = pageToClone.recordPageKey;
@@ -156,7 +155,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
-    assert recordPageKey >= 0 : "recordPageKey must not be negative!";
     assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
 
     references = new ConcurrentHashMap<>();
@@ -166,7 +164,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     this.indexType = indexType;
     resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
     recordPersister = resourceConfig.recordPersister;
-    deweyIDs = new Object2LongLinkedOpenHashMap<>((int) (Constants.NDP_NODE_COUNT * 1.25f));
+    deweyIDs = new Object2LongLinkedOpenHashMap<>((int) Math.ceil(Constants.NDP_NODE_COUNT / 0.75));
     this.revision = pageReadOnlyTrx.getRevisionNumber();
     recordsStored = 0;
     areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -188,7 +186,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistenter) {
       final int deweyIDSize = in.readInt();
-      deweyIDs = new Object2LongLinkedOpenHashMap<>((int) (Constants.NDP_NODE_COUNT * 1.25f));
+      deweyIDs = new Object2LongLinkedOpenHashMap<>((int) Math.ceil(Constants.NDP_NODE_COUNT / 0.75));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
       var byteBufferBytes = Bytes.elasticByteBuffer();
@@ -204,9 +202,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       }
 
       byteBufferBytes.clear();
-      byteBufferBytes = null;
     } else {
-      deweyIDs = new Object2LongLinkedOpenHashMap<>((int) (Constants.NDP_NODE_COUNT * 1.25f));
+      deweyIDs = new Object2LongLinkedOpenHashMap<>((int) Math.ceil(Constants.NDP_NODE_COUNT / 0.75));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
     }
 
@@ -306,7 +303,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     return hashCode;
   }
 
-  @SuppressWarnings("UnstableApiUsage")
   @Override
   public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
       final SerializationType type) {
@@ -392,6 +388,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   @SuppressWarnings("rawtypes")
   @Override
   public <I extends Iterable<DataRecord>> I values() {
+    //noinspection unchecked
     return (I) new ArrayIterator(records, records.length);
   }
 
@@ -497,6 +494,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(final long recordPageKey,
       @NonNull final IndexType indexType, @NonNull final PageReadOnlyTrx pageReadTrx) {
+    //noinspection unchecked
     return (C) new UnorderedKeyValuePage(recordPageKey, indexType, pageReadTrx);
   }
 
