@@ -37,7 +37,6 @@ import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
-import org.sirix.io.StorageType;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
@@ -68,11 +67,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * access to this transaction.
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
-
-  /**
-   * The storage type.
-   */
-  private final StorageType storageType;
 
   private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision, Page page) {
   }
@@ -155,7 +149,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param revision              key of revision to read from uber page
    * @param reader                to read stored pages for this transaction
    * @param resourceBufferManager caches in-memory reconstructed pages
-   * @param trxIntentLog          the transaction intent log (may be {@code null})
+   * @param trxIntentLog          the transaction intent log (can be {@code null})
    * @throws SirixIOException if reading of the persistent storage fails
    */
   public NodePageReadOnlyTrx(final long trxId,
@@ -163,14 +157,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final UberPage uberPage, final @NonNegative int revision, final Reader reader,
       final BufferManager resourceBufferManager, final @NonNull RevisionRootPageReader revisionRootPageReader,
       final @Nullable TransactionIntentLog trxIntentLog) {
-    checkArgument(revision >= 0, "Revision must be >= 0.");
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     this.trxId = trxId;
     this.resourceBufferManager = resourceBufferManager;
     this.isClosed = false;
     this.resourceSession = checkNotNull(resourceSession);
     this.resourceConfig = resourceSession.getResourceConfig();
-    this.storageType = resourceConfig.getStorageType();
     this.pageReader = checkNotNull(reader);
     this.uberPage = checkNotNull(uberPage);
     this.pool = Executors.newFixedThreadPool(resourceConfig.maxNumberOfRevisionsToRestore - 1);
@@ -205,7 +197,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return page;
     }
 
-    if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT)) {
+    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
       page = pageReader.read(reference, this);
     }
 
@@ -228,8 +220,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private Page getFromTrxIntentLog(PageReference reference) {
     // Try to get it from the transaction log if it's present.
     final PageContainer cont = trxIntentLog.get(reference);
-    final Page page = cont == null ? null : cont.getComplete();
-    return page;
+    return cont == null ? null : cont.getComplete();
   }
 
   @Override
@@ -253,8 +244,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
   }
 
+  @SuppressWarnings("unchecked")
   @Override
-  public DataRecord getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
+  public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
     checkNotNull(indexType);
     assertNotClosed();
 
@@ -278,7 +270,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final var dataRecord = ((UnorderedKeyValuePage) page).getValue(this, recordKey);
 
-    return checkItemIfDeleted(dataRecord);
+    return checkItemIfDeleted((V) dataRecord);
   }
 
   /**
@@ -287,7 +279,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param toCheck node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  DataRecord checkItemIfDeleted(final @Nullable DataRecord toCheck) {
+  <V extends DataRecord> V checkItemIfDeleted(final @Nullable V toCheck) {
     if (toCheck instanceof DeletedNode) {
       return null;
     }
@@ -316,10 +308,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    */
   @Override
   public RevisionRootPage loadRevRoot(@NonNegative final int revisionKey) {
-    checkArgument(revisionKey >= 0 && revisionKey <= resourceSession.getMostRecentRevisionNumber(),
-                  "%s must be >= 0 and <= last stored revision (%s)!",
-                  revisionKey,
-                  resourceSession.getMostRecentRevisionNumber());
+    assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
       final Cache<Integer, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
       RevisionRootPage revisionRootPage = cache.get(revisionKey);
@@ -538,6 +527,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
+  @SuppressWarnings("unchecked")
   List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
@@ -575,6 +565,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                           .collect(Collectors.toList());
   }
 
+  @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
     final var pageReference = new PageReference().setKey(pageFragmentKey.key());
     final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
@@ -582,6 +573,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
     }
     final var pageReadOnlyTrx = resourceSession.beginPageReadOnlyTrx(pageFragmentKey.revision());
+    //noinspection unchecked
     return (CompletableFuture<KeyValuePage<DataRecord>>) pageReadOnlyTrx.getReader()
                                                                         .readAsync(new PageReference().setKey(
                                                                             pageFragmentKey.key()), pageReadOnlyTrx)
@@ -656,7 +648,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(startReference);
-    checkArgument(pageKey >= 0, "page key must be >= 0!");
     int offset;
     long levelKey = pageKey;
     final int[] inpLevelPageCountExp = uberPage.getPageCountExp(indexType);
@@ -688,7 +679,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Override
   public long pageKey(@NonNegative final long recordKey, @NonNull final IndexType indexType) {
     assertNotClosed();
-    checkArgument(recordKey >= 0, "recordKey must not be negative!");
 
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;

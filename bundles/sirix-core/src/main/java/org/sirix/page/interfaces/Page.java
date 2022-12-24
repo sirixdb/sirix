@@ -28,6 +28,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.settings.Constants;
 
+import java.io.Closeable;
 import java.io.DataOutput;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -38,7 +39,7 @@ import java.util.List;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Page extends AutoCloseable {
+public interface Page extends Closeable {
 
   /**
    * Serialize a page

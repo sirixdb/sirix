@@ -196,8 +196,10 @@ subprojects {
 
     ext.isReleaseVersion = !rootProject.getProperties().version.endsWith('SNAPSHOT')
 
-    tasks.withType(Sign) {
-        onlyIf { isReleaseVersion }
+    tasks.withType(Sign).tap {
+        configureEach {
+            onlyIf { isReleaseVersion }
+        }
     }
 
     signing {
@@ -227,8 +229,10 @@ subprojects {
 
     publishing.publications.maven.artifact(testsJar)
 
-    tasks.withType(JavaCompile) {
-        options.encoding = 'UTF-8'
+    tasks.withType(JavaCompile).tap {
+        configureEach {
+            options.encoding = 'UTF-8'
+        }
     }
 
     test {

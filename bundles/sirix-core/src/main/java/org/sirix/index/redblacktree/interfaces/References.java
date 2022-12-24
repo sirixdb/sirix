@@ -1,6 +1,8 @@
 package org.sirix.index.redblacktree.interfaces;
 
 import java.util.Set;
+
+import it.unimi.dsi.fastutil.longs.LongSet;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 public interface References {
@@ -10,7 +12,7 @@ public interface References {
    * 
    * @return set of all keys
    */
-  Set<Long> getNodeKeys();
+  LongSet getNodeKeys();
 
   /**
    * Remove a nodeKey.
