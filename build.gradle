@@ -73,6 +73,9 @@ allprojects {
         maven {
             url "https://kotlin.bintray.com/kotlinx"
         }
+        maven {
+            url "https://jitpack.io"
+        }
         mavenLocal()
     }
 }
@@ -252,8 +255,7 @@ subprojects {
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
-                 "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
-        ])
+                 "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"])
 
         minHeapSize = '2g'
         maxHeapSize = '7g'
