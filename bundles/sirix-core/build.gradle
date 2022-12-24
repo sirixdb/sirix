@@ -18,6 +18,7 @@ dependencies {
     api implLibraries.amazonCorettoCryptoProvider
     api implLibraries.iouring
     api implLibraries.lz4
+    api implLibraries.roaringbitmap
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections

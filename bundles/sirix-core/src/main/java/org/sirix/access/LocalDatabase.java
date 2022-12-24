@@ -9,6 +9,7 @@ import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.*;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
@@ -31,7 +32,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
@@ -126,7 +126,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public T beginResourceSession(final String resourceName) {
+  public @NonNull T beginResourceSession(final String resourceName) {
     assertNotClosed();
 
     final Path resourcePath =
@@ -294,7 +294,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized String getResourceName(final @NonNegative long id) {
     assertNotClosed();
-    checkArgument(id >= 0, "The ID must be >= 0!");
     return resourceIDsToResourceNames.get(id);
   }
 
