@@ -71,10 +71,10 @@ allprojects {
             url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
         maven {
-            url "https://kotlin.bintray.com/kotlinx"
+            url "https://jitpack.io"
         }
         maven {
-            url "https://jitpack.io"
+            url "https://kotlin.bintray.com/kotlinx"
         }
         mavenLocal()
     }
