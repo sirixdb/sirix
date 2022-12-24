@@ -328,12 +328,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
-  @Override
-  protected InternalJsonNodeReadOnlyTrx thisInstance() {
-    return this;
-  }
-
-  @Override
+    @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
     final var currentNode = getCurrentNode();

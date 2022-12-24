@@ -230,11 +230,6 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
   }
 
   @Override
-  protected XmlNodeReadOnlyTrx thisInstance() {
-    return this;
-  }
-
-  @Override
   public int getAttributeCount() {
     assertNotClosed();
     final var currentNode = getCurrentNode();

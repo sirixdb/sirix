@@ -93,7 +93,7 @@ public final class DescendantAxis extends AbstractAxis {
     if (cursor.hasFirstChild()) {
       key = cursor.getFirstChildKey();
       if (cursor.hasRightSibling()) {
-        rightSiblingKeyStack.push(cursor.getRightSiblingKey());
+        rightSiblingKeyStack.add(cursor.getRightSiblingKey());
       }
       return key;
     }

@@ -27,7 +27,6 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
@@ -76,8 +75,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
                                     final @NonNull N documentNode,
                                     final InternalResourceSession<T, W> resourceSession,
                                     final ItemList<AtomicValue> itemList) {
-    checkArgument(trxId >= 0);
-
     this.itemList = itemList;
     this.resourceSession = checkNotNull(resourceSession);
     this.id = trxId;
@@ -261,6 +258,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       setCurrentNode(oldNode);
       return false;
     } else {
+      //noinspection unchecked
       setCurrentNode((N) newNode);
       return true;
     }
@@ -421,8 +419,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Next following node.
     return moveToNextFollowing();
   }
-
-  protected abstract T thisInstance();
 
   @Override
   public boolean hasLastChild() {

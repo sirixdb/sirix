@@ -3,6 +3,9 @@ package org.sirix.index.redblacktree.keyvalue;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+
+import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.index.redblacktree.interfaces.References;
@@ -17,13 +20,13 @@ import com.google.common.base.Objects;
  */
 public final class NodeReferences implements References {
   /** A {@link Set} of node-keys. */
-  private final Set<Long> nodeKeys;
+  private final LongSet nodeKeys;
 
   /**
    * Default constructor.
    */
   public NodeReferences() {
-    nodeKeys = new HashSet<>();
+    nodeKeys = new LongLinkedOpenHashSet();
   }
 
   /**
@@ -33,7 +36,7 @@ public final class NodeReferences implements References {
    */
   public NodeReferences(final Set<Long> nodeKeys) {
     assert nodeKeys != null;
-    this.nodeKeys = new HashSet<>(nodeKeys);
+    this.nodeKeys = new LongLinkedOpenHashSet(nodeKeys);
   }
 
   @Override
@@ -42,8 +45,8 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public Set<Long> getNodeKeys() {
-    return Collections.unmodifiableSet(nodeKeys);
+  public LongSet getNodeKeys() {
+    return nodeKeys;
   }
 
   @Override

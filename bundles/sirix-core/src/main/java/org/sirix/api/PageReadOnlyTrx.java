@@ -60,7 +60,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  <V extends DataRecord> V getRecord(@NonNull long key, @NonNull IndexType indexType, @NonNegative int index);
+  <V extends DataRecord> V getRecord(@NonNull long key, @NonNull IndexType indexType, int index);
 
   /**
    * Current reference to actual revision-root page.

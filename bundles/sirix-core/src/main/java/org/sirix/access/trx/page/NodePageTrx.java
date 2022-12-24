@@ -293,7 +293,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public DataRecord getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
+  public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -311,7 +311,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       if (node == null) {
         node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(this, recordKey);
       }
-      return pageRtx.checkItemIfDeleted(node);
+      //noinspection unchecked
+      return (V) pageRtx.checkItemIfDeleted(node);
     }
   }
 
@@ -347,12 +348,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     log.remove(reference);
 
-    Page page = null;
-
-    final var modifiedPage = container.getModified();
-    if (container != null) {
-      page = modifiedPage;
-    }
+    final var page = container.getModified();
 
     reference.setPage(page);
 
@@ -366,8 +362,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     container.getComplete().clearPage();
     page.clearPage();
-    page = null;
-    container = null;
 
     // Remove page reference.
     reference.setPage(null);
@@ -553,7 +547,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private PageContainer prepareRecordPage(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
-    assert recordPageKey >= 0;
     assert indexType != null;
 
     PageContainer pageContainer =
@@ -583,7 +576,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     if (reference.getKey() == Constants.NULL_ID_LONG) {
       final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, indexType, pageRtx);
-      final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(pageRtx, completePage);
+      final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(completePage);
       pageContainer = PageContainer.getInstance(completePage, modifyPage);
     } else {
       pageContainer = dereferenceRecordPageForModification(reference);
