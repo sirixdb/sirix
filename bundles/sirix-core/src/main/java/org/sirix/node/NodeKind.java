@@ -32,6 +32,7 @@ import org.brackit.xquery.xdm.Type;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.jetbrains.annotations.NotNull;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageReadOnlyTrx;
@@ -55,10 +56,17 @@ import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
@@ -625,16 +633,9 @@ public enum NodeKind implements NodePersistenter {
       final int typeSize = source.readInt();
       final byte[] type = new byte[typeSize];
       source.read(type, 0, typeSize);
-      final int keySize = source.readInt();
-      final Set<Long> nodeKeys = new HashSet<>(keySize);
-      if (keySize > 0) {
-        long key = getVarLong(source);
-        nodeKeys.add(key);
-        for (int i = 1; i < keySize; i++) {
-          key += getVarLong(source);
-          nodeKeys.add(key);
-        }
-      }
+
+      final Roaring64Bitmap nodeKeys = deserializeNodeReferences(source);
+
       final Type atomicType = resolveType(new String(type, Constants.DEFAULT_ENCODING));
 
       // Node delegate.
@@ -666,21 +667,9 @@ public enum NodeKind implements NodePersistenter {
       sink.writeInt(type.length);
       sink.write(type);
       final NodeReferences value = node.getValue();
-      final Set<Long> nodeKeys = value.getNodeKeys();
+      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
+      serializeNodeReferences(sink, nodeKeys);
 
-      // Store in a list and sort the list.
-      final List<Long> listNodeKeys = new ArrayList<>(nodeKeys);
-      Collections.sort(listNodeKeys);
-      sink.writeInt(listNodeKeys.size());
-      if (!listNodeKeys.isEmpty()) {
-        putVarLong(sink, listNodeKeys.get(0));
-        for (int i = 0; i < listNodeKeys.size(); i++) {
-          if (i + 1 < listNodeKeys.size()) {
-            final long diff = listNodeKeys.get(i + 1) - listNodeKeys.get(i);
-            putVarLong(sink, diff);
-          }
-        }
-      }
       serializeDelegate(node.getNodeDelegate(), sink);
       putVarLong(sink, node.getLeftChildKey());
       putVarLong(sink, node.getRightChildKey());
@@ -720,11 +709,7 @@ public enum NodeKind implements NodePersistenter {
     public @NotNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final long key = getVarLong(source);
-      final int keySize = source.readInt();
-      final Set<Long> nodeKeys = new HashSet<>(keySize);
-      for (int i = 0; i < keySize; i++) {
-        nodeKeys.add(source.readLong());
-      }
+      final var nodeKeys = deserializeNodeReferences(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
       final long leftChild = getVarLong(source);
@@ -742,11 +727,8 @@ public enum NodeKind implements NodePersistenter {
       final RBNode<Long, NodeReferences> node = (RBNode<Long, NodeReferences>) record;
       putVarLong(sink, node.getKey());
       final NodeReferences value = node.getValue();
-      final Set<Long> nodeKeys = value.getNodeKeys();
-      sink.writeInt(nodeKeys.size());
-      for (final long nodeKey : nodeKeys) {
-        sink.writeLong(nodeKey);
-      }
+      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
+      serializeNodeReferences(sink, nodeKeys);
       serializeDelegate(node.getNodeDelegate(), sink);
       putVarLong(sink, node.getLeftChildKey());
       putVarLong(sink, node.getRightChildKey());
@@ -782,11 +764,7 @@ public enum NodeKind implements NodePersistenter {
       final QNm name = new QNm(new String(nspBytes, Constants.DEFAULT_ENCODING),
                                new String(prefixBytes, Constants.DEFAULT_ENCODING),
                                new String(localNameBytes, Constants.DEFAULT_ENCODING));
-      final int keySize = source.readInt();
-      final Set<Long> nodeKeys = new HashSet<>(keySize);
-      for (int i = 0; i < keySize; i++) {
-        nodeKeys.add(source.readLong());
-      }
+      final var nodeKeys = deserializeNodeReferences(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
       final long leftChild = getVarLong(source);
@@ -812,11 +790,8 @@ public enum NodeKind implements NodePersistenter {
       sink.writeInt(localNameBytes.length);
       sink.write(localNameBytes);
       final NodeReferences value = node.getValue();
-      final Set<Long> nodeKeys = value.getNodeKeys();
-      sink.writeInt(nodeKeys.size());
-      for (final long nodeKey : nodeKeys) {
-        sink.writeLong(nodeKey);
-      }
+      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
+      serializeNodeReferences(sink, nodeKeys);
       serializeDelegate(node.getNodeDelegate(), sink);
       putVarLong(sink, node.getLeftChildKey());
       putVarLong(sink, node.getRightChildKey());
@@ -1654,6 +1629,25 @@ public enum NodeKind implements NodePersistenter {
       throw new UnsupportedOperationException();
     }
   };
+
+  private static void serializeNodeReferences(BytesOut<ByteBuffer> sink, Roaring64Bitmap nodeKeys) {
+    try (var outputStream = new DataOutputStream(sink.outputStream())){
+      nodeKeys.serialize(outputStream);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e.getMessage(), e);
+    }
+  }
+
+  @NotNull
+  private static Roaring64Bitmap deserializeNodeReferences(BytesIn<ByteBuffer> source) {
+    final var nodeKeys = new Roaring64Bitmap();
+    try (var inputStream = new DataInputStream(source.inputStream())) {
+      nodeKeys.deserialize(inputStream);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e.getMessage(), e);
+    }
+    return nodeKeys;
+  }
 
   /**
    * Identifier.

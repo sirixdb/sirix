@@ -1,9 +1,7 @@
 package org.sirix.index.redblacktree.interfaces;
 
-import java.util.Set;
-
-import it.unimi.dsi.fastutil.longs.LongSet;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 public interface References {
 
@@ -12,7 +10,7 @@ public interface References {
    * 
    * @return set of all keys
    */
-  LongSet getNodeKeys();
+  Roaring64Bitmap getNodeKeys();
 
   /**
    * Remove a nodeKey.

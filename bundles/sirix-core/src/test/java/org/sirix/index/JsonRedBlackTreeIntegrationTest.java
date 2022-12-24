@@ -108,12 +108,12 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
       final var allStreetAddressesNodeReferences = allStreetAddressesAndTwitterAccounts.next();
-      assertEquals(53, allStreetAddressesNodeReferences.getNodeKeys().size());
+      assertEquals(53, allStreetAddressesNodeReferences.getNodeKeys().getLongCardinality());
 
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
 
       final var allTwitterAccountsNodeReferences = allStreetAddressesAndTwitterAccounts.next();
-      assertEquals(53, allTwitterAccountsNodeReferences.getNodeKeys().size());
+      assertEquals(53, allTwitterAccountsNodeReferences.getNodeKeys().getLongCardinality());
 
       final var allObjectKeyNamesExceptStreetAddress =
           IndexDefs.createFilteredNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDef.DbType.JSON);
@@ -128,7 +128,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertTrue(allTwitterAccounts.hasNext());
       final var allTwitterAccounts2NodeReferences = allTwitterAccounts.next();
-      assertEquals(53, allTwitterAccounts2NodeReferences.getNodeKeys().size());
+      assertEquals(53, allTwitterAccounts2NodeReferences.getNodeKeys().getLongCardinality());
 
       assertFalse(allTwitterAccounts.hasNext());
 
@@ -144,7 +144,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertTrue(allStreetAddressesIndex.hasNext());
       final var allStreetAddressesIndexNodeReferences = allStreetAddressesIndex.next();
-      assertEquals(53, allStreetAddressesIndexNodeReferences.getNodeKeys().size());
+      assertEquals(53, allStreetAddressesIndexNodeReferences.getNodeKeys().getLongCardinality());
 
       assertFalse(allStreetAddressesIndex.hasNext());
 
@@ -256,7 +256,7 @@ public final class JsonRedBlackTreeIntegrationTest {
           reader.get(new CASValue(new Str("Feature"), Type.STR, pathNodeKeys.iterator().next()), SearchMode.EQUAL);
 
       assertTrue(references.isPresent());
-      assertEquals(53, references.get().getNodeKeys().size());
+      assertEquals(53, references.get().getNodeKeys().getLongCardinality());
 
       final var pathToName = parse("/features/[]/properties/name", PathParser.Type.JSON);
       final var idxDefOfPathToName =
@@ -277,11 +277,10 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(index.hasNext());
 
       index.forEachRemaining(nodeReferences -> {
-        assertEquals(1, nodeReferences.getNodeKeys().size());
-        for (final long nodeKey : nodeReferences.getNodeKeys()) {
-          trx.moveTo(nodeKey);
-          assertEquals("ABC Radio Adelaide", trx.getValue());
-        }
+        assertEquals(1, nodeReferences.getNodeKeys().getLongCardinality());
+        final long nodeKey = nodeReferences.getNodeKeys().getLongIterator().next();
+        trx.moveTo(nodeKey);
+        assertEquals("ABC Radio Adelaide", trx.getValue());
       });
 
       final var indexWithAllEntries = indexController.openCASIndex(trx.getPageTrx(),
@@ -403,10 +402,10 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertEquals(1, pathNodeKeys.size());
 
-      final var references = reader.get(pathNodeKeys.iterator().next(), SearchMode.EQUAL);
+      final var references = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
 
       assertTrue(references.isPresent());
-      assertEquals(53, references.get().getNodeKeys().size());
+      assertEquals(53, references.get().getNodeKeys().getLongCardinality());
 
       final var pathToName = parse("/features/[]/properties/name", PathParser.Type.JSON);
       final var idxDefOfPathToName =
@@ -421,8 +420,10 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(index.hasNext());
 
       index.forEachRemaining(nodeReferences -> {
-        assertEquals(53, nodeReferences.getNodeKeys().size());
-        for (final long nodeKey : nodeReferences.getNodeKeys()) {
+        assertEquals(53, nodeReferences.getNodeKeys().getLongCardinality());
+        final var nodeKeyIter = nodeReferences.getNodeKeys().getLongIterator();
+        while (nodeKeyIter.hasNext()) {
+          final long nodeKey = nodeKeyIter.next();
           trx.moveTo(nodeKey);
           assertEquals("name", trx.getName().getLocalName());
         }
