@@ -63,6 +63,7 @@ public final class JsonShredderTest {
   }
 
   @Disabled
+  @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -108,6 +109,7 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Disabled
+  @Test
   public void testChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");

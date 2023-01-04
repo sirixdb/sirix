@@ -22,6 +22,10 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
@@ -37,8 +41,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * The name page holds all names and their keys for a revision. Furthermore it has references to name indexes.
@@ -108,25 +110,25 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Maximum node keys.
    */
-  private final Map<Integer, Long> maxNodeKeys;
+  private final Int2LongMap maxNodeKeys;
 
   /**
    * Current maximum levels of indirect pages in the tree.
    */
-  private final Map<Integer, Integer> currentMaxLevelsOfIndirectPages;
+  private final Int2IntMap currentMaxLevelsOfIndirectPages;
 
   /**
    * Create name page.
    */
   public NamePage() {
     delegate = new ReferencesPage4();
-    maxNodeKeys = new HashMap<>();
+    maxNodeKeys = new Int2LongOpenHashMap();
     attributes = Names.getInstance(ATTRIBUTES_REFERENCE_OFFSET);
     elements = Names.getInstance(ELEMENTS_REFERENCE_OFFSET);
     namespaces = Names.getInstance(NAMESPACE_REFERENCE_OFFSET);
     processingInstructions = Names.getInstance(PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
     jsonObjectKeys = Names.getInstance(JSON_OBJECT_KEY_REFERENCE_OFFSET);
-    currentMaxLevelsOfIndirectPages = new HashMap<>();
+    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
     numberOfArrays = 0;
   }
 
@@ -138,14 +140,14 @@ public final class NamePage extends AbstractForwardingPage {
   NamePage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
-    maxNodeKeys = new HashMap<>(size);
+    maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(size / 0.75));
     for (int i = 0; i < size; i++) {
       maxNodeKeys.put(i, in.readLong());
     }
 
     numberOfArrays = in.readInt();
     final int currentMaxLevelOfIndirectPages = in.readInt();
-    currentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPages / 0.75));
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
       currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
     }
@@ -382,7 +384,7 @@ public final class NamePage extends AbstractForwardingPage {
     final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte(currentMaxLevelsOfIndirectPages.get(i).byteValue());
+      out.writeByte((byte) currentMaxLevelsOfIndirectPages.get(i));
     }
   }
 
@@ -473,7 +475,7 @@ public final class NamePage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.NAME, pageReadTrx, log);
-      if (maxNodeKeys.get(index) == null) {
+      if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {
         maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);

@@ -1,6 +1,10 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
@@ -13,8 +17,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Page to hold references to a content and value summary.
@@ -28,18 +30,18 @@ public final class CASPage extends AbstractForwardingPage {
   private Page delegate;
 
   /** Maximum node keys. */
-  private final Map<Integer, Long> maxNodeKeys;
+  private final Int2LongMap maxNodeKeys;
 
   /** Current maximum levels of indirect pages in the tree. */
-  private final Map<Integer, Integer> currentMaxLevelsOfIndirectPages;
+  private final Int2IntMap currentMaxLevelsOfIndirectPages;
 
   /**
    * Constructor.
    */
   public CASPage() {
     delegate = new ReferencesPage4();
-    maxNodeKeys = new HashMap<>();
-    currentMaxLevelsOfIndirectPages = new HashMap<>();
+    maxNodeKeys = new Int2LongOpenHashMap();
+    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
   }
 
   /**
@@ -50,12 +52,12 @@ public final class CASPage extends AbstractForwardingPage {
   CASPage(final Bytes<ByteBuffer> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int maxNodeKeySize = in.readInt();
-    maxNodeKeys = new HashMap<>(maxNodeKeySize);
+    maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(maxNodeKeySize / 0.75));
     for (int i = 0; i < maxNodeKeySize; i++) {
       maxNodeKeys.put(i, in.readLong());
     }
     final int currentMaxLevelOfIndirectPages = in.readInt();
-    currentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPages / 0.75));
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
       currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
     }
@@ -107,7 +109,7 @@ public final class CASPage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.CAS, pageReadTrx, log);
-      if (maxNodeKeys.get(index) == null) {
+      if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {
         maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
@@ -132,7 +134,7 @@ public final class CASPage extends AbstractForwardingPage {
     final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte(currentMaxLevelsOfIndirectPages.get(i).byteValue());
+      out.writeByte((byte) currentMaxLevelsOfIndirectPages.get(i));
     }
   }
 
