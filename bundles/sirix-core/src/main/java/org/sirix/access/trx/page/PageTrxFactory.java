@@ -86,13 +86,14 @@ public final class PageTrxFactory {
       final UberPage uberPage, final Writer writer, final @NonNegative long trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
       final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
-    final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
+    final ResourceConfiguration resourceConfig = resourceManager.getResourceConfig();
+    final boolean usePathSummary = resourceConfig.withPathSummary;
     final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
 
     // Deserialize index definitions.
     final Path indexes =
-        resourceManager.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                        .resolve(lastStoredRevision + ".xml");
+        resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                   .resolve(lastStoredRevision + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -103,7 +104,7 @@ public final class PageTrxFactory {
 
     final TreeModifierImpl treeModifier = new TreeModifierImpl();
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
-    final TransactionIntentLog log = logFactory.createTrxIntentLog(resourceManager.getResourceConfig());
+    final TransactionIntentLog log = logFactory.createTrxIntentLog(resourceConfig);
 
     // Create revision tree if needed. Note: This must happen before the page read trx is created.
     if (uberPage.isBootstrap()) {
@@ -126,12 +127,17 @@ public final class PageTrxFactory {
         treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
-    newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
+    if (resourceConfig.storeNodeHistory()) {
+      newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
+    }
 
     // First create revision tree if needed.
     newRevisionRootPage.createDocumentIndexTree(this.databaseType, pageRtx, log);
     newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, pageRtx, log);
-    newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, pageRtx, log);
+
+    if (resourceConfig.storeNodeHistory()) {
+      newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, pageRtx, log);
+    }
 
     if (usePathSummary) {
       // Create path summary tree if needed.

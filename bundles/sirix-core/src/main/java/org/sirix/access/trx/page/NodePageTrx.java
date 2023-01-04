@@ -293,7 +293,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType, @NonNegative final int index) {
+  public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType,
+      @NonNegative final int index) {
     pageRtx.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -499,10 +500,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final IndexType indexType) {
     PageContainer pageContainer =
         getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
-
     if (pageContainer != null) {
       return pageContainer;
     }
+    
     final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
     final var leafPageReference =
         pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
