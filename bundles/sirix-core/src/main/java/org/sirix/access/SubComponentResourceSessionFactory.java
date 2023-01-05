@@ -9,8 +9,8 @@ import javax.inject.Provider;
 import java.nio.file.Path;
 
 /**
- * A parameterizable resource manager factory that creates {@link ResourceSession} instances based on
- * {@link GenericResourceSessionComponent a resource manager subcomponent}.
+ * A parameterizable resource session factory that creates {@link ResourceSession} instances based on
+ * {@link GenericResourceSessionComponent a resource session subcomponent}.
  *
  * @author Joao Sousa
  */
