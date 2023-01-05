@@ -95,6 +95,11 @@ public final class Names {
     }
   }
 
+  public Names setMaxNodeKey(final long maxNodeKey) {
+    this.maxNodeKey = maxNodeKey;
+    return this;
+  }
+
   /**
    * Remove a name.
    *
