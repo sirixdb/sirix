@@ -46,12 +46,27 @@ public final class Names {
 
   /**
    * Constructor creating a new index structure.
+   *
+   * @param indexNumber the index number / offset of the names instance
    */
   private Names(final int indexNumber) {
     this.indexNumber = indexNumber;
     countNodeMap = new Int2LongOpenHashMap();
     nameMap = new HashMap<>();
     countNameMapping = new Int2IntOpenHashMap();
+  }
+
+  /**
+   * Copy constructor.
+   *
+   * @param names the names to copy from
+   */
+  private Names(final Names names) {
+    this.indexNumber = names.indexNumber;
+    this.maxNodeKey = names.maxNodeKey;
+    this.countNodeMap = new Int2LongOpenHashMap(names.countNodeMap);
+    this.nameMap = new HashMap<>(names.nameMap);
+    this.countNameMapping = new Int2IntOpenHashMap(names.countNameMapping);
   }
 
   /**
@@ -72,8 +87,7 @@ public final class Names {
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1; i < maxNodeKey; i += 2) {
-      final long nodeKeyOfNode = i;
-      final var nameNode = pageReadTrx.getRecord(nodeKeyOfNode, IndexType.NAME, indexNumber);
+      final var nameNode = pageReadTrx.getRecord(i, IndexType.NAME, indexNumber);
 
       if (nameNode != null && nameNode.getKind() != NodeKind.DELETE) {
         final HashEntryNode hashEntryNode = (HashEntryNode) nameNode;
@@ -261,7 +275,17 @@ public final class Names {
    *
    * @return cloned index
    */
-  public static Names clone(final PageReadOnlyTrx readOnlyPageTrx, final int indexNumber, final long maxNodeKey) {
+  public static Names fromStorage(final PageReadOnlyTrx readOnlyPageTrx, final int indexNumber, final long maxNodeKey) {
     return new Names(readOnlyPageTrx, indexNumber, maxNodeKey);
+  }
+
+  /**
+   * Copy method.
+   *
+   * @param names the names to copy
+   * @return new instance with copied fields
+   */
+  public static Names copy(final Names names) {
+    return new Names(names);
   }
 }
