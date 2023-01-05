@@ -65,12 +65,13 @@ public final class Names {
     this.indexNumber = indexNumber;
     this.maxNodeKey = maxNodeKey;
     // It's okay, we don't allow to store more than Integer.MAX key value pairs.
-    countNodeMap = new Int2LongOpenHashMap((int) maxNodeKey + 1);
-    nameMap = HashBiMap.create((int) maxNodeKey + 1);
-    countNameMapping = new Int2IntOpenHashMap((int) maxNodeKey + 1);
+    int size = (int) Math.ceil(maxNodeKey / 0.75);
+    countNodeMap = new Int2LongOpenHashMap(size);
+    nameMap = HashBiMap.create(size);
+    countNameMapping = new Int2IntOpenHashMap(size);
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
-    for (long i = 1, l = maxNodeKey; i < l; i += 2) {
+    for (long i = 1; i < maxNodeKey; i += 2) {
       final long nodeKeyOfNode = i;
       final var nameNode = pageReadTrx.getRecord(nodeKeyOfNode, IndexType.NAME, indexNumber);
 
@@ -192,7 +193,7 @@ public final class Names {
   private int getNewKey(final int key) {
     int newKey = key;
 
-    while (nameMap.containsKey(newKey) && newKey <= Integer.MAX_VALUE)
+    while (nameMap.containsKey(newKey))
       newKey++;
 
     if (newKey == Integer.MAX_VALUE) {
@@ -228,11 +229,7 @@ public final class Names {
    * @return number of nodes with the same name
    */
   public int getCount(final int key) {
-    Integer names = countNameMapping.get(key);
-    if (names == null) {
-      names = 0;
-    }
-    return names;
+    return countNameMapping.get(key);
   }
 
   /**

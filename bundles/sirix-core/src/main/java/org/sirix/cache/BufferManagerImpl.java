@@ -14,12 +14,15 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final RedBlackTreeNodeCache redBlackTreeNodeCache;
 
+  private final NamesCache namesCache;
+
   public BufferManagerImpl(final int maxPageCacheSize, final int maxRecordPageCacheSize,
-      final int maxRevisionRootPageCache, final int maxRBTreeNodeCache) {
+      final int maxRevisionRootPageCache, final int maxRBTreeNodeCache, final int maxNamesCacheSize) {
     pageCache = new PageCache(maxPageCacheSize);
     recordPageCache = new RecordPageCache(maxRecordPageCacheSize);
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
+    namesCache = new NamesCache(maxNamesCacheSize);
   }
 
   @Override
@@ -40,6 +43,11 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
     return redBlackTreeNodeCache;
+  }
+
+  @Override
+  public NamesCache getNamesCache() {
+    return namesCache;
   }
 
   @Override

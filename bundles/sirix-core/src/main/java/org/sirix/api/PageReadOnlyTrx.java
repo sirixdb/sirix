@@ -3,6 +3,7 @@ package org.sirix.api;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -22,6 +23,12 @@ import java.util.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public interface PageReadOnlyTrx extends AutoCloseable {
+
+  /**
+   * Get the buffer manager.
+   * @return the buffer manager
+   */
+  BufferManager getBufferManager();
 
   /**
    * Get {@link UberPage}.

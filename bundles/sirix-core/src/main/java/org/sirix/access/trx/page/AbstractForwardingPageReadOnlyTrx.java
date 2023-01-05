@@ -6,6 +6,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceSession;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -27,6 +28,11 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
    * Constructor for use by subclasses.
    */
   protected AbstractForwardingPageReadOnlyTrx() {
+  }
+
+  @Override
+  public BufferManager getBufferManager() {
+    return delegate().getBufferManager();
   }
 
   @Override
