@@ -577,8 +577,9 @@ public enum NodeKind implements NodePersistenter {
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
-      final String uri =
-          kind == NodeKind.OBJECT_STRING_VALUE ? "" : pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
+      final String uri = (kind == NodeKind.OBJECT_STRING_VALUE || kind == NodeKind.OBJECT_KEY || kind == NodeKind.ARRAY)
+          ? ""
+          : pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = nameDel.getPrefixKey();
       final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, kind);
       final int localNameKey = nameDel.getLocalNameKey();
@@ -1631,7 +1632,7 @@ public enum NodeKind implements NodePersistenter {
   };
 
   private static void serializeNodeReferences(BytesOut<ByteBuffer> sink, Roaring64Bitmap nodeKeys) {
-    try (var outputStream = new DataOutputStream(sink.outputStream())){
+    try (var outputStream = new DataOutputStream(sink.outputStream())) {
       nodeKeys.serialize(outputStream);
     } catch (IOException e) {
       throw new UncheckedIOException(e.getMessage(), e);

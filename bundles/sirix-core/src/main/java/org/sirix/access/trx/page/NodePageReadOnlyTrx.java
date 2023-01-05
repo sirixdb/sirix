@@ -216,6 +216,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
   }
 
+  @Override
+  public boolean hasTrxIntentLog() {
+    return trxIntentLog != null;
+  }
+
   @Nullable
   private Page getFromTrxIntentLog(PageReference reference) {
     // Try to get it from the transaction log if it's present.
