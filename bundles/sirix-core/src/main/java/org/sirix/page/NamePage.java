@@ -202,7 +202,7 @@ public final class NamePage extends AbstractForwardingPage {
 
   private Names getNames(PageReadOnlyTrx pageRtx, int offset) {
     if (pageRtx.hasTrxIntentLog()) {
-      return Names.clone(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
+      return Names.fromStorage(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
     }
 
     final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
@@ -210,11 +210,12 @@ public final class NamePage extends AbstractForwardingPage {
     Names names = namesCache.get(namesCacheKey);
 
     if (names == null) {
-      names = Names.clone(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
+      names = Names.fromStorage(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
       namesCache.put(namesCacheKey, names);
+    } else {
+      names = Names.copy(names);
     }
 
-    names.setMaxNodeKey(maxNodeKeys.getOrDefault(offset, 0L));
     return names;
   }
 

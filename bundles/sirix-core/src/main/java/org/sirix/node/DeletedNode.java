@@ -41,7 +41,7 @@ public final class DeletedNode extends AbstractForwardingNode {
   /**
    * Delegate for common data.
    */
-  private final NodeDelegate mDel;
+  private final NodeDelegate nodeDelegate;
 
   /**
    * Constructor.
@@ -49,7 +49,7 @@ public final class DeletedNode extends AbstractForwardingNode {
    * @param nodeDel node delegate
    */
   public DeletedNode(final NodeDelegate nodeDel) {
-    mDel = checkNotNull(nodeDel);
+    nodeDelegate = checkNotNull(nodeDel);
   }
 
   @Override
@@ -59,7 +59,7 @@ public final class DeletedNode extends AbstractForwardingNode {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mDel);
+    return Objects.hashCode(nodeDelegate);
   }
 
   @Override
@@ -68,21 +68,21 @@ public final class DeletedNode extends AbstractForwardingNode {
       return false;
 
     final DeletedNode other = (DeletedNode) obj;
-    return Objects.equal(mDel, other.mDel);
+    return Objects.equal(nodeDelegate, other.nodeDelegate);
   }
 
   @Override
   public @NotNull String toString() {
-    return MoreObjects.toStringHelper(this).add("delegate", mDel.toString()).toString();
+    return MoreObjects.toStringHelper(this).add("delegate", nodeDelegate.toString()).toString();
   }
 
   @Override
   public boolean isSameItem(final @Nullable Node other) {
-    return mDel.isSameItem(other);
+    return nodeDelegate.isSameItem(other);
   }
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return mDel;
+    return nodeDelegate;
   }
 }
