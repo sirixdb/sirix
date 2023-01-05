@@ -44,6 +44,8 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 
+  boolean hasTrxIntentLog();
+
   /**
    * Get the transaction-ID.
    *

@@ -558,15 +558,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public QNm getName() {
     assertNotClosed();
-    if (currentNode instanceof NameNode) {
-      final int uriKey = ((NameNode) currentNode).getURIKey();
+    if (currentNode instanceof NameNode nameNode) {
+      final int uriKey = nameNode.getURIKey();
       final String uri = uriKey == -1 || pageReadTrx.getResourceSession() instanceof JsonResourceSession
           ? ""
-          : pageReadTrx.getName(((NameNode) currentNode).getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = ((NameNode) currentNode).getPrefixKey();
+          : pageReadTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
+      final int prefixKey = nameNode.getPrefixKey();
       final String prefix =
           prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, ((PathNode) currentNode).getPathKind());
-      final int localNameKey = ((NameNode) currentNode).getLocalNameKey();
+      final int localNameKey = nameNode.getLocalNameKey();
       final String localName =
           localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
       return new QNm(uri, prefix, localName);

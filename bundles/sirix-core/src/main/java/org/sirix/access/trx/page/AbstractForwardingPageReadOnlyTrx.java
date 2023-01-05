@@ -31,6 +31,11 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
+  public boolean hasTrxIntentLog() {
+    return delegate().hasTrxIntentLog();
+  }
+
+  @Override
   public BufferManager getBufferManager() {
     return delegate().getBufferManager();
   }
