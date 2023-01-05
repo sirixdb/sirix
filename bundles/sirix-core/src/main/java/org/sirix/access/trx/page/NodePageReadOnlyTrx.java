@@ -357,6 +357,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return (DeweyIDPage) getPage(revisionRoot.getDeweyIdPageReference());
   }
 
+  @Override
+  public BufferManager getBufferManager() {
+    return resourceBufferManager;
+  }
+
   /**
    * Set the page if it is not set already.
    *

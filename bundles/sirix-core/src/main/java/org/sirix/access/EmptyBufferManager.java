@@ -1,8 +1,10 @@
 package org.sirix.access;
 
+import org.sirix.cache.NamesCacheKey;
 import org.sirix.cache.RBIndexKey;
 import org.sirix.cache.Cache;
 import org.sirix.cache.EmptyCache;
+import org.sirix.index.name.Names;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
@@ -17,6 +19,8 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
   private static final EmptyCache<Integer, RevisionRootPage> REVISION_ROOT_PAGE_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<RBIndexKey, RBNode<?, ?>> AVL_NODE_CACHE = new EmptyCache<>();
+
+  private static final EmptyCache<NamesCacheKey, Names> NAMES_CACHE = new EmptyCache<>();
 
   EmptyBufferManager() {
   }
@@ -39,6 +43,11 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
   @Override
   public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
     return AVL_NODE_CACHE;
+  }
+
+  @Override
+  public Cache<NamesCacheKey, Names> getNamesCache() {
+    return NAMES_CACHE;
   }
 
   @Override

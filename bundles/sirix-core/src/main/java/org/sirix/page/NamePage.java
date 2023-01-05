@@ -31,6 +31,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
+import org.sirix.cache.Cache;
+import org.sirix.cache.NamesCacheKey;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.IndexType;
 import org.sirix.index.name.Names;
@@ -165,46 +167,51 @@ public final class NamePage extends AbstractForwardingPage {
     switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements =
-              Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
         }
         rawName = elements.getRawName(key);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = Names.clone(pageRtx,
-                                   NAMESPACE_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
         }
         rawName = namespaces.getRawName(key);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = Names.clone(pageRtx,
-                                   ATTRIBUTES_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
         }
         rawName = attributes.getRawName(key);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = Names.clone(pageRtx,
-                                               PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
         rawName = processingInstructions.getRawName(key);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = Names.clone(pageRtx,
-                                       JSON_OBJECT_KEY_REFERENCE_OFFSET,
-                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         rawName = jsonObjectKeys.getRawName(key);
       }
       default -> throw new IllegalStateException("No other node types supported!");
     }
     return rawName;
+  }
+
+  private Names getNames(PageReadOnlyTrx pageRtx, int offset) {
+    final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
+    final NamesCacheKey namesCacheKey = new NamesCacheKey(pageRtx.getRevisionNumber(), offset);
+    Names names = namesCache.get(namesCacheKey);
+
+    if (names == null) {
+      names =
+          Names.clone(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
+      namesCache.put(namesCacheKey, names);
+    }
+
+    return names;
   }
 
   /**
@@ -217,40 +224,31 @@ public final class NamePage extends AbstractForwardingPage {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements =
-              Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
         }
         yield elements.getName(key);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = Names.clone(pageRtx,
-                                   NAMESPACE_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
         }
         yield namespaces.getName(key);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = Names.clone(pageRtx,
-                                   ATTRIBUTES_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
         }
         yield attributes.getName(key);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = Names.clone(pageRtx,
-                                               PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
         yield processingInstructions.getName(key);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = Names.clone(pageRtx,
-                                       JSON_OBJECT_KEY_REFERENCE_OFFSET,
-                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         yield jsonObjectKeys.getName(key);
       }
@@ -270,40 +268,31 @@ public final class NamePage extends AbstractForwardingPage {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements =
-              Names.clone(pageRtx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
         }
         yield elements.getCount(key);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = Names.clone(pageRtx,
-                                   NAMESPACE_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
         }
         yield namespaces.getCount(key);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = Names.clone(pageRtx,
-                                   ATTRIBUTES_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
         }
         yield attributes.getCount(key);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = Names.clone(pageRtx,
-                                               PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
         yield processingInstructions.getCount(key);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = Names.clone(pageRtx,
-                                       JSON_OBJECT_KEY_REFERENCE_OFFSET,
-                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         yield jsonObjectKeys.getCount(key);
       }
@@ -319,47 +308,38 @@ public final class NamePage extends AbstractForwardingPage {
    * @param nodeKind kind of node
    * @return the created key
    */
-  public int setName(final String name, final NodeKind nodeKind, final PageTrx pageTrx) {
+  public int setName(final String name, final NodeKind nodeKind, final PageTrx pageRtx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements =
-              Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
         }
-        return elements.setName(name, pageTrx);
+        return elements.setName(name, pageRtx);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = Names.clone(pageTrx,
-                                   NAMESPACE_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
         }
-        return namespaces.setName(name, pageTrx);
+        return namespaces.setName(name, pageRtx);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = Names.clone(pageTrx,
-                                   ATTRIBUTES_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
         }
-        return attributes.setName(name, pageTrx);
+        return attributes.setName(name, pageRtx);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = Names.clone(pageTrx,
-                                               PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
-        return processingInstructions.setName(name, pageTrx);
+        return processingInstructions.setName(name, pageRtx);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = Names.clone(pageTrx,
-                                       JSON_OBJECT_KEY_REFERENCE_OFFSET,
-                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
-        return jsonObjectKeys.setName(name, pageTrx);
+        return jsonObjectKeys.setName(name, pageRtx);
       }
       default -> throw new IllegalStateException("No other node types supported!");
     }
@@ -411,47 +391,38 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final NodeKind nodeKind, final PageTrx pageTrx) {
+  public void removeName(final int key, final NodeKind nodeKind, final PageTrx pageRtx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements =
-              Names.clone(pageTrx, ELEMENTS_REFERENCE_OFFSET, maxNodeKeys.getOrDefault(ELEMENTS_REFERENCE_OFFSET, 0L));
+          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
         }
-        elements.removeName(key, pageTrx);
+        elements.removeName(key, pageRtx);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = Names.clone(pageTrx,
-                                   NAMESPACE_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(NAMESPACE_REFERENCE_OFFSET, 0L));
+          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
         }
-        namespaces.removeName(key, pageTrx);
+        namespaces.removeName(key, pageRtx);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = Names.clone(pageTrx,
-                                   ATTRIBUTES_REFERENCE_OFFSET,
-                                   maxNodeKeys.getOrDefault(ATTRIBUTES_REFERENCE_OFFSET, 0L));
+          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
         }
-        attributes.removeName(key, pageTrx);
+        attributes.removeName(key, pageRtx);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = Names.clone(pageTrx,
-                                               PROCESSING_INSTRUCTION_REFERENCE_OFFSET,
-                                               maxNodeKeys.getOrDefault(PROCESSING_INSTRUCTION_REFERENCE_OFFSET, 0L));
+          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
-        processingInstructions.removeName(key, pageTrx);
+        processingInstructions.removeName(key, pageRtx);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = Names.clone(pageTrx,
-                                       JSON_OBJECT_KEY_REFERENCE_OFFSET,
-                                       maxNodeKeys.getOrDefault(JSON_OBJECT_KEY_REFERENCE_OFFSET, 0L));
+          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
-        jsonObjectKeys.removeName(key, pageTrx);
+        jsonObjectKeys.removeName(key, pageRtx);
       }
       default -> throw new IllegalStateException("No other node types supported!");
     }
