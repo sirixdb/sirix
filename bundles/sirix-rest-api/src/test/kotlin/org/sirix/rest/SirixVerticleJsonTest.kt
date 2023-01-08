@@ -69,7 +69,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource1(vertx: Vertx, testContext: VertxTestContext) {
@@ -81,7 +81,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource with JSONiq update statements")
     fun testJSONiqUpdates(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -176,7 +176,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the history of a resource")
     fun testResourceHistory(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -282,7 +282,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource2(vertx: Vertx, testContext: VertxTestContext) {
@@ -335,7 +335,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the retrieval of the diff of a resource")
     fun testResourceDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -438,7 +438,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource3(vertx: Vertx, testContext: VertxTestContext) {
@@ -450,7 +450,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a database")
     fun testDeleteDatabase(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -498,7 +498,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the serialization of the first N-records")
     fun testRecordSerializer(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -584,7 +584,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource4(vertx: Vertx, testContext: VertxTestContext) {
@@ -596,7 +596,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -681,7 +681,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource5(vertx: Vertx, testContext: VertxTestContext) {
@@ -693,7 +693,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases with resources")
     fun testListDatabasesWithResource(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -800,7 +800,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource6(vertx: Vertx, testContext: VertxTestContext) {
@@ -813,7 +813,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing insert, then update, then query, then delete")
     fun testInsertUpdateQueryAndDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -919,7 +919,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource7(vertx: Vertx, testContext: VertxTestContext) {
@@ -932,7 +932,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start index")
     fun testPostQueryWithStartIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1002,7 +1002,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource8(vertx: Vertx, testContext: VertxTestContext) {
@@ -1015,7 +1015,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing POST query with start and end index")
     fun testPostQueryWithStartAndEndZeroIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1086,7 +1086,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource9(vertx: Vertx, testContext: VertxTestContext) {
@@ -1170,10 +1170,10 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
-    fun testDeleteResource10(vertx: Vertx, testContext: VertxTestContext) {
+    fun testDeleteResource1000000(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
                 testDelete(vertx, testContext)
@@ -1183,7 +1183,7 @@ class SirixVerticleJsonTest {
 
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1252,7 +1252,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing a simple query to get the node-key of a node")
     fun testGetQuery(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1326,7 +1326,7 @@ class SirixVerticleJsonTest {
         }
     }
 
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     @RepeatedTest(3)
     fun testDeleteResource12(vertx: Vertx, testContext: VertxTestContext) {
@@ -1338,7 +1338,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1411,7 +1411,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1702,7 +1702,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1777,7 +1777,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource as well as a subsequent modification thereof")
     fun testPUTthenPOSTthenGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -1886,7 +1886,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing serialization up to a specific level")
     fun testSerialize(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

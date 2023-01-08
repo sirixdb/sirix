@@ -38,7 +38,7 @@ class GetHandler(
         val acceptHeader = ctx.request().getHeader(HttpHeaders.ACCEPT)
 
         if (databaseName == null && resourceName == null) {
-            if (query == null || query.isEmpty()) {
+            if (query.isNullOrEmpty()) {
                 listDatabases(ctx, context)
             } else {
                 val startResultSeqIndexAsString =
