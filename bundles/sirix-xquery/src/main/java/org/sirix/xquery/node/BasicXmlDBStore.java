@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -313,18 +314,27 @@ public final class BasicXmlDBStore implements XmlDBStore {
   public void drop(final String name) {
     final Path dbPath = location.resolve(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
-    if (Databases.existsDatabase(dbPath)) {
+    if (!removeIfExisting(dbConfig)) {
+      throw new DocumentException("No collection with the specified name found!");
+    }
+  }
+
+  private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
+    if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
-        Databases.removeDatabase(dbPath);
-        try (final var database = Databases.openXmlDatabase(dbConfig.getDatabaseFile())) {
-          databases.remove(database);
-          collections.remove(database);
-        }
+        final Predicate<Database<XmlResourceSession>> databasePredicate =
+            currDatabase -> currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+
+        databases.removeIf(databasePredicate);
+        collections.keySet().removeIf(databasePredicate);
+        Databases.removeDatabase(dbConfig.getDatabaseFile());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }
+      return true;
     }
-    throw new DocumentException("No collection with the specified name found!");
+
+    return false;
   }
 
   @Override

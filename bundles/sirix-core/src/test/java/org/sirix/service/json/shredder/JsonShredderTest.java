@@ -31,7 +31,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,7 +40,7 @@ public final class JsonShredderTest {
   /**
    * {@link LogWrapper} reference.
    */
-  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(JsonShredder.class));
+  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(JsonShredderTest.class));
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
@@ -107,6 +106,7 @@ public final class JsonShredderTest {
   }
 
   // TODO: JMH test
+  // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Disabled
   @Test
@@ -142,12 +142,12 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.MEMORY_MAPPED)
+                                                 .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
-                                                 //   .byteHandlerPipeline(new ByteHandlePipeline(new LZ4Compressor()))
+                                              //   .byteHandlerPipeline(new ByteHandlePipeline(new LZ4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx(262_144 << 1)) {
+         final var trx = manager.beginNodeTrx(262_144 << 3)) {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
     }
 

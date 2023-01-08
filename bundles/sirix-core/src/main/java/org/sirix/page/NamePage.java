@@ -201,22 +201,23 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   private Names getNames(PageReadOnlyTrx pageRtx, int offset) {
-    //if (pageRtx.hasTrxIntentLog()) {
-      return Names.fromStorage(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
-    //}
+    final var maxNodeKey = maxNodeKeys.getOrDefault(offset, 0L);
+    if (pageRtx.hasTrxIntentLog()) {
+      return Names.fromStorage(pageRtx, offset, maxNodeKey);
+    }
 
-//    final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
-//    final NamesCacheKey namesCacheKey = new NamesCacheKey(pageRtx.getRevisionNumber(), offset);
-//    Names names = namesCache.get(namesCacheKey);
-//
-//    if (names == null) {
-//      names = Names.fromStorage(pageRtx, offset, maxNodeKeys.getOrDefault(offset, 0L));
-//      namesCache.put(namesCacheKey, names);
-//    } else {
-//      names = Names.copy(names);
-//    }
-//
-//    return names;
+    final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
+    final NamesCacheKey namesCacheKey = new NamesCacheKey(pageRtx.getRevisionNumber(), offset);
+    Names names = namesCache.get(namesCacheKey);
+
+    if (names == null) {
+      names = Names.fromStorage(pageRtx, offset, maxNodeKey);
+      namesCache.put(namesCacheKey, names);
+    } else {
+      names = Names.copy(names);
+    }
+
+    return names;
   }
 
   /**
