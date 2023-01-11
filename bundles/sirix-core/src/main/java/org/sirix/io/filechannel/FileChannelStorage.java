@@ -104,21 +104,15 @@ public final class FileChannelStorage implements IOStorage {
 
   private void createDataFileChannelIfNotInitialized(Path dataFilePath) throws IOException {
     if (dataFileChannel == null) {
-      dataFileChannel = FileChannel.open(dataFilePath,
-                                         StandardOpenOption.READ,
-                                         StandardOpenOption.WRITE,
-                                         StandardOpenOption.SPARSE,
-                                         StandardOpenOption.CREATE,
-                                         ExtendedOpenOption.DIRECT);
+      dataFileChannel =
+          FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
     }
   }
 
   private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath) throws IOException {
     if (revisionsOffsetFileChannel == null) {
-      revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath,
-                                                    StandardOpenOption.READ,
-                                                    StandardOpenOption.WRITE,
-                                                    StandardOpenOption.CREATE);
+      revisionsOffsetFileChannel =
+          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
     }
   }
 
