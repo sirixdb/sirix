@@ -22,14 +22,12 @@
 package org.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.google.common.hash.HashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractReader;
 import org.sirix.io.IOStorage;
-import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersister;
@@ -55,11 +53,6 @@ public final class MMFileReader extends AbstractReader {
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
   static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT;
   static final ValueLayout.OfLong LAYOUT_LONG = ValueLayout.JAVA_LONG;
-
-  /**
-   * The hash function used to hash pages/page fragments.
-   */
-  final HashFunction hashFunction = Reader.hashFunction;
 
   private final MemorySegment dataFileSegment;
 
@@ -100,6 +93,7 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
+      //noinspection DataFlowIssue
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
@@ -116,6 +110,7 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
+    //noinspection DataFlowIssue
     return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
   }
 

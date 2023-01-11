@@ -59,6 +59,8 @@ class SirixVerticleXmlTest {
 
                 if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
+                } else {
+                    testContext.failNow("Couldn't delete the databases")
                 }
             }
         }

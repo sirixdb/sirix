@@ -7,7 +7,6 @@ import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
@@ -19,8 +18,6 @@ public final class PageCache implements Cache<PageReference, Page> {
 
     pageCache = Caffeine.newBuilder()
                         .maximumSize(maxSize)
-                        .expireAfterWrite(15, TimeUnit.SECONDS)
-                        .expireAfterAccess(15, TimeUnit.SECONDS)
                         .removalListener(removalListener)
                         .build();
   }

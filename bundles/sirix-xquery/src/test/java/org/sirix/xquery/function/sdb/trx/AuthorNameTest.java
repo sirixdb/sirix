@@ -27,7 +27,7 @@ public class AuthorNameTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

@@ -516,7 +516,8 @@ public final class ResourceConfiguration {
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
-        final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        @SuppressWarnings(
+            "unchecked") final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
       }

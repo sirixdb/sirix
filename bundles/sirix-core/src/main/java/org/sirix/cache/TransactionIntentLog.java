@@ -1,9 +1,13 @@
 package org.sirix.cache;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.sirix.page.PageReference;
 import org.sirix.settings.Constants;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Map;
 
 /**
  * The transaction intent log, used for logging everything a write transaction changes.
@@ -15,7 +19,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * The collection to hold the maps.
    */
-  private final Map<PageReference, PageContainer> map;
+  private final Long2ObjectMap<PageContainer> map;
 
   /**
    * The log key.
@@ -29,7 +33,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public TransactionIntentLog(final int maxInMemoryCapacity) {
     logKey = 0;
-    map = new HashMap<>(maxInMemoryCapacity);
+    map = new Long2ObjectOpenHashMap<>(maxInMemoryCapacity); // TODO: right size
   }
 
   /**
@@ -40,7 +44,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * cache
    */
   public PageContainer get(final PageReference key) {
-    return map.get(key);
+    return map.get(key.getLogKey());
   }
 
   /**
@@ -51,12 +55,14 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
-    map.remove(key);
+    map.remove(key.getLogKey());
 
     key.setKey(Constants.NULL_ID_LONG);
     key.setPage(null);
-    key.setLogKey(logKey++);
-    map.put(key, value);
+    key.setLogKey(logKey);
+
+    map.put(logKey, value);
+    logKey++;
   }
 
   /**
@@ -65,7 +71,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param key the key with which the specified value is to be associated
    */
   public void remove(final PageReference key) {
-    map.remove(key);
+    map.remove(key.getLogKey());
   }
 
   /**
@@ -77,21 +83,12 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Returns the number of used entries in the cache.
-   *
-   * @return the number of entries currently in the cache.
-   */
-  public int usedEntries() {
-    return map.size();
-  }
-
-  /**
    * Returns a {@code Collection} that contains a copy of all cache entries.
    *
    * @return a {@code Collection} with a copy of the cache content
    */
-  public Collection<Map.Entry<? super PageReference, ? super PageContainer>> getAll() {
-    return new ArrayList<>(map.entrySet());
+  public Collection<Map.Entry<? super Long, ? super PageContainer>> getAll() {
+    return new ArrayList<>(map.long2ObjectEntrySet());
   }
 
   /**
@@ -99,8 +96,8 @@ public final class TransactionIntentLog implements AutoCloseable {
    *
    * @return an unmodifiable view of all entries in the cache
    */
-  public Map<PageReference, PageContainer> getMap() {
-    return Collections.unmodifiableMap(map);
+  public Long2ObjectMap<PageContainer> getMap() {
+    return map;
   }
 
   /**

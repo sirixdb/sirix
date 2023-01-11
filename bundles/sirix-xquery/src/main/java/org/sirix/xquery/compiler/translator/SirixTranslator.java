@@ -50,7 +50,7 @@ public final class SirixTranslator extends TopDownTranslator {
   /**
    * Number of children (needed as a threshold to lookup in path summary if a path exists at all).
    */
-  public static final int CHILD_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", 1);
+  public static final int CHILD_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", 5);
 
   /**
    * Constructor.
@@ -842,10 +842,8 @@ public final class SirixTranslator extends TopDownTranslator {
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
 
     switch (test.getNodeKind()) {
-      case COMMENT:
-        axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new CommentFilter(trx));
-        break;
-      case PROCESSING_INSTRUCTION:
+      case COMMENT -> axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new CommentFilter(trx));
+      case PROCESSING_INSTRUCTION -> {
         if (test.getQName() == null) {
           axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new PIFilter(trx));
         } else {
@@ -853,8 +851,8 @@ public final class SirixTranslator extends TopDownTranslator {
                                                      new PIFilter(trx),
                                                      new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case ELEMENT:
+      }
+      case ELEMENT -> {
         if (test.getQName() == null) {
           axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx));
         } else {
@@ -862,11 +860,9 @@ public final class SirixTranslator extends TopDownTranslator {
                                                      new ElementFilter(trx),
                                                      new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case TEXT:
-        axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new TextFilter(trx));
-        break;
-      case NAMESPACE:
+      }
+      case TEXT -> axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new TextFilter(trx));
+      case NAMESPACE -> {
         if (test.getQName() == null) {
           axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new NamespaceFilter(trx));
         } else {
@@ -874,8 +870,8 @@ public final class SirixTranslator extends TopDownTranslator {
                                                      new NamespaceFilter(trx),
                                                      new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case ATTRIBUTE:
+      }
+      case ATTRIBUTE -> {
         if (test.getQName() == null) {
           axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx));
         } else {
@@ -883,11 +879,11 @@ public final class SirixTranslator extends TopDownTranslator {
                                                      new AttributeFilter(trx),
                                                      new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case DOCUMENT:
+      }
+      case DOCUMENT -> {
         return new TemporalXmlNodeReadFilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
-      default:
-        throw new AssertionError(); // Must not happen.
+      }
+      default -> throw new AssertionError(); // Must not happen.
     }
 
     return axis;
@@ -898,45 +894,38 @@ public final class SirixTranslator extends TopDownTranslator {
     final FilterAxis<XmlNodeReadOnlyTrx> axis;
 
     switch (test.getNodeKind()) {
-      case COMMENT:
-        axis = new FilterAxis<>(innerAxis, new CommentFilter(trx));
-        break;
-      case PROCESSING_INSTRUCTION:
+      case COMMENT -> axis = new FilterAxis<>(innerAxis, new CommentFilter(trx));
+      case PROCESSING_INSTRUCTION -> {
         if (test.getQName() == null) {
           axis = new FilterAxis<>(innerAxis, new PIFilter(trx));
         } else {
           axis = new FilterAxis<>(innerAxis, new PIFilter(trx), new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case ELEMENT:
+      }
+      case ELEMENT -> {
         if (test.getQName() == null) {
           axis = new FilterAxis<>(innerAxis, new ElementFilter(trx));
         } else {
           axis = new FilterAxis<>(innerAxis, new ElementFilter(trx), new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case TEXT:
-        axis = new FilterAxis<>(innerAxis, new TextFilter(trx));
-        break;
-      case NAMESPACE:
+      }
+      case TEXT -> axis = new FilterAxis<>(innerAxis, new TextFilter(trx));
+      case NAMESPACE -> {
         if (test.getQName() == null) {
           axis = new FilterAxis<>(innerAxis, new NamespaceFilter(trx));
         } else {
           axis = new FilterAxis<>(innerAxis, new NamespaceFilter(trx), new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case ATTRIBUTE:
+      }
+      case ATTRIBUTE -> {
         if (test.getQName() == null) {
           axis = new FilterAxis<>(innerAxis, new AttributeFilter(trx));
         } else {
           axis = new FilterAxis<>(innerAxis, new AttributeFilter(trx), new XmlNameFilter(trx, test.getQName()));
         }
-        break;
-      case DOCUMENT:
-        axis = new FilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
-        break;
-      default:
-        throw new AssertionError(); // Must not happen.
+      }
+      case DOCUMENT -> axis = new FilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
+      default -> throw new AssertionError(); // Must not happen.
     }
 
     return axis;

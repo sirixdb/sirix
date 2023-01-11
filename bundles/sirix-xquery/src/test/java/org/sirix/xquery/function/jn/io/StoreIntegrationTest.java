@@ -21,18 +21,18 @@ public final class StoreIntegrationTest extends TestCase {
 
   @Override
   protected void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test
   public void test() {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath.getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use XQuery to store a JSON string into the store.
-      final String query = "jn:store('mycol.jn','mydoc.jn','[\"bla\", \"blubb\"]')";
+      final String query = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
       new XQuery(chain, query).evaluate(ctx);
     }
   }
@@ -40,20 +40,20 @@ public final class StoreIntegrationTest extends TestCase {
   @Test
   public void testMultipleStrings() {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath.getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use XQuery to store multiple JSON strings into the store.
-      final String query = "jn:store('mycol.jn',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'))";
+      final String query = "jn:store('json-path1',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'))";
       new XQuery(chain, query).evaluate(ctx);
 
       // Use XQuery to add a JSON string to the collection.
-      final String queryAdd = "jn:store('mycol.jn',(),'[\"bla\", \"blubb\"]',false())";
+      final String queryAdd = "jn:store('json-path1',(),'[\"bla\", \"blubb\"]',false())";
       new XQuery(chain, queryAdd).evaluate(ctx);
 
       // Use XQuery to add a JSON string to the collection.
-      final String queryAddStrings = "jn:store('mycol.jn',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'),false())";
+      final String queryAddStrings = "jn:store('json-path1',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'),false())";
       new XQuery(chain, queryAddStrings).evaluate(ctx);
     }
   }

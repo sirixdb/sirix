@@ -205,7 +205,6 @@ public final class PageTrxFactory {
                            pageRtx,
                            indexController,
                            representRevision,
-                           isBoundToNodeTrx,
-                           bufferManager);
+                           isBoundToNodeTrx);
   }
 }

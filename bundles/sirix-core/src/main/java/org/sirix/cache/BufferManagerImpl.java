@@ -52,9 +52,19 @@ public final class BufferManagerImpl implements BufferManager {
 
   @Override
   public void close() {
+//    pageCache.clear();
+//    recordPageCache.clear();
+//    revisionRootPageCache.clear();
+//    redBlackTreeNodeCache.clear();
+//    namesCache.clear();
+  }
+
+  @Override
+  public void clearAllCaches() {
     pageCache.clear();
     recordPageCache.clear();
     revisionRootPageCache.clear();
     redBlackTreeNodeCache.clear();
+    namesCache.clear();
   }
 }

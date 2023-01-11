@@ -33,7 +33,7 @@ public final class DiffTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test
@@ -111,7 +111,6 @@ public final class DiffTest {
       try (final var out = new ByteArrayOutputStream()) {
         new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
-        System.out.println(content);
         assertEquals(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8), content);
       }
     }

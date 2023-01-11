@@ -7,6 +7,7 @@ import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.io.DirectIOUtils;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -171,7 +172,11 @@ public final class Databases {
         }
       }
 
-      BUFFER_MANAGERS.remove(dbFile);
+      ConcurrentMap<Path, BufferManager> bufferManagers = BUFFER_MANAGERS.remove(dbFile);
+      if (bufferManagers != null && !bufferManagers.isEmpty()) {
+        // TODO: Why is this necessary? BUG!
+        bufferManagers.values().forEach(BufferManager::clearAllCaches);
+      }
       SirixFiles.recursiveRemove(dbFile);
     }
   }

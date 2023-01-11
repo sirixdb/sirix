@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2018, Sirix
  *
  * All rights reserved.
@@ -27,12 +27,11 @@
  */
 package org.sirix.xquery.function.sdb.trx;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
@@ -43,28 +42,27 @@ import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import junit.framework.TestCase;
+
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public final class GetRevisionTimestampTest extends TestCase {
+public final class GetRevisionTimestampTest {
   /** The {@link Holder} instance. */
   private Holder holder;
 
-  @Override
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
-  @Override
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XmlTestHelper.closeEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   @Test
@@ -75,7 +73,7 @@ public final class GetRevisionTimestampTest extends TestCase {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database).build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
@@ -84,7 +82,7 @@ public final class GetRevisionTimestampTest extends TestCase {
       final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
 
       final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
-      assertNotNull(query.evaluate(ctx));
+      Assert.assertNotNull(query.evaluate(ctx));
     }
   }
 }

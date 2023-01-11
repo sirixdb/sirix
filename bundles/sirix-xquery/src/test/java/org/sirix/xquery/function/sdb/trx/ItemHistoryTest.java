@@ -24,7 +24,7 @@ public final class ItemHistoryTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test
@@ -32,8 +32,7 @@ public final class ItemHistoryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn");
-           final var wtx = manager.beginNodeTrx()) {
+      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.moveTo(2);
         wtx.setStringValue("blabla").commit();
@@ -65,11 +64,12 @@ public final class ItemHistoryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc2.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc2.jn");
-           final var wtx = manager.beginNodeTrx()) {
+      try (final var manager = database.beginResourceSession("mydoc2.jn"); final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}"));
-        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"generic\": 1, \"location\": {\"state\": \"CA\", \"city\": \"Los Angeles\"}}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}"));
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
+            "{\"generic\": 1, \"location\": {\"state\": \"CA\", \"city\": \"Los Angeles\"}}"));
         wtx.moveTo(12);
         wtx.setObjectKeyName("generic1");
         wtx.commit();

@@ -442,10 +442,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (!isClosed) {
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
-        if (rtx instanceof XmlNodeTrx) {
-          ((XmlNodeTrx) rtx).rollback();
-        } else if (rtx instanceof JsonNodeTrx) {
-          ((JsonNodeTrx) rtx).rollback();
+        if (rtx instanceof XmlNodeTrx xmlNodeTrx) {
+          xmlNodeTrx.rollback();
+        } else if (rtx instanceof JsonNodeTrx jsonNodeTrx) {
+          jsonNodeTrx.rollback();
         }
         rtx.close();
       }

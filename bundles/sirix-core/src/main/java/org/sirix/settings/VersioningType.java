@@ -141,7 +141,7 @@ public enum VersioningType {
       final int revision = pageReadTrx.getUberPage().getRevisionNumber();
       final List<T> returnVal = new ArrayList<>(2);
 
-      reference.setPageFragments(List.of(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey())));
+      reference.setPageFragments(List.of(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey())));
 
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
       returnVal.add(firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx));
@@ -271,7 +271,7 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
-      previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
+      previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
            i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
@@ -406,7 +406,7 @@ public enum VersioningType {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
-      previousPageFragmentKeys.add(new PageFragmentKeyImpl(pageReadTrx.getRevisionNumber(), reference.getKey()));
+      previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
            i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));

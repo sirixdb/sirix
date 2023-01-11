@@ -282,7 +282,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       BytesUtils.doWrite(byteBufferBytes, data);
       record = recordPersister.deserialize(byteBufferBytes, key, null, null);
       byteBufferBytes.clear();
-      byteBufferBytes = null;
       records[offset] = record;
     }
     return record;
@@ -315,7 +314,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     // Write page key.
     putVarLong(out, recordPageKey);
     // Write revision number.
-    out.writeInt(revision);
+    out.writeInt(pageReadOnlyTrx.getRevisionNumber());
     // Write dewey IDs.
     if (resourceConfig.areDeweyIDsStored && recordPersister instanceof NodePersistenter persistence) {
       // Write dewey IDs.
