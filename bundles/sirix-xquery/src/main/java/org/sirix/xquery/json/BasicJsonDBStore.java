@@ -445,7 +445,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
-  private Void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
+  private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
       final String resourceName) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .storageType(storageType)
@@ -460,7 +460,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
     }
-    return null;
   }
 
   @Override

@@ -3,7 +3,10 @@ package org.sirix.xquery.function.jn.io;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.brackit.xquery.XQuery;
+import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.xquery.SirixCompileChain;
@@ -19,14 +22,14 @@ public final class LoadIntegrationTest extends TestCase {
 
   final Path jsonObject = testResources.resolve("json").resolve("object.json");
 
-  @Override
+  @BeforeEach
   protected void setUp() throws Exception {
     JsonTestHelper.deleteEverything();
   }
 
-  @Override
+  @AfterEach
   protected void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

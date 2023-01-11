@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.io.filechannel;
+package org.sirix.io.directio;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import net.openhft.chronicle.bytes.Bytes;
@@ -52,6 +52,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Johannes Lichtenberger
  */
 public final class FileChannelWriter extends AbstractForwardingReader implements Writer {
+
+  short UBER_PAGE_BYTE_ALIGN = 4096;
+
+  short REVISION_ROOT_PAGE_BYTE_ALIGN = 4096; // Must be a power of two.
+
+  short PAGE_FRAGMENT_BYTE_ALIGN = 4096; // Must be a power of two.
 
   /**
    * Random access to work on.

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2018, Sirix
  *
  * All rights reserved.
@@ -27,13 +27,13 @@
  */
 package org.sirix.xquery.function.xml.io;
 
-import java.nio.file.Path;
+import junit.framework.TestCase;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
@@ -43,7 +43,8 @@ import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
-import junit.framework.TestCase;
+
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -53,15 +54,13 @@ public final class DocByPointInTimeTest extends TestCase {
   /** The {@link Holder} instance. */
   private Holder holder;
 
-  @Override
-  @Before
+  @BeforeEach
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
-  @Override
-  @After
+  @AfterEach
   public void tearDown() throws SirixException {
     holder.close();
     XmlTestHelper.closeEverything();

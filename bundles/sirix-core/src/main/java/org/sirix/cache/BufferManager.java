@@ -16,4 +16,6 @@ public interface BufferManager extends AutoCloseable {
   Cache<RBIndexKey, RBNode<?, ?>> getIndexCache();
 
   Cache<NamesCacheKey, Names> getNamesCache();
+
+  void clearAllCaches();
 }

@@ -22,6 +22,7 @@
 package org.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import com.sun.nio.file.ExtendedOpenOption;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IOStorage;
@@ -113,7 +114,6 @@ public final class MMStorage implements IOStorage {
       final var dataFileSession = MemorySession.openShared();
       final var dataFileSegmentFileSize = Files.size(dataFilePath);
 
-      final var revisionsOffsetFileScope = MemorySession.openShared();
       final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
 
       try (final var dataFileChannel = FileChannel.open(dataFilePath);
@@ -196,7 +196,10 @@ public final class MMStorage implements IOStorage {
 
   private void createDataFileChannelIfNotInitialized(Path dataFilePath) throws IOException {
     if (dataFileChannel == null) {
-      dataFileChannel = FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
+      dataFileChannel = FileChannel.open(dataFilePath,
+                                         StandardOpenOption.READ,
+                                         StandardOpenOption.WRITE,
+                                         StandardOpenOption.SPARSE);
     }
   }
 

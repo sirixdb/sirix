@@ -58,7 +58,7 @@ public enum StorageType {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
+          getIntegerRevisionFileDataAsyncCache(resourceConf);
       final var storage = new FileStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
@@ -72,8 +72,19 @@ public enum StorageType {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
+          getIntegerRevisionFileDataAsyncCache(resourceConf);
       final var storage = new FileChannelStorage(resourceConf, cache);
+      storage.loadRevisionFileDataIntoMemory(cache);
+      return storage;
+    }
+  },
+
+  DIRECT_IO {
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      final AsyncCache<Integer, RevisionFileData> cache =
+          getIntegerRevisionFileDataAsyncCache(resourceConf);
+      final var storage = new org.sirix.io.directio.FileChannelStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
     }
@@ -86,7 +97,7 @@ public enum StorageType {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
+          getIntegerRevisionFileDataAsyncCache(resourceConf);
       final var storage = new MMStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
@@ -97,7 +108,7 @@ public enum StorageType {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf, CACHE_REPOSITORY);
+          getIntegerRevisionFileDataAsyncCache(resourceConf);
       final var storage = new IOUringStorage(resourceConf, cache);
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
@@ -130,9 +141,9 @@ public enum StorageType {
   }
 
   private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(
-      ResourceConfiguration resourceConf, ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> cacheRepository) {
+      ResourceConfiguration resourceConf) {
     final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                                       .resolve(IOStorage.FILENAME);
-    return cacheRepository.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
+    return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
   }
 }

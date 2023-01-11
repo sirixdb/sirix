@@ -33,7 +33,6 @@ import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
@@ -47,7 +46,6 @@ import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
@@ -86,11 +84,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * Page writer to serialize.
    */
   private final Writer storagePageReaderWriter;
-
-  /**
-   * The buffer manager.
-   */
-  private final BufferManager bufferManager;
 
   /**
    * Transaction intent log.
@@ -132,8 +125,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private final boolean isBoundToNodeTrx;
 
-  private record IndexLogKeyToPageContainer(IndexType indexType, long recordPageKey, @NonNegative int indexNumber,
-                                            @NonNegative int revisionNumber, PageContainer pageContainer) {
+  private record IndexLogKeyToPageContainer(IndexType indexType, long recordPageKey, int indexNumber,
+                                            int revisionNumber, PageContainer pageContainer) {
   }
 
   /**
@@ -165,8 +158,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
-      final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx,
-      final BufferManager bufferManager) {
+      final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.treeModifier = checkNotNull(treeModifier);
     storagePageReaderWriter = checkNotNull(writer);
     this.log = checkNotNull(log);
@@ -176,7 +168,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
-    this.bufferManager = checkNotNull(bufferManager);
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = mostRecentPageContainer;
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
@@ -265,7 +256,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-    final KeyValuePage<DataRecord> modified = (KeyValuePage<DataRecord>) cont.getModified();
+    final KeyValuePage<DataRecord> modified = cont.getModifiedAsUnorderedKeyValuePage();
     modified.setRecord(record);
     return record;
   }
@@ -403,9 +394,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .map(PageContainer::getModified)
          .filter(page -> page instanceof UnorderedKeyValuePage)
          .forEach(page -> {
-           Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(15_000);
+           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(15_000);
            page.serialize(this, bytes, SerializationType.DATA);
-           bytes = null;
          });
 
       // Recursively write indirectly referenced pages.
@@ -503,7 +493,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (pageContainer != null) {
       return pageContainer;
     }
-    
+
     final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
     final var leafPageReference =
         pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);

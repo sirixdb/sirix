@@ -1,5 +1,6 @@
 package org.sirix.access;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -16,6 +17,7 @@ import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.io.RevisionFileData;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.utils.SirixFiles;
@@ -283,9 +285,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       this.writeLocks.removeWriteLock(resourceFile);
 
-      bufferManagers.remove(resourceFile);
+      var bufferManager = bufferManagers.remove(resourceFile);
+      if (bufferManager != null) {
+        try {
+          bufferManager.clearAllCaches();
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
 
-      StorageType.CACHE_REPOSITORY.remove(resourceFile);
+      final var cache = StorageType.CACHE_REPOSITORY.remove(resourceFile);
+      if (cache != null) {
+        cache.synchronous().invalidateAll();
+      }
     }
 
     return this;

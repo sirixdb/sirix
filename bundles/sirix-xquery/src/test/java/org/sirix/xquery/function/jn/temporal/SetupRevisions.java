@@ -13,10 +13,10 @@ public final class SetupRevisions {
   private SetupRevisions() {}
 
   public static void setupRevisions(final SirixQueryContext ctx, final SirixCompileChain chain) throws IOException {
-    final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
+    final var storeQuery = "jn:store('json-path1','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
     new XQuery(chain, storeQuery).evaluate(ctx);
 
-    final var openDocQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final var openDocQuery = "jn:doc('json-path1','mydoc.jn')";
     final var object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
 
     try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {

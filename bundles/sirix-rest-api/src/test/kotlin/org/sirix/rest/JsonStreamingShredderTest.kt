@@ -15,14 +15,14 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
+private val databaseDirectory: Path = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
+
+private val json = Paths.get("src", "test", "resources", "json")
+
 /**
  * Test the JSON streaming shredder (indirectly also the JSON serializer).
  */
 class JsonStreamingShredderTest {
-
-    private val databaseDirectory: Path = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
-
-    private val JSON = Paths.get("src", "test", "resources", "json")
 
     @BeforeEach
     fun setup() {
@@ -72,7 +72,7 @@ class JsonStreamingShredderTest {
 
     @Test
     fun testCopperfieldBook() {
-        testString(Files.readString(JSON.resolve("copperfield-book.json")))
+        testString(Files.readString(json.resolve("copperfield-book.json")))
     }
 
     private fun testString(json: String) {

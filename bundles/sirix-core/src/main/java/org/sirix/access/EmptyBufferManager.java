@@ -53,4 +53,8 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
   @Override
   public void close() {
   }
+
+  @Override
+  public void clearAllCaches() {
+  }
 }

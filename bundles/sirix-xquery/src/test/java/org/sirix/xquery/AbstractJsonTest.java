@@ -22,7 +22,7 @@ public abstract class AbstractJsonTest {
   public void test(String storeQuery, String query, String assertion) throws IOException {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -43,7 +43,7 @@ public abstract class AbstractJsonTest {
     query(updateOrIndexQuery);
 
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -61,7 +61,7 @@ public abstract class AbstractJsonTest {
     query(updateOrIndexQuery2);
 
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -74,7 +74,7 @@ public abstract class AbstractJsonTest {
 
   public void test(final String query, final String assertionString) throws IOException {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
@@ -86,7 +86,7 @@ public abstract class AbstractJsonTest {
 
   protected void query(final String query) {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile())
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {

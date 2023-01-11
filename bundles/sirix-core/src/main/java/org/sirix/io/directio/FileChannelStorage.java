@@ -1,4 +1,4 @@
-package org.sirix.io.filechannel;
+package org.sirix.io.directio;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.sun.nio.file.ExtendedOpenOption;
