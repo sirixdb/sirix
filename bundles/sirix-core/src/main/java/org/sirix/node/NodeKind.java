@@ -20,9 +20,9 @@
  */
 package org.sirix.node;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
 import com.google.common.hash.HashFunction;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.brackit.xquery.atomic.Atomic;
@@ -100,19 +100,17 @@ public enum NodeKind implements NodePersistenter {
 
       // Attributes.
       final int attrCount = source.readInt();
-      final List<Long> attrKeys = new ArrayList<>(attrCount);
-      final BiMap<Long, Long> attrs = HashBiMap.create();
+      final LongList attrKeys = new LongArrayList(attrCount);
       for (int i = 0; i < attrCount; i++) {
         final long nodeKey = source.readLong();
         attrKeys.add(nodeKey);
-        attrs.put(source.readLong(), nodeKey);
       }
 
       // Namespaces.
       final int nsCount = source.readInt();
-      final List<Long> namespKeys = new ArrayList<>(nsCount);
+      final LongList namespaceKeys = new LongArrayList(nsCount);
       for (int i = 0; i < nsCount; i++) {
-        namespKeys.add(source.readLong());
+        namespaceKeys.add(source.readLong());
       }
 
       final String uri = pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
@@ -121,13 +119,7 @@ public enum NodeKind implements NodePersistenter {
       final int localNameKey = nameDel.getLocalNameKey();
       final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, NodeKind.ELEMENT);
 
-      return new ElementNode(hashCode,
-                             structDel,
-                             nameDel,
-                             attrKeys,
-                             attrs,
-                             namespKeys,
-                             new QNm(uri, prefix, localName));
+      return new ElementNode(hashCode, structDel, nameDel, attrKeys, namespaceKeys, new QNm(uri, prefix, localName));
     }
 
     @Override
@@ -145,8 +137,6 @@ public enum NodeKind implements NodePersistenter {
       for (int i = 0, attCount = node.getAttributeCount(); i < attCount; i++) {
         final long key = node.getAttributeKey(i);
         sink.writeLong(key);
-        //noinspection OptionalGetWithoutIsPresent
-        sink.writeLong(node.getAttributeNameKey(key).get());
       }
       sink.writeInt(node.getNamespaceCount());
       for (int i = 0, nspCount = node.getNamespaceCount(); i < nspCount; i++) {
@@ -1348,19 +1338,19 @@ public enum NodeKind implements NodePersistenter {
       final Number number = node.getValue();
 
       switch (number) {
-        case Double aDouble -> {
+        case Double ignored -> {
           sink.writeByte((byte) 0);
           sink.writeDouble(number.doubleValue());
         }
-        case Float aFloat -> {
+        case Float ignored1 -> {
           sink.writeByte((byte) 1);
           sink.writeFloat(number.floatValue());
         }
-        case Integer integer -> {
+        case Integer ignored2 -> {
           sink.writeByte((byte) 2);
           sink.writeInt(number.intValue());
         }
-        case Long aLong -> {
+        case Long ignored3 -> {
           sink.writeByte((byte) 3);
           sink.writeLong(number.longValue());
         }

@@ -21,6 +21,8 @@
  */
 package org.sirix.node;
 
+import com.google.common.base.Splitter;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.SimpleDeweyID;
 
@@ -170,6 +172,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   private byte[] bytes;
+
   /**
    * This will take in a deweyID represented as a String, and output an array of integers
    * representing the values contained within the deweyID sans seperators
@@ -178,23 +181,20 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
    * @return divisionValues The values of a deweyID as an array of integers
    */
   private int[] parseDivisionValues(String divisionPart) {
-    if (divisionPart.charAt(divisionPart.length() - 1) != '.')
-      divisionPart += '.';
-
-    String[] divisions = divisionPart.split("\\.");
-    int[] divisionValues = new int[divisions.length];
+    final Iterable<String> divisions = Splitter.on('.').split(divisionPart);
+    final IntArrayList divisionValues = new IntArrayList(16);
     int i = 0;
 
     for (String division : divisions) {
       try {
-        divisionValues[i] = Integer.parseInt(division);
+        divisionValues.add(Integer.parseInt(division));
         i++;
       } catch (NumberFormatException e) {
         throw new SirixException("Division " + i + " has an invalid value: " + division, e);
       }
     }
 
-    return divisionValues;
+    return divisionValues.toIntArray();
   }
 
   private int calcLevel(int[] divisionValues) {

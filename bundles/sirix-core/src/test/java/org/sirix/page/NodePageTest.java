@@ -21,8 +21,8 @@
 
 package org.sirix.page;
 
-import com.google.common.collect.HashBiMap;
 import com.google.common.hash.Hashing;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -44,7 +44,6 @@ import org.sirix.utils.NamePageHash;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 
 import static org.junit.Assert.assertEquals;
 
@@ -91,9 +90,8 @@ public final class NodePageTest {
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
     final ElementNode node1 = new ElementNode(strucDel,
                                               nameDel,
-                                              new ArrayList<>(),
-                                              HashBiMap.create(),
-                                              new ArrayList<>(),
+                                              new LongArrayList(),
+                                              new LongArrayList(),
                                               new QNm("a", "b", "c"));
     node1.setHash(node1.computeHash());
     node1.insertAttribute(88L, 100);

@@ -17,5 +17,7 @@ public interface BufferManager extends AutoCloseable {
 
   Cache<NamesCacheKey, Names> getNamesCache();
 
+  Cache<Integer, PathSummaryData> getPathSummaryCache();
+
   void clearAllCaches();
 }

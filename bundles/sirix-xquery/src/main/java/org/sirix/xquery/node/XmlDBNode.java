@@ -78,7 +78,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     isWtx = this.rtx instanceof XmlNodeTrx;
     nodeKey = this.rtx.getNodeKey();
     kind = this.rtx.getKind();
-    deweyID = this.rtx.getNode().getDeweyID();
+    deweyID = this.rtx.getResourceSession().getResourceConfig().areDeweyIDsStored ? this.rtx.getDeweyID() : null;
   }
 
   /** Optional dewey ID. */
@@ -99,6 +99,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private org.sirix.node.interfaces.immutable.ImmutableNode getImmutableNode() {
     moveRtx();
     return rtx.getNode();
+  }
+
+  public XmlNodeReadOnlyTrx getRtx() {
+    moveRtx();
+    return rtx;
   }
 
   @Override

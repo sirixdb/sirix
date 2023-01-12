@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.collect.HashBiMap;
 import com.google.common.hash.Hashing;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -40,11 +40,10 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Element node test.
@@ -76,7 +75,7 @@ public class ElementNodeTest {
   }
 
   @Test
-  public void testElementNode() throws IOException {
+  public void testElementNode() {
     final NodeDelegate del =
         new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
@@ -84,9 +83,8 @@ public class ElementNodeTest {
 
     final ElementNode node = new ElementNode(strucDel,
                                              nameDel,
-                                             new ArrayList<>(),
-                                             HashBiMap.create(),
-                                             new ArrayList<>(),
+                                             new LongArrayList(),
+                                             new LongArrayList(),
                                              new QNm("ns", "a", "p"));
     node.setHash(node.computeHash());
 
@@ -120,10 +118,10 @@ public class ElementNodeTest {
     assertEquals(19, node.getLocalNameKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(NodeKind.ELEMENT, node.getKind());
-    assertEquals(true, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
+    assertTrue(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasLeftSibling());
+    assertTrue(node.hasRightSibling());
     assertEquals(97L, node.getAttributeKey(0));
     assertEquals(98L, node.getAttributeKey(1));
     assertEquals(99L, node.getNamespaceKey(0));

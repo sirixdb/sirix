@@ -1,6 +1,8 @@
 package org.sirix.xquery;
 
 import org.brackit.xquery.XQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.sirix.JsonTestHelper;
 import org.sirix.xquery.json.BasicJsonDBStore;
 
@@ -11,10 +13,13 @@ import java.io.PrintWriter;
 import static org.junit.Assert.assertEquals;
 
 public abstract class AbstractJsonTest {
+
+  @BeforeEach
   protected void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
+  @AfterEach
   protected void tearDown() {
     JsonTestHelper.closeEverything();
   }

@@ -63,6 +63,7 @@ import javax.xml.stream.XMLStreamException;
 import java.math.BigInteger;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
 
@@ -1025,29 +1026,29 @@ final class XmlNodeTrxImpl extends
         final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
 
         // Update value in case of adjacent text nodes.
-        final StringBuilder builder = new StringBuilder();
+        String currValue = "";
         if (getCurrentNode().getKind() == NodeKind.TEXT) {
-          builder.append(getValue());
+          currValue += getValue();
         }
-        builder.append(value);
-        if (!value.equals(builder.toString())) {
-          setValue(builder.toString());
+        currValue += value;
+        if (!value.equals(currValue)) {
+          setValue(currValue);
           return this;
         }
         if (hasNode(rightSibKey)) {
           moveTo(rightSibKey);
           if (getCurrentNode().getKind() == NodeKind.TEXT) {
-            builder.append(getValue());
+            currValue += getValue();
           }
-          if (!value.equals(builder.toString())) {
-            setValue(builder.toString());
+          if (!value.equals(currValue)) {
+            setValue(currValue);
             return this;
           }
         }
 
         // Insert new text node if no adjacent text nodes are found.
         moveTo(leftSibKey);
-        final byte[] textValue = getBytes(builder.toString());
+        final byte[] textValue = getBytes(currValue);
         final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
         final TextNode node =
@@ -1114,9 +1115,18 @@ final class XmlNodeTrxImpl extends
          * otherwise be inserted!).
          */
         final ElementNode element = (ElementNode) getCurrentNode();
-        final Optional<Long> attKey = element.getAttributeKeyByName(name);
-        if (attKey.isPresent()) {
-          moveTo(attKey.get());
+        long attKey = -1;
+        final ImmutableXmlNode currentNode = getCurrentNode();
+        for (int i = 0; i < element.getAttributeCount(); i++) {
+          long attributeKey = element.getAttributeKey(i);
+          if (moveTo(attributeKey) && getName().equals(name)) {
+            attKey = attributeKey;
+            break;
+          }
+        }
+        nodeReadOnlyTrx.setCurrentNode(currentNode);
+        if (attKey != -1) {
+          moveTo(attKey);
           final QNm qName = getName();
           if (name.equals(qName)) {
             if (getValue().equals(value)) {

@@ -242,18 +242,18 @@ public final class BasicXmlDBStore implements XmlDBStore {
       databases.add(database);
       final String resName = optResName != null ? optResName : "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useDeweyIDs(true)
-                                                   .useTextCompression(true)
+                                                   .useDeweyIDs(false)
+                                                   .useTextCompression(false)
                                                    .buildPathSummary(buildPathSummary)
                                                    .storageType(storageType)
                                                    .customCommitTimestamps(commitTimestamp != null)
-                                                   .hashKind(HashType.ROLLING)
+                                                   .hashKind(HashType.NONE)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
 
       try (final XmlResourceSession manager = database.beginResourceSession(resName);
-           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+           final XmlNodeTrx wtx = manager.beginNodeTrx(262_144 << 5)) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
       }
