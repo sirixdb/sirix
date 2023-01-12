@@ -53,6 +53,7 @@ import org.sirix.utils.NamePageHash;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
@@ -221,9 +222,19 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<XmlNod
     final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.ELEMENT) {
       final ElementNode element = ((ElementNode) currentNode);
-      final Optional<Long> attrKey = element.getAttributeKeyByName(name);
-      if (attrKey.isPresent()) {
-        return moveTo(attrKey.get());
+
+      long attKey = -1;
+      for (int i = 0; i < element.getAttributeCount(); i++) {
+        long attributeKey = element.getAttributeKey(i);
+        if (moveTo(attributeKey) && getName().equals(name)) {
+          attKey = attributeKey;
+          break;
+        }
+      }
+      setCurrentNode(currentNode);
+
+      if (attKey != -1) {
+        return moveTo(attKey);
       }
     }
     return false;

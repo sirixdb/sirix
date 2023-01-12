@@ -2,6 +2,8 @@ package org.sirix.xquery.compiler.translator;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
@@ -27,6 +29,7 @@ import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
+import org.sirix.settings.Constants;
 import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.compiler.expression.IndexExpr;
 import org.sirix.xquery.node.XmlDBNode;
@@ -51,6 +54,11 @@ public final class SirixTranslator extends TopDownTranslator {
    * Number of children (needed as a threshold to lookup in path summary if a path exists at all).
    */
   public static final int CHILD_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", 5);
+
+  /**
+   * Number of descendants (needed as a threshold to lookup in path summary if a path exists at all).
+   */
+  public static final int DESCENDANT_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", 5_000);
 
   /**
    * Constructor.
@@ -583,7 +591,7 @@ public final class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final Map<Long, BitSet> filterMap;
+    private final Long2ObjectMap<BitSet> filterMap;
 
     /**
      * Constructor.
@@ -592,7 +600,7 @@ public final class SirixTranslator extends TopDownTranslator {
      */
     public Child(final Axis axis) {
       super(axis);
-      filterMap = new HashMap<>();
+      filterMap = new Long2ObjectOpenHashMap<>();
     }
 
     @Override
@@ -648,7 +656,7 @@ public final class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final Map<Long, BitSet> filterMap;
+    private final Long2ObjectMap<BitSet> filterMap;
 
     /**
      * Constructor.
@@ -658,7 +666,7 @@ public final class SirixTranslator extends TopDownTranslator {
     public DescOrSelf(final Axis axis) {
       super(axis);
       self = axis == Axis.DESCENDANT_OR_SELF ? IncludeSelf.YES : IncludeSelf.NO;
-      filterMap = new HashMap<>();
+      filterMap = new Long2ObjectOpenHashMap<>();
     }
 
     @SuppressWarnings("ConstantConditions")
@@ -667,7 +675,7 @@ public final class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       if (rtx.getResourceSession().getResourceConfig().withPathSummary && test.getNodeKind() == Kind.ELEMENT
-          && test.getQName() != null) {
+          && test.getQName() != null && rtx.getDescendantCount() > DESCENDANT_THRESHOLD) {
         try {
           final long pcr = dbNode.getPCR();
           BitSet matches = filterMap.get(pcr);
@@ -833,7 +841,19 @@ public final class SirixTranslator extends TopDownTranslator {
   }
 
   private static int getLevel(XmlDBNode dbNode) {
-    return dbNode.getDeweyID().getLevel();
+    if (dbNode.getDeweyID() != null) {
+      return dbNode.getDeweyID().getLevel();
+    } else {
+      var rtx = dbNode.getRtx();
+      int level = 0;
+      while (rtx.hasParent() && rtx.getParentKey() != Constants.NULL_ID_LONG) {
+        rtx.moveToParent();
+        if (!rtx.isAttribute()) {
+          level++;
+        }
+      }
+      return level;
+    }
   }
 
   private static org.sirix.axis.AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getTemporalAxis(

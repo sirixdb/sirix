@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,13 +21,14 @@
 
 package org.sirix.access.node.xml;
 
-import static org.junit.Assert.assertEquals;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
+
+import static org.junit.Assert.assertEquals;
 
 public class AttributeAndNamespaceTest {
 
@@ -57,8 +58,8 @@ public class AttributeAndNamespaceTest {
     assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
     holder.getXmlNodeReadTrx().moveToAttribute(0);
     assertEquals(
-        "p:x", new StringBuilder(holder.getXmlNodeReadTrx().getName().getPrefix()).append(
-            ":").append(holder.getXmlNodeReadTrx().getName().getLocalName()).toString());
+        "p:x",
+        holder.getXmlNodeReadTrx().getName().getPrefix() + ":" + holder.getXmlNodeReadTrx().getName().getLocalName());
     assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
   }
 

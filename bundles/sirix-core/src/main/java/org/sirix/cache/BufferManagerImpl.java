@@ -16,13 +16,16 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final NamesCache namesCache;
 
-  public BufferManagerImpl(final int maxPageCacheSize, final int maxRecordPageCacheSize,
-      final int maxRevisionRootPageCache, final int maxRBTreeNodeCache, final int maxNamesCacheSize) {
+  private final PathSummaryCache pathSummaryCache;
+
+  public BufferManagerImpl(int maxPageCacheSize, int maxRecordPageCacheSize,
+      int maxRevisionRootPageCache, int maxRBTreeNodeCache, int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     pageCache = new PageCache(maxPageCacheSize);
     recordPageCache = new RecordPageCache(maxRecordPageCacheSize);
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
+    pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
   }
 
   @Override
@@ -51,12 +54,12 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
+  public PathSummaryCache getPathSummaryCache() {
+    return pathSummaryCache;
+  }
+
+  @Override
   public void close() {
-//    pageCache.clear();
-//    recordPageCache.clear();
-//    revisionRootPageCache.clear();
-//    redBlackTreeNodeCache.clear();
-//    namesCache.clear();
   }
 
   @Override
@@ -66,5 +69,6 @@ public final class BufferManagerImpl implements BufferManager {
     revisionRootPageCache.clear();
     redBlackTreeNodeCache.clear();
     namesCache.clear();
+    pathSummaryCache.clear();
   }
 }

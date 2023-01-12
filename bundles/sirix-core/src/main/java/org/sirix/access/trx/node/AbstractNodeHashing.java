@@ -56,14 +56,12 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     this.pageTrx = pageTrx;
   }
 
-  public AbstractNodeHashing<N, T> setBulkInsert(final boolean value) {
+  public void setBulkInsert(final boolean value) {
     this.bulkInsert = value;
-    return this;
   }
 
-  public AbstractNodeHashing<N, T> setAutoCommit(final boolean value) {
+  public void setAutoCommit(final boolean value) {
     this.autoCommit = value;
-    return this;
   }
 
   /**
@@ -375,12 +373,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
           BigInteger hash =
               currentNodeHash == null || BigInteger.ZERO.equals(currentNodeHash) ? node.computeHash() : currentNodeHash;
           node.setHash(hash.add(hashToAdd.multiply(PRIME)));
-          hash = null;
 
           setAddDescendants(startNode, node, descendantCount);
         }
         setCurrentNode(startNode);
-        hashToAdd = null;
       }
       case POSTORDER -> postorderAdd();
       case NONE, default -> {

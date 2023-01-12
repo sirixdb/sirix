@@ -23,7 +23,8 @@ package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.collect.BiMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongList;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -40,12 +41,10 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.NamePageHash;
 
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * <p>
@@ -62,19 +61,14 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   private final NameNodeDelegate nameDel;
 
   /**
-   * Mapping names/keys.
-   */
-  private final BiMap<Long, Long> attributes;
-
-  /**
    * Keys of attributes.
    */
-  private final List<Long> attributeKeys;
+  private final LongList attributeKeys;
 
   /**
    * Keys of namespace declarations.
    */
-  private final List<Long> namespaceKeys;
+  private final LongList namespaceKeys;
 
   /**
    * {@link StructNodeDelegate} reference.
@@ -94,12 +88,10 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param structDel     {@link StructNodeDelegate} to be set
    * @param nameDel       {@link NameNodeDelegate} to be set
    * @param attributeKeys list of attribute keys
-   * @param attributes    attribute nameKey / nodeKey mapping in both directions
    * @param namespaceKeys keys of namespaces to be set
    */
   public ElementNode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
-      final List<Long> attributeKeys, final BiMap<Long, Long> attributes, final List<Long> namespaceKeys,
-      final QNm qNm) {
+      final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
     hash = hashCode;
     assert structDel != null;
     structNodeDel = structDel;
@@ -107,8 +99,6 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
     this.nameDel = nameDel;
     assert attributeKeys != null;
     this.attributeKeys = attributeKeys;
-    assert attributes != null;
-    this.attributes = attributes;
     assert namespaceKeys != null;
     this.namespaceKeys = namespaceKeys;
     assert qNm != null;
@@ -121,19 +111,16 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param structDel     {@link StructNodeDelegate} to be set
    * @param nameDel       {@link NameNodeDelegate} to be set
    * @param attributeKeys list of attribute keys
-   * @param attributes    attribute nameKey / nodeKey mapping in both directions
    * @param namespaceKeys keys of namespaces to be set
    */
-  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
-      final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
+  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final LongList attributeKeys,
+      final LongList namespaceKeys, final QNm qNm) {
     assert structDel != null;
     structNodeDel = structDel;
     assert nameDel != null;
     this.nameDel = nameDel;
     assert attributeKeys != null;
     this.attributeKeys = attributeKeys;
-    assert attributes != null;
-    this.attributes = attributes;
     assert namespaceKeys != null;
     this.namespaceKeys = namespaceKeys;
     assert qNm != null;
@@ -159,32 +146,40 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
     if (attributeKeys.size() <= index) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return attributeKeys.get(index);
+    return attributeKeys.getLong(index);
   }
 
-  /**
-   * Getting the attribute key by name (from the dictionary).
-   *
-   * @param name the attribute-name to lookup
-   * @return the attribute key associated with the name
-   */
-  public Optional<Long> getAttributeKeyByName(final QNm name) {
-    final int prefixIndex = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? NamePageHash.generateHashForString(name.getPrefix())
-        : -1;
-    final int localNameIndex = NamePageHash.generateHashForString(name.getLocalName());
-    return Optional.ofNullable(attributes.get((long) (prefixIndex + localNameIndex)));
-  }
-
-  /**
-   * Get name key (prefixKey+localNameKey) by node key.
-   *
-   * @param key node key
-   * @return optional name key
-   */
-  public Optional<Long> getAttributeNameKey(final @NonNegative long key) {
-    return Optional.ofNullable(attributes.inverse().get(key));
-  }
+  //  /**
+  //   * Getting the attribute key by name (from the dictionary).
+  //   *
+  //   * @param name the attribute-name to lookup
+  //   * @return the attribute key associated with the name
+  //   */
+  //  public OptionalLong getAttributeKeyByName(final QNm name) {
+  //    final int prefixIndex = name.getPrefix() != null && !name.getPrefix().isEmpty()
+  //        ? NamePageHash.generateHashForString(name.getPrefix())
+  //        : -1;
+  //    final int localNameIndex = NamePageHash.generateHashForString(name.getLocalName());
+  //    long attributeKey = attributeNameKeysToAttributeNodeKeys.get(prefixIndex + localNameIndex);
+  //    if (attributeKey == 0L) {
+  //      return OptionalLong.empty();
+  //    }
+  //    return OptionalLong.of(attributeKey);
+  //  }
+  //
+  //  /**
+  //   * Get name key (prefixKey+localNameKey) by node key.
+  //   *
+  //   * @param key node key
+  //   * @return optional name key
+  //   */
+  //  public OptionalLong getAttributeNameKey(final @NonNegative long key) {
+  //    long attrNameKey = attributeNodeKeysToAttributeNameKeys.get(key);
+  //    if (attrNameKey == 0L) {
+  //      return OptionalLong.empty();
+  //    }
+  //    return OptionalLong.of(attrNameKey);
+  //  }
 
   /**
    * Inserting an attribute.
@@ -194,17 +189,19 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    */
   public void insertAttribute(final @NonNegative long attrKey, final long nameIndex) {
     attributeKeys.add(attrKey);
-    attributes.put(nameIndex, attrKey);
+    //    attributeNameKeysToAttributeNodeKeys.put(nameIndex, attrKey);
+    //    attributeNodeKeysToAttributeNameKeys.put(attrKey, nameIndex);
   }
 
   /**
    * Removing an attribute.
    *
-   * @param attrKey the key of the attribute to be removed@NonNegative@NonNegative
+   * @param attrNodeKey the key of the attribute to be removed
    */
-  public void removeAttribute(final @NonNegative long attrKey) {
-    attributeKeys.remove(attrKey);
-    attributes.inverse().remove(attrKey);
+  public void removeAttribute(final @NonNegative long attrNodeKey) {
+    attributeKeys.removeIf(key -> key == attrNodeKey);
+    //    long attrNameKey = attributeNodeKeysToAttributeNameKeys.remove(attrNodeKey);
+    //    attributeNameKeysToAttributeNodeKeys.remove(attrNameKey);
   }
 
   /**
@@ -226,7 +223,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
     if (namespaceKeys.size() <= namespaceKey) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    return namespaceKeys.get(namespaceKey);
+    return namespaceKeys.getLong(namespaceKey);
   }
 
   /**
@@ -244,7 +241,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param namespaceKey the key of the namespace to be removed
    */
   public void removeNamespace(final long namespaceKey) {
-    namespaceKeys.remove(namespaceKey);
+    namespaceKeys.removeIf(key -> key == namespaceKey);
   }
 
   @Override

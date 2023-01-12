@@ -17,6 +17,8 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
+import org.sirix.cache.Cache;
+import org.sirix.cache.PathSummaryData;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -98,32 +100,46 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     isClosed = false;
     this.resourceSession = resourceSession;
 
-    currentNode = this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
+    final Cache<Integer, PathSummaryData> pathSummaryCache = pageReadTrx.getBufferManager().getPathSummaryCache();
+    final PathSummaryData pathSummaryData = pathSummaryCache.get(pageReadTrx.getRevisionNumber());
 
-    if (currentNode == null) {
-      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
-    }
+    if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
+      currentNode =
+          this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
-    pathNodeMapping = new Long2ObjectOpenHashMap<>();
-    qnmMapping = new HashMap<>();
-    boolean first = true;
-    PathNode previousPathNode = null;
-    var axis = new DescendantAxis(this, IncludeSelf.YES);
-    while (axis.hasNext()) {
-      final var nodeKey = axis.nextLong();
-      final var structuralNode = this.getStructuralNode();
-      pathNodeMapping.put(nodeKey, structuralNode);
-
-      if (first) {
-        first = false;
-      } else {
-        final var pathNode = this.getPathNode();
-        if (!(pageReadTrx instanceof PageTrx)) {
-          updateInMemoryNodeRelations(previousPathNode, structuralNode, pathNode);
-        }
-        qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
-        previousPathNode = pathNode;
+      if (currentNode == null) {
+        throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
       }
+      pathNodeMapping = new Long2ObjectOpenHashMap<>();
+      qnmMapping = new HashMap<>();
+      boolean first = true;
+      PathNode previousPathNode = null;
+      var axis = new DescendantAxis(this, IncludeSelf.YES);
+      while (axis.hasNext()) {
+        final var nodeKey = axis.nextLong();
+        final var structuralNode = this.getStructuralNode();
+        pathNodeMapping.put(nodeKey, structuralNode);
+
+        if (first) {
+          first = false;
+        } else {
+          final var pathNode = this.getPathNode();
+          if (!(pageReadTrx instanceof PageTrx)) {
+            updateInMemoryNodeRelations(previousPathNode, structuralNode, pathNode);
+          }
+          qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
+          previousPathNode = pathNode;
+        }
+      }
+
+      if (!pageReadTrx.hasTrxIntentLog()) {
+        pathSummaryCache.put(pageReadTrx.getRevisionNumber(),
+                             new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
+      }
+    } else {
+      currentNode = pathSummaryData.currentNode();
+      pathNodeMapping = pathSummaryData.pathNodeMapping();
+      qnmMapping = pathSummaryData.qnmMapping();
     }
 
     init = false;

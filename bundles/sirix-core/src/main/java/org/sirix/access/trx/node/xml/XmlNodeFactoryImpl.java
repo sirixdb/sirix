@@ -1,7 +1,7 @@
 package org.sirix.access.trx.node.xml;
 
-import com.google.common.collect.HashBiMap;
 import com.google.common.hash.HashFunction;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -21,7 +21,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
-import java.util.ArrayList;
 import java.util.zip.Deflater;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -112,9 +111,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     return pageTrx.createRecord(new ElementNode(structDel,
                                                nameDel,
-                                               new ArrayList<>(),
-                                               HashBiMap.create(),
-                                               new ArrayList<>(),
+                                               new LongArrayList(), new LongArrayList(),
                                                name),
                                 IndexType.DOCUMENT,
                                 -1);

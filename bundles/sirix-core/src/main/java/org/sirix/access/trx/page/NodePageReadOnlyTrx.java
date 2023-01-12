@@ -52,9 +52,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -137,8 +134,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private RecordPage pathSummaryRecordPage;
 
-  private final ExecutorService pool;
-
   /**
    * Standard constructor.
    *
@@ -164,7 +159,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     this.resourceConfig = resourceSession.getResourceConfig();
     this.pageReader = checkNotNull(reader);
     this.uberPage = checkNotNull(uberPage);
-    this.pool = Executors.newFixedThreadPool(resourceConfig.maxNumberOfRevisionsToRestore - 1);
     this.trxIntentLog = trxIntentLog;
 
     revisionNumber = revision;
@@ -551,7 +545,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (trxIntentLog == null) {
       page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReferenceWithKey);
-      assert page == null || page.getRevision() == getRevisionNumber();
+      //assert page == null || page.getRevision() == getRevisionNumber();
       if (page == null) {
         page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, this);
 
@@ -755,20 +749,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         pageReader.close();
       }
 
-      if (resourceBufferManager instanceof BufferManagerImpl bufferManager) {
-        bufferManager.close();
-      }
-
       if (resourceSession.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceSession.closePageReadTransaction(trxId);
-      }
-
-      pool.shutdownNow();
-      try {
-        //noinspection ResultOfMethodCallIgnored
-        pool.awaitTermination(2, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
       }
 
       isClosed = true;
