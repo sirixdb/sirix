@@ -145,7 +145,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Determines the versioning type.
      */
-    private VersioningType versioningType;
+    private VersioningType versioningType = VersioningType.SLIDING_SNAPSHOT;
 
     /**
      * Determines if DeweyIDs should be stored or not.
