@@ -15,6 +15,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.InsertPosition;
+import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
 
 import java.io.IOException;
@@ -79,6 +80,26 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
   /**
+   * Determines the hash type.
+   */
+  private final HashType hashType;
+
+  /**
+   * Determines if DeweyIDs should be stored or not.
+   */
+  private final boolean storeDeweyIds;
+
+  /**
+   * Number of inserted nodes during an import of an XML document, after which an auto-commit is issued.
+   */
+  private final int numberOfNodesBeforeAutoCommit;
+
+  /**
+   * Determines the versioning type.
+   */
+  private final VersioningType versioningType;
+
+  /**
    * Get a new builder instance.
    */
   public static Builder newBuilder() {
@@ -89,6 +110,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
    * Builder setting up the store.
    */
   public static class Builder {
+
     /**
      * Storage type.
      */
@@ -104,6 +126,59 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * Determines if for resources a path summary should be build.
      */
     private boolean buildPathSummary = true;
+
+    /**
+     * Determines the hash type for each node.
+     */
+    private HashType hashType = HashType.NONE;
+
+    /**
+     * Determines if DeweyIDs should be created or not.
+     */
+    private boolean storeDeweyIds;
+
+    /**
+     * Number of nodes before an auto-commit is issued during an import of an XML document.
+     */
+    public int numberOfNodesBeforeAutoCommit = 262_144 << 5;
+
+    /**
+     * Determines the versioning type.
+     */
+    private VersioningType versioningType;
+
+    /**
+     * Determines if DeweyIDs should be stored or not.
+     *
+     * @param storeDeweyIds determines if DeweyIDs should be stored or not
+     * @return this builder instance
+     */
+    public Builder numberOfNodesBeforeCommit(boolean storeDeweyIds) {
+      this.storeDeweyIds = storeDeweyIds;
+      return this;
+    }
+
+    /**
+     * Number of nodes, before the write trx is internally committed during an import of a file.
+     *
+     * @param numberOfNodesBeforeCommit number of nodes to insert before an auto-commit is issued
+     * @return this builder instance
+     */
+    public Builder numberOfNodesBeforeCommit(final int numberOfNodesBeforeCommit) {
+      this.numberOfNodesBeforeAutoCommit = checkNotNull(numberOfNodesBeforeCommit);
+      return this;
+    }
+
+    /**
+     * Set the hash type (default: file backend).
+     *
+     * @param hashType hash type
+     * @return this builder instance
+     */
+    public Builder hashType(final HashType hashType) {
+      this.hashType = checkNotNull(hashType);
+      return this;
+    }
 
     /**
      * Set the storage type (default: file backend).
@@ -124,6 +199,17 @@ public final class BasicXmlDBStore implements XmlDBStore {
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
       this.buildPathSummary = buildPathSummary;
+      return this;
+    }
+
+    /**
+     * Sets the versioning type of the storage.
+     *
+     * @param versioningType the versioning type to set
+     * @return this builder instance
+     */
+    public Builder versioningType(final VersioningType versioningType) {
+      this.versioningType = versioningType;
       return this;
     }
 
@@ -159,6 +245,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
+    hashType = builder.hashType;
+    storeDeweyIds = builder.storeDeweyIds;
+    numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
+    versioningType = builder.versioningType;
   }
 
   /**
@@ -242,18 +332,19 @@ public final class BasicXmlDBStore implements XmlDBStore {
       databases.add(database);
       final String resName = optResName != null ? optResName : "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useDeweyIDs(false)
+                                                   .useDeweyIDs(storeDeweyIds)
                                                    .useTextCompression(false)
                                                    .buildPathSummary(buildPathSummary)
                                                    .storageType(storageType)
                                                    .customCommitTimestamps(commitTimestamp != null)
-                                                   .hashKind(HashType.NONE)
+                                                   .hashKind(hashType)
+                                                   .versioningApproach(versioningType)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
 
       try (final XmlResourceSession manager = database.beginResourceSession(resName);
-           final XmlNodeTrx wtx = manager.beginNodeTrx(262_144 << 5)) {
+           final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
       }
@@ -281,11 +372,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
             final String resourceName = "resource" + i;
             pool.submit(() -> {
               database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                           .useDeweyIDs(storeDeweyIds)
+                                                           .useTextCompression(false)
+                                                           .buildPathSummary(buildPathSummary)
                                                            .storageType(storageType)
-                                                           .useDeweyIDs(true)
-                                                           .useTextCompression(true)
-                                                           .buildPathSummary(true)
-                                                           .hashKind(HashType.ROLLING)
+                                                           .hashKind(hashType)
+                                                           .versioningApproach(versioningType)
                                                            .build());
               try (final XmlResourceSession manager = database.beginResourceSession(resourceName);
                    final XmlNodeTrx wtx = manager.beginNodeTrx()) {
