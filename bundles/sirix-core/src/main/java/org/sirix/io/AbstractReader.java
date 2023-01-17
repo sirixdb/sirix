@@ -26,6 +26,8 @@ public abstract class AbstractReader implements Reader {
    */
   protected final PagePersister pagePersister;
 
+  private final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer(10_000);
+
   public AbstractReader(ByteHandler byteHandler, PagePersister pagePersister, SerializationType type) {
     this.byteHandler = byteHandler;
     this.pagePersister = pagePersister;
@@ -35,8 +37,8 @@ public abstract class AbstractReader implements Reader {
   public Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
     // perform byte operations
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer(10_000);
-    BytesUtils.doWrite(input, inputStream.readAllBytes());
+    byte[] bytes = inputStream.readAllBytes();
+    BytesUtils.doWrite(input, bytes);
     final var deserializedPage = pagePersister.deserializePage(pageReadTrx, input, type);
     input.clear();
     return deserializedPage;
