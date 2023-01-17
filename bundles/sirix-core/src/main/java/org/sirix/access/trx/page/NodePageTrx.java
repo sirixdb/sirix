@@ -388,7 +388,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       log.getMap()
-         .entrySet()
+         .long2ObjectEntrySet()
          .parallelStream()
          .map(Map.Entry::getValue)
          .map(PageContainer::getModified)
