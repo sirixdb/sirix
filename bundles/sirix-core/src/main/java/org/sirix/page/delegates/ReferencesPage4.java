@@ -63,7 +63,7 @@ public final class ReferencesPage4 implements Page {
    * @param in   input stream to read from
    * @param type the serialization type
    */
-  public ReferencesPage4(final Bytes<ByteBuffer> in, final SerializationType type) {
+  public ReferencesPage4(final Bytes<?> in, final SerializationType type) {
     final DeserializedReferencesPage4Tuple tuple = type.deserializeReferencesPage4(in);
     references = tuple.getReferences();
     offsets = tuple.getOffsets();

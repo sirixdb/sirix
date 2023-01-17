@@ -89,7 +89,7 @@ public enum SerializationType {
 
     @Override
     public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
-        Bytes<ByteBuffer> in) {
+        Bytes<?> in) {
       assert in != null;
 
       try {
@@ -111,7 +111,7 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<ByteBuffer> in) {
+    public DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<?> in) {
       try {
         final byte size = in.readByte();
         final List<PageReference> pageReferences = new ArrayList<>(4);
@@ -155,7 +155,7 @@ public enum SerializationType {
     }
 
     @Override
-    public PageReference[] deserializeFullReferencesPage(Bytes<ByteBuffer> in) {
+    public PageReference[] deserializeFullReferencesPage(Bytes<?> in) {
       try {
         final PageReference[] references = new PageReference[Constants.INP_REFERENCE_COUNT];
         final BitSet bitSet = deserializeBitSet(in);
@@ -185,7 +185,7 @@ public enum SerializationType {
     }
   }
 
-  private static void readHash(Bytes<ByteBuffer> in, PageReference reference) throws IOException {
+  private static void readHash(Bytes<?> in, PageReference reference) throws IOException {
     final int hashLength = in.readInt();
     if (hashLength != -1) {
       final byte[] hash = new byte[hashLength];
@@ -195,7 +195,7 @@ public enum SerializationType {
     }
   }
 
-  private static void readPageFragments(Bytes<ByteBuffer> in, PageReference reference) throws IOException {
+  private static void readPageFragments(Bytes<?> in, PageReference reference) throws IOException {
     final int keysSize = in.readByte() & 0xff;
     if (keysSize > 0) {
       for (int i = 0; i < keysSize; i++) {
@@ -225,7 +225,7 @@ public enum SerializationType {
     out.write(bytes);
   }
 
-  public static BitSet deserializeBitSet(Bytes<ByteBuffer> in) {
+  public static BitSet deserializeBitSet(Bytes<?> in) {
     final int len = in.readShort();
     final var bytes = new byte[len];
     in.read(bytes);
@@ -262,7 +262,7 @@ public enum SerializationType {
    * @return the in-memory instances
    */
   public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
-      Bytes<ByteBuffer> in);
+      Bytes<?> in);
 
   /**
    * Deserialize all page references.
@@ -270,7 +270,7 @@ public enum SerializationType {
    * @param in the input
    * @return the in-memory instances
    */
-  public abstract DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<ByteBuffer> in);
+  public abstract DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<?> in);
 
   /**
    * Serialize all page references.
@@ -287,5 +287,5 @@ public enum SerializationType {
    * @param in the input
    * @return the in-memory instances
    */
-  public abstract PageReference[] deserializeFullReferencesPage(Bytes<ByteBuffer> in);
+  public abstract PageReference[] deserializeFullReferencesPage(Bytes<?> in);
 }

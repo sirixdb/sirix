@@ -64,7 +64,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  PathSummaryPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  PathSummaryPage(final Bytes<?> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
     maxNodeKeys = new Int2LongOpenHashMap(size);

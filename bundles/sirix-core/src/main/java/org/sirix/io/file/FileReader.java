@@ -127,8 +127,7 @@ public final class FileReader implements Reader {
   @NotNull
   private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer();
-    BytesUtils.doWrite(input, inputStream.readAllBytes());
+    final Bytes<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
     final var deserializedPage = pagePersiter.deserializePage(pageReadTrx, input, serializationType);
     input.clear();
     return deserializedPage;

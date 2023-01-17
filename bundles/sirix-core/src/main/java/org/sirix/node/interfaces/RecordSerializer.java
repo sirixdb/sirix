@@ -26,7 +26,7 @@ public interface RecordSerializer {
    * @throws NullPointerException if one of the parameters is {@code null}
    */
   @NonNull
-  DataRecord deserialize(BytesIn<ByteBuffer> source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx);
+  DataRecord deserialize(BytesIn<?> source, @NonNegative long recordID, byte[] deweyID, PageReadOnlyTrx pageReadTrx);
 
   /**
    * Serialize a record.
