@@ -79,6 +79,10 @@ public final class MMStorage implements IOStorage {
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
 
+  private final Path revisionsFilePath;
+
+  private final Path dataFilePath;
+
   private FileChannel dataFileChannel;
 
   private FileChannel revisionsOffsetFileChannel;
@@ -92,6 +96,8 @@ public final class MMStorage implements IOStorage {
   public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
+    revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
+    dataFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
   }
@@ -229,7 +235,7 @@ public final class MMStorage implements IOStorage {
    * @return the path for this data file
    */
   private Path getDataFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+    return dataFilePath;
   }
 
   /**
@@ -238,7 +244,7 @@ public final class MMStorage implements IOStorage {
    * @return the concrete storage for this database
    */
   private Path getRevisionFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
+    return revisionsFilePath;
   }
 
   @Override
