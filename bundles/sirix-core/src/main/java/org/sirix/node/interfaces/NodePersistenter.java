@@ -13,7 +13,7 @@ public interface NodePersistenter extends RecordSerializer {
 
   record DeweyIDData(SirixDeweyID deweyID, byte[] data) {}
 
-  byte[] deserializeDeweyID(BytesIn<ByteBuffer> source, byte[] previousDeweyID,
+  byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig);
 
   void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,

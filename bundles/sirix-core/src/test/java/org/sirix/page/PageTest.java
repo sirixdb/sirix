@@ -68,7 +68,7 @@ public class PageTest {
       handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
       final Page serializedPage =
-          PageKind.getKind(handler.getClass()).deserializePage(pageReadTrx, data, SerializationType.DATA);
+          PageKind.getKind(handler.getClass()).deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
       serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);

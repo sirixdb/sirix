@@ -139,7 +139,7 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  NamePage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  NamePage(final Bytes<?> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
     maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(size / 0.75));

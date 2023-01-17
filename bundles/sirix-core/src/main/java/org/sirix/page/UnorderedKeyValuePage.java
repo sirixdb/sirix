@@ -129,6 +129,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
    *
    * @param pageToClone     the page to clone
    */
+  @SuppressWarnings("CopyConstructorMissesField")
   public UnorderedKeyValuePage(final UnorderedKeyValuePage pageToClone) {
     addedReferences = pageToClone.addedReferences;
     references = pageToClone.references;
@@ -176,7 +177,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
    * @param in              input bytes to read page from
    * @param pageReadOnlyTrx {@link PageReadOnlyTrx} implementation
    */
-  UnorderedKeyValuePage(final Bytes<ByteBuffer> in, final PageReadOnlyTrx pageReadOnlyTrx) {
+  UnorderedKeyValuePage(final Bytes<?> in, final PageReadOnlyTrx pageReadOnlyTrx) {
     recordPageKey = getVarLong(in);
     revision = in.readInt();
     resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
@@ -189,7 +190,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       deweyIDs = new Object2LongLinkedOpenHashMap<>((int) Math.ceil(Constants.NDP_NODE_COUNT / 0.75));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
-      var byteBufferBytes = Bytes.elasticByteBuffer();
+      var byteBufferBytes = Bytes.elasticByteBuffer(80);
 
       for (int index = 0; index < deweyIDSize; index++) {
         final byte[] deweyID = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
@@ -241,13 +242,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     indexType = IndexType.getType(in.readByte());
   }
 
-  private void deserializeRecordAndPutIntoMap(Bytes<ByteBuffer> in, byte[] deweyId, Bytes<ByteBuffer> byteBufferBytes,
+  private void deserializeRecordAndPutIntoMap(Bytes<?> in, byte[] deweyId, Bytes<?> byteBufferBytes,
       PageReadOnlyTrx pageReadOnlyTrx) {
     final long key = getVarLong(in);
     final int dataSize = in.readInt();
     final byte[] data = new byte[dataSize];
     in.read(data);
-    BytesUtils.doWrite(byteBufferBytes, data);
     final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, deweyId, pageReadOnlyTrx);
     byteBufferBytes.clear();
     final var offset = PageReadOnlyTrx.recordPageOffset(key);
@@ -349,7 +349,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       overlongEntriesBitmap.set(pageOffset);
     }
     SerializationType.serializeBitSet(out, overlongEntriesBitmap);
-    overlongEntriesBitmap = null;
 
     // Write normal entries.
     out.writeInt(entriesBitmap.cardinality());
@@ -477,7 +476,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
         }
       }
     }
-    out = null;
   }
 
   @Override

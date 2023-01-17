@@ -105,7 +105,7 @@ public final class NodePageTest {
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageReadTrx, data, page1, SerializationType.DATA);
     final UnorderedKeyValuePage page2 =
-        (UnorderedKeyValuePage) pagePersister.deserializePage(pageReadTrx, data, SerializationType.DATA);
+        (UnorderedKeyValuePage) pagePersister.deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) page2.getValue(pageReadTrx, 0L);
     assertEquals(0L, page2.getValue(pageReadTrx, 0L).getNodeKey());
