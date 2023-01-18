@@ -246,9 +246,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       PageReadOnlyTrx pageReadOnlyTrx) {
     final long key = getVarLong(in);
     final int dataSize = in.readInt();
-    final byte[] data = new byte[dataSize];
-    in.read(data);
-    final DataRecord record = recordPersister.deserialize(byteBufferBytes, key, deweyId, pageReadOnlyTrx);
+    //in.read(byteBufferBytes, dataSize);
+    final DataRecord record = recordPersister.deserialize(in, key, deweyId, pageReadOnlyTrx);
     byteBufferBytes.clear();
     final var offset = PageReadOnlyTrx.recordPageOffset(key);
     if (records[offset] == null) {

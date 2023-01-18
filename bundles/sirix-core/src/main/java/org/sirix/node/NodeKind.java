@@ -113,13 +113,7 @@ public enum NodeKind implements NodePersistenter {
         namespaceKeys.add(source.readLong());
       }
 
-      final String uri = pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, NodeKind.ELEMENT);
-      final int localNameKey = nameDel.getLocalNameKey();
-      final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, NodeKind.ELEMENT);
-
-      return new ElementNode(hashCode, structDel, nameDel, attrKeys, namespaceKeys, new QNm(uri, prefix, localName));
+      return new ElementNode(hashCode, structDel, nameDel, attrKeys, namespaceKeys, new QNm(""));
     }
 
     @Override
@@ -166,16 +160,8 @@ public enum NodeKind implements NodePersistenter {
       source.read(vals, 0, vals.length);
       final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
 
-      final String uri = pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, NodeKind.ATTRIBUTE);
-      final int localNameKey = nameDel.getLocalNameKey();
-      final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, NodeKind.ATTRIBUTE);
-
-      final QNm name = new QNm(uri, prefix, localName);
-
       // Returning an instance.
-      return new AttributeNode(hashCode, nodeDel, nameDel, valDel, name);
+      return new AttributeNode(hashCode, nodeDel, nameDel, valDel, new QNm(""));
     }
 
     @Override
