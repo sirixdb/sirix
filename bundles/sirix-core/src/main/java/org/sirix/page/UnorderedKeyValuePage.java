@@ -127,7 +127,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   /**
    * Copy constructor.
    *
-   * @param pageToClone     the page to clone
+   * @param pageToClone the page to clone
    */
   @SuppressWarnings("CopyConstructorMissesField")
   public UnorderedKeyValuePage(final UnorderedKeyValuePage pageToClone) {
@@ -190,7 +190,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
       deweyIDs = new Object2LongLinkedOpenHashMap<>((int) Math.ceil(Constants.NDP_NODE_COUNT / 0.75));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
       byte[] optionalDeweyId = null;
-      var byteBufferBytes = Bytes.elasticByteBuffer(80);
 
       for (int index = 0; index < deweyIDSize; index++) {
         final byte[] deweyID = persistenter.deserializeDeweyID(in, optionalDeweyId, resourceConfig);
@@ -198,11 +197,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
         optionalDeweyId = deweyID;
 
         if (deweyID != null) {
-          deserializeRecordAndPutIntoMap(in, deweyID, byteBufferBytes, pageReadOnlyTrx);
+          deserializeRecordAndPutIntoMap(in, deweyID, pageReadOnlyTrx);
         }
       }
-
-      byteBufferBytes.clear();
     } else {
       deweyIDs = new Object2LongLinkedOpenHashMap<>((int) Math.ceil(Constants.NDP_NODE_COUNT / 0.75));
       records = new DataRecord[Constants.NDP_NODE_COUNT];
@@ -242,13 +239,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     indexType = IndexType.getType(in.readByte());
   }
 
-  private void deserializeRecordAndPutIntoMap(Bytes<?> in, byte[] deweyId, Bytes<?> byteBufferBytes,
-      PageReadOnlyTrx pageReadOnlyTrx) {
+  private void deserializeRecordAndPutIntoMap(Bytes<?> in, byte[] deweyId, PageReadOnlyTrx pageReadOnlyTrx) {
     final long key = getVarLong(in);
-    final int dataSize = in.readInt();
-    //in.read(byteBufferBytes, dataSize);
     final DataRecord record = recordPersister.deserialize(in, key, deweyId, pageReadOnlyTrx);
-    byteBufferBytes.clear();
     final var offset = PageReadOnlyTrx.recordPageOffset(key);
     if (records[offset] == null) {
       recordsStored++;
@@ -376,8 +369,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     putVarLong(out, recordKey);
     final var offset = PageReadOnlyTrx.recordPageOffset(recordKey);
     final byte[] data = slots[offset];
-    final int length = data.length;
-    out.writeInt(length);
     out.write(data);
     slots[offset] = null;
   }
