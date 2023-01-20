@@ -45,7 +45,7 @@ public final class PagePersister {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> source,
+  public @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
       final SerializationType type) throws IOException {
     return PageKind.getKind(source.readByte()).deserializePage(pageReadTrx, source, type);
   }

@@ -35,7 +35,7 @@ public final class OverflowPage implements Page {
     this.data = data;
   }
 
-  public OverflowPage(final Bytes<ByteBuffer> in) {
+  public OverflowPage(final Bytes<?> in) {
     data = new byte[in.readInt()];
     in.read(data);
   }

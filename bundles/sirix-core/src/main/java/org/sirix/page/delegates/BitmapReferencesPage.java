@@ -108,7 +108,7 @@ public final class BitmapReferencesPage implements Page {
    * @param in             input stream to read from
    * @param type           the serialization type
    */
-  public BitmapReferencesPage(final @NonNegative int referenceCount, final Bytes<ByteBuffer> in,
+  public BitmapReferencesPage(final @NonNegative int referenceCount, final Bytes<?> in,
       final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();

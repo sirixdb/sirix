@@ -53,7 +53,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    *
    * @param in input source
    */
-  public IndirectPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  public IndirectPage(final Bytes<?> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
   }
 

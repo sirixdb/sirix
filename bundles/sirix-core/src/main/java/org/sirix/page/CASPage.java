@@ -49,7 +49,7 @@ public final class CASPage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  CASPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  CASPage(final Bytes<?> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int maxNodeKeySize = in.readInt();
     maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(maxNodeKeySize / 0.75));

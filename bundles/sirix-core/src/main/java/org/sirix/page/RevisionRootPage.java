@@ -169,7 +169,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param in input stream
    */
-  RevisionRootPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  RevisionRootPage(final Bytes<?> in, final SerializationType type) {
     delegate = new BitmapReferencesPage(8, in, type);
     revision = in.readInt();
     maxNodeKeyInDocumentIndex = in.readLong();
@@ -442,6 +442,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     return ++currentMaxLevelOfRecordToRevisionsIndirectPages;
   }
 
+  @NonNull
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)

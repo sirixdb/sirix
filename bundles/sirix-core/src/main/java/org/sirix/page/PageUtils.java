@@ -16,8 +16,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import java.nio.ByteBuffer;
-
 /**
  * Page utilities.
  *
@@ -48,7 +46,7 @@ public final class PageUtils {
     return pageDelegate;
   }
 
-  public static Page createDelegate(Bytes<ByteBuffer> in, SerializationType type) {
+  public static Page createDelegate(Bytes<?> in, SerializationType type) {
     final byte kind = in.readByte();
     return switch (kind) {
       case 0 -> new ReferencesPage4(in, type);
