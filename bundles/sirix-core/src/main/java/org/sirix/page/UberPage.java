@@ -70,7 +70,7 @@ public final class UberPage implements Page {
    *
    * @param in input bytes
    */
-  UberPage(final Bytes<ByteBuffer> in) {
+  UberPage(final Bytes<?> in) {
     revisionCount = in.readInt();
     isBootstrap = false;
     rootPage = null;

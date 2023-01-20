@@ -19,7 +19,7 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements DeweyIdSerializer {
   @Override
-  public @NonNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID, final byte[] deweyID,
+  public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID, final byte[] deweyID,
       final PageReadOnlyTrx pageReadTrx) {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
@@ -35,7 +35,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   }
 
   @Override
-  public byte[] deserializeDeweyID(BytesIn<ByteBuffer> source, byte[] previousDeweyID,
+  public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
@@ -65,22 +65,20 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
-      final byte[] deweyIDBytes = deweyID;
       if (nextDeweyID != null) {
-        final byte[] nextDeweyIDBytes = nextDeweyID;
 
         //assert deweyIDBytes.length <= nextDeweyIDBytes.length;
 
         int i = 0;
-        for (; i < deweyIDBytes.length && i < nextDeweyIDBytes.length; i++) {
-          if (deweyIDBytes[i] != nextDeweyIDBytes[i]) {
+        for (; i < deweyID.length && i < nextDeweyID.length; i++) {
+          if (deweyID[i] != nextDeweyID[i]) {
             break;
           }
         }
-        writeDeweyID(sink, nextDeweyIDBytes, i);
+        writeDeweyID(sink, nextDeweyID, i);
       } else {
-        sink.writeByte((byte) deweyIDBytes.length);
-        sink.write(deweyIDBytes);
+        sink.writeByte((byte) deweyID.length);
+        sink.write(deweyID);
       }
     }
   }

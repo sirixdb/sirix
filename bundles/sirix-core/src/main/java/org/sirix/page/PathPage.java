@@ -17,8 +17,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Page to hold references to a value summary.
@@ -61,7 +59,7 @@ public final class PathPage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  PathPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  PathPage(final Bytes<?> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     final int size = in.readInt();
     maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(size / 0.75));

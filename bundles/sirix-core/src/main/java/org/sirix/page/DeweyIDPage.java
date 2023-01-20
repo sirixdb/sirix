@@ -77,7 +77,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    *
    * @param in input bytes to read from
    */
-  DeweyIDPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  DeweyIDPage(final Bytes<?> in, final SerializationType type) {
     delegate = PageUtils.createDelegate(in, type);
     maxNodeKey = in.readLong();
     currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;

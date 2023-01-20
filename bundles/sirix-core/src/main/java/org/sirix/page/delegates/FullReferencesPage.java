@@ -54,7 +54,7 @@ public final class FullReferencesPage implements Page {
    * @param in   input stream to read from
    * @param type the serialization type
    */
-  public FullReferencesPage(final Bytes<ByteBuffer> in, final SerializationType type) {
+  public FullReferencesPage(final Bytes<?> in, final SerializationType type) {
     references = type.deserializeFullReferencesPage(in);
   }
 
