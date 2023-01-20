@@ -290,7 +290,6 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         var newMultipliedHash = hashToAdd.multiply(PRIME);
         possibleOldHash = node.getHash();
         newHash = Node.to128BitsAtMaximumBigInteger(possibleOldHash.add(newMultipliedHash));
-        newMultipliedHash = null;
         hashToAdd = newHash;
         setAddDescendants(startNode, node, descendantCount);
       } else {
@@ -300,14 +299,11 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         newHash = Node.to128BitsAtMaximumBigInteger(node.getHash()
                                                         .subtract(oldMultipliedHash)
                                                         .add(newMultipliedHash));
-        oldMultipliedHash = null;
-        newMultipliedHash = null;
         hashToAdd = newHash;
         possibleOldHash = node.getHash();
         setAddDescendants(startNode, node, descendantCount);
       }
       node.setHash(newHash);
-      newHash = null;
     } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
     setCurrentNode(startNode);
   }

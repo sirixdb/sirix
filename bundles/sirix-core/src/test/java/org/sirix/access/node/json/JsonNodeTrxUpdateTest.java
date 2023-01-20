@@ -37,24 +37,22 @@ public class JsonNodeTrxUpdateTest {
 
   @Test
   public void testDeweyIDs() {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
          final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
-      new DescendantAxis(rtx).forEach(
-          nodeKey -> {
-            if (rtx.isObjectKey()) {
-              System.out.print("name:" + rtx.getName() + " ");
-            }
-            else if (rtx.isObject()) {
-              System.out.print("object ");
-            }
-            else if (rtx.isArray()) {
-              System.out.print("array ");
-            }
-            System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID() + " level:" + rtx.getDeweyID().getLevel());
-          });
+      new DescendantAxis(rtx).forEach(nodeKey -> {
+        if (rtx.isObjectKey()) {
+          System.out.print("name:" + rtx.getName() + " ");
+        } else if (rtx.isObject()) {
+          System.out.print("object ");
+        } else if (rtx.isArray()) {
+          System.out.print("array ");
+        }
+        System.out.println(
+            "nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID() + " level:" + rtx.getDeweyID().getLevel());
+      });
     }
   }
 
@@ -152,7 +150,7 @@ public class JsonNodeTrxUpdateTest {
   public void testUpdateBooleanValue() {
     JsonTestHelper.createTestDocument();
 
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
          final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(12);
@@ -180,9 +178,9 @@ public class JsonNodeTrxUpdateTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenStoreUpdateOperations() throws IOException {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
@@ -219,9 +217,9 @@ public class JsonNodeTrxUpdateTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenGetUpdateOperationsInSubtree() {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {

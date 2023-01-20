@@ -112,9 +112,9 @@ public final class JsonSerializerTest {
 
   @Test
   public void testJsonDocumentWithMaxChildren1() throws IOException {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       var serializedString = getSerializedStringWithMaxChildren(manager, 1);
       var expected = Files.readString(JSON.resolve("jsonSerializer")
@@ -154,7 +154,7 @@ public final class JsonSerializerTest {
 
   @Test
   public void testJsonDocumentWithMaxChildren2() throws IOException {
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).useDeweyIDs(true).build());
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
@@ -545,9 +545,9 @@ public final class JsonSerializerTest {
 
   @Test
   public void testJsonDocumentWithMaxLevelAndNumberOfNodesAndStartNodeKey() throws IOException {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
 
@@ -595,9 +595,9 @@ public final class JsonSerializerTest {
 
   @Test
   public void testJsonDocumentWithMaxLevelAndNumberOfNodesAndStartNodeKeyAndMaxChildren() throws IOException {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
 

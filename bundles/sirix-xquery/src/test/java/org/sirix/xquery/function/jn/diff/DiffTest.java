@@ -38,9 +38,9 @@ public final class DiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff() throws IOException {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
@@ -68,9 +68,12 @@ public final class DiffTest {
     }
 
     // Initialize query context and store.
-    try (final var store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).build();
-        final var ctx = SirixQueryContext.createWithJsonStore(store);
-        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (final var store = BasicJsonDBStore.newBuilder()
+                                           .location(PATHS.PATH1.getFile().getParent())
+                                           .useDeweyIDs(true)
+                                           .build();
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use XQuery to store a JSON string into the store.
       final var databaseName = PATHS.PATH1.getFile().getName(PATHS.PATH1.getFile().getNameCount() - 1).toString();
       final var resourceName = JsonTestHelper.RESOURCE;

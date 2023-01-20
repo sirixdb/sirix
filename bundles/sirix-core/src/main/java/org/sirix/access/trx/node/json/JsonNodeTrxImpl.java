@@ -2263,7 +2263,7 @@ final class JsonNodeTrxImpl extends
                                         id == null ? null : new DiffDepth(id.getLevel(), id.getLevel()));
     if (id == null && updateOperationsUnordered.get(nodeKey) == null) {
       updateOperationsUnordered.put(nodeKey, diffTuple);
-    } else if (hasNoUpdatingNodeWithGivenNodeKey(nodeKey)) {
+    } else if (id != null && hasNoUpdatingNodeWithGivenNodeKey(nodeKey)) {
       updateOperationsOrdered.put(id, diffTuple);
     }
   }

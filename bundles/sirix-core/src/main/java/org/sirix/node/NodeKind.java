@@ -46,7 +46,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.interfaces.NodePersistenter;
+import org.sirix.node.interfaces.DeweyIdSerializer;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.*;
@@ -77,7 +77,7 @@ import static org.sirix.node.Utils.putVarLong;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public enum NodeKind implements NodePersistenter {
+public enum NodeKind implements DeweyIdSerializer {
 
   /**
    * Node kind is element.
@@ -113,13 +113,7 @@ public enum NodeKind implements NodePersistenter {
         namespaceKeys.add(source.readLong());
       }
 
-      final String uri = pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, NodeKind.ELEMENT);
-      final int localNameKey = nameDel.getLocalNameKey();
-      final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, NodeKind.ELEMENT);
-
-      return new ElementNode(hashCode, structDel, nameDel, attrKeys, namespaceKeys, new QNm(uri, prefix, localName));
+      return new ElementNode(hashCode, structDel, nameDel, attrKeys, namespaceKeys, new QNm(""));
     }
 
     @Override
@@ -404,7 +398,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -431,7 +425,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -461,7 +455,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -488,7 +482,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -515,7 +509,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -543,7 +537,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -605,7 +599,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -675,7 +669,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -733,7 +727,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -796,7 +790,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -824,7 +818,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -865,7 +859,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -908,7 +902,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -988,7 +982,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1037,7 +1031,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1081,7 +1075,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1173,7 +1167,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1214,7 +1208,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1258,7 +1252,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1297,7 +1291,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1379,7 +1373,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1415,7 +1409,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1438,12 +1432,13 @@ public enum NodeKind implements NodePersistenter {
                                                     Constants.NULL_REVISION_NUMBER,
                                                     revisionNumber,
                                                     SirixDeweyID.newRootID().toBytes());
+      final long firstChildKey = getVarLong(source);
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  getVarLong(source),
-                                                                  getVarLong(source),
+                                                                  firstChildKey,
+                                                                  firstChildKey,
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  source.readByte() == ((byte) 0) ? 0 : 1,
+                                                                  firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0 : 1,
                                                                   source.readLong());
       return new JsonDocumentRootNode(nodeDel, structDel);
     }
@@ -1452,9 +1447,6 @@ public enum NodeKind implements NodePersistenter {
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
       putVarLong(sink, node.getFirstChildKey());
-      putVarLong(sink, node.getLastChildKey());
-      sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
-      sink.writeByte(node.hasLastChild() ? (byte) 1 : (byte) 0);
       sink.writeLong(node.getDescendantCount());
     }
 
@@ -1465,7 +1457,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1491,7 +1483,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1516,7 +1508,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1539,7 +1531,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1588,7 +1580,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1615,7 +1607,7 @@ public enum NodeKind implements NodePersistenter {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1723,7 +1715,7 @@ public enum NodeKind implements NodePersistenter {
   }
 
   @Override
-  public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] prevDeweyID,
+  public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) {
   }
 

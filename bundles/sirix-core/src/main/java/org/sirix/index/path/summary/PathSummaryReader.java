@@ -103,6 +103,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final Cache<Integer, PathSummaryData> pathSummaryCache = pageReadTrx.getBufferManager().getPathSummaryCache();
     final PathSummaryData pathSummaryData = pathSummaryCache.get(pageReadTrx.getRevisionNumber());
 
+    final int maxNrOfNodes =
+        (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
     if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
       currentNode =
           this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
@@ -110,8 +112,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       if (currentNode == null) {
         throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
       }
-      pathNodeMapping = new Long2ObjectOpenHashMap<>();
-      qnmMapping = new HashMap<>();
+      pathNodeMapping = new Long2ObjectOpenHashMap<>(maxNrOfNodes);
+      qnmMapping = new HashMap<>(maxNrOfNodes);
       boolean first = true;
       PathNode previousPathNode = null;
       var axis = new DescendantAxis(this, IncludeSelf.YES);

@@ -117,7 +117,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceSession> getDatabase(final Path file) {
+  public static Database<XmlResourceSession> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -145,7 +145,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceSession> getDatabase(final Path file, final User user) {
+  public static Database<XmlResourceSession> getDatabase(final Path file, final User user) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -173,7 +173,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceSession> getDatabaseWithRollingHashesEnabled(final Path file) {
+  public static Database<XmlResourceSession> getDatabaseWithRollingHashesEnabled(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -201,7 +201,7 @@ public final class XmlTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XmlResourceSession> getDatabaseWithDeweyIDsEnabled(final Path file) {
+  public static Database<XmlResourceSession> getDatabaseWithDeweyIDsEnabled(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -227,7 +227,7 @@ public final class XmlTestHelper {
    * @throws SirixException
    */
   @Ignore
-  public static final void deleteEverything() {
+  public static void deleteEverything() {
     closeEverything();
     Databases.removeDatabase(PATHS.PATH1.getFile());
     Databases.removeDatabase(PATHS.PATH2.getFile());
@@ -239,7 +239,7 @@ public final class XmlTestHelper {
    * @throws SirixException
    */
   @Ignore
-  public static final void closeEverything() {
+  public static void closeEverything() {
     if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
       final var database = INSTANCES.remove(PATHS.PATH1.getFile());
       database.close();
@@ -264,7 +264,7 @@ public final class XmlTestHelper {
     final StringBuilder sBuilder = new StringBuilder();
     for (String line = in.readLine(); line != null; line = in.readLine()) {
       if (whitespaces) {
-        sBuilder.append(line + CharsForSerializing.NEWLINE);
+        sBuilder.append(line).append(CharsForSerializing.NEWLINE);
       } else {
         sBuilder.append(line.trim());
       }
@@ -313,7 +313,7 @@ public final class XmlTestHelper {
    *
    * @return the random bytes
    */
-  public static final @NonNull byte[] generateRandomBytes(final int size) {
+  public static @NonNull byte[] generateRandomBytes(final int size) {
     final byte[] returnVal = new byte[size];
     random.nextBytes(returnVal);
     return returnVal;
@@ -324,7 +324,7 @@ public final class XmlTestHelper {
    *
    * @return a {@link DumbNode} with random values
    */
-  public static final DataRecord generateOne() {
+  public static DataRecord generateOne() {
     return new DumbNode(XmlTestHelper.random.nextInt(Integer.MAX_VALUE));
   }
 }
