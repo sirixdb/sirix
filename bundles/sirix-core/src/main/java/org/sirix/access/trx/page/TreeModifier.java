@@ -53,7 +53,7 @@ public interface TreeModifier {
       TransactionIntentLog log, @NonNegative int baseRevision, @NonNegative int representRevision);
 
   /**
-   * Prepare the leaf of a tree, namely the reference to a {@link UnorderedKeyValuePage} and put the
+   * Prepare the leaf of a tree, namely the reference to a {@link KeyValueLeafPage} and put the
    * whole path into the log.
    *
    * @param pageRtx the page reading transaction
@@ -65,7 +65,7 @@ public interface TreeModifier {
    * @param indexNumber the index number or {@code -1} if a regular record page should be prepared
    * @param indexType the index type
    * @param revisionRootPage the revision root page
-   * @return {@link PageReference} instance pointing to the right {@link UnorderedKeyValuePage} with
+   * @return {@link PageReference} instance pointing to the right {@link KeyValueLeafPage} with
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */

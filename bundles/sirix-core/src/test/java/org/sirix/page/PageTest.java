@@ -89,8 +89,8 @@ public class PageTest {
     // final RevisionRootPage revRootPage = new RevisionRootPage();
 
     // NodePage setup.
-    final UnorderedKeyValuePage nodePage =
-        new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageReadTrx);
+    final KeyValueLeafPage nodePage =
+        new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record);

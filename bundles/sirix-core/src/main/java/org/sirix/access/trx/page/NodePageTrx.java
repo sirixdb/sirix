@@ -299,9 +299,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (pageCont == null) {
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
-      DataRecord node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(this, recordKey);
+      DataRecord node = ((KeyValueLeafPage) pageCont.getModified()).getValue(this, recordKey);
       if (node == null) {
-        node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(this, recordKey);
+        node = ((KeyValueLeafPage) pageCont.getComplete()).getValue(this, recordKey);
       }
       //noinspection unchecked
       return (V) pageRtx.checkItemIfDeleted(node);
@@ -392,7 +392,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .parallelStream()
          .map(Map.Entry::getValue)
          .map(PageContainer::getModified)
-         .filter(page -> page instanceof UnorderedKeyValuePage)
+         .filter(page -> page instanceof KeyValueLeafPage)
          .forEach(page -> {
            final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(15_000);
            page.serialize(this, bytes, SerializationType.DATA);
@@ -566,8 +566,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     if (reference.getKey() == Constants.NULL_ID_LONG) {
-      final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, indexType, pageRtx);
-      final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(completePage);
+      final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
+      final KeyValueLeafPage modifyPage = new KeyValueLeafPage(completePage);
       pageContainer = PageContainer.getInstance(completePage, modifyPage);
     } else {
       pageContainer = dereferenceRecordPageForModification(reference);

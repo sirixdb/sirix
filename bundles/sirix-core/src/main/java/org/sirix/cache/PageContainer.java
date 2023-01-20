@@ -22,7 +22,7 @@
 package org.sirix.cache;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.KeyValueLeafPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import com.google.common.base.MoreObjects;
@@ -48,10 +48,10 @@ import com.google.common.base.Objects;
  */
 public final class PageContainer {
 
-  /** {@link UnorderedKeyValuePage} reference, which references the complete key/value page. */
+  /** {@link KeyValueLeafPage} reference, which references the complete key/value page. */
   private final Page complete;
 
-  /** {@link UnorderedKeyValuePage} reference, which references the modified key/value page. */
+  /** {@link KeyValueLeafPage} reference, which references the modified key/value page. */
   private final Page modified;
 
   /** Empty instance. */
@@ -108,12 +108,12 @@ public final class PageContainer {
     return modified;
   }
 
-  public UnorderedKeyValuePage getCompleteAsUnorderedKeyValuePage() {
-    return (UnorderedKeyValuePage) complete;
+  public KeyValueLeafPage getCompleteAsUnorderedKeyValuePage() {
+    return (KeyValueLeafPage) complete;
   }
 
-  public UnorderedKeyValuePage getModifiedAsUnorderedKeyValuePage() {
-    return (UnorderedKeyValuePage) modified;
+  public KeyValueLeafPage getModifiedAsUnorderedKeyValuePage() {
+    return (KeyValueLeafPage) modified;
   }
 
   @Override

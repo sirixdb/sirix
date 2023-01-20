@@ -50,9 +50,9 @@ public class ForEach extends RecursiveAction {
         final PageContainer container = log.get(reference);
         final Page page = container.getModified();
 
-        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
+        if (page instanceof KeyValueLeafPage keyValueLeafPage) {
           final var byteBufferBytes = Bytes.elasticHeapByteBuffer();
-          unorderedKeyValuePage.serialize(pageTrx, byteBufferBytes, SerializationType.DATA);
+          keyValueLeafPage.serialize(pageTrx, byteBufferBytes, SerializationType.DATA);
         }
       }
     }

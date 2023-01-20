@@ -265,7 +265,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return null;
     }
 
-    final var dataRecord = ((UnorderedKeyValuePage) page).getValue(this, recordKey);
+    final var dataRecord = ((KeyValueLeafPage) page).getValue(this, recordKey);
 
     return checkItemIfDeleted((V) dataRecord);
   }

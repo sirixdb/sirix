@@ -23,6 +23,7 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -56,7 +57,7 @@ import static org.sirix.node.Utils.putVarLong;
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
  * </p>
  */
-public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
+public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * The current revision.
@@ -125,7 +126,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
    * @param pageToClone the page to clone
    */
   @SuppressWarnings("CopyConstructorMissesField")
-  public UnorderedKeyValuePage(final UnorderedKeyValuePage pageToClone) {
+  public KeyValueLeafPage(final KeyValueLeafPage pageToClone) {
     addedReferences = false;
     references = pageToClone.references;
     recordPageKey = pageToClone.recordPageKey;
@@ -140,13 +141,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Constructor which initializes a new {@link UnorderedKeyValuePage}.
+   * Constructor which initializes a new {@link KeyValueLeafPage}.
    *
    * @param recordPageKey   base key assigned to this node page
    * @param indexType       the index type
    * @param pageReadOnlyTrx the page reading transaction
    */
-  public UnorderedKeyValuePage(final @NonNegative long recordPageKey, final IndexType indexType,
+  public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
       final PageReadOnlyTrx pageReadOnlyTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
@@ -165,12 +166,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Constructor which reads the {@link UnorderedKeyValuePage} from the storage.
+   * Constructor which reads the {@link KeyValueLeafPage} from the storage.
    *
    * @param in              input bytes to read page from
    * @param pageReadOnlyTrx {@link PageReadOnlyTrx} implementation
    */
-  UnorderedKeyValuePage(final Bytes<ByteBuffer> in, final PageReadOnlyTrx pageReadOnlyTrx) {
+  KeyValueLeafPage(final BytesIn<?> in, final PageReadOnlyTrx pageReadOnlyTrx) {
     recordPageKey = getVarLong(in);
     revision = in.readInt();
     indexType = IndexType.getType(in.readByte());
@@ -244,7 +245,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
     DataRecord record = records[offset];
     if (record == null && pageReadOnlyTrx != null) {
       byte[] data = slots[offset];
-      if (data != null && pageReadOnlyTrx != null) {
+      if (data != null) {
         record = getDataRecord(key, offset, data, pageReadOnlyTrx);
       }
       if (record != null) {
@@ -298,7 +299,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
   @Override
   public <C extends KeyValuePage<DataRecord>> C copy() {
-    return (C) new UnorderedKeyValuePage(this);
+    return (C) new KeyValueLeafPage(this);
   }
 
   @Override
@@ -443,7 +444,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof UnorderedKeyValuePage other) {
+    if (obj instanceof KeyValueLeafPage other) {
       return recordPageKey == other.recordPageKey && Arrays.equals(records, other.records) && Objects.equal(references,
                                                                                                             other.references);
     }
@@ -524,7 +525,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<DataRecord> {
   public <C extends KeyValuePage<DataRecord>> C newInstance(final long recordPageKey,
       @NonNull final IndexType indexType, @NonNull final PageReadOnlyTrx pageReadTrx) {
     //noinspection unchecked
-    return (C) new UnorderedKeyValuePage(recordPageKey, indexType, pageReadTrx);
+    return (C) new KeyValueLeafPage(recordPageKey, indexType, pageReadTrx);
   }
 
   @Override
