@@ -51,7 +51,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.*;
 import org.sirix.node.xml.*;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.KeyValueLeafPage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -1972,7 +1972,7 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Simple DumbNode just for testing the {@link UnorderedKeyValuePage}s.
+   * Simple DumbNode just for testing the {@link KeyValueLeafPage}s.
    *
    * @param nodeKey Node key.
    * @author Sebastian Graf, University of Konstanz

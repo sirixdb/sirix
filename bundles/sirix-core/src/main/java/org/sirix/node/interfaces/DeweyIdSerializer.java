@@ -10,7 +10,7 @@ import java.nio.ByteBuffer;
 public interface DeweyIdSerializer extends RecordSerializer {
   IntegratedIntCompressor INTEGRATED_INT_COMPRESSOR = new IntegratedIntCompressor();
 
-  byte[] deserializeDeweyID(BytesIn<ByteBuffer> source, byte[] previousDeweyID,
+  byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig);
 
   void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,

@@ -28,6 +28,7 @@
 package org.sirix.page;
 
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
@@ -225,7 +226,7 @@ public enum SerializationType {
     out.write(bytes);
   }
 
-  public static BitSet deserializeBitSet(Bytes<?> in) {
+  public static BitSet deserializeBitSet(BytesIn<?> in) {
     final int len = in.readShort();
     final var bytes = new byte[len];
     in.read(bytes);

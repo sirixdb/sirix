@@ -209,8 +209,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // Remember page coordinates.
       pageReference.setKey(offset);
 
-      if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
-        pageReference.setHash(unorderedKeyValuePage.getHashCode());
+      if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+        pageReference.setHash(keyValueLeafPage.getHashCode());
       } else {
         pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
       }

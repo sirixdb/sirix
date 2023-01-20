@@ -28,7 +28,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.KeyValueLeafPage;
 
 /**
  * @author Sebastian Graf, University of Konstanz
@@ -57,7 +57,7 @@ public class LRUCacheTest {
   public void test() {
     for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
       final PageContainer cont = cache.get((long) i);
-      final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
+      final KeyValueLeafPage current = (KeyValueLeafPage) cont.getComplete();
       assertEquals(CacheTestHelper.PAGES[i][0], current);
     }
 

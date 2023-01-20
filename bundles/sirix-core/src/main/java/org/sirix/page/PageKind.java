@@ -34,13 +34,13 @@ import java.util.Map;
  */
 public enum PageKind {
   /**
-   * {@link UnorderedKeyValuePage}.
+   * {@link KeyValueLeafPage}.
    */
-  RECORDPAGE((byte) 1, UnorderedKeyValuePage.class) {
+  RECORDPAGE((byte) 1, KeyValueLeafPage.class) {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      return new UnorderedKeyValuePage(source, pageReadTrx);
+      return new KeyValueLeafPage(source, pageReadTrx);
     }
 
     @Override
@@ -52,9 +52,9 @@ public enum PageKind {
 
     @Override
     public @NonNull Page getInstance(final Page nodePage, final PageReadOnlyTrx pageReadTrx) {
-      assert nodePage instanceof UnorderedKeyValuePage;
-      final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-      return new UnorderedKeyValuePage(page.getPageKey(), page.getIndexType(), pageReadTrx);
+      assert nodePage instanceof KeyValueLeafPage;
+      final KeyValueLeafPage page = (KeyValueLeafPage) nodePage;
+      return new KeyValueLeafPage(page.getPageKey(), page.getIndexType(), pageReadTrx);
     }
   },
 
