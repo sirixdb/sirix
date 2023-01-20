@@ -336,7 +336,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $objects := for $i in $doc where deep-equal($i."generic", 1)
                         return $i
-        let $fields := jn:parse('["location"]')
+        let $fields := ["location"]
         for $i in $fields
         return delete json $objects.$i
         """.stripIndent();

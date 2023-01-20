@@ -26,6 +26,19 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
   <I extends Iterable<V>> I values();
 
   /**
+   * All slots.
+   * @return all slots
+   */
+  byte[][] slots();
+
+  /**
+   * All deweyIds.
+   * @return all deweyIDs
+   */
+  byte[][] deweyIds();
+
+
+  /**
    * Get the unique page record identifier.
    *
    * @return page record key/identifier
@@ -41,13 +54,21 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   V getValue(@NonNull PageReadOnlyTrx pageReadOnlyTrx, long key);
 
+  byte[] getSlot(int slotNumber);
+
+  byte[] getDeweyId(int offset);
+
   /**
    * Store or overwrite a single entry. The implementation must make sure if the key must be
-   * permitted, the value or none.
+   * permitted, the record or none.
    *
-   * @param value value to store
+   * @param record record to store
    */
-  void setRecord(@NonNull V value);
+  void setRecord(@NonNull V record);
+
+  V[] records();
+
+  V getRecord(long key);
 
   Set<Entry<Long, PageReference>> referenceEntrySet();
 
@@ -63,6 +84,10 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   PageReference getPageReference(long key);
 
+  void setSlot(byte[] recordData, int offset);
+
+  void setDeweyId(byte[] deweyId, int offset);
+
   /**
    * Create a new instance.
    *
@@ -73,6 +98,8 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
+
+  <C extends KeyValuePage<V>> C copy();
 
   /**
    * Get the index type.

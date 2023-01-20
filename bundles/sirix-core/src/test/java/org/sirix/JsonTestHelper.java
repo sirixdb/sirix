@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -118,6 +118,34 @@ public final class JsonTestHelper {
           Databases.createJsonDatabase(config);
         }
         final var database = Databases.openJsonDatabase(file);
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
+  public static Database<JsonResourceSession> getDatabaseWithDeweyIdsEnabled(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createJsonDatabase(config);
+        }
+        final var database = Databases.openJsonDatabase(file);
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
         INSTANCES.put(file, database);
         return database;
@@ -146,7 +174,7 @@ public final class JsonTestHelper {
           Databases.createJsonDatabase(config);
         }
         final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).hashKind(HashType.ROLLING).build());
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
         INSTANCES.put(file, database);
         return database;
       } catch (final SirixRuntimeException e) {
@@ -192,6 +220,20 @@ public final class JsonTestHelper {
    */
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+    }
+  }
+
+  /**
+   * Creating a test document at {@link PATHS#PATH1}.
+   *
+   * @throws SirixException if anything went wrong
+   */
+  public static void createTestDocumentWithDeweyIdsEnabled() {
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);

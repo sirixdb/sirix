@@ -4,14 +4,11 @@ import me.lemire.integercompression.differential.IntegratedIntCompressor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.node.SirixDeweyID;
 
 import java.nio.ByteBuffer;
 
-public interface NodePersistenter extends RecordSerializer {
+public interface DeweyIdSerializer extends RecordSerializer {
   IntegratedIntCompressor INTEGRATED_INT_COMPRESSOR = new IntegratedIntCompressor();
-
-  record DeweyIDData(SirixDeweyID deweyID, byte[] data) {}
 
   byte[] deserializeDeweyID(BytesIn<ByteBuffer> source, byte[] previousDeweyID,
       ResourceConfiguration resourceConfig);

@@ -23,6 +23,7 @@ package org.sirix.settings;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -38,132 +39,144 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 
-/** Test revisioning. */
+/**
+ * Test revisioning.
+ */
 public class VersioningTest {
 
-  /** {@link Database} instance. */
+  /**
+   * {@link Database} instance.
+   */
   private Database<XmlResourceSession> database;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     Databases.createXmlDatabase(new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile()));
     database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     database.close();
   }
 
   @Test
-  public void testIncremental() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testIncremental() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test();
   }
 
   @Test
-  public void testIncremental1() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testIncremental1() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test1();
   }
 
   @Test
-  public void testIncremental2() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testIncremental2() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test2();
   }
 
   @Test
-  public void testDifferential() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testDifferential() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test();
   }
 
   @Test
-  public void testDifferential1() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testDifferential1() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test1();
   }
 
   @Test
-  public void testFull() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testFull() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test();
   }
 
   @Test
-  public void testFull1() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testFull1() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test1();
   }
 
   @Test
-  public void testFull2() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
-    test1();
-  }
-
-  @Test
-  public void testSlidingSnapshot() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
-    test();
-  }
-
-  @Test
-  public void testSlidingSnapshot1() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
-    test1();
-  }
-
-  @Test
-  public void testSlidingSnapshot2() throws SirixException {
-    database.createResource(
-        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                 .hashKind(HashType.NONE)
-                                                                 .maxNumberOfRevisionsToRestore(3)
-                                                                 .build());
+  public void testFull2() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
     test2();
+  }
+
+  @Test
+  public void testFull3() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    testModifySamePageMultipleTimes();
+  }
+
+
+  @Test
+  public void testSlidingSnapshot() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    test();
+  }
+
+  @Test
+  public void testSlidingSnapshot1() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    test1();
+  }
+
+  @Test
+  public void testSlidingSnapshot2() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    test2();
+  }
+
+  @Test
+  public void testSlidingSnapshot3() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    testModifySamePageMultipleTimes();
   }
 
   /**
@@ -171,7 +184,52 @@ public class VersioningTest {
    *
    * @throws SirixException if anything in Sirix fails
    */
-  public void test() throws SirixException {
+  public void testModifySamePageMultipleTimes() {
+    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+      for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
+        wtx.insertElementAsFirstChild(new QNm("rev1"));
+      }
+      wtx.commit();
+      setNames(wtx, "rev2");
+      setNames(wtx, "rev3");
+      setNames(wtx, "rev4");
+      setNames(wtx, "rev5");
+      setNames(wtx, "rev6");
+      setNames(wtx, "rev7");
+      assertions(manager, 1);
+      assertions(manager, 2);
+      assertions(manager, 3);
+      assertions(manager, 4);
+      assertions(manager, 5);
+      assertions(manager, 6);
+      assertions(manager, 7);
+    }
+  }
+
+  private static void assertions(XmlResourceSession manager, int revision) {
+    try (XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(revision)) {
+      for (int i = 1; i < Constants.NDP_NODE_COUNT - 1; i++) {
+        rtx.moveTo(i);
+        assertEquals(new QNm("rev" + revision), rtx.getName());
+      }
+    }
+  }
+
+  private static void setNames(XmlNodeTrx wtx, String rev2) {
+    for (int i = 1; i < Constants.NDP_NODE_COUNT - 1; i++) {
+      wtx.moveTo(i);
+      wtx.setName(new QNm(rev2));
+    }
+    wtx.commit();
+  }
+
+  /**
+   * Test revisioning.
+   *
+   * @throws SirixException if anything in Sirix fails
+   */
+  public void test() {
     try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       try (final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
@@ -191,10 +249,30 @@ public class VersioningTest {
         fillNodePage(wtx);
         wtx.commit();
         assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 5) - 1);
+        fillNodePage(wtx);
+        wtx.commit();
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 6) - 1);
+        fillNodePage(wtx);
+        wtx.commit();
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 7) - 1);
+        fillNodePage(wtx);
+        wtx.commit();
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 3) - 1);
+        fillNodePage(wtx);
+        wtx.commit();
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 9) - 1);
+        fillNodePage(wtx);
+        wtx.commit();
+        assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 10) - 1);
         try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild());
           }
+          move(rtx);
+          move(rtx);
+          move(rtx);
+          move(rtx);
+          move(rtx);
           move(rtx);
           move(rtx);
           move(rtx);
@@ -209,7 +287,7 @@ public class VersioningTest {
    *
    * @throws SirixException if anything in Sirix fails
    */
-  public void test1() throws SirixException {
+  public void test1() {
     try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       XmlNodeTrx wtx = manager.beginNodeTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
@@ -241,6 +319,31 @@ public class VersioningTest {
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
+      wtx = manager.beginNodeTrx();
+      wtx.moveTo((Constants.NDP_NODE_COUNT * 5) - 1);
+      fillNodePage(wtx);
+      wtx.commit();
+      wtx.close();
+      wtx = manager.beginNodeTrx();
+      wtx.moveTo((Constants.NDP_NODE_COUNT * 6) - 1);
+      fillNodePage(wtx);
+      wtx.commit();
+      wtx.close();
+      wtx = manager.beginNodeTrx();
+      wtx.moveTo((Constants.NDP_NODE_COUNT * 7) - 1);
+      fillNodePage(wtx);
+      wtx.commit();
+      wtx.close();
+      wtx = manager.beginNodeTrx();
+      wtx.moveTo((Constants.NDP_NODE_COUNT << 3) - 1);
+      fillNodePage(wtx);
+      wtx.commit();
+      wtx.close();
+      wtx = manager.beginNodeTrx();
+      wtx.moveTo((Constants.NDP_NODE_COUNT * 9) - 1);
+      fillNodePage(wtx);
+      wtx.commit();
+      wtx.close();
       try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild());
         assertEquals(new QNm("foobar"), rtx.getName());
@@ -259,7 +362,7 @@ public class VersioningTest {
    *
    * @throws SirixException if anything in Sirix fails
    */
-  public void test2() throws SirixException {
+  public void test2() {
     try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       XmlNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -289,7 +392,7 @@ public class VersioningTest {
    * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void setFoooo(final XmlNodeTrx wtx) throws SirixException {
+  private void setFoooo(final XmlNodeTrx wtx) {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
@@ -302,7 +405,7 @@ public class VersioningTest {
    * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void setFooBar(final XmlNodeTrx wtx) throws SirixException {
+  private void setFooBar(final XmlNodeTrx wtx) {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.setName(new QNm("foobar"));
@@ -314,7 +417,7 @@ public class VersioningTest {
    * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void setBaaaz(final XmlNodeTrx wtx) throws SirixException {
+  private void setBaaaz(final XmlNodeTrx wtx) {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
@@ -329,7 +432,7 @@ public class VersioningTest {
    * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void fillNodePage(final XmlNodeTrx wtx) throws SirixException {
+  private void fillNodePage(final XmlNodeTrx wtx) {
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       wtx.insertElementAsFirstChild(new QNm("foo"));
     }
@@ -341,7 +444,7 @@ public class VersioningTest {
    * @param rtx {@link XmlNodeReadOnlyTrx} instance
    * @throws SirixException if movement fails
    */
-  private void move(final XmlNodeReadOnlyTrx rtx) throws SirixException {
+  private void move(final XmlNodeReadOnlyTrx rtx) {
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       assertTrue(rtx.moveToFirstChild());
     }

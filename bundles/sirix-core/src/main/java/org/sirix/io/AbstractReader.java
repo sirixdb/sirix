@@ -11,7 +11,6 @@ import org.sirix.page.interfaces.Page;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 public abstract class AbstractReader implements Reader {
   protected final ByteHandler byteHandler;
@@ -26,8 +25,6 @@ public abstract class AbstractReader implements Reader {
    */
   protected final PagePersister pagePersister;
 
-  private final Bytes<ByteBuffer> input = Bytes.elasticByteBuffer(10_000);
-
   public AbstractReader(ByteHandler byteHandler, PagePersister pagePersister, SerializationType type) {
     this.byteHandler = byteHandler;
     this.pagePersister = pagePersister;
@@ -38,6 +35,7 @@ public abstract class AbstractReader implements Reader {
     // perform byte operations
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     byte[] bytes = inputStream.readAllBytes();
+    var input = Bytes.elasticByteBuffer(10_000);
     BytesUtils.doWrite(input, bytes);
     final var deserializedPage = pagePersister.deserializePage(pageReadTrx, input, type);
     input.clear();

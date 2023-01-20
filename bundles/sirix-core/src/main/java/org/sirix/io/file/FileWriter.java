@@ -137,7 +137,6 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     try {
       // Serialize page.
       final Page page = pageReference.getPage();
-      assert page != null;
 
       final byte[] serializedPage;
 

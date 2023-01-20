@@ -583,7 +583,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     if (indexType == IndexType.PATH_SUMMARY) {
-      mostRecentPathSummaryPageContainer = mostRecentPageContainer;
+      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(indexType,
+                                                                          recordPageKey,
+                                                                          indexNumber,
+                                                                          newRevisionRootPage.getRevision(),
+                                                                          pageContainer);
     } else {
       secondMostRecentPageContainer = mostRecentPageContainer;
       mostRecentPageContainer = new IndexLogKeyToPageContainer(indexType,

@@ -29,9 +29,9 @@ public final class BasicJsonDiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff1() throws IOException {
-    JsonTestHelper.createTestDocument();
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -52,10 +52,10 @@ public final class BasicJsonDiffTest {
   }
 
   @Test
-  public void test_whenMultipleRevisionsExist_thenDiff2() throws IOException {
-    JsonTestHelper.createTestDocument();
+  public void test_whenMultipleRevisionsExist_thenDiff2() {
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -74,7 +74,7 @@ public final class BasicJsonDiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff3() throws IOException {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -92,7 +92,7 @@ public final class BasicJsonDiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff4() throws IOException {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -111,7 +111,7 @@ public final class BasicJsonDiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff5() throws IOException {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -128,7 +128,7 @@ public final class BasicJsonDiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff6() throws IOException {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -157,7 +157,7 @@ public final class BasicJsonDiffTest {
 
   @Test
   public void test_whenMultipleRevisionsExist_thenDiff7() throws IOException {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);

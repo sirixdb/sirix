@@ -642,7 +642,7 @@ public final class ResourceConfiguration {
     private RecordSerializer persistenter = NODE_SERIALIZER;
 
     /**
-     * Resource for this session.
+     w* Resource for this session.
      */
     private final String resource;
 

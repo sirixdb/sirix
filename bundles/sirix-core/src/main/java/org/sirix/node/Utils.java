@@ -17,7 +17,7 @@ public final class Utils {
 
   /**
    * Store a "compressed" variable-length long value.
-   * 
+   *
    * @param output {@link ByteArrayDataOutput} reference
    * @param value long value
    */
@@ -27,7 +27,7 @@ public final class Utils {
 
   /**
    * Get a "compressed" variable-length long value.
-   * 
+   *
    * @param input {@link ByteArrayDataInput} reference
    * @return long value
    */

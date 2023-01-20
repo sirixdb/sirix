@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -133,8 +133,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
 
   @Override
   public boolean equals(@Nullable final Object obj) {
-    if (obj instanceof JsonDocumentRootNode) {
-      final JsonDocumentRootNode other = (JsonDocumentRootNode) obj;
+    if (obj instanceof JsonDocumentRootNode other) {
       return Objects.equal(nodeDel, other.nodeDel);
     }
     return false;

@@ -7,7 +7,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.DataRecord;
-import org.sirix.node.interfaces.NodePersistenter;
+import org.sirix.node.interfaces.DeweyIdSerializer;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -17,7 +17,7 @@ import java.util.Arrays;
  *
  * @author Johannes Lichtenberger
  */
-public final class NodeSerializerImpl implements NodePersistenter {
+public final class NodeSerializerImpl implements DeweyIdSerializer {
   @Override
   public @NonNull DataRecord deserialize(final BytesIn<ByteBuffer> source, final @NonNegative long recordID, final byte[] deweyID,
       final PageReadOnlyTrx pageReadTrx) {

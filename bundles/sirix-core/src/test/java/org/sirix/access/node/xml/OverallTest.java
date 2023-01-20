@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -34,28 +34,44 @@ import org.sirix.settings.Fixed;
 
 import java.util.Random;
 
-/** Test a bunch of modification methods. */
+/**
+ * Test a bunch of modification methods.
+ */
 public final class OverallTest {
 
-  /** Used for random number generator. */
+  /**
+   * Used for random number generator.
+   */
   private static final int NUM_CHARS = 3;
 
-  /** Modification number of nodes. */
+  /**
+   * Modification number of nodes.
+   */
   private static final int ELEMENTS = 1000;
 
-  /** Percentage of commits. */
+  /**
+   * Percentage of commits.
+   */
   private static final int COMMITPERCENTAGE = 20;
 
-  /** Percentage of nodes to remove. */
+  /**
+   * Percentage of nodes to remove.
+   */
   private static final int REMOVEPERCENTAGE = 20;
 
-  /** Random number generator. */
+  /**
+   * Random number generator.
+   */
   private static final Random ran = new Random(0L);
 
-  /** Some characters. */
+  /**
+   * Some characters.
+   */
   public static String chars = "abcdefghijklm";
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder holder;
 
   @Before
@@ -85,8 +101,7 @@ public final class OverallTest {
         }
       } else {
         if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
-          if (holder.getXdmNodeWriteTrx()
-                    .getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+          if (holder.getXdmNodeWriteTrx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             Assert.assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild());
             Assert.assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild());
           }
@@ -120,8 +135,7 @@ public final class OverallTest {
             holder.getXdmNodeWriteTrx().moveToFirstChild();
           } else {
             holder.getXdmNodeWriteTrx().moveTo(newKey);
-            if (holder.getXdmNodeWriteTrx()
-                      .getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            if (holder.getXdmNodeWriteTrx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
               holder.getXdmNodeWriteTrx().moveToFirstChild();
             }
           }
@@ -145,7 +159,9 @@ public final class OverallTest {
     XmlTestHelper.closeEverything();
   }
 
-  /** Get a random string. */
+  /**
+   * Get a random string.
+   */
   private static String getString() {
     char[] buf = new char[NUM_CHARS];
 
