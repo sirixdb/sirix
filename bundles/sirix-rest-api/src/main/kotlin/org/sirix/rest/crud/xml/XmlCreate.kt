@@ -75,7 +75,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                     val fileName = fileUpload.fileName()
                     val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                     val resConfig =
-                        ResourceConfiguration.Builder(fileName).hashKind(HashType.valueOf(hashType.uppercase())).build()
+                        ResourceConfiguration.Builder(fileName).useDeweyIDs(true)
+                            .hashKind(HashType.valueOf(hashType.uppercase())).build()
 
                     createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
