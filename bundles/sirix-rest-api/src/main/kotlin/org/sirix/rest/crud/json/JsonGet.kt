@@ -125,8 +125,14 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
     ): String? {
         return vertxContext.executeBlocking { promise: Promise<String> ->
             // Initialize queryResource context and store.
-            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
-            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
+            val jsonDBStore = JsonSessionDBStore(
+                routingContext,
+                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
+                user,
+                authz
+            )
+            val xmlDBStore =
+                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
 
             val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
                 jsonBody?.getString("commitMessage")
@@ -171,26 +177,32 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
+
                                 is JsonDBObject -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
+
                                 is AtomicBooleanJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
+
                                 is AtomicStrJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
+
                                 is AtomicNullJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
+
                                 is NumericJsonDBItem -> {
                                     jsonItem.collection.setJsonDBStore(jsonDBStore)
                                     jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                                 }
+
                                 else -> {
                                     throw IllegalStateException("Node type not known.")
                                 }
