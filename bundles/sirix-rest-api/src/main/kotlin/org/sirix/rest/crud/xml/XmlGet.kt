@@ -130,8 +130,14 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
     ): String? {
         return vertxContext.executeBlocking { promise: Promise<String> ->
             // Initialize queryResource context and store.
-            val jsonDBStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user, authz)
-            val xmlDBStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user, authz)
+            val jsonDBStore = JsonSessionDBStore(
+                routingContext,
+                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
+                user,
+                authz
+            )
+            val xmlDBStore =
+                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
 
             val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
                 jsonBody?.getString("commitMessage")
