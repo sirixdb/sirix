@@ -153,7 +153,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @param storeDeweyIds determines if DeweyIDs should be stored or not
      * @return this builder instance
      */
-    public Builder numberOfNodesBeforeCommit(boolean storeDeweyIds) {
+    public Builder storeDeweyIds(boolean storeDeweyIds) {
       this.storeDeweyIds = storeDeweyIds;
       return this;
     }
