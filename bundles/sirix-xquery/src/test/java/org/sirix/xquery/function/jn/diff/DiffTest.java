@@ -70,7 +70,7 @@ public final class DiffTest {
     // Initialize query context and store.
     try (final var store = BasicJsonDBStore.newBuilder()
                                            .location(PATHS.PATH1.getFile().getParent())
-                                           .useDeweyIDs(true)
+                                           .storeDeweyIds(true)
                                            .build();
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {

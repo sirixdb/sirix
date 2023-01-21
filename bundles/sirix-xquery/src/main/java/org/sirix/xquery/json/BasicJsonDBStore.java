@@ -144,13 +144,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
-     * Set if Dewey-IDs should be generated for resources.
+     * Determines Dewey-IDs should be generated for resources.
      *
-     * @param useDeweyIDs {@code true} if dewey-IDs should be generated, {@code false} otherwise
+     * @param storeDeweyIDs {@code true} if dewey-IDs should be generated, {@code false} otherwise
      * @return this builder instance
      */
-    public Builder useDeweyIDs(final boolean useDeweyIDs) {
-      this.useDeweyIDs = useDeweyIDs;
+    public Builder storeDeweyIds(final boolean storeDeweyIDs) {
+      this.useDeweyIDs = storeDeweyIDs;
       return this;
     }
 
