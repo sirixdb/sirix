@@ -120,6 +120,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private int hash;
 
+  private Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
+
   /**
    * Copy constructor.
    *
@@ -279,7 +281,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @NotNull
   private DataRecord getDataRecord(long key, int offset, byte[] data, PageReadOnlyTrx pageReadOnlyTrx) {
-    var byteBufferForRecords = Bytes.elasticByteBuffer(data.length);
     BytesUtils.doWrite(byteBufferForRecords, data);
     var record = recordPersister.deserialize(byteBufferForRecords, key, deweyIds[offset], pageReadOnlyTrx);
     byteBufferForRecords.clear();

@@ -2,7 +2,7 @@ package org.sirix.access;
 
 import dagger.Module;
 import dagger.Provides;
-import org.sirix.dagger.ResourceManagerScope;
+import org.sirix.dagger.ResourceSessionScope;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.StorageType;
@@ -20,19 +20,19 @@ import java.util.concurrent.Semaphore;
 public interface ResourceSessionModule {
 
     @Provides
-    @ResourceManagerScope
+    @ResourceSessionScope
     static IOStorage ioStorage(final ResourceConfiguration resourceConfiguration) {
         return StorageType.getStorage(resourceConfiguration);
     }
 
     @Provides
-    @ResourceManagerScope
+    @ResourceSessionScope
     static Semaphore writeLock(final WriteLocksRegistry registry, final ResourceConfiguration resourceConfiguration) {
         return registry.getWriteLock(resourceConfiguration.getResource());
     }
 
     @Provides
-    @ResourceManagerScope
+    @ResourceSessionScope
     static UberPage rootPage(final IOStorage storage) {
         final UberPage uberPage;
         if (storage.exists()) {

@@ -140,7 +140,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Number of nodes before an auto-commit is issued during an import of an XML document.
      */
-    public int numberOfNodesBeforeAutoCommit = 262_144 << 5;
+    public int numberOfNodesBeforeAutoCommit = 262_144 << 2;
 
     /**
      * Determines the versioning type.
@@ -161,11 +161,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Number of nodes, before the write trx is internally committed during an import of a file.
      *
-     * @param numberOfNodesBeforeCommit number of nodes to insert before an auto-commit is issued
+     * @param numberOfNodesBeforeAutoCommit number of nodes to insert before an auto-commit is issued
      * @return this builder instance
      */
-    public Builder numberOfNodesBeforeCommit(final int numberOfNodesBeforeCommit) {
-      this.numberOfNodesBeforeAutoCommit = checkNotNull(numberOfNodesBeforeCommit);
+    public Builder numberOfNodesBeforeAutoCommit(final int numberOfNodesBeforeAutoCommit) {
+      this.numberOfNodesBeforeAutoCommit = numberOfNodesBeforeAutoCommit;
       return this;
     }
 
