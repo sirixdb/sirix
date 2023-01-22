@@ -58,7 +58,7 @@ public final class SirixTranslator extends TopDownTranslator {
   /**
    * Number of descendants (needed as a threshold to lookup in path summary if a path exists at all).
    */
-  public static final int DESCENDANT_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", 5_000);
+  public static final int DESCENDANT_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", -1);
 
   /**
    * Constructor.
