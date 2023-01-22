@@ -4,7 +4,7 @@ import dagger.Binds;
 import dagger.Module;
 import org.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import org.sirix.api.xml.XmlResourceSession;
-import org.sirix.dagger.ResourceManagerScope;
+import org.sirix.dagger.ResourceSessionScope;
 
 /**
  * The module for {@link XmlResourceManagerComponent}.
@@ -15,6 +15,6 @@ import org.sirix.dagger.ResourceManagerScope;
 public interface XmlResourceManagerModule {
 
     @Binds
-    @ResourceManagerScope
-    XmlResourceSession resourceManager(XmlResourceSessionImpl resourceManager);
+    @ResourceSessionScope
+    XmlResourceSession resourceSession(XmlResourceSessionImpl resourceSession);
 }

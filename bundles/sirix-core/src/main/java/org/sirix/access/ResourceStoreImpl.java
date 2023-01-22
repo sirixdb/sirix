@@ -1,5 +1,6 @@
 package org.sirix.access;
 
+import org.sirix.access.trx.node.AbstractResourceSession;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceSession;
@@ -39,6 +40,9 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
     return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
       final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceSessions.putObject(resourceFile, resourceSession);
+      if (resourceSession.getMostRecentRevisionNumber() > 0) {
+        ((AbstractResourceSession<?, ?>) resourceSession).createPageTrxPool();
+      }
       return resourceSession;
     });
   }

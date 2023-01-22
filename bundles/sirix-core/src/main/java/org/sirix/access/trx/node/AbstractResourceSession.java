@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node;
 
+import cn.danielw.fop.*;
 import org.brackit.xquery.xdm.DocumentException;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -11,6 +12,7 @@ import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
+import org.sirix.access.trx.page.PageTrxReadOnlyFactory;
 import org.sirix.access.trx.page.RevisionRootPageReader;
 import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeTrx;
@@ -108,6 +110,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   final AtomicLong pageTrxIDCounter;
 
+  private final AtomicReference<ObjectPool<PageReadOnlyTrx>> pool;
+
   /**
    * Determines if session was closed.
    */
@@ -168,8 +172,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     this.user = user;
+    pool = new AtomicReference<>();
 
     isClosed = false;
+  }
+
+  public void createPageTrxPool() {
+    if (pool.get() == null) {
+      final PoolConfig config = new PoolConfig();
+      config.setPartitionSize(3);
+      config.setMaxSize(10);
+      config.setMinSize(5);
+      config.setScavengeIntervalMilliseconds(60_000);
+      config.setMaxIdleMilliseconds(5);
+      config.setMaxWaitMilliseconds(5);
+      config.setShutdownWaitMilliseconds(1);
+
+      pool.set(new ObjectPool(config, new PageTrxReadOnlyFactory(this)));
+    }
   }
 
   private static long timeDiff(final long lhs, final long rhs) {
@@ -465,6 +485,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       resourceStore.closeResourceSession(resourceConfig.getResource());
 
       storage.close();
+
+      if (pool.get() != null) {
+        try {
+          pool.get().shutdown();
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      }
       isClosed = true;
     }
   }
@@ -644,8 +672,38 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized PathSummaryReader openPathSummary(final @NonNegative int revision) {
     assertAccess(revision);
 
-    final PageReadOnlyTrx pageReadTrx = beginPageReadOnlyTrx(revision);
-    return PathSummaryReader.getInstance(pageReadTrx, this);
+    PageReadOnlyTrx pageReadOnlyTrx;
+
+    var pool = this.pool.get();
+
+    if (pool != null) {
+      Poolable<PageReadOnlyTrx> poolable = null;
+      boolean invalidObject = true;
+      while (invalidObject)
+      try {
+        poolable = pool.borrowObject(false);
+        invalidObject = false;
+      } catch (PoolInvalidObjectException exception) {
+        invalidObject = true;
+      } catch (PoolExhaustedException exception) {
+        invalidObject = false;
+      }
+
+      if (poolable == null) {
+        pageReadOnlyTrx = beginPageReadOnlyTrx(revision);
+      } else {
+        pageReadOnlyTrx = poolable.getObject();
+
+        if (pageReadOnlyTrx.getRevisionNumber() != revision) {
+          pool.returnObject(poolable);
+          pageReadOnlyTrx = beginPageReadOnlyTrx(revision);
+        }
+      }
+    } else {
+      pageReadOnlyTrx = beginPageReadOnlyTrx(revision);
+    }
+
+    return PathSummaryReader.getInstance(pageReadOnlyTrx, this);
   }
 
   @Override

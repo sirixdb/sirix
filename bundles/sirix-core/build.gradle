@@ -25,6 +25,7 @@ dependencies {
     implementation implLibraries.chronicleMap
     implementation implLibraries.integercompression
     implementation implLibraries.chronicleBytes
+    implementation implLibraries.fastObjectPool
 
     annotationProcessor implLibraries.daggerCompiler
 

@@ -420,13 +420,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       log.truncate();
       System.gc();
 
+//      if (getRevisionNumber() > 0) {
+//        ((AbstractResourceSession<?, ?>) pageRtx.getResourceSession()).createPageTrxPool();
+//      }
+
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
         deleteIfExists(commitFile);
       } catch (final IOException e) {
         throw new SirixIOException("Commit file couldn't be deleted!");
       }
-
     } finally {
       pageRtx.resourceSession.getCommitLock().unlock();
     }
@@ -608,9 +611,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
-    final VersioningType revisioning = pageRtx.resourceSession.getResourceConfig().versioningType;
+    final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
-    return revisioning.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);
+    return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);
   }
 
   @Override
