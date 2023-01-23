@@ -17,7 +17,7 @@ import java.nio.file.Path
 
 class JsonDelete(location: Path, private val authz: AuthorizationProvider) : AbstractDeleteHandler(location) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val databaseName: String? = ctx.pathParam("database")
+        val databaseName: String? = ctx.pathParam("database") ?: ctx.get("databaseName")
         val resource: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
