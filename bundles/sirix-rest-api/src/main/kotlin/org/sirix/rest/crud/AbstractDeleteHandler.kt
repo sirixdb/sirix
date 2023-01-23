@@ -38,8 +38,6 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
 
             promise.complete()
         }.await()
-
-        ctx.response().setStatusCode(204).end()
     }
 
     abstract fun createStore(ctx: RoutingContext): StructuredItemStore
