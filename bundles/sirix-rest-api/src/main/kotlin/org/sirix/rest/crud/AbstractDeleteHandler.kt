@@ -55,7 +55,6 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                 )
             }
             removeDatabase(dbFile, dispatcher)
-            ctx.response().setStatusCode(204).end()
             return
         }
 
@@ -76,10 +75,6 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
             } else {
                 removeSubtree(database, resPathName, nodeId, context, ctx)
             }
-        }
-
-        if (!ctx.failed()) {
-            ctx.response().setStatusCode(204).end()
         }
     }
 
