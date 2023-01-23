@@ -135,7 +135,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Determines if DeweyIDs should be created or not.
      */
-    private boolean storeDeweyIds;
+    private boolean storeDeweyIds = true;
 
     /**
      * Number of nodes before an auto-commit is issued during an import of an XML document.
