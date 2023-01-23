@@ -845,7 +845,7 @@ public final class SirixTranslator extends TopDownTranslator {
       return dbNode.getDeweyID().getLevel();
     } else {
       var rtx = dbNode.getRtx();
-      int level = 0;
+      int level = -1;
       while (rtx.hasParent() && rtx.getParentKey() != Constants.NULL_ID_LONG) {
         rtx.moveToParent();
         if (!rtx.isAttribute()) {
