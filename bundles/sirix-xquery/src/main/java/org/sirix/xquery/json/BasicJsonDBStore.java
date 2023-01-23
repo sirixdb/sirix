@@ -114,7 +114,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     /**
      * Determines if DeweyIDs should be generated for resources.
      */
-    private boolean useDeweyIDs = false;
+    private boolean useDeweyIDs = true;
 
     /**
      * Determines the hash type to use (default: rolling).

@@ -130,7 +130,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Determines the hash type for each node.
      */
-    private HashType hashType = HashType.NONE;
+    private HashType hashType = HashType.ROLLING;
 
     /**
      * Determines if DeweyIDs should be created or not.
