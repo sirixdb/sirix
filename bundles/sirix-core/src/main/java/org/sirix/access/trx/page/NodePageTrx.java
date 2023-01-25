@@ -37,6 +37,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
+import org.sirix.io.BytesUtils;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
@@ -144,6 +145,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
 
+  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
+
   /**
    * Constructor.
    *
@@ -208,9 +211,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final var modifiedPage = cont.getModifiedAsUnorderedKeyValuePage();
 
-    DataRecord record = modifiedPage.getValue(this, recordKey);
+    DataRecord record = pageRtx.getValue(modifiedPage, recordKey);
     if (record == null) {
-      final DataRecord oldRecord = cont.getCompleteAsUnorderedKeyValuePage().getValue(this, recordKey);
+      final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsUnorderedKeyValuePage(), recordKey);
       if (oldRecord == null) {
         throw new SirixIOException(
             "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
@@ -299,9 +302,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (pageCont == null) {
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
-      DataRecord node = ((KeyValueLeafPage) pageCont.getModified()).getValue(this, recordKey);
+      DataRecord node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
-        node = ((KeyValueLeafPage) pageCont.getComplete()).getValue(this, recordKey);
+        node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
       }
       //noinspection unchecked
       return (V) pageRtx.checkItemIfDeleted(node);
@@ -419,10 +422,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       log.truncate();
       System.gc();
-
-//      if (getRevisionNumber() > 0) {
-//        ((AbstractResourceSession<?, ?>) pageRtx.getResourceSession()).createPageTrxPool();
-//      }
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {

@@ -31,6 +31,11 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
+  public DataRecord getValue(KeyValueLeafPage page, long nodeKey) {
+    return delegate().getValue(page, nodeKey);
+  }
+
+  @Override
   public boolean hasTrxIntentLog() {
     return delegate().hasTrxIntentLog();
   }

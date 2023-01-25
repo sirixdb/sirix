@@ -34,7 +34,6 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             databaseNames.forEach { databaseName ->
                 removeDatabase(databaseName, ctx)
             }
-            ctx.response().setStatusCode(204).end()
         } else {
             val databaseName = ctx.pathParam("database")
 
@@ -43,8 +42,8 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             } else {
                 removeDatabase(databaseName, ctx)
             }
-            ctx.response().setStatusCode(204).end()
         }
+        ctx.response().setStatusCode(204).end()
         return ctx.currentRoute()
     }
 

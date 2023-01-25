@@ -45,15 +45,6 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   long getPageKey();
 
-  /**
-   * Get value with the specified key.
-   *
-   * @param pageReadOnlyTrx the page read only transaction
-   * @param key the key
-   * @return value with given key, or {@code null} if not present
-   */
-  V getValue(@NonNull PageReadOnlyTrx pageReadOnlyTrx, long key);
-
   byte[] getSlot(int slotNumber);
 
   byte[] getDeweyId(int offset);

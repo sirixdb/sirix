@@ -22,6 +22,7 @@
 package org.sirix.access.trx.page;
 
 import com.google.common.base.MoreObjects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -36,6 +37,7 @@ import org.sirix.api.ResourceSession;
 import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
+import org.sirix.io.BytesUtils;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
@@ -48,6 +50,7 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -133,6 +136,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private RecordPage secondMostRecentlyReadRecordPage;
 
   private RecordPage pathSummaryRecordPage;
+
+  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
 
   /**
    * Standard constructor.
@@ -265,9 +270,45 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return null;
     }
 
-    final var dataRecord = ((KeyValueLeafPage) page).getValue(this, recordKey);
+    final var dataRecord = getValue(((KeyValueLeafPage) page), recordKey);
 
-    return checkItemIfDeleted((V) dataRecord);
+    return (V) checkItemIfDeleted(dataRecord);
+  }
+
+  @Override
+  public DataRecord getValue(final KeyValueLeafPage page, final long nodeKey) {
+    final var offset = PageReadOnlyTrx.recordPageOffset(nodeKey);
+    DataRecord record = page.getRecord(offset);
+    if (record == null) {
+      byte[] data = page.getSlot(offset);
+      if (data != null) {
+        record = getDataRecord(nodeKey, offset, data, page);
+      }
+      if (record != null) {
+        return record;
+      }
+      try {
+        final PageReference reference = page.getPageReference(nodeKey);
+        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+          data = ((OverflowPage) pageReader.read(reference, this)).getData();
+        } else {
+          return null;
+        }
+      } catch (final SirixIOException e) {
+        return null;
+      }
+      record = getDataRecord(nodeKey, offset, data, page);
+    }
+    return record;
+  }
+
+  private DataRecord getDataRecord(long key, int offset, byte[] data, KeyValueLeafPage page) {
+    byteBufferForRecords.clear();
+    BytesUtils.doWrite(byteBufferForRecords, data);
+    var record = resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), this);
+    byteBufferForRecords.clear();
+    page.setRecord(record);
+    return record;
   }
 
   /**
@@ -594,7 +635,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                         .whenComplete((page, exception) -> {
                                                                           pageReadOnlyTrx.close();
                                                                           if (trxIntentLog == null) {
-                                                                            assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) page).getRevision();
+                                                                            assert pageFragmentKey.revision()
+                                                                                == ((KeyValuePage<DataRecord>) page).getRevision();
                                                                             resourceBufferManager.getPageCache()
                                                                                                  .put(pageReference,
                                                                                                       page);

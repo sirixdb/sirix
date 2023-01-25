@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -59,14 +59,14 @@ public class FullDiffTest {
   }
 
   @Test
-  public void testFullDiffFirst() throws SirixException, InterruptedException {
+  public void testFullDiffFirst() {
     DiffTestHelper.setUpFirst(holder);
     DiffTestHelper.checkFullDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyFullDiffFirst(observer);
   }
 
   @Test
-  public void testOptimizedFirst() throws InterruptedException, SirixException {
+  public void testOptimizedFirst() {
     DiffTestHelper.setUpFirst(holder);
     DiffTestHelper.checkFullDiff(holder, observer, DiffOptimized.HASHED);
     DiffTestHelper.verifyOptimizedFullDiffFirst(observer);
@@ -74,7 +74,7 @@ public class FullDiffTest {
 
   @Test
   public void testFullDiffSecond()
-      throws SirixException, InterruptedException, IOException, XMLStreamException {
+      throws IOException, XMLStreamException {
     DiffTestHelper.setUpSecond(holder);
     DiffTestHelper.checkFullDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyDiffSecond(observer);
@@ -82,7 +82,7 @@ public class FullDiffTest {
 
   @Test
   public void testFullDiffThird()
-      throws SirixException, IOException, XMLStreamException, InterruptedException {
+      throws SirixException, IOException {
     DiffTestHelper.setUpThird(holder);
     DiffTestHelper.checkFullDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyDiffThird(observer);
