@@ -554,8 +554,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
 
-      return new PathNode(new QNm(""),
-                          nodeDel,
+      return new PathNode(nodeDel,
                           structDel,
                           nameDel,
                           kind,

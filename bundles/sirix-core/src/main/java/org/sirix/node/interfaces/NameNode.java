@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -86,7 +86,7 @@ public interface NameNode extends ImmutableNameNode {
   /**
    * Set a path node key.
    *
-   * @param nodeKey
+   * @param nodeKey the node key
    */
   void setPathNodeKey(long nodeKey);
 }
