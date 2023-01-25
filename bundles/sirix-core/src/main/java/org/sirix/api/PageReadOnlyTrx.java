@@ -256,4 +256,12 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return The maximum level of the current indirect page tree.
    */
   int getCurrentMaxIndirectPageTreeLevel(IndexType indexType, int index, RevisionRootPage revisionRootPage);
+
+  /**
+   * Get the record from the given page.
+   * @param page the page to read the record from
+   * @param nodeKey the node key of the record to read
+   * @return the record or {@code null}
+   */
+  DataRecord getValue(KeyValueLeafPage page, long nodeKey);
 }

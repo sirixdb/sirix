@@ -78,6 +78,7 @@ class GetHandler(
                                 jsonBody
                             )
                         }
+
                         contains("application/xml") -> {
                             body = XmlGet(location, keycloak, authz).xquery(
                                 null,

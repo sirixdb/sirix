@@ -27,13 +27,10 @@ import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
-import org.sirix.io.BytesUtils;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.DeweyIdSerializer;
 import org.sirix.node.interfaces.RecordSerializer;
@@ -119,8 +116,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private volatile byte[] hashCode;
 
   private int hash;
-
-  private Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
 
   /**
    * Copy constructor.
@@ -242,33 +237,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public synchronized DataRecord getValue(final @Nullable PageReadOnlyTrx pageReadOnlyTrx, final long key) {
-    final var offset = PageReadOnlyTrx.recordPageOffset(key);
-    DataRecord record = records[offset];
-    if (record == null && pageReadOnlyTrx != null) {
-      byte[] data = slots[offset];
-      if (data != null) {
-        record = getDataRecord(key, offset, data, pageReadOnlyTrx);
-      }
-      if (record != null) {
-        return record;
-      }
-      try {
-        final PageReference reference = references.get(key);
-        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReadOnlyTrx.getReader().read(reference, pageReadOnlyTrx)).getData();
-        } else {
-          return null;
-        }
-      } catch (final SirixIOException e) {
-        return null;
-      }
-      record = getDataRecord(key, offset, data, pageReadOnlyTrx);
-    }
-    return record;
-  }
-
-  @Override
   public DataRecord getRecord(long key) {
     int offset = PageReadOnlyTrx.recordPageOffset(key);
     return records[offset];
@@ -279,22 +247,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return slots[slotNumber];
   }
 
-  @NotNull
-  private DataRecord getDataRecord(long key, int offset, byte[] data, PageReadOnlyTrx pageReadOnlyTrx) {
-    BytesUtils.doWrite(byteBufferForRecords, data);
-    var record = recordPersister.deserialize(byteBufferForRecords, key, deweyIds[offset], pageReadOnlyTrx);
-    byteBufferForRecords.clear();
-    records[offset] = record;
-    slots[offset] = null;
-    return record;
-  }
-
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
     final var offset = PageReadOnlyTrx.recordPageOffset(record.getNodeKey());
-    records[offset] = record;
-    slots[offset] = null;
+    synchronized (records) {
+      records[offset] = record;
+    }
     hash = 0;
   }
 
@@ -404,7 +363,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void setSlot(byte[] recordData, int offset) {
+  public synchronized void setSlot(byte[] recordData, int offset) {
     slots[offset] = recordData;
   }
 

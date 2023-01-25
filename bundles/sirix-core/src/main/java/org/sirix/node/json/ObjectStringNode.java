@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -27,11 +27,8 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectStringNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
-
-import java.math.BigInteger;
 
 /**
  *

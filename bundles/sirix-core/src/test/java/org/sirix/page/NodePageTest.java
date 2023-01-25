@@ -107,8 +107,9 @@ public final class NodePageTest {
     final KeyValueLeafPage page2 =
         (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
     // assertEquals(position, out.position());
-    final ElementNode element = (ElementNode) page2.getValue(pageReadTrx, 0L);
-    assertEquals(0L, page2.getValue(pageReadTrx, 0L).getNodeKey());
+    final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
+
+    assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
     assertEquals(1L, element.getParentKey());
     assertEquals(12L, element.getFirstChildKey());
     assertEquals(3L, element.getLeftSiblingKey());
@@ -120,9 +121,9 @@ public final class NodePageTest {
     assertEquals(87L, element.getAttributeKey(1));
     assertEquals(99L, element.getNamespaceKey(0));
     assertEquals(98L, element.getNamespaceKey(1));
-    assertEquals(5, ((NameNode) page2.getValue(pageReadTrx, 0L)).getURIKey());
-    assertEquals(6, ((NameNode) page2.getValue(pageReadTrx, 0L)).getPrefixKey());
-    assertEquals(7, ((NameNode) page2.getValue(pageReadTrx, 0L)).getLocalNameKey());
+    assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
+    assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
+    assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
   }
 }

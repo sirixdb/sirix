@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -47,14 +47,13 @@ import com.google.common.collect.ImmutableSet;
 
 public final class DiffTestHelper {
 
-  protected static final Path RESOURCES = Paths.get("src", "test", "resources");
-  protected static final long TIMEOUT_S = 5;
+  private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
-  static void setUp() throws SirixException {
+  static void setUp() {
     XmlTestHelper.deleteEverything();
   }
 
-  static void setUpFirst(final Holder holder) throws SirixException {
+  static void setUpFirst(final Holder holder) {
     XmlDocumentCreator.createVersioned(holder.getXdmNodeWriteTrx());
   }
 
@@ -106,7 +105,7 @@ public final class DiffTestHelper {
   }
 
   static void setUpSeventh(final Holder holder)
-      throws SirixException {
+      {
     final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
@@ -119,7 +118,7 @@ public final class DiffTestHelper {
   }
 
   static void setUpEighth(final Holder holder)
-      throws SirixException {
+      {
     final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
@@ -327,14 +326,14 @@ public final class DiffTestHelper {
   }
 
   static void checkFullDiff(final Holder holder, final DiffObserver observer,
-      final DiffOptimized optimized) throws SirixException, InterruptedException {
+      final DiffOptimized optimized) {
     DiffFactory.invokeFullXmlDiff(
         new DiffFactory.Builder<>(holder.getResourceManager(), 2, 1, optimized,
             ImmutableSet.of(observer)));
   }
 
   static void checkStructuralDiff(final Holder holder, final DiffObserver observer,
-      final DiffOptimized optimized) throws SirixException, InterruptedException {
+      final DiffOptimized optimized) {
     DiffFactory.invokeStructuralXmlDiff(
         new DiffFactory.Builder<>(holder.getResourceManager(), 2, 1, optimized,
             ImmutableSet.of(observer)));
