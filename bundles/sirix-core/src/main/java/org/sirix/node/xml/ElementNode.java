@@ -23,7 +23,6 @@ package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongList;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -149,48 +148,13 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
     return attributeKeys.getLong(index);
   }
 
-  //  /**
-  //   * Getting the attribute key by name (from the dictionary).
-  //   *
-  //   * @param name the attribute-name to lookup
-  //   * @return the attribute key associated with the name
-  //   */
-  //  public OptionalLong getAttributeKeyByName(final QNm name) {
-  //    final int prefixIndex = name.getPrefix() != null && !name.getPrefix().isEmpty()
-  //        ? NamePageHash.generateHashForString(name.getPrefix())
-  //        : -1;
-  //    final int localNameIndex = NamePageHash.generateHashForString(name.getLocalName());
-  //    long attributeKey = attributeNameKeysToAttributeNodeKeys.get(prefixIndex + localNameIndex);
-  //    if (attributeKey == 0L) {
-  //      return OptionalLong.empty();
-  //    }
-  //    return OptionalLong.of(attributeKey);
-  //  }
-  //
-  //  /**
-  //   * Get name key (prefixKey+localNameKey) by node key.
-  //   *
-  //   * @param key node key
-  //   * @return optional name key
-  //   */
-  //  public OptionalLong getAttributeNameKey(final @NonNegative long key) {
-  //    long attrNameKey = attributeNodeKeysToAttributeNameKeys.get(key);
-  //    if (attrNameKey == 0L) {
-  //      return OptionalLong.empty();
-  //    }
-  //    return OptionalLong.of(attrNameKey);
-  //  }
-
   /**
    * Inserting an attribute.
    *
    * @param attrKey   the new attribute key
-   * @param nameIndex index mapping to name string
    */
-  public void insertAttribute(final @NonNegative long attrKey, final long nameIndex) {
+  public void insertAttribute(final @NonNegative long attrKey) {
     attributeKeys.add(attrKey);
-    //    attributeNameKeysToAttributeNodeKeys.put(nameIndex, attrKey);
-    //    attributeNodeKeysToAttributeNameKeys.put(attrKey, nameIndex);
   }
 
   /**
@@ -200,8 +164,6 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    */
   public void removeAttribute(final @NonNegative long attrNodeKey) {
     attributeKeys.removeIf(key -> key == attrNodeKey);
-    //    long attrNameKey = attributeNodeKeysToAttributeNameKeys.remove(attrNodeKey);
-    //    attributeNameKeysToAttributeNodeKeys.remove(attrNameKey);
   }
 
   /**

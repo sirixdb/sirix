@@ -46,11 +46,6 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   private final NodeKind kind;
 
   /**
-   * The node name.
-   */
-  private final QNm name;
-
-  /**
    * Number of references to this path node.
    */
   private int references;
@@ -73,7 +68,6 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * Constructor.
    *
-   * @param name          the full qualified name
    * @param nodeDel       {@link NodeDelegate} instance
    * @param structNodeDel {@link StructNodeDelegate} instance
    * @param nameNodeDel   {@link NameNodeDelegate} instance
@@ -81,10 +75,9 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @param references    number of references to this path node
    * @param level         level of this path node
    */
-  public PathNode(final QNm name, final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structNodeDel,
+  public PathNode(final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structNodeDel,
       @NonNull final NameNodeDelegate nameNodeDel, @NonNull final NodeKind kind, @NonNegative final int references,
       @NonNegative final int level) {
-    this.name = checkNotNull(name);
     this.nodeDel = checkNotNull(nodeDel);
     this.structNodeDel = checkNotNull(structNodeDel);
     this.nameNodeDel = checkNotNull(nameNodeDel);
@@ -278,7 +271,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public QNm getName() {
-    return name;
+    return null;
   }
 
   public void setFirstChild(PathNode pathNode) {
