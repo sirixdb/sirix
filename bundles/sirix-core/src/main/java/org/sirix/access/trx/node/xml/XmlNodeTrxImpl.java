@@ -62,8 +62,6 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import java.math.BigInteger;
 import java.time.Duration;
-import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
 
@@ -1150,7 +1148,7 @@ final class XmlNodeTrxImpl extends
         final AttributeNode node = nodeFactory.createAttributeNode(elementKey, name, attValue, pathNodeKey, id);
 
         final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
-        ((ElementNode) parentNode).insertAttribute(node.getNodeKey(), node.getPrefixKey() + node.getLocalNameKey());
+        ((ElementNode) parentNode).insertAttribute(node.getNodeKey());
 
         nodeReadOnlyTrx.setCurrentNode(node);
         nodeHashing.adaptHashesWithAdd();
