@@ -384,8 +384,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -411,8 +410,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -441,8 +439,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -468,8 +465,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -495,8 +491,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -523,8 +518,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -554,12 +548,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
 
-      return new PathNode(nodeDel,
-                          structDel,
-                          nameDel,
-                          kind,
-                          source.readInt(),
-                          source.readInt());
+      return new PathNode(null, nodeDel, structDel, nameDel, kind, source.readInt(), source.readInt());
     }
 
     @Override
@@ -577,8 +566,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -647,8 +635,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -705,8 +692,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -768,8 +754,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -796,8 +781,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -837,8 +821,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -880,8 +863,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -960,8 +942,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1009,8 +990,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1053,8 +1033,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1145,8 +1124,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1186,8 +1164,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1230,8 +1207,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1269,8 +1245,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1351,8 +1326,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1387,8 +1361,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1422,7 +1395,10 @@ public enum NodeKind implements DeweyIdSerializer {
                                                                   firstChildKey,
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0 : 1,
+                                                                  firstChildKey
+                                                                      == Fixed.NULL_NODE_KEY.getStandardProperty()
+                                                                      ? 0
+                                                                      : 1,
                                                                   source.readLong());
       return new JsonDocumentRootNode(nodeDel, structDel);
     }
@@ -1435,8 +1411,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -1461,8 +1436,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -1486,8 +1460,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -1509,8 +1482,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -1558,8 +1530,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       return null;
     }
 
@@ -1585,8 +1556,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -1693,8 +1663,7 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   @Override
-  public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-      ResourceConfiguration resourceConfig) {
+  public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
     return null;
   }
 
@@ -1718,8 +1687,7 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   @NotNull
-  private static StructNodeDelegate deserializeStructNodeJsonValueNode(BytesIn<?> source,
-      NodeDelegate nodeDel) {
+  private static StructNodeDelegate deserializeStructNodeJsonValueNode(BytesIn<?> source, NodeDelegate nodeDel) {
     var nodeKey = nodeDel.getNodeKey();
 
     final long rightSibling = nodeKey - getVarLong(source);
@@ -1801,8 +1769,8 @@ public enum NodeKind implements DeweyIdSerializer {
                             (SirixDeweyID) null);
   }
 
-  private static NodeDelegate deserializeNodeDelegate(final BytesIn<?> source,
-      final @NonNegative long recordID, final byte[] id, final PageReadOnlyTrx pageReadTrx) {
+  private static NodeDelegate deserializeNodeDelegate(final BytesIn<?> source, final @NonNegative long recordID,
+      final byte[] id, final PageReadOnlyTrx pageReadTrx) {
     final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
@@ -1895,8 +1863,7 @@ public enum NodeKind implements DeweyIdSerializer {
     return new StructNodeDelegate(nodeDel, firstChild, rightSibling, leftSibling, childCount, descendantCount);
   }
 
-  private static NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel,
-      final BytesIn<?> source) {
+  private static NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel, final BytesIn<?> source) {
     final int uriKey = source.readInt();
     int prefixKey = source.readInt();
     int localNameKey = source.readInt();
