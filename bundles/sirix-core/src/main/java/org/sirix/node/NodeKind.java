@@ -553,15 +553,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
-      final String uri = (kind == NodeKind.OBJECT_STRING_VALUE || kind == NodeKind.OBJECT_KEY || kind == NodeKind.ARRAY)
-          ? ""
-          : pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, kind);
-      final int localNameKey = nameDel.getLocalNameKey();
-      final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, kind);
 
-      return new PathNode(new QNm(uri, prefix, localName),
+      return new PathNode(new QNm(""),
                           nodeDel,
                           structDel,
                           nameDel,
