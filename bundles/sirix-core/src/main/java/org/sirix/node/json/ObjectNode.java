@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2023, Sirix Contributors
  *
  * All rights reserved.
  *
@@ -85,7 +85,6 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
   @Override
   public BigInteger computeHash() {
     final var nodeDelegate = structNodeDel.getNodeDelegate();
-    final HashFunction hashFunction = nodeDelegate.getHashFunction();
 
     final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
       into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());

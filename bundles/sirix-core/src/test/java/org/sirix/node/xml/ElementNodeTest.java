@@ -89,8 +89,8 @@ public class ElementNodeTest {
     node.setHash(node.computeHash());
 
     // Create empty node.
-    node.insertAttribute(97, 100);
-    node.insertAttribute(98, 101);
+    node.insertAttribute(97);
+    node.insertAttribute(98);
     node.insertNamespace(99);
     node.insertNamespace(100);
     check(node);
