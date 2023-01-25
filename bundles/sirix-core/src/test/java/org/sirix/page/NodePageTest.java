@@ -94,8 +94,8 @@ public final class NodePageTest {
                                               new LongArrayList(),
                                               new QNm("a", "b", "c"));
     node1.setHash(node1.computeHash());
-    node1.insertAttribute(88L, 100);
-    node1.insertAttribute(87L, 101);
+    node1.insertAttribute(88L);
+    node1.insertAttribute(87L);
     node1.insertNamespace(99L);
     node1.insertNamespace(98L);
     assertEquals(0L, node1.getNodeKey());
