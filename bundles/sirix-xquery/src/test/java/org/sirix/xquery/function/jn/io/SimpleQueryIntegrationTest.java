@@ -200,7 +200,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedAllTimesTimeTravelQueryResult, buf.toString());
@@ -220,7 +220,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(JsonDocumentCreator.JSON, buf.toString());
@@ -240,7 +240,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedLastTimeTravelQueryResult, buf.toString());
@@ -260,7 +260,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedNextTimeTravelQueryResult, buf.toString());
@@ -280,7 +280,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(JsonDocumentCreator.JSON, buf.toString());
@@ -300,7 +300,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedFutureTimeTravelQueryResult, buf.toString());
@@ -320,7 +320,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedAllTimesTimeTravelQueryResult, buf.toString());
@@ -340,7 +340,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedPastTimeTravelQueryResult, buf.toString());
@@ -360,7 +360,7 @@ public final class SimpleQueryIntegrationTest {
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
-        serializer.setFormat(true).serialize(allTimesSeq);
+        serializer.serialize(allTimesSeq);
       }
 
       assertEquals(expectedPastOrSelfTimeTravelQueryResult, buf.toString());
