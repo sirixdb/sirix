@@ -1,28 +1,36 @@
 /*
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ * Copyright (c) 2023, Sirix Contributors
  *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
+ * All rights reserved.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -36,10 +44,9 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.xml.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * Node representing a namespace.
@@ -47,29 +54,28 @@ import java.math.BigInteger;
 public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXmlNode {
 
   /** Delegate for name node information. */
-  private final NameNodeDelegate nameDel;
+  private final NameNodeDelegate nameNodeDelegate;
 
   /** {@link NodeDelegate} reference. */
-  private final NodeDelegate nodeDel;
+  private final NodeDelegate nodeDelegate;
 
   /** The qualified name. */
   private final QNm qNm;
 
-  private BigInteger hash;
+  private long hash;
 
   /**
    * Constructor.
    *
    * @param nodeDel {@link NodeDelegate} reference
-   * @param nameDel {@link NameNodeDelegate} reference
+   * @param nameNodeDelegate {@link NameNodeDelegate} reference
    * @param qNm The qualified name.
    */
-  public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final QNm qNm) {
+  public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate, final QNm qNm) {
     assert nodeDel != null;
-    assert nameDel != null;
-    assert qNm != null;
-    this.nodeDel = nodeDel;
-    this.nameDel = nameDel;
+    assert nameNodeDelegate != null;
+    this.nodeDelegate = nodeDel;
+    this.nameNodeDelegate = nameNodeDelegate;
     this.qNm = qNm;
   }
 
@@ -78,17 +84,16 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
    *
    * @param hashCode hash code
    * @param nodeDel {@link NodeDelegate} reference
-   * @param nameDel {@link NameNodeDelegate} reference
+   * @param nameNodeDelegate {@link NameNodeDelegate} reference
    * @param qNm The qualified name.
    */
-  public NamespaceNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
+  public NamespaceNode(final long hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate,
       final QNm qNm) {
     assert nodeDel != null;
-    assert nameDel != null;
-    assert qNm != null;
+    assert nameNodeDelegate != null;
     hash = hashCode;
-    this.nodeDel = nodeDel;
-    this.nameDel = nameDel;
+    this.nodeDelegate = nodeDel;
+    this.nameNodeDelegate = nameNodeDelegate;
     this.qNm = qNm;
   }
 
@@ -98,54 +103,63 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public BigInteger computeHash() {
-    var result = BIG_INT_31.add(nodeDel.computeHash());
-    result = BIG_INT_31.multiply(result).add(nameDel.computeHash());
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    bytes.clear();
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+    bytes.writeLong(nameNodeDelegate.getPrefixKey())
+         .writeLong(nameNodeDelegate.getLocalNameKey())
+         .writeLong(nameNodeDelegate.getURIKey());
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
+  public void setHash(final long hash) {
+    this.hash = hash;
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return hash;
   }
 
   @Override
   public int getPrefixKey() {
-    return nameDel.getPrefixKey();
+    return nameNodeDelegate.getPrefixKey();
   }
 
   @Override
   public int getLocalNameKey() {
-    return nameDel.getLocalNameKey();
+    return nameNodeDelegate.getLocalNameKey();
   }
 
   @Override
   public int getURIKey() {
-    return nameDel.getURIKey();
+    return nameNodeDelegate.getURIKey();
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    hash = null;
-    nameDel.setPrefixKey(prefixKey);
+    hash = 0L;
+    nameNodeDelegate.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    hash = null;
-    nameDel.setLocalNameKey(localNameKey);
+    hash = 0L;
+    nameNodeDelegate.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    hash = null;
-    nameDel.setURIKey(uriKey);
+    hash = 0L;
+    nameNodeDelegate.setURIKey(uriKey);
   }
 
   @Override
@@ -155,30 +169,30 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDel, nameDel);
+    return Objects.hashCode(nodeDelegate, nameNodeDelegate);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof final NamespaceNode other) {
-      return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameDel, other.nameDel);
+      return Objects.equal(nodeDelegate, other.nodeDelegate) && Objects.equal(nameNodeDelegate, other.nameNodeDelegate);
     }
     return false;
   }
 
   @Override
   public @NotNull String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDel", nodeDel).add("nameDel", nameDel).toString();
+    return MoreObjects.toStringHelper(this).add("nodeDel", nodeDelegate).add("nameDel", nameNodeDelegate).toString();
   }
 
   @Override
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    nameDel.setPathNodeKey(pathNodeKey);
+    nameNodeDelegate.setPathNodeKey(pathNodeKey);
   }
 
   @Override
   public long getPathNodeKey() {
-    return nameDel.getPathNodeKey();
+    return nameNodeDelegate.getPathNodeKey();
   }
 
   /**
@@ -187,12 +201,12 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
    * @return {@link NameNodeDelegate} instance
    */
   public NameNodeDelegate getNameNodeDelegate() {
-    return nameDel;
+    return nameNodeDelegate;
   }
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return nodeDel;
+    return nodeDelegate;
   }
 
   @Override
@@ -202,16 +216,16 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return nodeDel.getDeweyID();
+    return nodeDelegate.getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return nodeDel.getTypeKey();
+    return nodeDelegate.getTypeKey();
   }
 
   @Override
   public byte[] getDeweyIDAsBytes() {
-    return nodeDel.getDeweyIDAsBytes();
+    return nodeDelegate.getDeweyIDAsBytes();
   }
 }

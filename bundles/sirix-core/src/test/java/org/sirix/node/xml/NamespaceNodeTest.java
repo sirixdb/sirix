@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -37,10 +37,10 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Namespace node test.
@@ -50,7 +50,7 @@ public class NamespaceNodeTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
@@ -61,25 +61,26 @@ public class NamespaceNodeTest {
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
   }
 
   @Test
-  public void testNamespaceNode() throws IOException {
+  public void testNamespaceNode() {
     final NodeDelegate nodeDel =
-        new NodeDelegate(99, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 
     // Create empty node.
     final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
@@ -98,7 +99,7 @@ public class NamespaceNodeTest {
     assertEquals(14, node.getPrefixKey());
     assertEquals(15, node.getLocalNameKey());
     assertEquals(NodeKind.NAMESPACE, node.getKind());
-    assertEquals(true, node.hasParent());
+    assertTrue(node.hasParent());
   }
 
 }

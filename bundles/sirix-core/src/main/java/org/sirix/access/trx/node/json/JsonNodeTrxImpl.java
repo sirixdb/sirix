@@ -21,9 +21,10 @@
 
 package org.sirix.access.trx.node.json;
 
-import com.google.common.hash.HashFunction;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.Item;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -66,7 +67,7 @@ import org.sirix.settings.Fixed;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -98,6 +99,8 @@ final class JsonNodeTrxImpl extends
     AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode, InternalJsonNodeReadOnlyTrx>
     implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
 
+  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+
   /**
    * A factory that creates new {@link PageTrx} instances.
    */
@@ -116,7 +119,7 @@ final class JsonNodeTrxImpl extends
   /**
    * The hash function to use to hash node contents.
    */
-  private final HashFunction hashFunction;
+  private final LongHashFunction hashFunction;
 
   /**
    * Flag to decide whether to store child count.
@@ -313,17 +316,18 @@ final class JsonNodeTrxImpl extends
                   "Current node must either be the document root, an array or an object key.");
             }
             switch (peekedJsonToken) {
-              case BEGIN_OBJECT:
+              case BEGIN_OBJECT -> {
                 if (nodeKind == NodeKind.OBJECT)
                   skipRootJsonToken = SkipRootToken.YES;
-                break;
-              case BEGIN_ARRAY:
+              }
+              case BEGIN_ARRAY -> {
                 if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
                   throw new IllegalStateException("Current node in storage must be an array node.");
                 }
-                break;
+              }
               // $CASES-OMITTED$
-              default:
+              default -> {
+              }
             }
           }
           case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
@@ -2214,7 +2218,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
 
       ObjectKeyNode node = (ObjectKeyNode) nodeReadOnlyTrx.getCurrentNode();
-      final BigInteger oldHash = node.computeHash();
+      final long oldHash = node.computeHash(bytes);
 
       // Remove old keys from mapping.
       final NodeKind nodeKind = node.getKind();
@@ -2305,12 +2309,12 @@ final class JsonNodeTrxImpl extends
       // Remove old value from indexes.
       indexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
 
-      final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
+      final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
       final byte[] byteVal = getBytes(value);
 
       final AbstractStringNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      node.setValue(byteVal);
+      node.setRawValue(byteVal);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
@@ -2355,7 +2359,7 @@ final class JsonNodeTrxImpl extends
       // Remove old value from indexes.
       indexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
 
-      final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
+      final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
 
       final AbstractBooleanNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
@@ -2405,7 +2409,8 @@ final class JsonNodeTrxImpl extends
       // Remove old value from indexes.
       indexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
 
-      final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
+
+      final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
 
       final AbstractNumberNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
@@ -2532,7 +2537,7 @@ final class JsonNodeTrxImpl extends
   protected void serializeUpdateDiffs(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
       final var diffSerializer = new JsonDiffSerializer(this.databaseName,
-                                                        (JsonResourceSession) resourceManager,
+                                                        (JsonResourceSession) resourceSession,
                                                         beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
                                                             ? beforeBulkInsertionRevisionNumber
                                                             : revisionNumber - 1,
@@ -2542,7 +2547,7 @@ final class JsonNodeTrxImpl extends
                                                             : updateOperationsUnordered.values());
       final var jsonDiff = diffSerializer.serialize(false);
 
-      final Path diff = resourceManager.getResourceConfig()
+      final Path diff = resourceSession.getResourceConfig()
                                        .getResource()
                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                        .resolve(
@@ -2567,9 +2572,8 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType,
-      PageTrx pageTrx) {
-    return new JsonNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
+  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(PageTrx pageTrx) {
+    return new JsonNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
   }
 
   @Override

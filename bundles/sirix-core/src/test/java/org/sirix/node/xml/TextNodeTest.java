@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -77,12 +77,13 @@ public class TextNodeTest {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
     final NodeDelegate del =
-        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0L);
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final TextNode node = new TextNode(valDel, strucDel);
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.

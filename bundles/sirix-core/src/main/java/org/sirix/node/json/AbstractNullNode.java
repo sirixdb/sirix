@@ -1,71 +1,87 @@
+/*
+ * Copyright (c) 2023, Sirix Contributors
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 package org.sirix.node.json;
 
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.PrimitiveSink;
+import net.openhft.chronicle.bytes.Bytes;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 public abstract class AbstractNullNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
-  private StructNodeDelegate structNodeDelegate;
+  private final StructNodeDelegate structNodeDelegate;
 
-  private BigInteger hashCode;
+  private long hashCode;
 
   public AbstractNullNode(StructNodeDelegate mStructNodeDel) {
     this.structNodeDelegate = mStructNodeDel;
   }
 
   @Override
-  public BigInteger computeHash() {
+  public long computeHash(final Bytes<ByteBuffer> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
-    final HashFunction hashFunction = nodeDelegate.getHashFunction();
 
-    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
-      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
+    bytes.clear();
 
-      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey())
-            .putLong(node.getLastChildKey());
-      } else {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey());
-      }
-    };
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
-                                                            nodeDelegate.getHashFunction()
-                                                                        .hashObject(this, nodeFunnel)
-                                                                        .asBytes()));
-  }
+    bytes.writeLong(structNodeDelegate.getChildCount())
+         .writeLong(structNodeDelegate.getDescendantCount())
+         .writeLong(structNodeDelegate.getLeftSiblingKey())
+         .writeLong(structNodeDelegate.getRightSiblingKey())
+         .writeLong(structNodeDelegate.getFirstChildKey());
 
-  @Override
-  public void setHash(final BigInteger hash) {
-    if (hash != null) {
-      hashCode = Node.to128BitsAtMaximumBigInteger(hash);
-    } else {
-      hashCode = null;
+    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(structNodeDelegate.getLastChildKey());
     }
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public BigInteger getHash() {
-    if (hashCode == null) {
-      hashCode = computeHash();
+  public void setHash(final long hash) {
+    hashCode = hash;
+  }
+
+  @Override
+  public long getHash() {
+    if (hashCode == 0L) {
+      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
     }
     return hashCode;
   }

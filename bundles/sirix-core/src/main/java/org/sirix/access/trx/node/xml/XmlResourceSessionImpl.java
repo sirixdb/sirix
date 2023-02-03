@@ -124,13 +124,14 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
     final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
+    final var resourceConfig = getResourceConfig();
     return new XmlNodeTrxImpl(this,
             nodeReadTrx,
             pathSummaryWriter,
             maxNodeCount,
             transactionLock,
             autoCommitDelay,
-            new XmlNodeHashing(getResourceConfig().hashType, nodeReadTrx, pageTrx),
+            new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx),
             nodeFactory,
             afterCommitState,
             new RecordToRevisionsIndex(pageTrx)

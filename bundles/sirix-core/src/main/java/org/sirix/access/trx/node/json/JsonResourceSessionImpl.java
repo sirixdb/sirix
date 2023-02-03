@@ -86,14 +86,9 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
    */
   @Inject
   JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
-                          final ResourceConfiguration resourceConf,
-                          final BufferManager bufferManager,
-                          final IOStorage storage,
-                          final UberPage uberPage,
-                          final Semaphore writeLock,
-                          final User user,
-                          @DatabaseName final String databaseName,
-                          final PageTrxFactory pageTrxFactory) {
+      final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
+      final UberPage uberPage, final Semaphore writeLock, final User user, @DatabaseName final String databaseName,
+      final PageTrxFactory pageTrxFactory) {
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
     this.databaseName = databaseName;
@@ -102,21 +97,16 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
-  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId,
-                                                           PageReadOnlyTrx pageReadTrx,
-                                                           Node documentNode) {
+  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx,
+      Node documentNode) {
     return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-                                            PageTrx pageTrx,
-                                            int maxNodeCount,
-                                            // TODO delete me
-                                            // TODO delete me
-                                            Duration autoCommitDelay,
-                                            Node documentNode,
-                                            AfterCommitState afterCommitState) {
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount,
+      // TODO delete me
+      // TODO delete me
+      Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
 
@@ -135,18 +125,19 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
     final var lock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
+    final var resourceConfig = getResourceConfig();
     return new JsonNodeTrxImpl(this.databaseName,
-            this,
-            nodeReadOnlyTrx,
-            pathSummaryWriter,
-            maxNodeCount,
-            lock,
-            autoCommitDelay,
-            new JsonNodeHashing(getResourceConfig().hashType, nodeReadOnlyTrx, pageTrx),
-            nodeFactory,
-            afterCommitState,
-            new RecordToRevisionsIndex(pageTrx),
-            isAutoCommitting);
+                               this,
+                               nodeReadOnlyTrx,
+                               pathSummaryWriter,
+                               maxNodeCount,
+                               lock,
+                               autoCommitDelay,
+                               new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, pageTrx),
+                               nodeFactory,
+                               afterCommitState,
+                               new RecordToRevisionsIndex(pageTrx),
+                               isAutoCommitting);
   }
 
   @SuppressWarnings("unchecked")

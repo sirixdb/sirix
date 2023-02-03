@@ -172,7 +172,9 @@ public final class DiffTestHelper {
            .diffListener(eq(DiffType.SAME), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(listener, times(2)).diffListener(
         eq(DiffType.INSERTED), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
-    inOrder.verify(listener, times(5)).diffListener(
+    inOrder.verify(listener, times(1)).diffListener(
+        eq(DiffType.SAME), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(listener, times(4)).diffListener(
         eq(DiffType.SAMEHASH), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(listener, times(1)).diffDone();
   }
@@ -194,7 +196,9 @@ public final class DiffTestHelper {
            .diffListener(eq(DiffType.SAME), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(listener, times(2)).diffListener(
         eq(DiffType.INSERTED), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
-    inOrder.verify(listener, times(5)).diffListener(
+    inOrder.verify(listener, times(1)).diffListener(
+        eq(DiffType.SAME), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(listener, times(4)).diffListener(
         eq(DiffType.SAMEHASH), isA(Long.class), isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(listener, times(1)).diffDone();
   }

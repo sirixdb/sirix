@@ -21,6 +21,7 @@
 
 package org.sirix.access.trx.page;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -487,7 +488,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @Nullable
   private Page getFromBufferManager(@NotNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
-    if (trxIntentLog == null) {
+    //if (trxIntentLog == null) {
       final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
 
       if (recordPageFromBuffer != null) {
@@ -495,7 +496,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         pageReferenceToRecordPage.setPage(recordPageFromBuffer);
         return recordPageFromBuffer;
       }
-    }
+    //}
     return null;
   }
 

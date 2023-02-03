@@ -1,7 +1,7 @@
 {
   "metadata": {
     "nodeKey": 1,
-    "hash": "b426c0144bc590bafb120862beabedc8",
+    "hash": "0000000000000000",
     "type": "OBJECT",
     "descendantCount": 24,
     "childCount": 4
@@ -11,14 +11,14 @@
       "key": "foo",
       "metadata": {
         "nodeKey": 2,
-        "hash": "ee30d02b4cea57fa08896a8bbc95b77b",
+        "hash": "0000000000000000",
         "type": "OBJECT_KEY",
         "descendantCount": 4
       },
       "value": {
         "metadata": {
           "nodeKey": 3,
-          "hash": "9fb1619c22823992c6ef843e0366817b",
+          "hash": "0000000000000000",
           "type": "ARRAY",
           "descendantCount": 3,
           "childCount": 3
@@ -30,14 +30,14 @@
       "key": "bar",
       "metadata": {
         "nodeKey": 7,
-        "hash": "c20ef41a13e33fffa02c5befcd1d4720",
+        "hash": "0000000000000000",
         "type": "OBJECT_KEY",
         "descendantCount": 5
       },
       "value": {
         "metadata": {
           "nodeKey": 8,
-          "hash": "478b47cea4edcf42bba140038992c7a7",
+          "hash": "0000000000000000",
           "type": "OBJECT",
           "descendantCount": 4,
           "childCount": 2
@@ -49,14 +49,14 @@
       "key": "baz",
       "metadata": {
         "nodeKey": 13,
-        "hash": "77de53e26524a01da520843c44b26262",
+        "hash": "0000000000000000",
         "type": "OBJECT_KEY",
         "descendantCount": 1
       },
       "value": {
         "metadata": {
           "nodeKey": 14,
-          "hash": "f084159b70783244de388132e745bd70",
+          "hash": "0000000000000000",
           "type": "OBJECT_STRING_VALUE"
         },
         "value": "hello"
@@ -66,14 +66,14 @@
       "key": "tada",
       "metadata": {
         "nodeKey": 15,
-        "hash": "998c0a6a04bb8e9b4048d6b99ea6a4fa",
+        "hash": "0000000000000000",
         "type": "OBJECT_KEY",
         "descendantCount": 10
       },
       "value": {
         "metadata": {
           "nodeKey": 16,
-          "hash": "817d4a8bd3d18afc9d2e6615f118bb17",
+          "hash": "0000000000000000",
           "type": "ARRAY",
           "descendantCount": 9,
           "childCount": 5

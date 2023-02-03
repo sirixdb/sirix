@@ -22,9 +22,7 @@
 package org.sirix.node.json;
 
 import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.PrimitiveSink;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
@@ -34,18 +32,16 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- *
  * <p>
  * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
  * not be removed.
@@ -53,24 +49,30 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class JsonDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableJsonNode {
 
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate nodeDel;
+  /**
+   * {@link NodeDelegate} reference.
+   */
+  private final NodeDelegate nodeDelegate;
 
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate structNodeDel;
+  /**
+   * {@link StructNodeDelegate} reference.
+   */
+  private final StructNodeDelegate structNodeDelegate;
 
-  /** The hash code of the node. */
-  private BigInteger hash;
+  /**
+   * The hash code of the node.
+   */
+  private long hash;
 
   /**
    * Constructor.
    *
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param structDel {@link StructNodeDelegate} reference
+   * @param nodeDelegate   {@link NodeDelegate} reference
+   * @param structNodeDelegate {@link StructNodeDelegate} reference
    */
-  public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structDel) {
-    this.nodeDel = checkNotNull(nodeDel);
-    structNodeDel = checkNotNull(structDel);
+  public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDelegate, @NonNull final StructNodeDelegate structNodeDelegate) {
+    this.nodeDelegate = checkNotNull(nodeDelegate);
+    this.structNodeDelegate = checkNotNull(structNodeDelegate);
   }
 
   @Override
@@ -79,45 +81,37 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   }
 
   @Override
-  public BigInteger computeHash() {
-    final var nodeDelegate = structNodeDel.getNodeDelegate();
-    final HashFunction hashFunction = nodeDelegate.getHashFunction();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
-      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
+    bytes.clear();
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
 
-      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey())
-            .putLong(node.getLastChildKey());
-      } else {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey());
-      }
-    };
+    bytes.writeLong(structNodeDelegate.getChildCount())
+         .writeLong(structNodeDelegate.getDescendantCount())
+         .writeLong(structNodeDelegate.getLeftSiblingKey())
+         .writeLong(structNodeDelegate.getRightSiblingKey())
+         .writeLong(structNodeDelegate.getFirstChildKey());
 
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
-                                                            nodeDelegate.getHashFunction()
-                                                                        .hashObject(this, nodeFunnel)
-                                                                        .asBytes()));
-  }
-
-  @Override
-  public void setHash(final BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
-  }
-
-  @Override
-  public BigInteger getHash() {
-    if (hash == null) {
-      hash = computeHash();
+    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(structNodeDelegate.getLastChildKey());
     }
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
+  }
+
+  @Override
+  public void setHash(final long hash) {
+    this.hash = hash;
+  }
+
+  @Override
+  public long getHash() {
     return hash;
   }
 
@@ -128,13 +122,13 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDel);
+    return Objects.hashCode(nodeDelegate);
   }
 
   @Override
   public boolean equals(@Nullable final Object obj) {
     if (obj instanceof JsonDocumentRootNode other) {
-      return Objects.equal(nodeDel, other.nodeDel);
+      return Objects.equal(nodeDelegate, other.nodeDelegate);
     }
     return false;
   }
@@ -146,11 +140,11 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return nodeDel;
+    return nodeDelegate;
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return structNodeDel;
+    return structNodeDelegate;
   }
 }

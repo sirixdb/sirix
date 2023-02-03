@@ -22,6 +22,7 @@ package org.sirix.node.delegates;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.node.AbstractForwardingNode;
@@ -31,7 +32,7 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.Compression;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.zip.Deflater;
 
@@ -69,17 +70,17 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  public BigInteger computeHash() {
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, nodeDelegate.getHashFunction().hashBytes(getRawValue()).asBytes()));
-  }
-
-  @Override
-  public BigInteger getHash() {
+  public long computeHash(Bytes<ByteBuffer> bytes) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
+  public long getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final long hash) {
     throw new UnsupportedOperationException();
   }
 
@@ -105,7 +106,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  public void setValue(final byte[] value) {
+  public void setRawValue(final byte[] value) {
     compressed = new String(value).length() > 10;
     this.value = compressed
         ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)

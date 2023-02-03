@@ -1,5 +1,6 @@
 package org.sirix.node.immutable.json;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -8,7 +9,7 @@ import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xml.TextNode;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -61,8 +62,8 @@ public final class ImmutableBooleanNode extends AbstractImmutableJsonStructuralN
   }
 
   @Override
-  public BigInteger computeHash() {
-    return node.computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return node.computeHash(bytes);
   }
 
 }

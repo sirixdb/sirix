@@ -1,22 +1,29 @@
 /*
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ * Copyright (c) 2023, Sirix Contributors
  *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
+ * All rights reserved.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node.xml;
@@ -24,6 +31,7 @@ package org.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import it.unimi.dsi.fastutil.longs.LongList;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -37,11 +45,10 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 
@@ -57,7 +64,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Delegate for name node information.
    */
-  private final NameNodeDelegate nameDel;
+  private final NameNodeDelegate nameNodeDelegate;
 
   /**
    * Keys of attributes.
@@ -72,30 +79,30 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * {@link StructNodeDelegate} reference.
    */
-  private final StructNodeDelegate structNodeDel;
+  private final StructNodeDelegate structNodeDelegate;
 
   /**
    * The qualified name.
    */
   private final QNm qNm;
 
-  private BigInteger hash;
+  private long hash;
 
   /**
    * Constructor
    *
-   * @param structDel     {@link StructNodeDelegate} to be set
-   * @param nameDel       {@link NameNodeDelegate} to be set
-   * @param attributeKeys list of attribute keys
-   * @param namespaceKeys keys of namespaces to be set
+   * @param structDel        {@link StructNodeDelegate} to be set
+   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
+   * @param attributeKeys    list of attribute keys
+   * @param namespaceKeys    keys of namespaces to be set
    */
-  public ElementNode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
+  public ElementNode(final long hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameNodeDelegate,
       final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
     hash = hashCode;
     assert structDel != null;
-    structNodeDel = structDel;
-    assert nameDel != null;
-    this.nameDel = nameDel;
+    structNodeDelegate = structDel;
+    assert nameNodeDelegate != null;
+    this.nameNodeDelegate = nameNodeDelegate;
     assert attributeKeys != null;
     this.attributeKeys = attributeKeys;
     assert namespaceKeys != null;
@@ -107,17 +114,17 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Constructor
    *
-   * @param structDel     {@link StructNodeDelegate} to be set
-   * @param nameDel       {@link NameNodeDelegate} to be set
-   * @param attributeKeys list of attribute keys
-   * @param namespaceKeys keys of namespaces to be set
+   * @param structDel        {@link StructNodeDelegate} to be set
+   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
+   * @param attributeKeys    list of attribute keys
+   * @param namespaceKeys    keys of namespaces to be set
    */
-  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final LongList attributeKeys,
-      final LongList namespaceKeys, final QNm qNm) {
+  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameNodeDelegate,
+      final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
     assert structDel != null;
-    structNodeDel = structDel;
-    assert nameDel != null;
-    this.nameDel = nameDel;
+    structNodeDelegate = structDel;
+    assert nameNodeDelegate != null;
+    this.nameNodeDelegate = nameNodeDelegate;
     assert attributeKeys != null;
     this.attributeKeys = attributeKeys;
     assert namespaceKeys != null;
@@ -151,7 +158,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   /**
    * Inserting an attribute.
    *
-   * @param attrKey   the new attribute key
+   * @param attrKey the new attribute key
    */
   public void insertAttribute(final @NonNegative long attrKey) {
     attributeKeys.add(attrKey);
@@ -208,32 +215,32 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   public int getPrefixKey() {
-    return nameDel.getPrefixKey();
+    return nameNodeDelegate.getPrefixKey();
   }
 
   @Override
   public int getLocalNameKey() {
-    return nameDel.getLocalNameKey();
+    return nameNodeDelegate.getLocalNameKey();
   }
 
   @Override
   public int getURIKey() {
-    return nameDel.getURIKey();
+    return nameNodeDelegate.getURIKey();
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    nameDel.setPrefixKey(prefixKey);
+    nameNodeDelegate.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    nameDel.setLocalNameKey(localNameKey);
+    nameNodeDelegate.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    nameDel.setURIKey(uriKey);
+    nameNodeDelegate.setURIKey(uriKey);
   }
 
   @Override
@@ -244,10 +251,10 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   @Override
   public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("nameDelegate", nameDel)
+                      .add("nameDelegate", nameNodeDelegate)
                       .add("nameSpaceKeys", namespaceKeys)
                       .add("attributeKeys", attributeKeys)
-                      .add("structDelegate", structNodeDel)
+                      .add("structDelegate", structNodeDelegate)
                       .toString();
   }
 
@@ -257,36 +264,58 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public BigInteger computeHash() {
-    var result = BIG_INT_31.add(structNodeDel.getNodeDelegate().computeHash());
-    result = BIG_INT_31.multiply(result).add(structNodeDel.computeHash());
-    result = BIG_INT_31.multiply(result).add(nameDel.computeHash());
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+    bytes.clear();
+
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
+
+    bytes.writeLong(structNodeDelegate.getChildCount())
+         .writeLong(structNodeDelegate.getDescendantCount())
+         .writeLong(structNodeDelegate.getLeftSiblingKey())
+         .writeLong(structNodeDelegate.getRightSiblingKey())
+         .writeLong(structNodeDelegate.getFirstChildKey());
+
+    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(structNodeDelegate.getLastChildKey());
+    }
+
+    bytes.writeInt(nameNodeDelegate.getPrefixKey())
+         .writeInt(nameNodeDelegate.getLocalNameKey())
+         .writeInt(nameNodeDelegate.getURIKey());
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
-
-    assert this.hash.toByteArray().length <= 17;
+  public void setHash(final long hash) {
+    this.hash = hash;
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
+    if (hash == 0L) {
+      hash = computeHash(Bytes.elasticHeapByteBuffer());
+    }
     return hash;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(delegate(), nameDel);
+    return Objects.hashCode(delegate(), nameNodeDelegate);
   }
 
   @Override
   public boolean equals(final Object obj) {
     return obj instanceof final ElementNode other && Objects.equal(delegate(), other.delegate()) && Objects.equal(
-        nameDel,
-        other.nameDel);
+        nameNodeDelegate,
+        other.nameNodeDelegate);
   }
 
   /**
@@ -309,12 +338,12 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return structNodeDel.getNodeDelegate();
+    return structNodeDelegate.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return structNodeDel;
+    return structNodeDelegate;
   }
 
   /**
@@ -324,17 +353,17 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    */
   @NonNull
   public NameNodeDelegate getNameNodeDelegate() {
-    return new NameNodeDelegate(nameDel);
+    return new NameNodeDelegate(nameNodeDelegate);
   }
 
   @Override
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    nameDel.setPathNodeKey(pathNodeKey);
+    nameNodeDelegate.setPathNodeKey(pathNodeKey);
   }
 
   @Override
   public long getPathNodeKey() {
-    return nameDel.getPathNodeKey();
+    return nameNodeDelegate.getPathNodeKey();
   }
 
   @Override
@@ -344,16 +373,16 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return structNodeDel.getNodeDelegate().getDeweyID();
+    return structNodeDelegate.getNodeDelegate().getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return structNodeDel.getNodeDelegate().getTypeKey();
+    return structNodeDelegate.getNodeDelegate().getTypeKey();
   }
 
   @Override
   public byte[] getDeweyIDAsBytes() {
-    return structNodeDel.getDeweyIDAsBytes();
+    return structNodeDelegate.getDeweyIDAsBytes();
   }
 }

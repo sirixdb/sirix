@@ -1,31 +1,36 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * <p>
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
- * <p>
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/*
+ * Copyright (c) 2023, Sirix Contributors
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.PrimitiveSink;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
@@ -35,20 +40,15 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
- * <p>
- * Node representing an XML element.
- * </p>
+ * Node representing an object key/field.
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
@@ -57,7 +57,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   /**
    * {@link StructNodeDelegate} reference.
    */
-  private final StructNodeDelegate structNodeDel;
+  private final StructNodeDelegate structNodeDelegate;
 
   private int nameKey;
 
@@ -65,7 +65,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   private long pathNodeKey;
 
-  private BigInteger hash;
+  private long hash;
 
   /**
    * Constructor
@@ -77,7 +77,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
       final long pathNodeKey) {
     assert structDel != null;
     assert name != null;
-    structNodeDel = structDel;
+    structNodeDelegate = structDel;
     this.nameKey = nameKey;
     this.name = name;
     this.pathNodeKey = pathNodeKey;
@@ -92,11 +92,11 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
    * @param name        the String name
    * @param pathNodeKey the path node key
    */
-  public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey,
-      final String name, final long pathNodeKey) {
+  public ObjectKeyNode(final long hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
+      final long pathNodeKey) {
     hash = hashCode;
     assert structDel != null;
-    structNodeDel = structDel;
+    structNodeDelegate = structDel;
     this.nameKey = nameKey;
     this.name = name;
     this.pathNodeKey = pathNodeKey;
@@ -108,45 +108,38 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  public BigInteger computeHash() {
-    final var nodeDelegate = structNodeDel.getNodeDelegate();
-    final HashFunction hashFunction = nodeDelegate.getHashFunction();
-    assert name != null;
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
-      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
+    bytes.clear();
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
 
-      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey())
-            .putLong(node.getLastChildKey());
-      } else {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey());
-      }
+    bytes.writeLong(structNodeDelegate.getDescendantCount())
+         .writeLong(structNodeDelegate.getLeftSiblingKey())
+         .writeLong(structNodeDelegate.getRightSiblingKey())
+         .writeLong(structNodeDelegate.getFirstChildKey());
 
-      into.putString(name, Constants.DEFAULT_ENCODING);
-    };
+    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(structNodeDelegate.getLastChildKey());
+    }
 
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
-                                                            nodeDelegate.getHashFunction()
-                                                                        .hashObject(this, nodeFunnel)
-                                                                        .asBytes()));
+    bytes.writeInt(nameKey);
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
+  public void setHash(final long hash) {
+    this.hash = hash;
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return hash;
   }
 
@@ -172,7 +165,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return MoreObjects.toStringHelper(this)
                       .add("name", name)
                       .add("nameKey", nameKey)
-                      .add("structDelegate", structNodeDel)
+                      .add("structDelegate", structNodeDelegate)
                       .toString();
   }
 
@@ -191,12 +184,12 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return structNodeDel.getNodeDelegate();
+    return structNodeDelegate.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return structNodeDel;
+    return structNodeDelegate;
   }
 
   public ObjectKeyNode setPathNodeKey(final @NonNegative long pathNodeKey) {

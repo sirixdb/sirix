@@ -123,7 +123,7 @@ public interface ForwardingNodeReadOnlyTrx extends NodeReadOnlyTrx {
     }
 
     @Override
-    default BigInteger getHash() {
+    default long getHash() {
         return delegate().getHash();
     }
 

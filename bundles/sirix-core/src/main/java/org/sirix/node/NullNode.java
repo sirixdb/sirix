@@ -22,13 +22,14 @@
 package org.sirix.node;
 
 import com.google.common.base.Objects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -54,7 +55,7 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public BigInteger computeHash() {
+  public long computeHash(Bytes<ByteBuffer> bytes) {
     throw new UnsupportedOperationException();
   }
 
@@ -89,12 +90,12 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
+  public void setHash(final long hash) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     throw new UnsupportedOperationException();
   }
 
@@ -172,11 +173,6 @@ public final class NullNode implements StructNode {
   @Override
   public void setLeftSiblingKey(long nodeKey) {
     throw new UnsupportedOperationException();
-  }
-
-  /** Get the underlying node. */
-  public ImmutableNode getUnderlyingNode() {
-    return node;
   }
 
   @Override

@@ -1,28 +1,36 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+/*
+ * Copyright (c) 2023, Sirix Contributors
  *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
+ * All rights reserved.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.VisitResult;
@@ -33,14 +41,13 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.immutable.xml.ImmutableText;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * <p>
@@ -49,60 +56,83 @@ import java.math.BigInteger;
  */
 public final class TextNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
 
-  /** Delegate for common value node information. */
-  private final ValueNodeDelegate valDel;
+  /**
+   * Delegate for common value node information.
+   */
+  private final ValueNodeDelegate valueNodeDelegate;
 
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate structNodeDel;
+  /**
+   * {@link StructNodeDelegate} reference.
+   */
+  private final StructNodeDelegate structNodeDelegate;
 
-  /** Value of the node. */
+  /**
+   * Value of the node.
+   */
   private byte[] value;
 
-  private BigInteger hash;
+  private long hash;
 
   /**
    * Constructor for TextNode.
    *
-   * @param valDel delegate for {@link ValueNode} implementation
+   * @param hashCode  the initial hash code
+   * @param valDel    delegate for {@link ValueNode} implementation
    * @param structDel delegate for {@link StructNode} implementation
    */
-  public TextNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
+  public TextNode(final long hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
     hash = hashCode;
     assert structDel != null;
-    structNodeDel = structDel;
+    structNodeDelegate = structDel;
     assert valDel != null;
-    this.valDel = valDel;
+    this.valueNodeDelegate = valDel;
   }
 
   /**
    * Constructor for TextNode.
    *
-   * @param valDel delegate for {@link ValueNode} implementation
+   * @param valDel    delegate for {@link ValueNode} implementation
    * @param structDel delegate for {@link StructNode} implementation
    */
   public TextNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
     assert structDel != null;
-    structNodeDel = structDel;
+    structNodeDelegate = structDel;
     assert valDel != null;
-    this.valDel = valDel;
+    this.valueNodeDelegate = valDel;
   }
 
   @Override
-  public BigInteger computeHash() {
-    var result = BIG_INT_31.add(structNodeDel.getNodeDelegate().computeHash());
-    result = BIG_INT_31.multiply(result).add(structNodeDel.computeHash());
-    result = BIG_INT_31.multiply(result).add(valDel.computeHash());
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+    final var rawValue = valueNodeDelegate.getRawValue();
+
+    bytes.clear();
+
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
+
+    bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
+
+    bytes.write(rawValue);
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
+  public void setHash(final long hash) {
+    this.hash = hash;
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
+    if (hash == 0L) {
+      hash = computeHash(Bytes.elasticHeapByteBuffer());
+    }
     return hash;
   }
 
@@ -114,15 +144,16 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   @Override
   public byte[] getRawValue() {
     if (value == null) {
-      value = valDel.getRawValue();
+      value = valueNodeDelegate.getRawValue();
     }
     return value;
   }
 
   @Override
-  public void setValue(final byte[] value) {
+  public void setRawValue(final byte[] value) {
     this.value = null;
-    valDel.setValue(value);
+    hash = 0L;
+    valueNodeDelegate.setRawValue(value);
   }
 
   @Override
@@ -167,13 +198,14 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(structNodeDel.getNodeDelegate(), valDel);
+    return Objects.hashCode(structNodeDelegate.getNodeDelegate(), valueNodeDelegate);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof TextNode other) {
-      return Objects.equal(structNodeDel.getNodeDelegate(), other.getNodeDelegate()) && valDel.equals(other.valDel);
+      return Objects.equal(structNodeDelegate.getNodeDelegate(), other.getNodeDelegate()) && valueNodeDelegate.equals(
+          other.valueNodeDelegate);
     }
     return false;
   }
@@ -181,43 +213,43 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   @Override
   public @NotNull String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", structNodeDel.getNodeDelegate())
-                      .add("struct delegate", structNodeDel)
-                      .add("value delegate", valDel)
+                      .add("node delegate", structNodeDelegate.getNodeDelegate())
+                      .add("struct delegate", structNodeDelegate)
+                      .add("value delegate", valueNodeDelegate)
                       .toString();
   }
 
   public ValueNodeDelegate getValNodeDelegate() {
-    return valDel;
+    return valueNodeDelegate;
   }
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return structNodeDel.getNodeDelegate();
+    return structNodeDelegate.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return structNodeDel;
+    return structNodeDelegate;
   }
 
   @Override
   public String getValue() {
-    return new String(valDel.getRawValue(), Constants.DEFAULT_ENCODING);
+    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return structNodeDel.getNodeDelegate().getDeweyID();
+    return structNodeDelegate.getNodeDelegate().getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return structNodeDel.getNodeDelegate().getTypeKey();
+    return structNodeDelegate.getNodeDelegate().getTypeKey();
   }
 
   @Override
   public byte[] getDeweyIDAsBytes() {
-    return structNodeDel.getDeweyIDAsBytes();
+    return structNodeDelegate.getDeweyIDAsBytes();
   }
 }

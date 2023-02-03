@@ -21,6 +21,7 @@
 
 package org.sirix.service.xml.xpath;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.visitor.VisitResult;
@@ -37,6 +38,7 @@ import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
 
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -223,17 +225,17 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public BigInteger computeHash() {
+  public long computeHash(Bytes<ByteBuffer> bytes) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
+  public void setHash(final long hash) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     throw new UnsupportedOperationException();
   }
 
@@ -268,7 +270,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public void setValue(byte[] pVal) {
+  public void setRawValue(byte[] pVal) {
     value = checkNotNull(pVal);
   }
 

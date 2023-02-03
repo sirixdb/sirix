@@ -94,6 +94,7 @@ class GetHandler(
                                 jsonBody
                             )
                         }
+
                         else -> {
                             body = JsonGet(location, keycloak, authz).xquery(
                                 null,

@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node.json;
 
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeHashing;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageTrx;
@@ -14,13 +15,13 @@ final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode, JsonNodeR
   /**
    * Constructor.
    *
-   * @param hashType        the hash type used
-   * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx    the page trx
+   * @param resourceConfiguration the resource configuration
+   * @param nodeReadOnlyTrx       the internal read-only node trx
+   * @param pageWriteTrx          the page trx
    */
-  JsonNodeHashing(final HashType hashType, final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx,
+  JsonNodeHashing(final ResourceConfiguration resourceConfiguration, final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx,
       final PageTrx pageWriteTrx) {
-    super(hashType, nodeReadOnlyTrx, pageWriteTrx);
+    super(resourceConfiguration, nodeReadOnlyTrx, pageWriteTrx);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
   }
 

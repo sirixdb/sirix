@@ -254,7 +254,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     synchronized (records) {
       records[offset] = record;
     }
-    hash = 0;
   }
 
   @Override
@@ -397,7 +396,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = Objects.hashCode(recordPageKey, records, references);
+      hash = Objects.hashCode(recordPageKey, revision);
     }
     return hash;
   }
@@ -405,8 +404,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof KeyValueLeafPage other) {
-      return recordPageKey == other.recordPageKey && Arrays.equals(records, other.records) && Objects.equal(references,
-                                                                                                            other.references);
+      return recordPageKey == other.recordPageKey && revision == other.revision;
     }
     return false;
   }

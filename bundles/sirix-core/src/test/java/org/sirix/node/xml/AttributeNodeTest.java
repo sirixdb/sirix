@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -39,7 +39,6 @@ import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
@@ -52,7 +51,7 @@ public class AttributeNodeTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
@@ -63,27 +62,28 @@ public class AttributeNodeTest {
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadOnlyTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageReadOnlyTrx = holder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadOnlyTrx.close();
-    mHolder.close();
+    holder.close();
   }
 
   @Test
-  public void testAttributeNode() throws IOException {
+  public void testAttributeNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
 
     final NodeDelegate del =
-        new NodeDelegate(99, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
 
     // Create empty node.
     check(node);

@@ -20,11 +20,11 @@
  */
 package org.sirix.node;
 
-import com.google.common.hash.HashFunction;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
@@ -63,9 +63,7 @@ import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import static org.sirix.node.Utils.getVarLong;
@@ -86,14 +84,14 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
       final StructNodeDelegate structDel =
           deserializeStructDel(this, nodeDel, source, pageReadTrx.getResourceSession().getResourceConfig());
+
+      final long hashCode = getHash(source, pageReadTrx);
 
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
@@ -119,13 +117,14 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ElementNode node = (ElementNode) record;
-      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
                               sink,
                               pageReadTrx.getResourceSession().getResourceConfig());
+      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE) {
+        writeHash(sink, node.getHash());
+      }
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       sink.writeInt(node.getAttributeCount());
       for (int i = 0, attCount = node.getAttributeCount(); i < attCount; i++) {
@@ -146,8 +145,6 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -161,14 +158,12 @@ public enum NodeKind implements DeweyIdSerializer {
       final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
 
       // Returning an instance.
-      return new AttributeNode(hashCode, nodeDel, nameDel, valDel, new QNm(""));
+      return new AttributeNode(nodeDel, nameDel, valDel, new QNm(""));
     }
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final AttributeNode node = (AttributeNode) record;
-      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -182,30 +177,18 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
-      final String uri = pageReadTrx.getName(nameDel.getURIKey(), NodeKind.NAMESPACE);
-      final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, NodeKind.ELEMENT);
-      final int localNameKey = nameDel.getLocalNameKey();
-      final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, NodeKind.ELEMENT);
-
-      final QNm name = new QNm(uri, prefix, localName);
-
-      return new NamespaceNode(hashCode, nodeDel, nameDel, name);
+      return new NamespaceNode(nodeDel, nameDel, null);
     }
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final NamespaceNode node = (NamespaceNode) record;
-      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
     }
@@ -218,8 +201,6 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -239,14 +220,12 @@ public enum NodeKind implements DeweyIdSerializer {
                                                                   0L);
 
       // Returning an instance.
-      return new TextNode(hashCode, valDel, structDel);
+      return new TextNode(valDel, structDel);
     }
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final TextNode node = (TextNode) record;
-      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
@@ -263,8 +242,6 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -282,14 +259,12 @@ public enum NodeKind implements DeweyIdSerializer {
       final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
 
       // Returning an instance.
-      return new PINode(hashCode, structDel, nameDel, valDel, pageReadTrx);
+      return new PINode(structDel, nameDel, valDel, pageReadTrx);
     }
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final PINode node = (PINode) record;
-      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
                               node.getStructNodeDelegate(),
@@ -307,8 +282,6 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -328,14 +301,12 @@ public enum NodeKind implements DeweyIdSerializer {
                                                                   0L);
 
       // Returning an instance.
-      return new CommentNode(hashCode, valDel, structDel);
+      return new CommentNode(valDel, structDel);
     }
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final CommentNode node = (CommentNode) record;
-      if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
@@ -354,12 +325,11 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
-      final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
+      final LongHashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     hashFunction,
-                                                    null,
                                                     Constants.NULL_REVISION_NUMBER,
                                                     revisionNumber,
                                                     SirixDeweyID.newRootID().toBytes());
@@ -428,9 +398,8 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
-      final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
-      final NodeDelegate delegate =
-          new NodeDelegate(recordID, 0, hashFunction, null, 0, revisionNumber, (SirixDeweyID) null);
+      final LongHashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
+      final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, 0, revisionNumber, (SirixDeweyID) null);
       return new DeletedNode(delegate);
     }
 
@@ -800,7 +769,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       var config = pageReadTrx.getResourceSession().getResourceConfig();
-      final BigInteger hashCode = getHash(source, pageReadTrx);
+      final long hashCode = getHash(source, pageReadTrx);
 
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
       final StructNodeDelegate structDel = deserializeObjectOrArrayStructDelegate(source, config, nodeDel);
@@ -814,7 +783,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final ObjectNode node = (ObjectNode) record;
       var config = pageReadTrx.getResourceSession().getResourceConfig();
       if (config.hashType != HashType.NONE) {
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
+        writeHash(sink, node.getHash());
       }
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeJsonObjectOrArrayStructDelegate(sink, node, config);
@@ -840,7 +809,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       var config = pageReadTrx.getResourceSession().getResourceConfig();
-      final BigInteger hashCode = getHash(source, pageReadTrx);
+      final long hashCode = getHash(source, pageReadTrx);
 
       final long pathNodeKey = source.readLong();
 
@@ -856,7 +825,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final ArrayNode node = (ArrayNode) record;
       var config = pageReadTrx.getResourceSession().getResourceConfig();
       if (config.hashType != HashType.NONE)
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
+        writeHash(sink, node.getHash());
       sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeJsonObjectOrArrayStructDelegate(sink, node, config);
@@ -881,7 +850,7 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
-      final BigInteger hashCode = getHash(source, pageReadTrx);
+      final long hashCode = getHash(source, pageReadTrx);
 
       final int nameKey = source.readInt();
       final long pathNodeKey = getVarLong(source);
@@ -927,7 +896,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final ObjectKeyNode node = (ObjectKeyNode) record;
       var config = pageReadTrx.getResourceSession().getResourceConfig();
       if (config.hashType != HashType.NONE) {
-        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
+        writeHash(sink, node.getHash());
       }
       sink.writeInt(node.getNameKey());
       putVarLong(sink, node.getPathNodeKey());
@@ -1380,12 +1349,11 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final var revisionNumber = pageReadTrx.getRevisionNumber();
-      final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
+      final LongHashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
 
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     hashFunction,
-                                                    null,
                                                     Constants.NULL_REVISION_NUMBER,
                                                     revisionNumber,
                                                     SirixDeweyID.newRootID().toBytes());
@@ -1672,12 +1640,12 @@ public enum NodeKind implements DeweyIdSerializer {
       ResourceConfiguration resourceConfig) {
   }
 
-  private static BigInteger getHash(final BytesIn<?> source, final PageReadOnlyTrx pageReadTrx) {
-    final BigInteger hashCode;
+  private static long getHash(final BytesIn<?> source, final PageReadOnlyTrx pageReadTrx) {
+    final long hashCode;
     if (pageReadTrx.getResourceSession().getResourceConfig().hashType == HashType.NONE)
-      hashCode = null;
+      hashCode = 0L;
     else
-      hashCode = readHash(source);
+      hashCode = source.readLong();
     return hashCode;
   }
 
@@ -1759,11 +1727,10 @@ public enum NodeKind implements DeweyIdSerializer {
     final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
-    final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
+    final LongHashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
     return new NodeDelegate(recordID,
                             parentKey,
                             hashFunction,
-                            null,
                             previousRevision,
                             lastModifiedRevision,
                             (SirixDeweyID) null);
@@ -1774,8 +1741,8 @@ public enum NodeKind implements DeweyIdSerializer {
     final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
-    final HashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
-    return new NodeDelegate(recordID, parentKey, hashFunction, null, previousRevision, lastModifiedRevision, id);
+    final LongHashFunction hashFunction = pageReadTrx.getResourceSession().getResourceConfig().nodeHashFunction;
+    return new NodeDelegate(recordID, parentKey, hashFunction, previousRevision, lastModifiedRevision, id);
   }
 
   private static void serializeDelegate(final NodeDelegate nodeDel, final BytesOut<ByteBuffer> sink) {
@@ -1897,25 +1864,8 @@ public enum NodeKind implements DeweyIdSerializer {
     sink.write(value);
   }
 
-  private static BigInteger readHash(final BytesIn<?> source) {
-    final byte[] hashBytes = new byte[source.readByte()];
-    source.read(hashBytes);
-    return new BigInteger(1, hashBytes);
-  }
-
-  private static void writeHash(final BytesOut<ByteBuffer> sink, final BigInteger hashCode) {
-    final byte[] bigIntegerBytes = hashCode.toByteArray();
-    final List<Byte> bytes = new ArrayList<>();
-    final int maxLength = Math.min(bigIntegerBytes.length, 17);
-
-    for (int i = 1; i < maxLength; i++) {
-      bytes.add(bigIntegerBytes[i]);
-    }
-
-    assert bytes.size() < 17;
-
-    sink.writeByte((byte) bigIntegerBytes.length);
-    sink.write(bigIntegerBytes);
+  private static void writeHash(final BytesOut<ByteBuffer> sink, final long hashCode) {
+    sink.writeLong(hashCode);
   }
 
   private static void serializeBigInteger(final BytesOut<ByteBuffer> sink, final BigInteger bigInteger) {

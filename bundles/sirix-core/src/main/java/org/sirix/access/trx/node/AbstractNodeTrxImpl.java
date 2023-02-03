@@ -66,7 +66,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * The resource manager.
    */
-  protected final InternalResourceSession<R, W> resourceManager;
+  protected final InternalResourceSession<R, W> resourceSession;
 
   /**
    * {@link PathSummaryWriter} instance.
@@ -170,7 +170,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.hashType = hashType;
     this.nodeReadOnlyTrx = checkNotNull(nodeReadOnlyTrx);
     this.typeSpecificTrx = typeSpecificTrx;
-    this.resourceManager = checkNotNull(resourceManager);
+    this.resourceSession = checkNotNull(resourceManager);
     this.lock = transactionLock;
     this.afterCommitState = checkNotNull(afterCommitState);
     this.nodeHashing = checkNotNull(nodeHashing);
@@ -272,7 +272,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     nodeReadOnlyTrx.assertNotClosed();
-    if (commitTimestamp != null && !resourceManager.getResourceConfig().customCommitTimestamps()) {
+    if (commitTimestamp != null && !resourceSession.getResourceConfig().customCommitTimestamps()) {
       throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
     }
 
@@ -292,9 +292,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp);
 
       // Remember successfully committed uber page in resource manager.
-      resourceManager.setLastCommittedUberPage(uberPage);
+      resourceSession.setLastCommittedUberPage(uberPage);
 
-      if (resourceManager.getResourceConfig().storeDiffs()) {
+      if (resourceSession.getResourceConfig().storeDiffs()) {
         serializeUpdateDiffs(preCommitRevision);
       }
 
@@ -349,16 +349,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
-    resourceManager.closeNodePageWriteTransaction(getId());
-    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
+    resourceSession.closeNodePageWriteTransaction(getId());
+    pageTrx = resourceSession.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-    resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
+    resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
 
     nodeFactory = reInstantiateNodeFactory(pageTrx);
 
     final boolean isBulkInsert = nodeHashing.isBulkInsert();
-    nodeHashing = reInstantiateNodeHashing(hashType, pageTrx);
+    nodeHashing = reInstantiateNodeHashing(pageTrx);
     nodeHashing.setBulkInsert(isBulkInsert);
 
     updateOperationsUnordered.clear();
@@ -367,19 +367,19 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     reInstantiateIndexes();
   }
 
-  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(HashType hashType, PageTrx pageTrx);
+  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(PageTrx pageTrx);
 
   protected abstract NF reInstantiateNodeFactory(PageTrx pageTrx);
 
   private void reInstantiateIndexes() {
     // Get a new path summary instance.
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, resourceManager, nodeFactory, typeSpecificTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, resourceSession, nodeFactory, typeSpecificTrx);
     }
 
     // Recreate index listeners.
     final var indexDefs = indexController.getIndexes().getIndexDefs();
-    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+    indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     indexController.createIndexListeners(indexDefs, self());
 
     nodeToRevisionsIndex.setPageTrx(pageTrx);
@@ -404,15 +404,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     final UberPage uberPage = pageTrx.rollback();
 
     // Remember successfully committed uber page in resource manager.
-    resourceManager.setLastCommittedUberPage(uberPage);
+    resourceSession.setLastCommittedUberPage(uberPage);
 
-    resourceManager.closeNodePageWriteTransaction(getId());
+    resourceSession.closeNodePageWriteTransaction(getId());
     nodeReadOnlyTrx.setPageReadTransaction(null);
     removeCommitFile();
 
-    pageTrx = resourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
+    pageTrx = resourceSession.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-    resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
+    resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
 
     nodeFactory = reInstantiateNodeFactory(pageTrx);
 
@@ -427,7 +427,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   private void removeCommitFile() {
     try {
-      deleteIfExists(resourceManager.getCommitFile());
+      deleteIfExists(resourceSession.getCommitFile());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -441,20 +441,20 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     try {
       nodeReadOnlyTrx.assertNotClosed();
-      resourceManager.assertAccess(revision);
+      resourceSession.assertAccess(revision);
 
       // Close current page transaction.
       final long trxID = getId();
       final int revNumber = getRevisionNumber();
 
       // Reset internal transaction state to new uber page.
-      resourceManager.closeNodePageWriteTransaction(getId());
-      pageTrx = resourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
+      resourceSession.closeNodePageWriteTransaction(getId());
+      pageTrx = resourceSession.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-      resourceManager.setNodePageWriteTransaction(getId(), pageTrx);
+      resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
 
-      nodeHashing = reInstantiateNodeHashing(hashType, pageTrx);
+      nodeHashing = reInstantiateNodeHashing(pageTrx);
 
       // Reset node factory.
       nodeFactory = reInstantiateNodeFactory(pageTrx);
@@ -555,7 +555,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // Release all state immediately.
         final long trxId = getId();
         nodeReadOnlyTrx.close();
-        resourceManager.closeWriteTransaction(trxId);
+        resourceSession.closeWriteTransaction(trxId);
         removeCommitFile();
 
         pathSummaryWriter = null;

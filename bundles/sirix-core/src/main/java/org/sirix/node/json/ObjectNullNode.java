@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2023, Sirix Contributors
  *
  * All rights reserved.
  *
@@ -27,15 +27,11 @@
  */
 package org.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectNullNode;
-
-import java.math.BigInteger;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

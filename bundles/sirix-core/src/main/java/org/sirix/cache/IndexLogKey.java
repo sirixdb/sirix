@@ -3,8 +3,6 @@ package org.sirix.cache;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.index.IndexType;
 
-import java.util.Objects;
-
 /**
  * Index log key.
  *
@@ -29,7 +27,7 @@ public final class IndexLogKey {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = Objects.hash(indexType, recordPageKey, indexNumber, revisionNumber);
+      hash = indexType.getID() + Long.hashCode(recordPageKey) + indexNumber + revisionNumber;
     }
     return hash;
   }

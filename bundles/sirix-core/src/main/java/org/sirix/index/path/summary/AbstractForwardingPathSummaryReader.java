@@ -60,7 +60,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return delegate().getHash();
   }
 

@@ -21,6 +21,7 @@
 
 package org.sirix.access.trx.node.xml;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -60,7 +61,7 @@ import org.sirix.utils.XMLToken;
 
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
@@ -90,6 +91,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 final class XmlNodeTrxImpl extends
     AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
     implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
+
+  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
 
   /**
    * The deweyID manager.
@@ -139,7 +142,7 @@ final class XmlNodeTrxImpl extends
           maxNodeCount);
 
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    storeChildCount = this.resourceManager.getResourceConfig().storeChildCount();
+    storeChildCount = this.resourceSession.getResourceConfig().storeChildCount();
 
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
     deweyIDManager = new XmlDeweyIDManager(this);
@@ -683,7 +686,7 @@ final class XmlNodeTrxImpl extends
 
   private void nonElementHashes() {
     while (getCurrentNode().getKind() != NodeKind.ELEMENT) {
-      BigInteger hashToAdd = getCurrentNode().computeHash();
+      long hashToAdd = getCurrentNode().computeHash(bytes);
       Node node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setHash(hashToAdd);
@@ -904,7 +907,7 @@ final class XmlNodeTrxImpl extends
           moveTo(rightSibKey);
           if (getCurrentNode().getKind() == NodeKind.TEXT) {
             setValue(value + getValue());
-            nodeHashing.adaptHashedWithUpdate(getCurrentNode().getHash());
+            //nodeHashing.adaptHashedWithUpdate(getCurrentNode().getHash());
             return this;
           }
           moveTo(parentKey);
@@ -1138,7 +1141,7 @@ final class XmlNodeTrxImpl extends
         }
 
         // Get the path node key.
-        final long pathNodeKey = resourceManager.getResourceConfig().withPathSummary ? pathSummaryWriter.getPathNodeKey(
+        final long pathNodeKey = resourceSession.getResourceConfig().withPathSummary ? pathSummaryWriter.getPathNodeKey(
             name,
             NodeKind.ATTRIBUTE) : 0;
         final byte[] attValue = getBytes(value);
@@ -1419,7 +1422,8 @@ final class XmlNodeTrxImpl extends
           checkAccessAndCommit();
 
           NameNode node = (NameNode) nodeReadOnlyTrx.getCurrentNode();
-          final BigInteger oldHash = node.computeHash();
+
+          final long oldHash = node.computeHash(bytes);
 
           // Remove old keys from mapping.
           final NodeKind nodeKind = node.getKind();
@@ -1498,12 +1502,12 @@ final class XmlNodeTrxImpl extends
         // Remove old value from indexes.
         indexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
 
-        final BigInteger oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash();
+        final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
         final byte[] byteVal = getBytes(value);
 
         final ValueNode node =
             pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-        node.setValue(byteVal);
+        node.setRawValue(byteVal);
         node.setPreviousRevision(node.getLastModifiedRevisionNumber());
         node.setLastModifiedRevision(nodeReadOnlyTrx.getRevisionNumber());
 
@@ -1982,13 +1986,12 @@ final class XmlNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(HashType hashType,
-      PageTrx pageTrx) {
-    return new XmlNodeHashing(hashType, nodeReadOnlyTrx, pageTrx);
+  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(PageTrx pageTrx) {
+    return new XmlNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
   }
 
   @Override
   protected XmlNodeFactory reInstantiateNodeFactory(PageTrx pageTrx) {
-    return new XmlNodeFactoryImpl(resourceManager.getResourceConfig().nodeHashFunction, pageTrx);
+    return new XmlNodeFactoryImpl(resourceSession.getResourceConfig().nodeHashFunction, pageTrx);
   }
 }

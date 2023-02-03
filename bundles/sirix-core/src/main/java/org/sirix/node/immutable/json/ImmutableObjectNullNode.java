@@ -1,14 +1,14 @@
 package org.sirix.node.immutable.json;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.json.NullNode;
 import org.sirix.node.json.ObjectNullNode;
 import org.sirix.node.xml.ElementNode;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -21,7 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public final class ImmutableObjectNullNode extends AbstractImmutableJsonStructuralNode {
 
   /** Mutable {@link ObjectNullNode}. */
-  private final ObjectNullNode mNode;
+  private final ObjectNullNode node;
 
   /**
    * Private constructor.
@@ -29,7 +29,7 @@ public final class ImmutableObjectNullNode extends AbstractImmutableJsonStructur
    * @param node mutable {@link ElementNode}
    */
   private ImmutableObjectNullNode(final ObjectNullNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -49,7 +49,7 @@ public final class ImmutableObjectNullNode extends AbstractImmutableJsonStructur
 
   @Override
   public StructNode structDelegate() {
-    return mNode;
+    return node;
   }
 
   @Override
@@ -58,7 +58,7 @@ public final class ImmutableObjectNullNode extends AbstractImmutableJsonStructur
   }
 
   @Override
-  public BigInteger computeHash() {
-    return mNode.computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return node.computeHash(bytes);
   }
 }

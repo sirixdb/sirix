@@ -21,8 +21,8 @@
 
 package org.sirix.node.json;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
@@ -57,12 +57,16 @@ public class NullNodeTest {
   @Test
   public void test() throws IOException {
     // Create empty node.
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(13,
+                                              14,
+                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
+                                              0,
+                                              SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 2L, 5L, 0L, 0L);
     final NullNode node = new NullNode(strucDel);
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.

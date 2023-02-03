@@ -1,5 +1,6 @@
 package org.sirix.index.path.summary;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
@@ -9,7 +10,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * Wraps a {@link PathNode} to provide immutability.
@@ -52,12 +53,12 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   }
 
   @Override
-  public BigInteger computeHash() {
-    return node.computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return node.computeHash(bytes);
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return node.getHash();
   }
 

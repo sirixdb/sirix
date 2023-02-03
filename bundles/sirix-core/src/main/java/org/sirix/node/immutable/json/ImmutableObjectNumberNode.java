@@ -1,5 +1,6 @@
 package org.sirix.node.immutable.json;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -7,7 +8,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectNumberNode;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -19,7 +20,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStructuralNode {
   /** Mutable {@link ObjectNumberNode}. */
-  private final ObjectNumberNode mNode;
+  private final ObjectNumberNode node;
 
   /**
    * Private constructor.
@@ -27,7 +28,7 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
    * @param node {@link ObjectNumberNode} to wrap
    */
   private ImmutableObjectNumberNode(final ObjectNumberNode node) {
-    mNode = checkNotNull(node);
+    this.node = checkNotNull(node);
   }
 
   /**
@@ -47,11 +48,11 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
 
   @Override
   public StructNode structDelegate() {
-    return mNode.getStructNodeDelegate();
+    return node.getStructNodeDelegate();
   }
 
   public Number getValue() {
-    return mNode.getValue();
+    return node.getValue();
   }
 
   @Override
@@ -60,7 +61,7 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
   }
 
   @Override
-  public BigInteger computeHash() {
-    return mNode.computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return node.computeHash(bytes);
   }
 }

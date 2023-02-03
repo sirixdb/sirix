@@ -30,7 +30,6 @@ public enum DatabaseType {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                     null,
-                                                    null,
                                                     0,
                                                     0,
                                                     id == null ? null : id.toBytes());
@@ -56,7 +55,6 @@ public enum DatabaseType {
     public Node getDocumentNode(SirixDeweyID id) {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                    null,
                                                     null,
                                                     0,
                                                     0,
