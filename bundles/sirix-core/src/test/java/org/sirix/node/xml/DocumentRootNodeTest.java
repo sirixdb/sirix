@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,7 +37,6 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
@@ -72,13 +71,12 @@ public class DocumentRootNodeTest {
   }
 
   @Test
-  public void testDocumentRootNode() throws IOException {
+  public void testDocumentRootNode() {
 
     // Create empty node.
     final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                  Hashing.sha256(),
-                                                  null,
+                                                  LongHashFunction.xx3(),
                                                   Constants.NULL_REVISION_NUMBER,
                                                   0,
                                                   SirixDeweyID.newRootID());

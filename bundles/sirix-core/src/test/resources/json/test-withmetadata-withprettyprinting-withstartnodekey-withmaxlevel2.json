@@ -2,14 +2,14 @@
   "key": "tada",
   "metadata": {
     "nodeKey": 15,
-    "hash": "998c0a6a04bb8e9b4048d6b99ea6a4fa",
+    "hash": "0000000000000000",
     "type": "OBJECT_KEY",
     "descendantCount": 10
   },
   "value": {
     "metadata": {
       "nodeKey": 16,
-      "hash": "817d4a8bd3d18afc9d2e6615f118bb17",
+      "hash": "0000000000000000",
       "type": "ARRAY",
       "descendantCount": 9,
       "childCount": 5
@@ -18,7 +18,7 @@
       {
         "metadata": {
           "nodeKey": 17,
-          "hash": "4484b05ca5e12f7f325614085b82eb6a",
+          "hash": "0000000000000000",
           "type": "OBJECT",
           "descendantCount": 2,
           "childCount": 1
@@ -28,7 +28,7 @@
       {
         "metadata": {
           "nodeKey": 20,
-          "hash": "478f5461906e6703b6ce9b21d42e4063",
+          "hash": "0000000000000000",
           "type": "OBJECT",
           "descendantCount": 2,
           "childCount": 1
@@ -38,7 +38,7 @@
       {
         "metadata": {
           "nodeKey": 23,
-          "hash": "bf46d883bcfa5185ce1c2568408329e5",
+          "hash": "0000000000000000",
           "type": "STRING_VALUE"
         },
         "value": "boo"
@@ -46,7 +46,7 @@
       {
         "metadata": {
           "nodeKey": 24,
-          "hash": "df640a25f53faa297e2e5136247d63d6",
+          "hash": "0000000000000000",
           "type": "OBJECT",
           "descendantCount": 0,
           "childCount": 0
@@ -56,7 +56,7 @@
       {
         "metadata": {
           "nodeKey": 25,
-          "hash": "3119540a2b7a8c8c438acdeee1e3eba6",
+          "hash": "0000000000000000",
           "type": "ARRAY",
           "descendantCount": 0,
           "childCount": 0

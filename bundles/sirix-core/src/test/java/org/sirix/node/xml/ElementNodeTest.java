@@ -21,9 +21,9 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -53,7 +53,7 @@ public class ElementNodeTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
@@ -64,29 +64,30 @@ public class ElementNodeTest {
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
   }
 
   @Test
   public void testElementNode() {
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
+    final NodeDelegate del = new NodeDelegate(13,
+                                              14,
+                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
+                                              0,
+                                              SirixDeweyID.newRootID());
+    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 17L, 16L, 1L, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
 
-    final ElementNode node = new ElementNode(strucDel,
-                                             nameDel,
-                                             new LongArrayList(),
-                                             new LongArrayList(),
-                                             new QNm("ns", "a", "p"));
-    node.setHash(node.computeHash());
+    final ElementNode node =
+        new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("ns", "a", "p"));
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
 
     // Create empty node.
     node.insertAttribute(97);

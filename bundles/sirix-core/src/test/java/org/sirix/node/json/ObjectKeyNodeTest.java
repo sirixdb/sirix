@@ -21,8 +21,8 @@
 
 package org.sirix.node.json;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,7 +37,6 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Constants;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
@@ -65,17 +64,21 @@ public class ObjectKeyNodeTest {
   }
 
   @Test
-  public void testNode() throws IOException {
+  public void testNode() {
     // Create empty node.
     final int nameKey = pageTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
     final String name = "foobar";
 
     final long pathNodeKey = 12;
-    final NodeDelegate del =
-        new NodeDelegate(14, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(14,
+                                              13,
+                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
+                                              0,
+                                              SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
     final ObjectKeyNode node = new ObjectKeyNode(strucDel, nameKey, name, pathNodeKey);
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
     check(node, nameKey);
 
     // Serialize and deserialize node.

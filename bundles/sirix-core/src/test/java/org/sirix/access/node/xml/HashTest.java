@@ -31,8 +31,6 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 
-import java.math.BigInteger;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
@@ -102,20 +100,20 @@ public final class HashTest {
     // inserting a element as root
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     final long rootKey = wtx.getNodeKey();
-    final BigInteger firstRootHash = wtx.getHash();
+    final long firstRootHash = wtx.getHash();
 
     // inserting a text as second child of root
     wtx.moveTo(rootKey);
     wtx.insertTextAsFirstChild(NAME1);
     wtx.moveToParent();
-    final BigInteger secondRootHash = wtx.getHash();
+    final long secondRootHash = wtx.getHash();
 
     // inserting a second element on level 2 under the only element
     wtx.moveToFirstChild();
     wtx.insertElementAsRightSibling(new QNm(NAME2));
     wtx.insertAttribute(new QNm(NAME2), NAME1);
     wtx.moveTo(rootKey);
-    final BigInteger thirdRootHash = wtx.getHash();
+    final long thirdRootHash = wtx.getHash();
 
     // Checking that all hashes are different
     assertNotEquals(firstRootHash, secondRootHash);
@@ -150,7 +148,7 @@ public final class HashTest {
   private void testDeepTree(final XmlNodeTrx wtx) throws SirixException {
 
     wtx.insertElementAsFirstChild(new QNm(NAME1));
-    final BigInteger oldHash = wtx.getHash();
+    final long oldHash = wtx.getHash();
 
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     wtx.insertElementAsFirstChild(new QNm(NAME2));
@@ -177,32 +175,32 @@ public final class HashTest {
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
-    final BigInteger hashRoot1 = wtx.getHash();
+    final long hashRoot1 = wtx.getHash();
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
-    final BigInteger hashLeaf1 = wtx.getHash();
+    final long hashLeaf1 = wtx.getHash();
     wtx.setName(new QNm(NAME2));
-    final BigInteger hashLeaf2 = wtx.getHash();
+    final long hashLeaf2 = wtx.getHash();
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
-    final BigInteger hashRoot2 = wtx.getHash();
+    final long hashRoot2 = wtx.getHash();
     assertNotEquals(hashRoot1, hashRoot2);
     assertNotEquals(hashLeaf1, hashLeaf2);
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
     wtx.setName(new QNm(NAME1));
-    final BigInteger hashLeaf3 = wtx.getHash();
+    final long hashLeaf3 = wtx.getHash();
     assertEquals(hashLeaf1, hashLeaf3);
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
-    final BigInteger hashRoot3 = wtx.getHash();
+    final long hashRoot3 = wtx.getHash();
     assertEquals(hashRoot1, hashRoot3);
 
     // Testing root inheritance
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.setName(new QNm(NAME2));
-    final BigInteger hashRoot4 = wtx.getHash();
+    final long hashRoot4 = wtx.getHash();
     assertNotEquals(hashRoot4, hashRoot2);
     assertNotEquals(hashRoot4, hashRoot1);
     assertNotEquals(hashRoot4, hashRoot3);

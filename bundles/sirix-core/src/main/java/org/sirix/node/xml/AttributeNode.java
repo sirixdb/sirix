@@ -1,29 +1,36 @@
 /*
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ * Copyright (c) 2023, Sirix Contributors
  *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
+ * All rights reserved.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.hash.HashCode;
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -39,48 +46,55 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.immutable.xml.ImmutableAttributeNode;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * Node representing an attribute.
  */
 public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate nameDel;
+  /**
+   * Delegate for name node information.
+   */
+  private final NameNodeDelegate nameNodeDelegate;
 
-  /** Delegate for val node information. */
-  private final ValueNodeDelegate valDel;
+  /**
+   * Delegate for val node information.
+   */
+  private final ValueNodeDelegate valueNodeDelegate;
 
-  /** Node delegate. */
-  private final NodeDelegate nodeDel;
+  /**
+   * Node delegate.
+   */
+  private final NodeDelegate nodeDelegate;
 
-  /** The qualified name. */
+  /**
+   * The qualified name.
+   */
   private final QNm qNm;
 
-  private BigInteger hash;
+  private long hash;
 
   /**
    * Creating an attribute.
    *
    * @param nodeDel {@link NodeDelegate} to be set
    * @param nameDel {@link StructNodeDelegate} to be set
-   * @param valDel {@link ValueNodeDelegate} to be set
-   * @param qNm the QName to be set
+   * @param valDel  {@link ValueNodeDelegate} to be set
+   * @param qNm     the QName to be set
    */
   public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValueNodeDelegate valDel,
       final QNm qNm) {
     assert nodeDel != null : "nodeDel must not be null!";
-    this.nodeDel = nodeDel;
+    this.nodeDelegate = nodeDel;
     assert nameDel != null : "nameDel must not be null!";
-    this.nameDel = nameDel;
+    this.nameNodeDelegate = nameDel;
     assert valDel != null : "valDel must not be null!";
-    this.valDel = valDel;
+    this.valueNodeDelegate = valDel;
     assert qNm != null : "qNm must not be null!";
     this.qNm = qNm;
   }
@@ -89,20 +103,20 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    * Creating an attribute.
    *
    * @param hashCode the hash code
-   * @param nodeDel {@link NodeDelegate} to be set
-   * @param nameDel {@link StructNodeDelegate} to be set
-   * @param valDel {@link ValueNodeDelegate} to be set
-   * @param qNm the QName to be set
+   * @param nodeDel  {@link NodeDelegate} to be set
+   * @param nameDel  {@link StructNodeDelegate} to be set
+   * @param valDel   {@link ValueNodeDelegate} to be set
+   * @param qNm      the QName to be set
    */
-  public AttributeNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
+  public AttributeNode(final long hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
       final ValueNodeDelegate valDel, final QNm qNm) {
     hash = hashCode;
     assert nodeDel != null : "nodeDel must not be null!";
-    this.nodeDel = nodeDel;
+    this.nodeDelegate = nodeDel;
     assert nameDel != null : "nameDel must not be null!";
-    this.nameDel = nameDel;
+    this.nameNodeDelegate = nameDel;
     assert valDel != null : "valDel must not be null!";
-    this.valDel = valDel;
+    this.valueNodeDelegate = valDel;
     assert qNm != null : "qNm must not be null!";
     this.qNm = qNm;
   }
@@ -113,25 +127,34 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public BigInteger computeHash() {
-    final HashCode valueHashCode = nodeDel.getHashFunction().hashBytes(getRawValue());
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    final var rawValue = valueNodeDelegate.getRawValue();
 
-    final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
+    bytes.clear();
 
-    var result = BIG_INT_31.add(nodeDel.computeHash());
-    result = BIG_INT_31.multiply(result).add(nameDel.computeHash());
-    result = BIG_INT_31.multiply(result).add(valueBigInteger);
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(result);
+    bytes.writeLong(nameNodeDelegate.getPrefixKey())
+         .writeLong(nameNodeDelegate.getLocalNameKey())
+         .writeLong(nameNodeDelegate.getURIKey());
+
+    bytes.write(rawValue);
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public void setHash(BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
+  public void setHash(long hash) {
+    this.hash = hash;
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return hash;
   }
 
@@ -142,70 +165,78 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public @NotNull String toString() {
-    return MoreObjects.toStringHelper(this).add("nameDel", nameDel).add("valDel", valDel).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("nameDel", nameNodeDelegate)
+                      .add("valDel", valueNodeDelegate)
+                      .toString();
   }
 
   @Override
   public int getPrefixKey() {
-    return nameDel.getPrefixKey();
+    return nameNodeDelegate.getPrefixKey();
   }
 
   @Override
   public int getLocalNameKey() {
-    return nameDel.getLocalNameKey();
+    return nameNodeDelegate.getLocalNameKey();
   }
 
   @Override
   public int getURIKey() {
-    return nameDel.getURIKey();
+    return nameNodeDelegate.getURIKey();
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    nameDel.setPrefixKey(prefixKey);
+    hash = 0L;
+    nameNodeDelegate.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    nameDel.setLocalNameKey(localNameKey);
+    hash = 0L;
+    nameNodeDelegate.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    nameDel.setURIKey(uriKey);
+    hash = 0L;
+    nameNodeDelegate.setURIKey(uriKey);
   }
 
   @Override
   public byte[] getRawValue() {
-    return valDel.getRawValue();
+    return valueNodeDelegate.getRawValue();
   }
 
   @Override
-  public void setValue(final byte[] value) {
-    valDel.setValue(value);
+  public void setRawValue(final byte[] value) {
+    hash = 0L;
+    valueNodeDelegate.setRawValue(value);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nameDel, valDel);
+    return Objects.hashCode(nameNodeDelegate, valueNodeDelegate);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof final AttributeNode other) {
-      return Objects.equal(nameDel, other.nameDel) && Objects.equal(valDel, other.valDel);
+      return Objects.equal(nameNodeDelegate, other.nameNodeDelegate) && Objects.equal(valueNodeDelegate,
+                                                                                      other.valueNodeDelegate);
     }
     return false;
   }
 
   @Override
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    nameDel.setPathNodeKey(pathNodeKey);
+    nameNodeDelegate.setPathNodeKey(pathNodeKey);
   }
 
   @Override
   public long getPathNodeKey() {
-    return nameDel.getPathNodeKey();
+    return nameNodeDelegate.getPathNodeKey();
   }
 
   /**
@@ -214,7 +245,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    * @return the {@link NameNodeDelegate} instance
    */
   public NameNodeDelegate getNameNodeDelegate() {
-    return nameDel;
+    return nameNodeDelegate;
   }
 
   /**
@@ -223,12 +254,12 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    * @return the {@link ValueNodeDelegate} instance
    */
   public ValueNodeDelegate getValNodeDelegate() {
-    return valDel;
+    return valueNodeDelegate;
   }
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return nodeDel;
+    return nodeDelegate;
   }
 
   @Override
@@ -238,21 +269,21 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public String getValue() {
-    return new String(valDel.getRawValue(), Constants.DEFAULT_ENCODING);
+    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
-    return nodeDel.getDeweyID();
+    return nodeDelegate.getDeweyID();
   }
 
   @Override
   public int getTypeKey() {
-    return nodeDel.getTypeKey();
+    return nodeDelegate.getTypeKey();
   }
 
   @Override
   public byte[] getDeweyIDAsBytes() {
-    return nodeDel.getDeweyIDAsBytes();
+    return nodeDelegate.getDeweyIDAsBytes();
   }
 }

@@ -8,7 +8,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 
-import java.math.BigInteger;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -165,7 +164,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    *
    * @return the hash code
    */
-  BigInteger getHash();
+  long getHash();
 
   /**
    * Get the value of the current node or {@code null}.

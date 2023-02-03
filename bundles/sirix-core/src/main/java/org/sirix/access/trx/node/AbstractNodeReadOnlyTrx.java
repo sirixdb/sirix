@@ -22,7 +22,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import java.io.UncheckedIOException;
-import java.math.BigInteger;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -281,7 +280,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     assertNotClosed();
     return currentNode.getHash();
   }

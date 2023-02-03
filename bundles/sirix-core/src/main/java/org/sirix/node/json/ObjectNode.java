@@ -25,13 +25,12 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 package org.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.PrimitiveSink;
+import net.openhft.chronicle.bytes.Bytes;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -39,42 +38,43 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectNode;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
  */
 public final class ObjectNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate structNodeDel;
-  private BigInteger hash;
+  /**
+   * {@link StructNodeDelegate} reference.
+   */
+  private final StructNodeDelegate structNodeDelegate;
+
+  private long hash;
 
   /**
    * Constructor
    *
-   * @param structDel {@link StructNodeDelegate} to be set
+   * @param structNodeDelegate {@link StructNodeDelegate} to be set
    */
-  public ObjectNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
+  public ObjectNode(final long hashCode, final StructNodeDelegate structNodeDelegate) {
     hash = hashCode;
-    assert structDel != null;
-    structNodeDel = structDel;
+    assert structNodeDelegate != null;
+    this.structNodeDelegate = structNodeDelegate;
   }
 
   /**
    * Constructor
    *
-   * @param structDel {@link StructNodeDelegate} to be set
+   * @param structNodeDelegate {@link StructNodeDelegate} to be set
    */
-  public ObjectNode(final StructNodeDelegate structDel) {
-    assert structDel != null;
-    structNodeDel = structDel;
+  public ObjectNode(final StructNodeDelegate structNodeDelegate) {
+    assert structNodeDelegate != null;
+    this.structNodeDelegate = structNodeDelegate;
   }
 
   @Override
@@ -83,43 +83,38 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
   }
 
   @Override
-  public BigInteger computeHash() {
-    final var nodeDelegate = structNodeDel.getNodeDelegate();
+  public long computeHash(final Bytes<ByteBuffer> bytes) {
+    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
-      into = into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
+    bytes.clear();
 
-      if (node.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey())
-            .putLong(node.getLastChildKey());
-      } else {
-        into.putLong(node.getChildCount())
-            .putLong(node.getDescendantCount())
-            .putLong(node.getLeftSiblingKey())
-            .putLong(node.getRightSiblingKey())
-            .putLong(node.getFirstChildKey());
-      }
-    };
+    bytes.writeLong(nodeDelegate.getNodeKey())
+         .writeLong(nodeDelegate.getParentKey())
+         .writeByte(nodeDelegate.getKind().getId());
 
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1,
-                                                            nodeDelegate.getHashFunction()
-                                                                        .hashObject(this, nodeFunnel)
-                                                                        .asBytes()));
+    bytes.writeLong(structNodeDelegate.getChildCount())
+         .writeLong(structNodeDelegate.getDescendantCount())
+         .writeLong(structNodeDelegate.getLeftSiblingKey())
+         .writeLong(structNodeDelegate.getRightSiblingKey())
+         .writeLong(structNodeDelegate.getFirstChildKey());
+
+    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(structNodeDelegate.getLastChildKey());
+    }
+
+    final var buffer = bytes.underlyingObject().rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return nodeDelegate.getHashFunction().hashBytes(buffer);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
-    this.hash = Node.to128BitsAtMaximumBigInteger(hash);
-
-    assert this.hash.toByteArray().length <= 17;
+  public void setHash(final long hash) {
+    this.hash = hash;
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return hash;
   }
 
@@ -130,17 +125,17 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
 
   @Override
   protected @NotNull NodeDelegate delegate() {
-    return structNodeDel.getNodeDelegate();
+    return structNodeDelegate.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return structNodeDel;
+    return structNodeDelegate;
   }
 
   @Override
   public @NotNull String toString() {
-    return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDel).toString();
+    return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDelegate).toString();
   }
 
   @Override
@@ -150,10 +145,9 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode))
+    if (!(obj instanceof final ObjectKeyNode other))
       return false;
 
-    final ObjectKeyNode other = (ObjectKeyNode) obj;
     return Objects.equal(delegate(), other.delegate());
   }
 

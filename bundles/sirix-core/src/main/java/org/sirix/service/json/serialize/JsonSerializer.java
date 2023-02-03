@@ -22,6 +22,8 @@
 package org.sirix.service.json.serialize;
 
 import org.brackit.xquery.util.serialize.Serializer;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -40,8 +42,6 @@ import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -202,12 +202,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
             if (withMetaData) {
               appendSeparator();
-              if (rtx.getHash() != null) {
+              if (rtx.getHash() != 0L) {
                 appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
                 appendSeparator();
               }
               appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
-              if (rtx.getHash() != null) {
+              if (rtx.getHash() != 0L) {
                 appendSeparator().appendObjectKeyValue(quote("descendantCount"),
                     String.valueOf(rtx.getDescendantCount()));
               }
@@ -266,7 +266,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private String printHashValue(JsonNodeReadOnlyTrx rtx) {
-    return String.format("%032x", rtx.getHash());
+    return String.format("%016x", rtx.getHash());
   }
 
   private boolean withMetaDataField() {
@@ -290,12 +290,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       }
 
       if (withMetaData) {
-        if (rtx.getHash() != null) {
+        if (rtx.getHash() != 0L) {
           appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
           appendSeparator();
         }
         appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
-        if (rtx.getHash() != null && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
+        if (rtx.getHash() != 0L && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
           appendSeparator().appendObjectKeyValue(quote("descendantCount"), String.valueOf(rtx.getDescendantCount()));
         }
       }
@@ -518,21 +518,19 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    *
    * @throws IOException if can't indent output
    */
-  private JsonSerializer indent() throws IOException {
+  private void indent() throws IOException {
     if (indent) {
       for (int i = 0; i < currentIndent; i++) {
         out.append(" ");
       }
     }
-    return this;
   }
 
-  private JsonSerializer newLine() throws IOException {
+  private void newLine() throws IOException {
     if (indent) {
       out.append("\n");
       indent();
     }
-    return this;
   }
 
   private JsonSerializer appendObjectStart(final boolean hasChildren) throws IOException {
@@ -553,13 +551,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     return this;
   }
 
-  private JsonSerializer appendArrayStart(final boolean hasChildren) throws IOException {
+  private void appendArrayStart(final boolean hasChildren) throws IOException {
     out.append('[');
     if (hasChildren) {
       currentIndent += indentSpaces;
       newLine();
     }
-    return this;
   }
 
   private JsonSerializer appendArrayEnd(final boolean hasChildren) throws IOException {
@@ -581,9 +578,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     return this;
   }
 
-  private JsonSerializer appendObjectValue(String value) throws IOException {
+  private void appendObjectValue(String value) throws IOException {
     out.append(value);
-    return this;
   }
 
   private JsonSerializer appendObjectKeyValue(String key, String value) throws IOException {

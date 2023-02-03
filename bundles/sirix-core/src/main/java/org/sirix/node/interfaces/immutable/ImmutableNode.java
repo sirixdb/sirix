@@ -1,11 +1,13 @@
 package org.sirix.node.interfaces.immutable;
 
+import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.DataRecord;
 import org.sirix.node.interfaces.Node;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * An immutable node.
@@ -30,14 +32,15 @@ public interface ImmutableNode extends DataRecord {
    *
    * @return the hash code
    */
-  BigInteger getHash();
+  long getHash();
 
   /**
    * Compute the hash code.
    *
+   * @param bytes the bytes to serialize the node to before hashing
    * @return the computed hash code
    */
-  BigInteger computeHash();
+  long computeHash(Bytes<ByteBuffer> bytes);
 
   /**
    * Gets key of the context item's parent.

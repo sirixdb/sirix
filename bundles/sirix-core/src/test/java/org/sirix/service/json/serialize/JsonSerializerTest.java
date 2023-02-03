@@ -179,7 +179,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("document-with-metadata.json"), StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
     }
@@ -198,7 +198,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       assertEquals(expected, actual);
     }
@@ -221,7 +221,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
     }
@@ -245,7 +245,7 @@ public final class JsonSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-objectkey.json"),
                                             StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
     }
@@ -269,7 +269,7 @@ public final class JsonSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-object.json"),
                                             StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
     }
@@ -293,7 +293,7 @@ public final class JsonSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-array.json"),
                                             StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
     }
@@ -316,7 +316,7 @@ public final class JsonSerializerTest {
       final var expected =
           Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel2.json"),
                            StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       assertEquals(expected, actual);
     }
@@ -384,7 +384,7 @@ public final class JsonSerializerTest {
       final var expected =
           Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel3.json"),
                            StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       assertEquals(expected, actual);
     }
@@ -409,7 +409,7 @@ public final class JsonSerializerTest {
       final var expected =
           Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"),
                            StandardCharsets.UTF_8);
-      final var actual = writer.toString();
+      final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
     }

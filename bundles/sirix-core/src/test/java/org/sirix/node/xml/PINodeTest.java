@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,10 +39,10 @@ import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Processing instruction node test.
@@ -74,17 +74,18 @@ public class PINodeTest {
   }
 
   @Test
-  public void testProcessInstructionNode() throws IOException {
+  public void testProcessInstructionNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
 
     final NodeDelegate del =
-        new NodeDelegate(99, 13, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final PINode node = new PINode(structDel, nameDel, valDel, pageReadTrx);
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
 
     // Create empty node.
     check(node);
@@ -117,7 +118,7 @@ public class PINodeTest {
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
     assertEquals(NodeKind.PROCESSING_INSTRUCTION, node.getKind());
-    assertEquals(true, node.hasParent());
+    assertTrue(node.hasParent());
     assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
   }
 

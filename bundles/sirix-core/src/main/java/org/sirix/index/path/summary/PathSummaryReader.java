@@ -939,7 +939,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     throw new UnsupportedOperationException();
   }
 

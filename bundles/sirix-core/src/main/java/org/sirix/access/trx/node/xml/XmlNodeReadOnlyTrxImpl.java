@@ -52,8 +52,6 @@ import org.sirix.utils.NamePageHash;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
-import java.util.OptionalLong;
 
 /**
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given

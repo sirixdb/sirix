@@ -21,9 +21,9 @@
 
 package org.sirix.page;
 
-import com.google.common.hash.Hashing;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -84,16 +84,17 @@ public final class NodePageTest {
     final KeyValueLeafPage page1 = new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageReadTrx);
     assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del =
-        new NodeDelegate(0, 1, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(0,
+                                              1,
+                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
+                                              0,
+                                              SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 4L, 3L, 1L, 0L);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
-    final ElementNode node1 = new ElementNode(strucDel,
-                                              nameDel,
-                                              new LongArrayList(),
-                                              new LongArrayList(),
-                                              new QNm("a", "b", "c"));
-    node1.setHash(node1.computeHash());
+    final ElementNode node1 =
+        new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("a", "b", "c"));
+    var bytes = Bytes.elasticByteBuffer();
+    node1.setHash(node1.computeHash(bytes));
     node1.insertAttribute(88L);
     node1.insertAttribute(87L);
     node1.insertNamespace(99L);
@@ -104,8 +105,9 @@ public final class NodePageTest {
     final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageReadTrx, data, page1, SerializationType.DATA);
-    final KeyValueLeafPage page2 =
-        (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
+    final KeyValueLeafPage page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx,
+                                                                                    Bytes.wrapForRead(data.toByteArray()),
+                                                                                    SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
 

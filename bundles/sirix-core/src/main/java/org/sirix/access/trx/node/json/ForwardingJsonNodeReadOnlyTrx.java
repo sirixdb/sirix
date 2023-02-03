@@ -13,7 +13,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
-import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -53,7 +52,7 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
-  default BigInteger getHash() {
+  default long getHash() {
     return nodeReadOnlyTrxDelegate().getHash();
   }
 

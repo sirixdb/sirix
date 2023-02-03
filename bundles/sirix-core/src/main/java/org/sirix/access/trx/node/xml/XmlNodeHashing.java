@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node.xml;
 
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeHashing;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageTrx;
@@ -14,13 +15,13 @@ final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode, XmlNode
   /**
    * Constructor.
    *
-   * @param hashType        the hash type used
+   * @param resourceConfig  the resource configuration
    * @param nodeReadOnlyTrx the internal read-only node trx
    * @param pageWriteTrx    the page trx
    */
-  XmlNodeHashing(final HashType hashType, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
+  XmlNodeHashing(final ResourceConfiguration resourceConfig, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
       final PageTrx pageWriteTrx) {
-    super(hashType, nodeReadOnlyTrx, pageWriteTrx);
+    super(resourceConfig, nodeReadOnlyTrx, pageWriteTrx);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
   }
 

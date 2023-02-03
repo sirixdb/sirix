@@ -22,9 +22,8 @@ package org.sirix.node.delegates;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.PrimitiveSink;
+import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.NodeKind;
@@ -33,7 +32,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are represented by an
@@ -42,61 +41,70 @@ import java.math.BigInteger;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public class NodeDelegate implements Node {
 
-  /** Untyped type. */
+  /**
+   * Untyped type.
+   */
   private static final int TYPE_KEY = NamePageHash.generateHashForString("xs:untyped");
 
-  /** Key of the current node. Must be unique for all nodes. */
+  /**
+   * Key of the current node. Must be unique for all nodes.
+   */
   private final long nodeKey;
 
-  /** The DeweyID data. */
+  /**
+   * The DeweyID data.
+   */
   private byte[] deweyIDData;
 
-  /** Key of the parent node. */
+  /**
+   * Key of the parent node.
+   */
   private long parentKey;
-
-  /** Hash of the parent node. */
-  private final BigInteger hashCode;
 
   /**
    * TypeKey of the parent node. Can be referenced later on over special pages.
    */
   private int typeKey;
 
-  /** Previous revision. */
+  /**
+   * Previous revision.
+   */
   private int previousRevision;
 
-  /** Revision, when a node has been last modified. */
+  /**
+   * Revision, when a node has been last modified.
+   */
   private int lastModifiedRevision;
 
-  /** {@link SirixDeweyID} (needs to be deserialized). */
+  /**
+   * {@link SirixDeweyID} (needs to be deserialized).
+   */
   private SirixDeweyID sirixDeweyID;
 
-  /** The hash function. */
-  private final HashFunction hashFunction;
+  /**
+   * The hash function.
+   */
+  private final LongHashFunction hashFunction;
 
   /**
    * Constructor.
    *
-   * @param nodeKey node key
-   * @param parentKey parent node key
-   * @param hashCode hash code of the node
-   * @param hashFunction the hash function used to compute hash codes
-   * @param previousRevision previous revision, when the node has changed
+   * @param nodeKey              node key
+   * @param parentKey            parent node key
+   * @param hashFunction         the hash function used to compute hash codes
+   * @param previousRevision     previous revision, when the node has changed
    * @param lastModifiedRevision the revision, when the node has been last modified
-   * @param deweyID optional DeweyID
+   * @param deweyID              optional DeweyID
    */
-  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final HashFunction hashFunction,
-      final BigInteger hashCode, final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
-    assert nodeKey >= 0 : "nodeKey must be >= 0!";
+  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
+      final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.hashFunction = hashFunction;
-    this.hashCode = hashCode;
     this.lastModifiedRevision = lastModifiedRevision;
     this.previousRevision = previousRevision;
     typeKey = TYPE_KEY;
@@ -106,29 +114,26 @@ public class NodeDelegate implements Node {
   /**
    * Constructor.
    *
-   * @param nodeKey node key
-   * @param parentKey parent node key
-   * @param hashCode hash code of the node
-   * @param hashFunction the hash function used to compute hash codes
-   * @param previousRevision previous previousRevision, when the node has changed
+   * @param nodeKey              node key
+   * @param parentKey            parent node key
+   * @param hashFunction         the hash function used to compute hash codes
+   * @param previousRevision     previous previousRevision, when the node has changed
    * @param lastModifiedRevision the previousRevision, when the node has been last modified
-   * @param deweyID optional DeweyID
+   * @param deweyID              optional DeweyID
    */
-  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final HashFunction hashFunction,
-      final BigInteger hashCode, final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
-    assert nodeKey >= 0 : "nodeKey must be >= 0!";
+  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
+      final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.hashFunction = hashFunction;
-    this.hashCode = hashCode;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
     typeKey = TYPE_KEY;
     deweyIDData = deweyID;
   }
 
-  public HashFunction getHashFunction() {
+  public LongHashFunction getHashFunction() {
     return hashFunction;
   }
 
@@ -154,27 +159,23 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public BigInteger computeHash() {
-    final Funnel<Node> nodeFunnel = (Node node, PrimitiveSink into) -> into.putLong(node.getNodeKey())
-                                                                           .putLong(node.getParentKey())
-                                                                           .putByte(node.getKind().getId());
-
-    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, hashFunction.hashObject(this, nodeFunnel).asBytes()));
-  }
-
-  @Override
-  public BigInteger getHash() {
+  public long computeHash(Bytes<ByteBuffer> bytes) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
+  public long getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final long hash) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, typeKey, hashCode, parentKey);
+    return Objects.hashCode(nodeKey, typeKey, parentKey);
   }
 
   @Override
@@ -182,9 +183,8 @@ public class NodeDelegate implements Node {
     if (!(otherObj instanceof final NodeDelegate other))
       return false;
 
-    return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey) && Objects.equal(hashCode,
-                                                                                                           other.hashCode)
-        && Objects.equal(parentKey, other.parentKey);
+    return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey) && Objects.equal(parentKey,
+                                                                                                           other.parentKey);
   }
 
   @Override
@@ -193,7 +193,6 @@ public class NodeDelegate implements Node {
                       .add("node key", nodeKey)
                       .add("parent key", parentKey)
                       .add("type key", typeKey)
-                      .add("hash", hashCode)
                       .add("deweyID", sirixDeweyID)
                       .toString();
   }

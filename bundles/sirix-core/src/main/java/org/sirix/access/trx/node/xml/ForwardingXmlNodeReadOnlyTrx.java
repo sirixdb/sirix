@@ -364,7 +364,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default BigInteger getHash() {
+  default long getHash() {
     return nodeReadOnlyTrxDelegate().getHash();
   }
 

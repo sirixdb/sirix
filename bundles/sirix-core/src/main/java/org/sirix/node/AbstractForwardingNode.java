@@ -1,12 +1,13 @@
 package org.sirix.node;
 
 import com.google.common.collect.ForwardingObject;
+import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 /**
  * Skeletal implementation of {@link Node} interface.
@@ -38,8 +39,8 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public BigInteger computeHash() {
-    return delegate().computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return delegate().computeHash(bytes);
   }
 
   @Override
@@ -68,13 +69,13 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public BigInteger getHash() {
-    return delegate().getHash();
+  public void setHash(final long hash) {
+    delegate().setHash(hash);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
-    delegate().setHash(hash);
+  public long getHash() {
+    return delegate().getHash();
   }
 
   @Override

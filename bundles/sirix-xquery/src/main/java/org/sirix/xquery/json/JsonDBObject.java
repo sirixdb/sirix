@@ -329,7 +329,7 @@ public final class JsonDBObject extends AbstractItem
         case Flt flt -> trx.replaceObjectRecordValue(new NumberValue(flt.floatValue()));
         case Dbl dbl -> trx.replaceObjectRecordValue(new NumberValue(dbl.doubleValue()));
         case Dec dec -> trx.replaceObjectRecordValue(new NumberValue(dec.decimalValue()));
-        case null, default -> {
+        case default -> {
         }
       }
     }
@@ -398,13 +398,9 @@ public final class JsonDBObject extends AbstractItem
     final var fieldName = field.getLocalName();
     if (value instanceof Atomic) {
       switch (value) {
-        case Str str:
-          trx.insertObjectRecordAsLastChild(fieldName, new StringValue(str.stringValue()));
-          break;
-        case Null aNull:
-          trx.insertObjectRecordAsLastChild(fieldName, new NullValue());
-          break;
-        case Numeric numeric:
+        case Str str -> trx.insertObjectRecordAsLastChild(fieldName, new StringValue(str.stringValue()));
+        case Null ignored -> trx.insertObjectRecordAsLastChild(fieldName, new NullValue());
+        case Numeric ignored1 -> {
           switch (value) {
             case Int anInt -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(anInt.intValue()));
             case Int32 int32 -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(int32.intValue()));
@@ -412,16 +408,13 @@ public final class JsonDBObject extends AbstractItem
             case Flt flt -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(flt.floatValue()));
             case Dbl dbl -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(dbl.doubleValue()));
             case Dec dec -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(dec.decimalValue()));
-            case null, default -> {
+            case default -> {
             }
           }
-          break;
-        case Bool bool:
-          trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
-          break;
-        case null:
-        default:
-          break;
+        }
+        case Bool ignored2 -> trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
+        case default -> {
+        }
       }
     } else {
       final Item item = ExprUtil.asItem(value);

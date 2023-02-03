@@ -26,6 +26,7 @@ dependencies {
     implementation implLibraries.integercompression
     implementation implLibraries.chronicleBytes
     implementation implLibraries.fastObjectPool
+    implementation implLibraries.zeroAllocationHashing
 
     annotationProcessor implLibraries.daggerCompiler
 

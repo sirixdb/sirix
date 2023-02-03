@@ -1,10 +1,6 @@
 package org.sirix.index.name;
 
-import com.google.common.collect.HashBiMap;
-import it.unimi.dsi.fastutil.ints.Int2IntMap;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
-import it.unimi.dsi.fastutil.ints.Int2LongMap;
-import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import it.unimi.dsi.fastutil.ints.*;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexType;
@@ -12,9 +8,6 @@ import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
-
-import java.util.HashMap;
-import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -33,7 +26,7 @@ public final class Names {
   /**
    * Map the hash of a name to its name.
    */
-  private final Map<Integer, byte[]> nameMap;
+  private final Int2ObjectMap<byte[]> nameMap;
 
   /**
    * Map which is used to count the occurences of a name mapping.
@@ -52,7 +45,7 @@ public final class Names {
   private Names(final int indexNumber) {
     this.indexNumber = indexNumber;
     countNodeMap = new Int2LongOpenHashMap();
-    nameMap = new HashMap<>();
+    nameMap = new Int2ObjectOpenHashMap<>();
     countNameMapping = new Int2IntOpenHashMap();
   }
 
@@ -65,7 +58,7 @@ public final class Names {
     this.indexNumber = names.indexNumber;
     this.maxNodeKey = names.maxNodeKey;
     this.countNodeMap = new Int2LongOpenHashMap(names.countNodeMap);
-    this.nameMap = new HashMap<>(names.nameMap);
+    this.nameMap = new Int2ObjectOpenHashMap<>(names.nameMap);
     this.countNameMapping = new Int2IntOpenHashMap(names.countNameMapping);
   }
 
@@ -82,7 +75,7 @@ public final class Names {
     // It's okay, we don't allow to store more than Integer.MAX key value pairs.
     int size = (int) Math.ceil(maxNodeKey / 0.75);
     countNodeMap = new Int2LongOpenHashMap(size);
-    nameMap = HashBiMap.create(size);
+    nameMap = new Int2ObjectOpenHashMap<>(size);
     countNameMapping = new Int2IntOpenHashMap(size);
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors

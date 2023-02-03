@@ -1,5 +1,6 @@
 package org.sirix.node.immutable.xml;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -10,7 +11,7 @@ import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -59,7 +60,7 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return node.getHash();
   }
 
@@ -164,8 +165,8 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   }
 
   @Override
-  public BigInteger computeHash() {
-    return node.computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return node.computeHash(bytes);
   }
 
   @Override

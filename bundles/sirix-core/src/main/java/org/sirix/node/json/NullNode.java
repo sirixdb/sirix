@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2023, Sirix Contributors
  *
  * All rights reserved.
  *
@@ -72,10 +72,9 @@ public final class NullNode extends AbstractNullNode {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof NullNode))
+    if (!(obj instanceof final NullNode other))
       return false;
 
-    final NullNode other = (NullNode) obj;
     return Objects.equal(delegate(), other.delegate()) && Objects.equal(getHash(), other.getHash());
   }
 }

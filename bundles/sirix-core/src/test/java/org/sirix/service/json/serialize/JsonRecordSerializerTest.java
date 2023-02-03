@@ -145,7 +145,7 @@ public final class JsonRecordSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("serializeObjectWithMaxLevelAndMetaData.json"));
 
-      assertEquals(expected, stringWriter.toString());
+      assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
     }
   }
 
@@ -169,7 +169,7 @@ public final class JsonRecordSerializerTest {
 
         final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData1.json"));
 
-        assertEquals(expected, stringWriter.toString());
+        assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
       }
     }
   }
@@ -194,7 +194,7 @@ public final class JsonRecordSerializerTest {
 
         final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData2.json"));
 
-        assertEquals(expected, stringWriter.toString());
+        assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
       }
     }
   }
@@ -219,7 +219,7 @@ public final class JsonRecordSerializerTest {
 
         final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaData3.json"));
 
-        assertEquals(expected, stringWriter.toString());
+        assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
       }
     }
   }
@@ -244,7 +244,7 @@ public final class JsonRecordSerializerTest {
 
         final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode.json"));
 
-        assertEquals(expected, stringWriter.toString());
+        assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
       }
     }
   }

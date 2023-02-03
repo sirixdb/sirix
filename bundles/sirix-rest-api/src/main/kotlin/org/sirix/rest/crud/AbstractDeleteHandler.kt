@@ -116,7 +116,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                             val hashCode = routingCtx.request().getHeader(HttpHeaders.ETAG)
                                 ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
 
-                            if (wtx.hash != BigInteger(hashCode)) {
+                            if (wtx.hash != hashCode.toLong()) {
                                 throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
                             }
                         }

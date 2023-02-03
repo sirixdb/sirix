@@ -2,14 +2,14 @@
   "key": "head",
   "metadata": {
     "nodeKey": 3,
-    "hash": "0ba401b946f74e99cf8e6c80cf4363f1",
+    "hash": "0000000000000000",
     "type": "OBJECT_KEY",
     "descendantCount": 7
   },
   "value": {
     "metadata": {
       "nodeKey": 4,
-      "hash": "7b65ec6b814d8bf4b043e834569d6906",
+      "hash": "0000000000000000",
       "type": "OBJECT",
       "descendantCount": 6,
       "childCount": 2
@@ -19,14 +19,14 @@
         "key": "test",
         "metadata": {
           "nodeKey": 5,
-          "hash": "4a2526f9e2b406d790190289e6396999",
+          "hash": "0000000000000000",
           "type": "OBJECT_KEY",
           "descendantCount": 3
         },
         "value": {
           "metadata": {
             "nodeKey": 6,
-            "hash": "25a60faa7a3f8f432e4eda6f2dadb0d7",
+            "hash": "0000000000000000",
             "type": "ARRAY",
             "descendantCount": 2,
             "childCount": 2
@@ -35,7 +35,7 @@
             {
               "metadata": {
                 "nodeKey": 7,
-                "hash": "ee3e26e3ce26c2cbe3470d13cfe929aa",
+                "hash": "0000000000000000",
                 "type": "STRING_VALUE"
               },
               "value": "it works, again"
@@ -43,7 +43,7 @@
             {
               "metadata": {
                 "nodeKey": 8,
-                "hash": "de77fdde7db055240ba0926e781b64cf",
+                "hash": "0000000000000000",
                 "type": "BOOLEAN_VALUE"
               },
               "value": true
@@ -55,14 +55,14 @@
         "key": "superb",
         "metadata": {
           "nodeKey": 9,
-          "hash": "3223a33866b6ec3ad7a1b1055f5dd044",
+          "hash": "0000000000000000",
           "type": "OBJECT_KEY",
           "descendantCount": 1
         },
         "value": {
           "metadata": {
             "nodeKey": 10,
-            "hash": "220f70e28eba522f4f34ed28da1a5543",
+            "hash": "0000000000000000",
             "type": "OBJECT_NUMBER_VALUE"
           },
           "value": 100

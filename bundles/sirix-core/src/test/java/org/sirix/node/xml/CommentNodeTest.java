@@ -21,8 +21,8 @@
 
 package org.sirix.node.xml;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,10 +39,9 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 /**
  * Comment node test.
@@ -70,16 +69,17 @@ public class CommentNodeTest {
   }
 
   @Test
-  public void testCommentNode() throws IOException {
+  public void testCommentNode() {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
     final NodeDelegate del =
-        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
+        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
     final CommentNode node = new CommentNode(valDel, strucDel);
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.
@@ -100,10 +100,10 @@ public class CommentNodeTest {
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
     assertEquals(NodeKind.COMMENT, node.getKind());
-    assertEquals(false, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
+    assertFalse(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasLeftSibling());
+    assertTrue(node.hasRightSibling());
   }
 
 }

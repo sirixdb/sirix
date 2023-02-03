@@ -386,7 +386,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return hash value
    */
   @Override
-  BigInteger getHash();
+  long getHash();
 
   /**
    * Get all attributes of currently selected node (only for elements useful, otherwise returns an

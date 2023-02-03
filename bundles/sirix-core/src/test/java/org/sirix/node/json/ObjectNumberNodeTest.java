@@ -21,8 +21,8 @@
 
 package org.sirix.node.json;
 
-import com.google.common.hash.Hashing;
 import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -64,7 +64,7 @@ public class ObjectNumberNodeTest {
     // Create empty node.
     final double value = 10.87463D;
     final NodeDelegate del =
-        new NodeDelegate(13, 14, Hashing.sha256(), null, Constants.NULL_REVISION_NUMBER, 0, (SirixDeweyID) null);
+        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, (SirixDeweyID) null);
     final StructNodeDelegate strucDel = new StructNodeDelegate(del,
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -72,7 +72,8 @@ public class ObjectNumberNodeTest {
                                                                0L,
                                                                0L);
     final ObjectNumberNode node = new ObjectNumberNode(value, strucDel);
-    node.setHash(node.computeHash());
+    var bytes = Bytes.elasticByteBuffer();
+    node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.

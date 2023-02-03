@@ -1,5 +1,6 @@
 package org.sirix.node.immutable.json;
 
+import net.openhft.chronicle.bytes.Bytes;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -9,7 +10,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
 
-import java.math.BigInteger;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -92,7 +93,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
   }
 
   @Override
-  public BigInteger computeHash() {
-    return node.computeHash();
+  public long computeHash(Bytes<ByteBuffer> bytes) {
+    return node.computeHash(bytes);
   }
 }

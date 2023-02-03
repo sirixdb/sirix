@@ -351,27 +351,17 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
     if (rtx.getKind() != documentNode()) {
       switch (diff) {
-        case SAME:
-        case SAMEHASH:
-        case UPDATED:
-          moved = moveToNext(rtx, revision);
-          break;
-        case REPLACED:
-          moved = moveToFollowingNode(rtx, revision);
-          break;
-        case INSERTED:
-        case DELETED:
+        case SAME, SAMEHASH, UPDATED -> moved = moveToNext(rtx, revision);
+        case REPLACED -> moved = moveToFollowingNode(rtx, revision);
+        case INSERTED, DELETED -> {
           if (move == Move.FOLLOWING) {
             moved = rtx.getKind() != documentNode();
           } else {
             moved = moveToNext(rtx, revision);
           }
-          break;
-        case MOVEDFROM:
-        case MOVEDTO:
-        case REPLACEDNEW:
-        case REPLACEDOLD:
-        default:
+        }
+        case MOVEDFROM, MOVEDTO, REPLACEDNEW, REPLACEDOLD, default -> {
+        }
       }
     }
     return moved;
@@ -486,7 +476,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     DiffType diff = DiffType.SAMEHASH;
 
     // Check for modifications.
-    if (newRtx.getNodeKey() != oldRtx.getNodeKey() || !newRtx.getHash().equals(oldRtx.getHash())) {
+    if (newRtx.getNodeKey() != oldRtx.getNodeKey() || newRtx.getHash() != oldRtx.getHash()) {
       // Check if nodes are the same (even if subtrees may vary).
       if (checkNodes(newRtx, oldRtx)) {
         diff = DiffType.SAME;

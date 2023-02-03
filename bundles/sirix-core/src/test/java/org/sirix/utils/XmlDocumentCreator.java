@@ -28,7 +28,13 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.service.InsertPosition;
+import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.*;
 
@@ -249,6 +255,18 @@ public final class XmlDocumentCreator {
       wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
       wtx.insertTextAsFirstChild("OOPS4!");
       wtx.commit();
+    }
+
+    final var outputStream = new ByteArrayOutputStream();
+    final var serializer = XmlSerializer.newBuilder(wtx.getResourceSession(), outputStream)
+                                        .emitIDs()
+                                        .prettyPrint()
+                                        .build();
+    serializer.call();
+    final var utf8Encoding = StandardCharsets.UTF_8.toString();
+    try {
+      System.out.println(outputStream.toString(utf8Encoding));
+    } catch (UnsupportedEncodingException e) {
     }
   }
 

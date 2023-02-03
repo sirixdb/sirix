@@ -7,8 +7,6 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
-import java.math.BigInteger;
-
 public abstract class AbstractImmutableJsonStructuralNode implements ImmutableStructNode, ImmutableJsonNode {
 
   public abstract StructNode structDelegate();
@@ -79,7 +77,7 @@ public abstract class AbstractImmutableJsonStructuralNode implements ImmutableSt
   }
 
   @Override
-  public BigInteger getHash() {
+  public long getHash() {
     return structDelegate().getHash();
   }
 
