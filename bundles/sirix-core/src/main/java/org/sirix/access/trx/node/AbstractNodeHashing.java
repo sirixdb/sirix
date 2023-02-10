@@ -45,7 +45,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   private boolean autoCommit;
 
-  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer(50);
+  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
 
   /**
    * Constructor.
@@ -137,7 +137,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     // start with hash to add
     final var startNode = getCurrentNode();
     // long for adapting the hash of the parent
-    long hashCodeForParent = 0;
+    long hashCodeForParent;
     // adapting the parent if the current node is no structural one.
     if (!(startNode instanceof StructNode)) {
       final Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
@@ -148,7 +148,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     StructNode cursorToRoot;
     do {
       cursorToRoot = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      hashCodeForParent = getCurrentNode().computeHash(bytes) + hashCodeForParent * PRIME;
+      hashCodeForParent = getCurrentNode().computeHash(bytes);
       // Caring about attributes and namespaces if node is an element.
       if (cursorToRoot.getKind() == NodeKind.ELEMENT) {
         final ElementNode currentElement = (ElementNode) cursorToRoot;
@@ -176,7 +176,6 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
       // setting hash and resetting hash
       cursorToRoot.setHash(hashCodeForParent);
-      hashCodeForParent = 0;
     } while (nodeReadOnlyTrx.moveTo(cursorToRoot.getParentKey()));
 
     setCurrentNode(startNode);
@@ -271,12 +270,15 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     final long oldDescendantCount = getStructuralNode().getDescendantCount();
     final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
     bytes.clear();
-    long hashToAdd = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
+    long hashToAdd;
     long newHash;
     long possibleOldHash = 0L;
 
     if (isValueNode(startNode)) {
       nodeReadOnlyTrx.moveTo(startNode.getParentKey());
+      hashToAdd = startNode.computeHash(bytes);
+    } else {
+      hashToAdd = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
     }
 
     // go the path to the root

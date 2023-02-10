@@ -28,6 +28,15 @@ public final class ArrayIterator<E> implements Iterator<E>, Iterable<E> {
    * Constructor.
    *
    * @param array array to iterate through
+   */
+  public ArrayIterator(final Object[] array) {
+    this(array, 0, array.length);
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param array array to iterate through
    * @param end   index + 1 of last object to return
    */
   public ArrayIterator(final Object[] array, final int end) {
@@ -59,7 +68,7 @@ public final class ArrayIterator<E> implements Iterator<E>, Iterable<E> {
         return true;
       ++start;
     }
-    return start < end;
+    return false;
   }
 
   @Override
