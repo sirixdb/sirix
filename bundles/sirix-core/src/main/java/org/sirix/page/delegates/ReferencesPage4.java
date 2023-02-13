@@ -22,6 +22,8 @@
 package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
+import it.unimi.dsi.fastutil.shorts.ShortArrayList;
+import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.api.PageReadOnlyTrx;
@@ -47,14 +49,14 @@ public final class ReferencesPage4 implements Page {
   /**
    * Page reference 4.
    */
-  private final List<Short> offsets;
+  private final ShortList offsets;
 
   /**
    * Constructor to initialize instance.
    */
   public ReferencesPage4() {
     references = new ArrayList<>(4);
-    offsets = new ArrayList<>(4);
+    offsets = new ShortArrayList(4);
   }
 
   /**
@@ -65,8 +67,8 @@ public final class ReferencesPage4 implements Page {
    */
   public ReferencesPage4(final Bytes<?> in, final SerializationType type) {
     final DeserializedReferencesPage4Tuple tuple = type.deserializeReferencesPage4(in);
-    references = tuple.getReferences();
-    offsets = tuple.getOffsets();
+    references = tuple.references();
+    offsets = tuple.offsets();
   }
 
   /**
@@ -76,12 +78,12 @@ public final class ReferencesPage4 implements Page {
    */
   public ReferencesPage4(final ReferencesPage4 pageToClone) {
     references = new ArrayList<>(4);
-    offsets = new ArrayList<>(4);
+    offsets = new ShortArrayList(4);
 
     final var otherOffsets = pageToClone.getOffsets();
 
     for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
-      offsets.add(otherOffsets.get(offset));
+      offsets.add(otherOffsets.getShort(offset));
       final var pageReference = new PageReference();
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
       pageReference.setKey(pageReferenceToClone.getKey());
@@ -91,7 +93,7 @@ public final class ReferencesPage4 implements Page {
     }
   }
 
-  public List<Short> getOffsets() {
+  public ShortList getOffsets() {
     return offsets;
   }
 
@@ -127,7 +129,7 @@ public final class ReferencesPage4 implements Page {
   @Override
   public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
     for (int i = 0, count = offsets.size(); i < count; i++) {
-      if (offsets.get(i) == offset) {
+      if (offsets.getShort(i) == offset) {
         references.set(i, pageReference);
         return false;
       }

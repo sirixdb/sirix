@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018, Sirix
+ * Copyright (c) 2023, Sirix
  *
  * All rights reserved.
  *
@@ -27,47 +27,15 @@
  */
 package org.sirix.page;
 
+import it.unimi.dsi.fastutil.shorts.ShortList;
+
 import java.util.List;
 
 /**
  * Simple immutable data/value/bean class.
  *
+ * @param references The page references.
+ * @param offsets    The offsets.
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
-public final class DeserializedReferencesPage4Tuple {
-  /** The page references. */
-  private final List<PageReference> references;
-
-  /** The offsets. */
-  private final List<Short> offsets;
-
-  /**
-   * Constructor.
-   *
-   * @param references the references
-   * @param offsets the offsets
-   */
-  public DeserializedReferencesPage4Tuple(final List<PageReference> references, final List<Short> offsets) {
-    this.references = references;
-    this.offsets = offsets;
-  }
-
-  /**
-   * Get the bitmap.
-   *
-   * @return the bitmap
-   */
-  public List<Short> getOffsets() {
-    return offsets;
-  }
-
-  /**
-   * Get the references.
-   *
-   * @return the references
-   */
-  public List<PageReference> getReferences() {
-    return references;
-  }
-}
+public record DeserializedReferencesPage4Tuple(List<PageReference> references, ShortList offsets) {}
