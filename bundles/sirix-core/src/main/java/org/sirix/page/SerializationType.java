@@ -27,6 +27,8 @@
  */
 package org.sirix.page;
 
+import it.unimi.dsi.fastutil.shorts.ShortArrayList;
+import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -116,7 +118,7 @@ public enum SerializationType {
       try {
         final byte size = in.readByte();
         final List<PageReference> pageReferences = new ArrayList<>(4);
-        final List<Short> offsets = new ArrayList<>(4);
+        final ShortList offsets = new ShortArrayList(4);
         for (int i = 0; i < size; i++) {
           final var reference = new PageReference();
           readPageFragments(in, reference);
