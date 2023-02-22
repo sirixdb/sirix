@@ -45,22 +45,17 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   /**
-   * Read meta page.
+   * Constructor to set deserialized values for CASpage
    *
-   * @param in input bytes to read from
+   * @param delegate page
+   * @param maxNodeKeys Hashmap deserialized
+   * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
    */
-  CASPage(final Bytes<?> in, final SerializationType type) {
-    delegate = PageUtils.createDelegate(in, type);
-    final int maxNodeKeySize = in.readInt();
-    maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(maxNodeKeySize / 0.75));
-    for (int i = 0; i < maxNodeKeySize; i++) {
-      maxNodeKeys.put(i, in.readLong());
-    }
-    final int currentMaxLevelOfIndirectPages = in.readInt();
-    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPages / 0.75));
-    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
-    }
+  CASPage(final Page delegate, final  Int2LongMap maxNodeKeys,
+          final Int2IntMap currentMaxLevelsOfIndirectPages ){
+    this.delegate = delegate;
+    this.maxNodeKeys = maxNodeKeys;
+    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
   }
 
   @Override
@@ -142,6 +137,13 @@ public final class CASPage extends AbstractForwardingPage {
     return currentMaxLevelsOfIndirectPages.get(index);
   }
 
+  /**
+   * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
+   * @return int Size of CurrentMaxLevelOfIndirectPage
+   */
+  public int getCurrentMaxLevelOfIndirectPagesSize(){
+    return currentMaxLevelsOfIndirectPages.size();
+  }
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
     return currentMaxLevelsOfIndirectPages.merge(
         index, 1, Integer::sum);
@@ -157,6 +159,13 @@ public final class CASPage extends AbstractForwardingPage {
     return maxNodeKeys.get(indexNo);
   }
 
+  /**
+   * Get the size of MaxNodeKey to Serialize
+   * @return int Size of MaxNodeKey
+   */
+  public int getMaxNodeKeySize(){
+    return maxNodeKeys.size();
+  }
   public long incrementAndGetMaxNodeKey(final int indexNo) {
     final long newMaxNodeKey = maxNodeKeys.get(indexNo) + 1;
     maxNodeKeys.put(indexNo, newMaxNodeKey);
