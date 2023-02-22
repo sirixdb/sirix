@@ -108,6 +108,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   private long revisionTimestamp;
 
+
   /**
    * The references page instance.
    */
@@ -123,6 +124,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   private String commitMessage;
 
+
+
   /**
    * Current maximum level of indirect pages in the document index tree.
    */
@@ -132,6 +135,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Current maximum level of indirect pages in the changed nodes index tree.
    */
   private int currentMaxLevelOfChangedNodesIndirectPages;
+
+
 
   /**
    * Current maximum level of indirect pages in the record to revisions index tree.
@@ -165,31 +170,37 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   /**
-   * Read revision root page.
-   *
-   * @param in input stream
+   * Constructor to deserialized de DATA
+   * set
+   * @param delegate Page
+   * @param revision int revision
+   * @param maxNodeKeyInDocumentIndex Last allocated node key.
+   * @param maxNodeKeyInChangedNodesIndex Last allocated node key.
+   * @param maxNodeKeyInRecordToRevisionsIndex Last allocated node key.
+   * @param revisionTimestamp Timestamp of revision.
+   * @param commitMessage Optional commit message.
+   * @param currentMaxLevelOfDocumentIndexIndirectPages Current maximum level of indirect pages in the document index tree.
+   * @param currentMaxLevelOfChangedNodesIndirectPages Current maximum level of indirect pages in the document index tree.
+   * @param currentMaxLevelOfRecordToRevisionsIndirectPages Current maximum level of indirect pages in the document index tree.
+   * @param user which committed or is probably committing the revision
    */
-  RevisionRootPage(final Bytes<?> in, final SerializationType type) {
-    delegate = new BitmapReferencesPage(8, in, type);
-    revision = in.readInt();
-    maxNodeKeyInDocumentIndex = in.readLong();
-    maxNodeKeyInChangedNodesIndex = in.readLong();
-    maxNodeKeyInRecordToRevisionsIndex = in.readLong();
-    revisionTimestamp = in.readLong();
-    if (in.readBoolean()) {
-      final byte[] commitMessage = new byte[in.readInt()];
-      in.read(commitMessage);
-      this.commitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
-    }
-    currentMaxLevelOfDocumentIndexIndirectPages = in.readByte() & 0xFF;
-    currentMaxLevelOfChangedNodesIndirectPages = in.readByte() & 0xFF;
-    currentMaxLevelOfRecordToRevisionsIndirectPages = in.readByte() & 0xFF;
+  RevisionRootPage(final Page delegate,final int revision, final Long maxNodeKeyInDocumentIndex,
+                   final Long maxNodeKeyInChangedNodesIndex, final Long maxNodeKeyInRecordToRevisionsIndex,
+                   final Long revisionTimestamp, final String commitMessage, final int currentMaxLevelOfDocumentIndexIndirectPages,
+                   final int currentMaxLevelOfChangedNodesIndirectPages, final int currentMaxLevelOfRecordToRevisionsIndirectPages,
+                    final User user) {
 
-    if (in.readBoolean()) {
-      user = new User(in.readUtf8(), UUID.fromString(in.readUtf8()));
-    } else {
-      user = null;
-    }
+    this.delegate = delegate;
+    this.revision = revision;
+    this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
+    this.maxNodeKeyInChangedNodesIndex = maxNodeKeyInChangedNodesIndex;
+    this.maxNodeKeyInRecordToRevisionsIndex = maxNodeKeyInRecordToRevisionsIndex;
+    this.revisionTimestamp = revisionTimestamp;
+    this.commitMessage = commitMessage;
+    this.currentMaxLevelOfDocumentIndexIndirectPages = currentMaxLevelOfDocumentIndexIndirectPages;
+    this.currentMaxLevelOfChangedNodesIndirectPages = currentMaxLevelOfChangedNodesIndirectPages;
+    this.currentMaxLevelOfRecordToRevisionsIndirectPages = currentMaxLevelOfRecordToRevisionsIndirectPages;
+    this.user = user;
   }
 
   /**
@@ -284,6 +295,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public PageReference getDeweyIdPageReference() {
     return getOrCreateReference(DEWEYID_REFERENCE_OFFSET);
+  }
+
+  /**
+   * Get commitMessage when is serialized page RevisionRootPage
+   *
+   * @return String commitMessage
+   */
+  public String getCommitMessage() {
+    return commitMessage;
   }
 
   /**
@@ -382,6 +402,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     }
   }
 
+  /***
+   * This value is used to serialize Page
+   * @return commitTimestamp
+   */
+
+  public Instant getCommitTimestamp() {
+    return commitTimestamp;
+  }
+
   public void setCommitTimestamp(final Instant revisionTimestamp) {
     checkNotNull(revisionTimestamp);
     final long revisionTimestampToSet = revisionTimestamp.toEpochMilli();
@@ -391,32 +420,6 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     this.commitTimestamp = revisionTimestamp;
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    revisionTimestamp = commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
-    delegate.serialize(pageReadOnlyTrx, out, type);
-    out.writeInt(revision);
-    out.writeLong(maxNodeKeyInDocumentIndex);
-    out.writeLong(maxNodeKeyInChangedNodesIndex);
-    out.writeLong(maxNodeKeyInRecordToRevisionsIndex);
-    out.writeLong(revisionTimestamp);
-    out.writeBoolean(commitMessage != null);
-    if (commitMessage != null) {
-      final byte[] commitMessage = this.commitMessage.getBytes(Constants.DEFAULT_ENCODING);
-      out.writeInt(commitMessage.length);
-      out.write(commitMessage);
-    }
-
-    out.writeByte((byte) currentMaxLevelOfDocumentIndexIndirectPages);
-    out.writeByte((byte) currentMaxLevelOfChangedNodesIndirectPages);
-    out.writeByte((byte) currentMaxLevelOfRecordToRevisionsIndirectPages);
-    final boolean hasUser = user != null;
-    out.writeBoolean(hasUser);
-    if (hasUser) {
-      out.writeUtf8(user.getName());
-      out.writeUtf8(user.getId().toString());
-    }
-  }
 
   public int getCurrentMaxLevelOfDocumentIndexIndirectPages() {
     return currentMaxLevelOfDocumentIndexIndirectPages;
