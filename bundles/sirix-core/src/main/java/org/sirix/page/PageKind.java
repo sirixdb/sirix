@@ -20,9 +20,15 @@
  */
 package org.sirix.page;
 
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 
 import java.nio.ByteBuffer;
@@ -177,18 +183,58 @@ public enum PageKind {
    * {@link CASPage}.
    */
   CASPAGE((byte) 8, CASPage.class) {
-    @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
-        final SerializationType type) {
-      return new CASPage(source, type);
+                                  final SerializationType type) {
+
+      //source, bytes to read
+      //type, kind of data
+      Page delegate = PageUtils.createDelegate(source, type);
+
+      final int  maxNodeKeySize = source.readInt();
+      Int2LongMap maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(maxNodeKeySize / 0.75));
+
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        maxNodeKeys.put(i, source.readLong());
+      }
+
+      final int currentMaxLevelOfIndirectPages = source.readInt();
+      Int2IntMap currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPages / 0.75));
+
+      for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+        currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
+      }
+
+      return new CASPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
-        final SerializationType type) {
+                       final SerializationType type) {
+
+      CASPage casPage = (CASPage) page;
+      Page delegate = casPage.delegate();
       sink.writeByte(CASPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+
+      if (delegate instanceof ReferencesPage4) {
+        sink.writeByte((byte) 0);
+      } else if (delegate instanceof BitmapReferencesPage) {
+        sink.writeByte((byte) 1);
+      }
+      delegate.serialize(pageReadTrx, sink, type);
+
+      final int  maxNodeKeySize =  casPage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(casPage.getMaxNodeKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPages = casPage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPages);
+      for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+        sink.writeByte((byte) casPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
     }
+
 
     @Override
     public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
