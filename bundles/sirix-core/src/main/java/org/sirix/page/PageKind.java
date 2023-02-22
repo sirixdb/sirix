@@ -25,15 +25,21 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
+import org.brackit.xquery.atomic.Str;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
+import org.sirix.access.User;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * All Page types.
@@ -140,14 +146,80 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      return new RevisionRootPage(source, type);
+
+      Page delegate = new BitmapReferencesPage(8, source, type);
+      final int revision = source.readInt();
+      final Long maxNodeKeyInDocumentIndex = source.readLong();
+      final Long maxNodeKeyInChangedNodesIndex = source.readLong();
+      final Long maxNodeKeyInRecordToRevisionsIndex = source.readLong();
+      final Long revisionTimestamp = source.readLong();
+      String commitMessage = null;
+      User user = null;
+      if (source.readBoolean()) {
+        final byte[] commitMessageBytes = new byte[source.readInt()];
+        source.read(commitMessageBytes);
+        commitMessage = new String(commitMessageBytes, Constants.DEFAULT_ENCODING);
+      }
+      final int currentMaxLevelOfDocumentIndexIndirectPages = source.readByte() & 0xFF;
+      final int currentMaxLevelOfChangedNodesIndirectPages = source.readByte() & 0xFF;
+      final int currentMaxLevelOfRecordToRevisionsIndirectPages = source.readByte() & 0xFF;
+
+      if (source.readBoolean()) {
+        user = new User(source.readUtf8(), UUID.fromString(source.readUtf8()));}
+
+      return new RevisionRootPage(delegate, revision, maxNodeKeyInDocumentIndex,
+                                  maxNodeKeyInChangedNodesIndex, maxNodeKeyInRecordToRevisionsIndex,
+                                revisionTimestamp, commitMessage,currentMaxLevelOfDocumentIndexIndirectPages,
+                                 currentMaxLevelOfChangedNodesIndirectPages,
+                                currentMaxLevelOfRecordToRevisionsIndirectPages, user);
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
         final SerializationType type) {
+
+      RevisionRootPage revisionRootPage = (RevisionRootPage) page;
+      Page delegate = revisionRootPage.delegate();
       sink.writeByte(REVISIONROOTPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+
+      //initial variables from RevisionRootPage, to serialize
+      final Long revisionTimestamp;
+      final Instant commitTimestamp = revisionRootPage.getCommitTimestamp();
+      final int revision = revisionRootPage.getRevision();
+      final Long maxNodeKeyInDocumentIndex = revisionRootPage.getMaxNodeKeyInDocumentIndex();
+      final Long maxNodeKeyInChangedNodesIndex = revisionRootPage.getMaxNodeKeyInChangedNodesIndex();
+      final Long maxNodeKeyInRecordToRevisionsIndex = revisionRootPage.getMaxNodeKeyInRecordToRevisionsIndex();
+      final String commitMessage = revisionRootPage.getCommitMessage();
+      final int currentMaxLevelOfDocumentIndexIndirectPages = revisionRootPage.getCurrentMaxLevelOfDocumentIndexIndirectPages();
+      final int currentMaxLevelOfChangedNodesIndirectPages = revisionRootPage.getCurrentMaxLevelOfChangedNodesIndexIndirectPages();
+      final int currentMaxLevelOfRecordToRevisionsIndirectPages = revisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
+
+      revisionTimestamp = commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
+
+      delegate.serialize(pageReadTrx, sink, type);
+      sink.writeInt(revision);
+      sink.writeLong(maxNodeKeyInDocumentIndex);
+      sink.writeLong(maxNodeKeyInChangedNodesIndex);
+      sink.writeLong(maxNodeKeyInRecordToRevisionsIndex);
+      sink.writeLong(revisionTimestamp);
+
+      sink.writeBoolean(commitMessage != null);
+      if (commitMessage != null) {
+        final byte[] commitMessageBytes = commitMessage.getBytes(Constants.DEFAULT_ENCODING);
+        sink.writeInt(commitMessageBytes.length);
+        sink.write(commitMessageBytes);
+      }
+
+      sink.writeByte((byte) currentMaxLevelOfDocumentIndexIndirectPages);
+      sink.writeByte((byte) currentMaxLevelOfChangedNodesIndirectPages);
+      sink.writeByte((byte) currentMaxLevelOfRecordToRevisionsIndirectPages);
+
+      final boolean hasUser = revisionRootPage.getUser() != null;
+      sink.writeBoolean(hasUser);
+      if (hasUser) {
+        sink.writeUtf8(revisionRootPage.getUser().get().getName());
+        sink.writeUtf8(revisionRootPage.getUser().get().getId().toString());
+      }
     }
 
     @Override
