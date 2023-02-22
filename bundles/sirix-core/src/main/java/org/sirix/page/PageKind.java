@@ -163,14 +163,44 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final @NonNull SerializationType type) {
-      return new PathSummaryPage(source, type);
+      Page delegate = PageUtils.createDelegate(source, type);
+
+      final int maxNodeKeysSize = source.readInt();
+      Int2LongMap maxNodeKeys = new Int2LongOpenHashMap(maxNodeKeysSize);
+      for (int i = 0; i < maxNodeKeysSize; i++) {
+        maxNodeKeys.put(i, source.readLong());
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = source.readInt();
+      Int2IntMap currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
+      }
+      return new PathSummaryPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
         final @NonNull SerializationType type) {
+
+      PathSummaryPage pathSummaryPage = (PathSummaryPage) page;
+      Page delegate = pathSummaryPage.delegate();
       sink.writeByte(PATHSUMMARYPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+
+      sink.writeByte((byte) 0);
+      delegate.serialize(pageReadTrx, sink, type);
+
+      final int  maxNodeKeySize =  pathSummaryPage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(pathSummaryPage.getMaxNodeKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = pathSummaryPage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        sink.writeByte((byte) pathSummaryPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
     }
 
     @Override
@@ -197,10 +227,10 @@ public enum PageKind {
         maxNodeKeys.put(i, source.readLong());
       }
 
-      final int currentMaxLevelOfIndirectPages = source.readInt();
-      Int2IntMap currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPages / 0.75));
+      final int currentMaxLevelOfIndirectPagesSize = source.readInt();
+      Int2IntMap currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPagesSize / 0.75));
 
-      for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
       }
 
@@ -228,9 +258,9 @@ public enum PageKind {
         sink.writeLong(casPage.getMaxNodeKey(i));
       }
 
-      final int currentMaxLevelOfIndirectPages = casPage.getCurrentMaxLevelOfIndirectPagesSize();
-      sink.writeInt(currentMaxLevelOfIndirectPages);
-      for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      final int currentMaxLevelOfIndirectPagesSize = casPage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) casPage.getCurrentMaxLevelOfIndirectPages(i));
       }
     }
