@@ -26,7 +26,7 @@ import com.google.gson.stream.JsonToken;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.jdm.Item;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;

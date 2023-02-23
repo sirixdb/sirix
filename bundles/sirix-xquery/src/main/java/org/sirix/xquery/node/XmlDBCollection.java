@@ -1,15 +1,17 @@
 package org.sirix.xquery.node;
 
 import com.google.common.base.Preconditions;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.node.AbstractTemporalNode;
+import org.brackit.xquery.jdm.node.TemporalNodeCollection;
 import org.brackit.xquery.node.AbstractNodeCollection;
 import org.brackit.xquery.node.parser.CollectionParser;
-import org.brackit.xquery.node.parser.SubtreeHandler;
-import org.brackit.xquery.node.parser.SubtreeParser;
+import org.brackit.xquery.node.parser.NodeSubtreeHandler;
+import org.brackit.xquery.node.parser.NodeSubtreeParser;
 import org.brackit.xquery.node.stream.ArrayStream;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.node.AbstractTemporalNode;
-import org.brackit.xquery.xdm.node.TemporalNodeCollection;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
@@ -23,16 +25,9 @@ import org.sirix.service.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -227,7 +222,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     return new XmlDBNode(rtx, this);
   }
 
-  public XmlDBNode add(final String resourceName, SubtreeParser parser) {
+  public XmlDBNode add(final String resourceName, NodeSubtreeParser parser) {
     try {
       return createResource(parser, resourceName, null, null);
     } catch (final SirixException e) {
@@ -236,7 +231,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
   }
 
-  public XmlDBNode add(final String resourceName, final SubtreeParser parser, final String commitMessage,
+  public XmlDBNode add(final String resourceName, final NodeSubtreeParser parser, final String commitMessage,
       final Instant commitTimestamp) {
     try {
       return createResource(parser, resourceName, commitMessage, commitTimestamp);
@@ -247,7 +242,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   @Override
-  public XmlDBNode add(SubtreeParser parser) throws DocumentException {
+  public XmlDBNode add(NodeSubtreeParser parser) throws DocumentException {
     try {
       final String resourceName = "resource" + (database.listResources().size() + 1);
       return createResource(parser, resourceName, null, null);
@@ -257,7 +252,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
   }
 
-  private XmlDBNode createResource(SubtreeParser parser, final String resourceName, final String commitMessage,
+  private XmlDBNode createResource(NodeSubtreeParser parser, final String resourceName, final String commitMessage,
       final Instant commitTimestamp) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .useDeweyIDs(true)
@@ -269,7 +264,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx = resource.beginNodeTrx();
 
-    final SubtreeHandler handler =
+    final NodeSubtreeHandler handler =
         new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
     // Make sure the CollectionParser is used.
@@ -286,20 +281,6 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     instantDocumentDataToXmlDBNodes.put(new InstantDocumentData(resourceName, wtx.getRevisionTimestamp()), xmlDBNode);
     return xmlDBNode;
   }
-
-  //  public XmlDBNode add(final String resourceName, final XMLEventReader reader) {
-  //    try {
-  //      database.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
-  //      final XmlResourceManager resource = database.openResourceManager(resourceName);
-  //      final XmlNodeTrx wtx = resource.beginNodeTrx();
-  //      wtx.insertSubtreeAsFirstChild(reader);
-  //      wtx.moveToDocumentRoot();
-  //      return new XmlDBNode(wtx, this);
-  //    } catch (final SirixException e) {
-  //      LOGGER.error(e.getMessage(), e);
-  //      return null;
-  //    }
-  //  }
 
   @Override
   public void close() {
@@ -345,63 +326,9 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     return new ArrayStream<>(documents.toArray(new XmlDBNode[0]));
   }
 
-  private static final class DocumentData {
-    final String name;
-
-    final int revision;
-
-    DocumentData(String name, int revision) {
-      this.name = name;
-      this.revision = revision;
-    }
-
-    @Override
-    public boolean equals(Object other) {
-      if (this == other)
-        return true;
-      if (other == null || getClass() != other.getClass())
-        return false;
-      DocumentData that = (DocumentData) other;
-      return revision == that.revision && name.equals(that.name);
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(name, revision);
-    }
-
-    public String getName() {
-      return name;
-    }
-
-    public int getRevision() {
-      return revision;
-    }
+  private record DocumentData(String name, int revision) {
   }
 
-  private static final class InstantDocumentData {
-    final String name;
-
-    final Instant revision;
-
-    InstantDocumentData(String name, Instant revision) {
-      this.name = name;
-      this.revision = revision;
-    }
-
-    @Override
-    public boolean equals(Object other) {
-      if (this == other)
-        return true;
-      if (other == null || getClass() != other.getClass())
-        return false;
-      InstantDocumentData that = (InstantDocumentData) other;
-      return revision.equals(that.revision) && name.equals(that.name);
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(name, revision);
-    }
+  private record InstantDocumentData(String name, Instant revision) {
   }
 }

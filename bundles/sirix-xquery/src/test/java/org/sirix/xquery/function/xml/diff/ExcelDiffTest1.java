@@ -1,29 +1,17 @@
 package org.sirix.xquery.function.xml.diff;
 
-import static java.util.stream.Collectors.toList;
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.function.Predicate;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.jdm.Iter;
+import org.brackit.xquery.jdm.Sequence;
 import org.brackit.xquery.util.serialize.StringSerializer;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
 import org.custommonkey.xmlunit.XMLUnit;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -32,16 +20,26 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.service.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import junit.framework.TestCase;
 
-public final class ExcelDiffTest1 extends TestCase {
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.function.Predicate;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public final class ExcelDiffTest1 {
 
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
@@ -52,14 +50,12 @@ public final class ExcelDiffTest1 extends TestCase {
     XMLUnit.setIgnoreWhitespace(true);
   }
 
-  @Override
-  @Before
+  @BeforeEach
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
   }
 
-  @Override
-  @After
+  @AfterEach
   public void tearDown() throws SirixException, IOException {
     XmlTestHelper.closeEverything();
   }
@@ -79,23 +75,16 @@ public final class ExcelDiffTest1 extends TestCase {
     try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile())) {
       XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
-
-      // Sort files list according to file names.
-      list.sort((first, second) -> {
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted((first, second) -> {
         final String firstName =
             first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
         final String secondName =
             second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
-        if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-          return -1;
-        } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-          return +1;
-        } else {
-          return 0;
-        }
-      });
+        return Integer.compare(Integer.parseInt(firstName), Integer.parseInt(secondName));
+      }).toList();
+
+      // Sort files list according to file names.
 
       boolean first = true;
 
@@ -142,7 +131,6 @@ public final class ExcelDiffTest1 extends TestCase {
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);
-          @SuppressWarnings("unchecked")
           final List<Difference> differences = detDiff.getAllDifferences();
           for (final Difference difference : differences) {
             System.err.println("***********************");
@@ -150,8 +138,8 @@ public final class ExcelDiffTest1 extends TestCase {
             System.err.println("***********************");
           }
 
-          assertTrue("pieces of XML are similar " + diff, diff.similar());
-          assertTrue("but are they identical? " + diff, diff.identical());
+          assertTrue(diff.similar(), "pieces of XML are similar " + diff);
+          assertTrue(diff.identical(), "but are they identical? " + diff);
         }
       }
 
@@ -182,15 +170,12 @@ public final class ExcelDiffTest1 extends TestCase {
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
-        final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final String content = out.toString(StandardCharsets.UTF_8);
         out.reset();
 
-        final var buffer = new StringBuilder();
-        buffer.append("declare namespace x14ac = \"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\";");
-        buffer.append("\n");
-        buffer.append(content);
-
-        final var contentToApply = buffer.toString();
+        final var contentToApply =
+            "declare namespace x14ac = \"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\";" + "\n"
+                + content;
 
         System.out.println(contentToApply);
 
@@ -198,12 +183,12 @@ public final class ExcelDiffTest1 extends TestCase {
 
         final String xq2 = "xml:doc('" + dbName + "','" + resName + "',2)";
         new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
-        final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final String contentNewRev = out.toString(StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "xml:doc('" + dbName + "','" + resName + "',3)";
         new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
-        final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        final String contentOldRev = out.toString(StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);
 

@@ -1,11 +1,11 @@
 package org.sirix.access.trx.node;
 
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.node.Node;
 import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.util.path.PathException;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.node.Node;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.*;

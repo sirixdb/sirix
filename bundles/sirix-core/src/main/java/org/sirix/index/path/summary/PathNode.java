@@ -48,7 +48,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * The node name.
    */
-  private final QNm name;
+  private QNm name;
 
   /**
    * Number of references to this path node.
@@ -319,5 +319,9 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   public PathNode getRightSibling() {
     return rightSibling;
+  }
+
+  public void setName(QNm qNm) {
+    name = qNm;
   }
 }

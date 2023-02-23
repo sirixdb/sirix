@@ -1,12 +1,13 @@
 package org.sirix.xquery.node;
 
-import java.util.ArrayList;
-import java.util.List;
-import org.brackit.xquery.node.parser.SubtreeListener;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.node.Node;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.node.Node;
+import org.brackit.xquery.node.parser.NodeSubtreeListener;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * SubtreeProcessor which notifies a list of listeners.
@@ -21,19 +22,17 @@ public class SubtreeProcessor<E extends Node<E>> {
       new LogWrapper(LoggerFactory.getLogger(SubtreeProcessor.class));
 
   /** Observers. */
-  private final List<SubtreeListener<? super E>> mListeners;
+  private final List<NodeSubtreeListener<? super E>> listeners;
 
   /**
    * Constructor.
    * 
    * @param listeners list of listeners/observers
    */
-  public SubtreeProcessor(final List<SubtreeListener<? super E>> listeners) {
-    mListeners = new ArrayList<SubtreeListener<? super E>>();
+  public SubtreeProcessor(final List<NodeSubtreeListener<? super E>> listeners) {
+    this.listeners = new ArrayList<>();
     if (listeners != null) {
-      for (final SubtreeListener<? super E> listener : listeners) {
-        mListeners.add(listener);
-      }
+      this.listeners.addAll(listeners);
     }
   }
 
@@ -43,7 +42,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyBegin() throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.begin();
     }
   }
@@ -54,7 +53,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyEnd() throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.end();
     }
   }
@@ -65,7 +64,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyBeginDocument() throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.startDocument();
     }
   }
@@ -76,7 +75,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyEndDocument() throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.endDocument();
     }
   }
@@ -87,7 +86,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyBeginFragment() throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.beginFragment();
     }
   }
@@ -98,7 +97,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyEndFragment() throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.endFragment();
     }
   }
@@ -107,7 +106,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * Notify a failure.
    */
   public void notifyFail() {
-    for (final SubtreeListener<? super E> listener : mListeners) {
+    for (final NodeSubtreeListener<? super E> listener : listeners) {
       try {
         listener.fail();
       } catch (final DocumentException e) {
@@ -123,7 +122,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyStartElement(final E node) throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.startElement(node);
     }
   }
@@ -135,7 +134,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyEndElement(final E node) throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.endElement(node);
     }
   }
@@ -147,7 +146,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyAttribute(final E node) throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.attribute(node);
     }
   }
@@ -159,7 +158,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyText(final E node) throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.text(node);
     }
   }
@@ -171,7 +170,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyComment(final E node) throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.comment(node);
     }
   }
@@ -183,7 +182,7 @@ public class SubtreeProcessor<E extends Node<E>> {
    * @throws DocumentException if anything went wrong
    */
   public void notifyProcessingInstruction(final E node) throws DocumentException {
-    for (SubtreeListener<? super E> listener : mListeners) {
+    for (NodeSubtreeListener<? super E> listener : listeners) {
       listener.processingInstruction(node);
     }
   }

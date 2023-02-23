@@ -36,7 +36,6 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import java.math.BigInteger;
 import java.time.Instant;
 import java.util.*;
 
@@ -329,13 +328,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return a set of PCRs matching the specified collection of paths
    * @throws SirixException if parsing a path fails
    */
-  public Set<Long> getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache)
+  public LongSet getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache)
       throws PathException {
     assertNotClosed();
-    final Set<Long> pcrs = new HashSet<>();
+    final LongSet pcrs = new LongOpenHashSet();
     for (final Path<QNm> path : expressions) {
-      final Set<Long> pcrsForPath = getPCRsForPath(path, useCache);
-      pcrs.addAll(pcrsForPath);
+      pcrs.addAll(getPCRsForPath(path, useCache));
     }
     return pcrs;
   }
@@ -577,6 +575,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public QNm getName() {
     assertNotClosed();
     if (currentNode instanceof NameNode nameNode) {
+      if (nameNode.getName() != null) {
+        return nameNode.getName();
+      }
       final int uriKey = nameNode.getURIKey();
       final String uri = uriKey == -1 || pageReadTrx.getResourceSession() instanceof JsonResourceSession
           ? ""
@@ -587,7 +588,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final int localNameKey = nameNode.getLocalNameKey();
       final String localName =
           localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
-      return new QNm(uri, prefix, localName);
+      final var qNm = new QNm(uri, prefix, localName);
+      if (nameNode instanceof PathNode pathNode) {
+        pathNode.setName(qNm);
+      }
+      return qNm;
     } else {
       return null;
     }

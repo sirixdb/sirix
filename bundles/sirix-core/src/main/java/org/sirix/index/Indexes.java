@@ -1,21 +1,21 @@
 package org.sirix.index;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.Type;
+import org.brackit.xquery.jdm.node.Node;
+import org.brackit.xquery.node.parser.FragmentHelper;
+import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathException;
+import org.checkerframework.checker.index.qual.NonNegative;
+
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
-import org.brackit.xquery.atomic.Str;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.node.parser.FragmentHelper;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.Type;
-import org.brackit.xquery.xdm.node.Node;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Karsten Schmidt
@@ -52,28 +52,24 @@ public final class Indexes implements Materializable {
       throw new DocumentException("Expected tag '%s' but found '%s'", INDEXES_TAG, name);
     }
 
-    final Stream<? extends Node<?>> children = root.getChildren();
-
-    try {
+    try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {
         QNm childName = child.getName();
 
         if (!childName.equals(IndexDef.INDEX_TAG)) {
-          throw new DocumentException("Expected tag '%s' but found '%s'", IndexDef.INDEX_TAG,
-              childName);
+          throw new DocumentException("Expected tag '%s' but found '%s'", IndexDef.INDEX_TAG, childName);
         }
 
         final Node<?> dbTypeAttrNode = child.getAttribute(new QNm("dbType"));
 
         final var dbType = IndexDef.DbType.ofString(dbTypeAttrNode.atomize().asStr().toString());
 
-        final IndexDef indexDefinition = new IndexDef(dbType.orElseThrow(() -> new DocumentException("DB type not found.")));
+        final IndexDef indexDefinition =
+            new IndexDef(dbType.orElseThrow(() -> new DocumentException("DB type not found.")));
         indexDefinition.init(child);
         indexes.add(indexDefinition);
       }
-    } finally {
-      children.close();
     }
   }
 

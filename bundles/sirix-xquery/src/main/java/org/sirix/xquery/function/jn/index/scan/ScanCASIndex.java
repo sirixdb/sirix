@@ -8,15 +8,15 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.function.json.JSONFun;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Signature;
+import org.brackit.xquery.jdm.Type;
+import org.brackit.xquery.jdm.type.AnyJsonItemType;
+import org.brackit.xquery.jdm.type.AtomicType;
+import org.brackit.xquery.jdm.type.Cardinality;
+import org.brackit.xquery.jdm.type.SequenceType;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Type;
-import org.brackit.xquery.xdm.type.AnyJsonItemType;
-import org.brackit.xquery.xdm.type.AtomicType;
-import org.brackit.xquery.xdm.type.Cardinality;
-import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.trx.node.json.JsonIndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
@@ -97,27 +97,16 @@ public final class ScanCASIndex extends AbstractScanIndex {
     final int[] searchModes = new int[] { -2, -1, 0, 1, 2 };
     final int searchMode = FunUtil.getInt(args, 3, "$search-mode", 0, searchModes, true);
 
-    final SearchMode mode;
-    switch (searchMode) {
-      case -2:
-        mode = SearchMode.LOWER;
-        break;
-      case -1:
-        mode = SearchMode.LOWER_OR_EQUAL;
-        break;
-      case 0:
-        mode = SearchMode.EQUAL;
-        break;
-      case 1:
-        mode = SearchMode.GREATER;
-        break;
-      case 2:
-        mode = SearchMode.GREATER_OR_EQUAL;
-        break;
-      default:
+    final SearchMode mode = switch (searchMode) {
+      case -2 -> SearchMode.LOWER;
+      case -1 -> SearchMode.LOWER_OR_EQUAL;
+      case 0 -> SearchMode.EQUAL;
+      case 1 -> SearchMode.GREATER;
+      case 2 -> SearchMode.GREATER_OR_EQUAL;
+      default ->
         // May never happen.
-        mode = SearchMode.EQUAL;
-    }
+          SearchMode.EQUAL;
+    };
 
     final String paths = FunUtil.getString(args, 4, "$paths", null, null, false);
     final CASFilter filter = (paths != null)
