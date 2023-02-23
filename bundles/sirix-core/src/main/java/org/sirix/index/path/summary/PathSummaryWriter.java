@@ -296,6 +296,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
           pathNode.setPrefixKey(prefixKey);
           pathNode.setLocalNameKey(localNameKey);
           pathNode.setURIKey(uriKey);
+          pathNode.setName(name);
           pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
           pathSummaryReader.putQNameMapping(pathNode, name);
         }
@@ -446,6 +447,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     currNode.setLocalNameKey(localNameKey);
     currNode.setPrefixKey(prefixKey);
     currNode.setURIKey(uriKey);
+    currNode.setName(name);
     pathSummaryReader.putMapping(currNode.getNodeKey(), currNode);
     pathSummaryReader.putQNameMapping(currNode, name);
 
