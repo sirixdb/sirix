@@ -70,6 +70,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   private PathNode rightSibling;
 
+  private Path<QNm> path;
+
   /**
    * Constructor.
    *
@@ -101,6 +103,10 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @return path up to the root
    */
   public Path<QNm> getPath(final PathSummaryReader reader) {
+    if (path != null) {
+      return path;
+    }
+
     PathNode node = this;
     final long nodeKey = reader.getNodeKey();
     reader.moveTo(node.getNodeKey());
@@ -130,6 +136,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
       }
     }
     reader.moveTo(nodeKey);
+    this.path = path;
     return path;
   }
 
