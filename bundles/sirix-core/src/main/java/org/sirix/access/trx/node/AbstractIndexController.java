@@ -2,10 +2,10 @@ package org.sirix.access.trx.node;
 
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.jdm.DocumentException;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.util.serialize.SubtreePrinter;
-import org.brackit.xquery.xdm.DocumentException;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.*;
 import org.sirix.exception.SirixRuntimeException;

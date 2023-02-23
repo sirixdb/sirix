@@ -27,9 +27,10 @@
  */
 package org.sirix.xquery.node;
 
-import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.node.NodeStore;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.node.NodeStore;
+import org.brackit.xquery.node.parser.NodeSubtreeParser;
+
 import java.time.Instant;
 
 /**
@@ -45,16 +46,16 @@ public interface XmlDBStore extends NodeStore, AutoCloseable {
   XmlDBCollection create(String name);
 
   @Override
-  XmlDBCollection create(String collName, SubtreeParser parser);
+  XmlDBCollection create(String collName, NodeSubtreeParser parser);
 
-  XmlDBCollection create(String collName, SubtreeParser parser, String commitMessage, Instant commitTimestamp);
+  XmlDBCollection create(String collName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
 
-  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser);
+  XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser);
 
-  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser, String commitMessage, Instant commitTimestamp);
+  XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
 
   @Override
-  XmlDBCollection create(String collName, Stream<SubtreeParser> parsers);
+  XmlDBCollection create(String collName, Stream<NodeSubtreeParser> parsers);
 
   @Override
   void drop(String name);

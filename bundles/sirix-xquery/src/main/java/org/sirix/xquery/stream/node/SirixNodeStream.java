@@ -1,8 +1,8 @@
 package org.sirix.xquery.stream.node;
 
 import com.google.common.base.MoreObjects;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
 import org.sirix.xquery.node.XmlDBCollection;

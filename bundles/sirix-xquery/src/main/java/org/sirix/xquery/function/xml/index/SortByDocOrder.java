@@ -1,22 +1,23 @@
 package org.sirix.xquery.function.xml.index;
 
-import java.util.Comparator;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.Tuple;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Signature;
+import org.brackit.xquery.jdm.node.Node;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.SortedNodeSequence;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.node.Node;
 import org.sirix.xquery.function.xml.XMLFun;
+
+import java.util.Comparator;
 
 /**
  * <p>
  * Function for sorting a sequence. This function returns the given sequence in sorted order
  * regarding the document order.
- *
+ * </p>
  * The signature is:
  * </p>
  * <ul>

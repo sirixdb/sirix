@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2023, Sirix Contributors
  *
  * All rights reserved.
  *
@@ -27,24 +27,25 @@
  */
 package org.sirix.xquery;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.brackit.xquery.ErrorCode;
+import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.jdm.Item;
+import org.brackit.xquery.jdm.Iter;
+import org.brackit.xquery.jdm.Kind;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.util.serialize.Serializer;
+import org.brackit.xquery.util.serialize.StringSerializer;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.xquery.node.XmlDBNode;
+
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.brackit.xquery.ErrorCode;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.util.serialize.Serializer;
-import org.brackit.xquery.util.serialize.StringSerializer;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.Sequence;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.service.xml.serialize.XmlSerializer;
-import org.sirix.xquery.node.XmlDBNode;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -82,14 +83,11 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
         }
       }
 
-      Iter it = sequence.iterate();
-
-      boolean first = true;
-      Item item;
-      try {
+      try (Iter it = sequence.iterate()) {
+        boolean first = true;
+        Item item;
         while ((item = it.next()) != null) {
-          if (item instanceof XmlDBNode) {
-            final XmlDBNode node = (XmlDBNode) item;
+          if (item instanceof final XmlDBNode node) {
             trxSet.add(node.getTrx());
             final Kind kind = node.getKind();
 
@@ -100,8 +98,10 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
             final OutputStream pos = new PrintStream(out);
 
             XmlSerializer.XmlSerializerBuilder serializerBuilder =
-                new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceSession(), pos,
-                                                       node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
+                new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceSession(),
+                                                       pos,
+                                                       node.getTrx().getRevisionNumber()).serializeTimestamp(true)
+                                                                                         .isXQueryResultSequence();
             if (emitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (prettyPrint)
@@ -121,8 +121,6 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
             new StringSerializer(out).serialize(item);
           }
         }
-      } finally {
-        it.close();
       }
     }
   }

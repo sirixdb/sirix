@@ -1,22 +1,23 @@
 package org.sirix.index;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.atomic.Una;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.Type;
+import org.brackit.xquery.jdm.node.Node;
+import org.brackit.xquery.module.Namespaces;
+import org.brackit.xquery.node.parser.FragmentHelper;
+import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathParser;
+import org.brackit.xquery.util.serialize.SubtreePrinter;
+import org.checkerframework.checker.nullness.qual.Nullable;
+
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.*;
 
-import org.brackit.xquery.util.path.PathParser;
-import org.checkerframework.checker.nullness.qual.Nullable;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Una;
-import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.node.parser.FragmentHelper;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.serialize.SubtreePrinter;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.Type;
-import org.brackit.xquery.xdm.node.Node;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class IndexDef implements Materializable {
   private static final QNm DB_TYPE_ATTRIBUTE = new QNm("dbType");

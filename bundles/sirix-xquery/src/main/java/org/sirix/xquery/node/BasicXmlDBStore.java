@@ -1,8 +1,8 @@
 package org.sirix.xquery.node;
 
-import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.node.parser.NodeSubtreeParser;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -300,28 +300,28 @@ public final class BasicXmlDBStore implements XmlDBStore {
   }
 
   @Override
-  public XmlDBCollection create(final String collName, final SubtreeParser parser) {
+  public XmlDBCollection create(final String collName, final NodeSubtreeParser parser) {
     return createCollection(collName, null, parser, null, null);
   }
 
   @Override
-  public XmlDBCollection create(final String collName, final SubtreeParser parser, final String commitMessage,
+  public XmlDBCollection create(final String collName, final NodeSubtreeParser parser, final String commitMessage,
       final Instant commitTimestamp) {
     return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 
   @Override
-  public XmlDBCollection create(final String collName, final String optResName, final SubtreeParser parser) {
+  public XmlDBCollection create(final String collName, final String optResName, final NodeSubtreeParser parser) {
     return createCollection(collName, null, parser, null, null);
   }
 
   @Override
-  public XmlDBCollection create(final String collName, final String optResName, final SubtreeParser parser,
+  public XmlDBCollection create(final String collName, final String optResName, final NodeSubtreeParser parser,
       final String commitMessage, final Instant commitTimestamp) {
     return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 
-  private XmlDBCollection createCollection(final String collName, final String optResName, final SubtreeParser parser,
+  private XmlDBCollection createCollection(final String collName, final String optResName, final NodeSubtreeParser parser,
       final String commitMessage, final Instant commitTimestamp) {
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
@@ -355,7 +355,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   }
 
   @Override
-  public XmlDBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers) {
+  public XmlDBCollection create(final String collName, final @Nullable Stream<NodeSubtreeParser> parsers) {
     if (parsers != null) {
       final Path dbPath = location.resolve(collName);
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
@@ -366,9 +366,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
         databases.add(database);
         int i = database.listResources().size() + 1;
         try (parsers) {
-          SubtreeParser parser;
+          NodeSubtreeParser parser;
           while ((parser = parsers.next()) != null) {
-            final SubtreeParser nextParser = parser;
+            final NodeSubtreeParser nextParser = parser;
             final String resourceName = "resource" + i;
             pool.submit(() -> {
               database.createResource(ResourceConfiguration.newBuilder(resourceName)

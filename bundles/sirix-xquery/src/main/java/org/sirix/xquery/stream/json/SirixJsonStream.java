@@ -1,8 +1,8 @@
 package org.sirix.xquery.stream.json;
 
 import com.google.common.base.MoreObjects;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.jdm.Item;
+import org.brackit.xquery.jdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
 import org.sirix.xquery.json.JsonDBCollection;
