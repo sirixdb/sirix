@@ -640,6 +640,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public RevisionRootPage getActualRevisionRootPage() {
+    pageRtx.assertNotClosed();
     return newRevisionRootPage;
   }
 

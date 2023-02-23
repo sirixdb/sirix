@@ -575,9 +575,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public QNm getName() {
     assertNotClosed();
     if (currentNode instanceof NameNode nameNode) {
-      if (nameNode.getName() != null) {
-        return nameNode.getName();
-      }
+//      if (nameNode.getName() != null) {
+//        return nameNode.getName();
+//      }
       final int uriKey = nameNode.getURIKey();
       final String uri = uriKey == -1 || pageReadTrx.getResourceSession() instanceof JsonResourceSession
           ? ""

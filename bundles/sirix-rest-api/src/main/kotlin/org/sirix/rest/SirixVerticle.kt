@@ -56,7 +56,7 @@ class SirixVerticle : CoroutineVerticle() {
                     .setSsl(false)
             )
 
-            listen(server, router, 8000)
+            listen(server, router, config.getInteger("port"))
         } else {
             val server = vertx.createHttpServer(
                 httpServerOptionsOf()
@@ -70,7 +70,7 @@ class SirixVerticle : CoroutineVerticle() {
                     )
             )
 
-            listen(server, router, 9443)
+            listen(server, router, config.getInteger("port"))
         }
     }
 
