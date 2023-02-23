@@ -1397,14 +1397,14 @@ final class XmlNodeTrxImpl extends
     if (getCurrentNode() instanceof ImmutableNameNode node) {
       indexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
-      final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
+      final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
       page.removeName(node.getPrefixKey(), nodeKind, pageTrx);
       page.removeName(node.getLocalNameKey(), nodeKind, pageTrx);
       page.removeName(node.getURIKey(), NodeKind.NAMESPACE, pageTrx);
 
       assert nodeKind != NodeKind.XML_DOCUMENT;
       if (buildPathSummary) {
-        pathSummaryWriter.remove(node, nodeKind, page);
+        pathSummaryWriter.remove(node);
       }
     }
   }
