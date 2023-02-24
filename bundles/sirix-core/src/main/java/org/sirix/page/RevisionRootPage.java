@@ -22,7 +22,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.Bytes;
+
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
@@ -36,10 +36,10 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
+
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
+
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
