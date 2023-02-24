@@ -22,10 +22,8 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
-import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -33,7 +31,6 @@ import org.sirix.index.IndexType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
@@ -65,15 +62,27 @@ public final class UberPage implements Page {
     isBootstrap = true;
   }
 
+//  /**
+//   * Read uber page.
+//   *
+//   * @param in
+//   */
+//  UberPage(final Bytes<?> in) {
+//    revisionCount = in.readInt();
+//    isBootstrap = false;
+//    rootPage = null;
+//  }
   /**
-   * Read uber page.
+   * Read uber page deserialized.
    *
-   * @param in input bytes
+   * @param revisionCount Number of revisions.
+   * @param  isBootstrap {@code true} if this uber page is the uber
+   *         page of a fresh sirix file, {@code false} otherwise.
    */
-  UberPage(final Bytes<?> in) {
-    revisionCount = in.readInt();
-    isBootstrap = false;
-    rootPage = null;
+  UberPage(final int revisionCount, final boolean isBootstrap){
+    this.revisionCount = revisionCount;
+    this.isBootstrap = isBootstrap;
+    this.rootPage = null;
   }
 
   /**
@@ -120,12 +129,16 @@ public final class UberPage implements Page {
     return isBootstrap;
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-      final SerializationType type) {
-    out.writeInt(revisionCount);
-    isBootstrap = false;
+  public void setBootstrap(boolean bootstrap) {
+    isBootstrap = bootstrap;
   }
+
+//  @Override
+//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+//      final SerializationType type) {
+//    out.writeInt(revisionCount);
+//    isBootstrap = false;
+//  }
 
   @Override
   public List<PageReference> getReferences() {

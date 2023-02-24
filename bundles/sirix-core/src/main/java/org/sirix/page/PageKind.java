@@ -297,14 +297,22 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      return new UberPage(source);
+
+      final int revisionCount = source.readInt();
+      final boolean isBootstrap = false;
+
+      return new UberPage(revisionCount, isBootstrap);
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
         final SerializationType type) {
+
+      UberPage uberPage = (UberPage) page;
+
       sink.writeByte(UBERPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+      sink.writeInt(uberPage.getRevisionCount());
+      uberPage.setBootstrap(false);
     }
 
     @Override
