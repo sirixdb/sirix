@@ -5,7 +5,6 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
@@ -15,8 +14,6 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-
-import java.nio.ByteBuffer;
 
 /**
  * Page to hold references to a content and value summary.
@@ -112,26 +109,26 @@ public final class CASPage extends AbstractForwardingPage {
       currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
     }
   }
-
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    if (delegate instanceof ReferencesPage4) {
-      out.writeByte((byte) 0);
-    } else if (delegate instanceof BitmapReferencesPage) {
-      out.writeByte((byte) 1);
-    }
-    super.serialize(pageReadOnlyTrx, out, type);
-    final int maxNodeKeySize = maxNodeKeys.size();
-    out.writeInt(maxNodeKeySize);
-    for (int i = 0; i < maxNodeKeySize; i++) {
-      out.writeLong(maxNodeKeys.get(i));
-    }
-    final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
-    out.writeInt(currentMaxLevelOfIndirectPages);
-    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte((byte) currentMaxLevelsOfIndirectPages.get(i));
-    }
-  }
+//
+//  @Override
+//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
+//    if (delegate instanceof ReferencesPage4) {
+//      out.writeByte((byte) 0);
+//    } else if (delegate instanceof BitmapReferencesPage) {
+//      out.writeByte((byte) 1);
+//    }
+//    super.serialize(pageReadOnlyTrx, out, type);
+//    final int maxNodeKeySize = maxNodeKeys.size();
+//    out.writeInt(maxNodeKeySize);
+//    for (int i = 0; i < maxNodeKeySize; i++) {
+//      out.writeLong(maxNodeKeys.get(i));
+//    }
+//    final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
+//    out.writeInt(currentMaxLevelOfIndirectPages);
+//    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+//      out.writeByte((byte) currentMaxLevelsOfIndirectPages.get(i));
+//    }
+//  }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
     return currentMaxLevelsOfIndirectPages.get(index);
