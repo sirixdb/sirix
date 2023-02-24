@@ -237,7 +237,13 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     for (final int pathNodeKey : pathNodeKeys) {
       final var foundPathNode = pathSummary.getPathNodeForPathNodeKey(pathNodeKey);
       assert foundPathNode != null;
-      final var pathToFoundNode = foundPathNode.getPath(pathSummary);
+      pathSummary.moveTo(pathNodeKey);
+      var pathToFoundNode = foundPathNode.getPath();
+
+      if (pathToFoundNode == null) {
+        pathToFoundNode = pathSummary.getPath();
+        foundPathNode.setPath(pathToFoundNode);
+      }
 
       final var indexController = revisionData.revision() == -1
           ? resMgr.getRtxIndexController(resMgr.getMostRecentRevisionNumber())

@@ -99,45 +99,20 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * Get the path up to the root path node.
    *
-   * @param reader {@link PathSummaryReader} instance
    * @return path up to the root
    */
-  public Path<QNm> getPath(final PathSummaryReader reader) {
-    if (path != null) {
-      return path;
-    }
-
-    PathNode node = this;
-    final long nodeKey = reader.getNodeKey();
-    reader.moveTo(node.getNodeKey());
-    final PathNode[] pathNodes = new PathNode[level];
-    for (int i = level - 1; i >= 0; i--) {
-      pathNodes[i] = node;
-      reader.moveToParent();
-      node = reader.getPathNode();
-    }
-
-    final Path<QNm> path = new Path<>();
-    for (final PathNode pathNode : pathNodes) {
-      reader.moveTo(pathNode.getNodeKey());
-      if (pathNode.getPathKind() == NodeKind.ATTRIBUTE) {
-        path.attribute(reader.getName());
-      } else {
-        final QNm name;
-        if (reader.getPathKind() == NodeKind.OBJECT_KEY) {
-          name = new QNm(null, null, reader.getName().getLocalName());
-          path.childObjectField(name);
-        } else if (reader.getPathKind() == NodeKind.ARRAY) {
-          path.childArray();
-        } else {
-          name = reader.getName();
-          path.child(name);
-        }
-      }
-    }
-    reader.moveTo(nodeKey);
-    this.path = path;
+  public Path<QNm> getPath() {
     return path;
+  }
+
+  /**
+   * Set the path.
+   * @param path path to set
+   * @return this path instance
+   */
+  public PathNode setPath(Path<QNm> path) {
+    this.path = path;
+    return this;
   }
 
   /**
