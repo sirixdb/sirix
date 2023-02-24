@@ -74,6 +74,7 @@ public final class PageReference {
     key = reference.key;
     hashInBytes = reference.hashInBytes;
     pageFragments = reference.pageFragments;
+    hash = reference.hash;
   }
 
   /**

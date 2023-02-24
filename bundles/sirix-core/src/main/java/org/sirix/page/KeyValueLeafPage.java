@@ -23,7 +23,6 @@ package org.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -43,8 +42,7 @@ import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.sirix.node.Utils.getVarLong;
-import static org.sirix.node.Utils.putVarLong;
+
 
 /**
  * <p>
@@ -76,6 +74,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final Map<Long, PageReference> references;
 
+
   /**
    * Key of record page. This is the base key of all contained nodes.
    */
@@ -90,6 +89,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Slots which have to be serialized.
    */
   private final byte[][] slots;
+
 
   /**
    * DeweyIDs.
@@ -111,9 +111,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final ResourceConfiguration resourceConfig;
 
+
   private volatile Bytes<ByteBuffer> bytes;
 
+
   private volatile byte[] hashCode;
+
 
   private int hash;
 
@@ -124,17 +127,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   @SuppressWarnings("CopyConstructorMissesField")
   public KeyValueLeafPage(final KeyValueLeafPage pageToClone) {
-    addedReferences = false;
-    references = pageToClone.references;
-    recordPageKey = pageToClone.recordPageKey;
-    records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
-    slots = Arrays.copyOf(pageToClone.slots, pageToClone.slots.length);
-    deweyIds = Arrays.copyOf(pageToClone.deweyIds, pageToClone.deweyIds.length);
-    indexType = pageToClone.indexType;
-    recordPersister = pageToClone.recordPersister;
-    resourceConfig = pageToClone.resourceConfig;
-    revision = pageToClone.revision;
-    areDeweyIDsStored = pageToClone.areDeweyIDsStored;
+    this.addedReferences = false;
+    this.references = pageToClone.references;
+    this.recordPageKey = pageToClone.recordPageKey;
+    this.records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
+    this.slots = Arrays.copyOf(pageToClone.slots, pageToClone.slots.length);
+    this.deweyIds = Arrays.copyOf(pageToClone.deweyIds, pageToClone.deweyIds.length);
+    this.indexType = pageToClone.indexType;
+    this.recordPersister = pageToClone.recordPersister;
+    this.resourceConfig = pageToClone.resourceConfig;
+    this.revision = pageToClone.revision;
+    this.areDeweyIDsStored = pageToClone.areDeweyIDsStored;
   }
 
   /**
@@ -150,86 +153,110 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // internal flow.
     assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
 
-    references = new ConcurrentHashMap<>();
+    this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
-    records = new DataRecord[Constants.NDP_NODE_COUNT];
-    slots = new byte[Constants.NDP_NODE_COUNT][];
+    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
+    this.slots = new byte[Constants.NDP_NODE_COUNT][];
     this.indexType = indexType;
-    resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
-    recordPersister = resourceConfig.recordPersister;
-    deweyIds = new byte[Constants.NDP_NODE_COUNT][];
+    this.resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
+    this.recordPersister = resourceConfig.recordPersister;
+    this.deweyIds = new byte[Constants.NDP_NODE_COUNT][];
     this.revision = pageReadOnlyTrx.getRevisionNumber();
-    areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
+    this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
   }
 
   /**
-   * Constructor which reads the {@link KeyValueLeafPage} from the storage.
+   * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage.
+   * @param recordPageKey This is the base key of all contained nodes.
+   * @param revision The current revision.
+   * @param indexType The index type.
+   * @param resourceConfig The resource configuration.
+   * @param areDeweyIDsStored Determines if DeweyIDs are stored or not.
+   * @param recordPersister Persistenter.
+   * @param slots Slots which were serialized.
+   * @param deweyIds DeweyIDs.
+   * @param references References to overflow pages.
    *
-   * @param in              input bytes to read page from
-   * @param pageReadOnlyTrx {@link PageReadOnlyTrx} implementation
    */
-  KeyValueLeafPage(final BytesIn<?> in, final PageReadOnlyTrx pageReadOnlyTrx) {
-    recordPageKey = getVarLong(in);
-    revision = in.readInt();
-    indexType = IndexType.getType(in.readByte());
-    resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
-    areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
-    recordPersister = resourceConfig.recordPersister;
-    slots = new byte[Constants.NDP_NODE_COUNT][];
-    deweyIds = new byte[Constants.NDP_NODE_COUNT][];
-    records = new DataRecord[Constants.NDP_NODE_COUNT];
+  KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType, final ResourceConfiguration resourceConfig,
+                   final boolean areDeweyIDsStored, final RecordSerializer recordPersister,
+                   final byte[][] slots, final byte[][] deweyIds,
+                   final Map<Long, PageReference> references){
 
-    if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
-      final var deweyIdsBitmap = SerializationType.deserializeBitSet(in);
-      final int deweyIdsSize = in.readInt();
-      boolean hasDeweyIds = deweyIdsSize != 0;
-      if (hasDeweyIds) {
-        var setBit = -1;
-        byte[] deweyId = null;
-        for (int index = 0; index < deweyIdsSize; index++) {
-          setBit = deweyIdsBitmap.nextSetBit(setBit + 1);
-          assert setBit >= 0;
+    this.recordPageKey = recordPageKey;
+    this.revision = revision;
+    this.indexType = indexType;
+    this.resourceConfig = resourceConfig;
+    this.areDeweyIDsStored = areDeweyIDsStored;
+    this.recordPersister =recordPersister;
+    this.slots = slots;
+    this.deweyIds = deweyIds;
+    this.references = references;
+    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
 
-          if (recordPageKey == 0 && setBit == 0) {
-            continue; // No document root.
-          }
-
-          deweyId = serializer.deserializeDeweyID(in, deweyId, resourceConfig);
-          deweyIds[setBit] = deweyId;
-        }
-      }
-    }
-
-    final var entriesBitmap = SerializationType.deserializeBitSet(in);
-    final var overlongEntriesBitmap = SerializationType.deserializeBitSet(in);
-
-    final int normalEntrySize = in.readInt();
-    var setBit = -1;
-    for (int index = 0; index < normalEntrySize; index++) {
-      setBit = entriesBitmap.nextSetBit(setBit + 1);
-      assert setBit >= 0;
-      final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
-      final int dataSize = in.readInt();
-      assert dataSize > 0;
-      final byte[] data = new byte[dataSize];
-      in.read(data);
-      final var offset = PageReadOnlyTrx.recordPageOffset(key);
-      slots[offset] = data;
-    }
-
-    final int overlongEntrySize = in.readInt();
-    references = new LinkedHashMap<>(overlongEntrySize);
-    setBit = -1;
-    for (int index = 0; index < overlongEntrySize; index++) {
-      setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
-      assert setBit >= 0;
-      //recordPageKey * Constants.NDP_NODE_COUNT + setBit;
-      final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
-      final PageReference reference = new PageReference();
-      reference.setKey(in.readLong());
-      references.put(key, reference);
-    }
   }
+//  KeyValueLeafPage(final BytesIn<?> in, final PageReadOnlyTrx pageReadOnlyTrx) {
+//    recordPageKey = getVarLong(in);
+//    revision = in.readInt();
+//    indexType = IndexType.getType(in.readByte());
+//    resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
+//    areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
+//    recordPersister = resourceConfig.recordPersister;
+//    slots = new byte[Constants.NDP_NODE_COUNT][];
+//    deweyIds = new byte[Constants.NDP_NODE_COUNT][];
+//    records = new DataRecord[Constants.NDP_NODE_COUNT];
+//
+//    if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
+//      final var deweyIdsBitmap = SerializationType.deserializeBitSet(in);
+//      final int deweyIdsSize = in.readInt();
+//      boolean hasDeweyIds = deweyIdsSize != 0;
+//      if (hasDeweyIds) {
+//        var setBit = -1;
+//        byte[] deweyId = null;
+//        for (int index = 0; index < deweyIdsSize; index++) {
+//          setBit = deweyIdsBitmap.nextSetBit(setBit + 1);
+//          assert setBit >= 0;
+//
+//          if (recordPageKey == 0 && setBit == 0) {
+//            continue; // No document root.
+//          }
+//
+//          deweyId = serializer.deserializeDeweyID(in, deweyId, resourceConfig);
+//          deweyIds[setBit] = deweyId;
+//        }
+//      }
+//    }
+//
+//    final var entriesBitmap = SerializationType.deserializeBitSet(in);
+//    final var overlongEntriesBitmap = SerializationType.deserializeBitSet(in);
+//
+//    final int normalEntrySize = in.readInt();
+//    var setBit = -1;
+//    for (int index = 0; index < normalEntrySize; index++) {
+//      setBit = entriesBitmap.nextSetBit(setBit + 1);
+//      assert setBit >= 0;
+//      final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
+//      final int dataSize = in.readInt();
+//      assert dataSize > 0;
+//      final byte[] data = new byte[dataSize];
+//      in.read(data);
+//      final var offset = PageReadOnlyTrx.recordPageOffset(key);
+//      slots[offset] = data;
+//    }
+//
+//    final int overlongEntrySize = in.readInt();
+//    this.references = new LinkedHashMap<>(overlongEntrySize);
+//    setBit = -1;
+//    for (int index = 0; index < overlongEntrySize; index++) {
+//      setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
+//      assert setBit >= 0;
+//      //recordPageKey * Constants.NDP_NODE_COUNT + setBit;
+//      final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
+//      final PageReference reference = new PageReference();
+//      reference.setKey(in.readLong());
+//      references.put(key, reference);
+//    }
+//  }
 
   @Override
   public long getPageKey() {
@@ -256,6 +283,33 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
   }
 
+  /**
+   * Get bytes to serialize
+   * @return bytes
+   */
+  public Bytes<ByteBuffer> getBytes() {
+    return bytes;
+  }
+  /**
+   * Set bytes after serialized
+   * @param bytes bytes
+   */
+  public void setBytes(Bytes<ByteBuffer> bytes) {
+    this.bytes = bytes;
+  }
+
+  public byte[][] getSlots() {
+    return slots;
+  }
+
+  public byte[][] getDeweyIds() {
+    return deweyIds;
+  }
+
+  public ResourceConfiguration getResourceConfig() {
+    return resourceConfig;
+  }
+
   @Override
   public <C extends KeyValuePage<DataRecord>> C copy() {
     return (C) new KeyValueLeafPage(this);
@@ -270,84 +324,88 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return hashCode;
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-      final SerializationType type) {
-    if (bytes != null) {
-      out.write(bytes);
-      return;
-    }
-    // Add references to overflow pages if necessary.
-    addReferences(pageReadOnlyTrx);
-    // Write page key.
-    putVarLong(out, recordPageKey);
-    // Write revision number.
-    out.writeInt(pageReadOnlyTrx.getRevisionNumber());
-    // Write index type.
-    out.writeByte(indexType.getID());
-
-    // Write dewey IDs.
-    if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
-      var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-      for (int i = 0; i < deweyIds.length; i++) {
-        if (deweyIds[i] != null) {
-          deweyIdsBitmap.set(i);
-        }
-      }
-      SerializationType.serializeBitSet(out, deweyIdsBitmap);
-      out.writeInt(deweyIdsBitmap.cardinality());
-
-      boolean first = true;
-      byte[] previousDeweyId = null;
-      for (byte[] deweyId : deweyIds) {
-        if (deweyId != null) {
-          if (first) {
-            first = false;
-            persistence.serializeDeweyID(out, deweyId, null, resourceConfig);
-          } else {
-            persistence.serializeDeweyID(out, previousDeweyId, deweyId, resourceConfig);
-          }
-          previousDeweyId = deweyId;
-        }
-      }
-    }
-
-    var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    for (int i = 0; i < slots.length; i++) {
-      if (slots[i] != null) {
-        entriesBitmap.set(i);
-      }
-    }
-    SerializationType.serializeBitSet(out, entriesBitmap);
-
-    var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-    final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Entry.comparingByKey()).toList();
-    for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
-      final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
-      overlongEntriesBitmap.set(pageOffset);
-    }
-    SerializationType.serializeBitSet(out, overlongEntriesBitmap);
-
-    // Write normal entries.
-    out.writeInt(entriesBitmap.cardinality());
-    for (final byte[] data : slots) {
-      if (data != null) {
-        final int length = data.length;
-        out.writeInt(length);
-        out.write(data);
-      }
-    }
-
-    // Write overlong entries.
-    out.writeInt(overlongEntriesSortedByKey.size());
-    for (final var entry : overlongEntriesSortedByKey) {
-      // Write key in persistent storage.
-      out.writeLong(entry.getValue().getKey());
-    }
-
-    hashCode = pageReadOnlyTrx.getReader().hashFunction.hashBytes(out.toByteArray()).asBytes();
-    bytes = out;
+  public void setHashCode(byte[] hashCode) {
+    this.hashCode = hashCode;
   }
+
+//  @Override
+//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+//      final SerializationType type) {
+//    if (bytes != null) {
+//      out.write(bytes);
+//      return;
+//    }
+//    // Add references to overflow pages if necessary.
+//    addReferences(pageReadOnlyTrx);
+//    // Write page key.
+//    putVarLong(out, recordPageKey);
+//    // Write revision number.
+//    out.writeInt(pageReadOnlyTrx.getRevisionNumber());
+//    // Write index type.
+//    out.writeByte(indexType.getID());
+//
+//    // Write dewey IDs.
+//    if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
+//      var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+//      for (int i = 0; i < deweyIds.length; i++) {
+//        if (deweyIds[i] != null) {
+//          deweyIdsBitmap.set(i);
+//        }
+//      }
+//      SerializationType.serializeBitSet(out, deweyIdsBitmap);
+//      out.writeInt(deweyIdsBitmap.cardinality());
+//
+//      boolean first = true;
+//      byte[] previousDeweyId = null;
+//      for (byte[] deweyId : deweyIds) {
+//        if (deweyId != null) {
+//          if (first) {
+//            first = false;
+//            persistence.serializeDeweyID(out, deweyId, null, resourceConfig);
+//          } else {
+//            persistence.serializeDeweyID(out, previousDeweyId, deweyId, resourceConfig);
+//          }
+//          previousDeweyId = deweyId;
+//        }
+//      }
+//    }
+//
+//    var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+//    for (int i = 0; i < slots.length; i++) {
+//      if (slots[i] != null) {
+//        entriesBitmap.set(i);
+//      }
+//    }
+//    SerializationType.serializeBitSet(out, entriesBitmap);
+//
+//    var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+//    final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Entry.comparingByKey()).toList();
+//    for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
+//      final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
+//      overlongEntriesBitmap.set(pageOffset);
+//    }
+//    SerializationType.serializeBitSet(out, overlongEntriesBitmap);
+//
+//    // Write normal entries.
+//    out.writeInt(entriesBitmap.cardinality());
+//    for (final byte[] data : slots) {
+//      if (data != null) {
+//        final int length = data.length;
+//        out.writeInt(length);
+//        out.write(data);
+//      }
+//    }
+//
+//    // Write overlong entries.
+//    out.writeInt(overlongEntriesSortedByKey.size());
+//    for (final var entry : overlongEntriesSortedByKey) {
+//      // Write key in persistent storage.
+//      out.writeLong(entry.getValue().getKey());
+//    }
+//
+//    hashCode = pageReadOnlyTrx.getReader().hashFunction.hashBytes(out.toByteArray()).asBytes();
+//    bytes = out;
+//  }
 
   @SuppressWarnings("rawtypes")
   @Override
@@ -414,6 +472,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     throw new UnsupportedOperationException();
   }
 
+  public Map<Long, PageReference> getReferencesMap(){
+    return references;
+  }
+
   @Override
   public void commit(@NonNull PageTrx pageWriteTrx) {
     addReferences(pageWriteTrx);
@@ -427,7 +489,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   // Add references to OverflowPages.
-  private void addReferences(final PageReadOnlyTrx pageReadOnlyTrx) {
+  public void addReferences(final PageReadOnlyTrx pageReadOnlyTrx) {
     if (!addedReferences) {
       if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
         processEntries(pageReadOnlyTrx, records);
