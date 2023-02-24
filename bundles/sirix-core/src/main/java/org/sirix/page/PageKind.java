@@ -34,6 +34,7 @@ import org.sirix.index.IndexType;
 import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.node.interfaces.DeweyIdSerializer;
 import org.sirix.page.delegates.BitmapReferencesPage;
+import org.sirix.page.delegates.FullReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -328,14 +329,25 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      return new IndirectPage(source, type);
+      Page delegate = PageUtils.createDelegate(source, type);
+      return new IndirectPage(delegate);
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
         final SerializationType type) {
+      IndirectPage indirectPage = (IndirectPage) page;
+      Page delegate = indirectPage.delegate();
       sink.writeByte(INDIRECTPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+
+      if (delegate instanceof ReferencesPage4) {
+        sink.writeByte((byte) 0);
+      } else if (delegate instanceof BitmapReferencesPage) {
+        sink.writeByte((byte) 1);
+      } else if (delegate instanceof FullReferencesPage) {
+        sink.writeByte((byte) 2);
+      }
+
     }
 
     @Override
