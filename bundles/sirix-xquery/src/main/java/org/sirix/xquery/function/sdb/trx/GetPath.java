@@ -61,7 +61,7 @@ public final class GetPath extends AbstractFunction {
 
         if (path == null) {
           path = pathSummaryReader.getPath();
-          pathSummaryReader.getPathNode().setPath(path);
+          pathNode.setPath(path);
         }
 
         if (path == null) {
