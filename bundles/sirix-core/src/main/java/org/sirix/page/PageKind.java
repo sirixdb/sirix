@@ -237,14 +237,51 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      return new NamePage(source, type);
+
+      Page delegate = PageUtils.createDelegate(source, type);
+
+      final int maxNodeKeysSize = source.readInt();
+      final Int2LongMap maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(maxNodeKeysSize / 0.75));
+      for (int i = 0; i < maxNodeKeysSize; i++) {
+        maxNodeKeys.put(i, source.readLong());
+      }
+
+      final int numberOfArrays = source.readInt();
+      final int currentMaxLevelOfIndirectPagesSize = source.readInt();
+      final Int2IntMap currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPagesSize / 0.75));
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
+      }
+      return new NamePage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
+
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
         final SerializationType type) {
+      NamePage namePage = (NamePage) page;
       sink.writeByte(NAMEPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+      Page delegate = namePage.delegate();
+
+      if (delegate instanceof ReferencesPage4) {
+        sink.writeByte((byte) 0);
+      } else if (delegate instanceof BitmapReferencesPage) {
+        sink.writeByte((byte) 1);
+      }
+
+      final int maxNodeKeySize = namePage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        final long keys = namePage.getMaxNodeKey(i);
+        sink.writeLong(keys);
+      }
+
+      sink.writeInt(namePage.getNumberOfArrays());
+      final int currentMaxLevelOfIndirectPagesSize = namePage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++){
+        sink.writeByte((byte) namePage.getCurrentMaxLevelOfIndirectPages(i));
+      }
     }
 
     @Override
