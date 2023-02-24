@@ -397,13 +397,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         continue;
       }
 
-      Path<QNm> nodePath = node.getPath();
-
-      if (nodePath == null) {
-        moveTo(node.getNodeKey());
-        nodePath = getPath();
-        node.setPath(nodePath);
-      }
+      final Path<QNm> nodePath = getPath();
 
       if (path.matches(nodePath)) {
         pcrSet.add(node.getNodeKey());
@@ -654,7 +648,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return path up to the root
    */
   public Path<QNm> getPath() {
-    PathNode node = getPathNode();
+    PathNode currNode = getPathNode();
+    PathNode node = currNode;
     if (node == null) {
       moveToFirstChild();
       node = getPathNode();
@@ -662,6 +657,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       if (node == null) {
         return null;
       }
+    }
+    final Path<QNm> pathFromNode = node.getPath();
+    if (pathFromNode != null) {
+      return pathFromNode;
     }
     final long nodeKey = getNodeKey();
     moveTo(node.getNodeKey());
@@ -686,6 +685,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     moveTo(nodeKey);
+    currNode.setPath(path);
     return path;
   }
 

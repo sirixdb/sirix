@@ -56,13 +56,7 @@ public final class GetPath extends AbstractFunction {
           return null;
         }
         assert pathSummaryReader.getPathNode() != null;
-        var pathNode = pathSummaryReader.getPathNode();
-        var path = pathNode.getPath();
-
-        if (path == null) {
-          path = pathSummaryReader.getPath();
-          pathNode.setPath(path);
-        }
+        var path = pathSummaryReader.getPath();
 
         if (path == null) {
           return null;

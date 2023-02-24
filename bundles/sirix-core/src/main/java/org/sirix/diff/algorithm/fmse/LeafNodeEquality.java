@@ -146,19 +146,11 @@ final class LeafNodeComparator implements NodeComparator<Long> {
 
     final var oldPathNode = newPathSummary.getPathNodeForPathNodeKey(newRtx.getPathNodeKey());
     newPathSummary.moveTo(oldPathNode.getNodeKey());
-    var oldPath = oldPathNode.getPath();
-    if (oldPath == null) {
-      oldPath = newPathSummary.getPath();
-      oldPathNode.setPath(oldPath);
-    }
+    var oldPath = newPathSummary.getPath();
 
     final var newPathNode = oldPathSummary.getPathNodeForPathNodeKey(oldRtx.getPathNodeKey());
     oldPathSummary.moveTo(newPathNode.getNodeKey());
-    var newPath = newPathNode.getPath();
-    if (newPath == null) {
-      newPath = oldPathSummary.getPath();
-      newPathNode.setPath(newPath);
-    }
+    var newPath = oldPathSummary.getPath();
 
     //noinspection DataFlowIssue
     if (oldPath.getLength() != newPath.getLength())
