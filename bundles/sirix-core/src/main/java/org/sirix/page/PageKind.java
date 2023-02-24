@@ -58,7 +58,7 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      //return new KeyValueLeafPage(source, pageReadTrx);
+
       final Long recordPageKey = getVarLong(source);
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
@@ -396,7 +396,6 @@ public enum PageKind {
         final SerializationType type) {
 
       RevisionRootPage revisionRootPage = (RevisionRootPage) page;
-      Page delegate = revisionRootPage.delegate();
       sink.writeByte(REVISIONROOTPAGE.id);
 
       //initial variables from RevisionRootPage, to serialize
@@ -472,7 +471,6 @@ public enum PageKind {
         final @NonNull SerializationType type) {
 
       PathSummaryPage pathSummaryPage = (PathSummaryPage) page;
-      Page delegate = pathSummaryPage.delegate();
       sink.writeByte(PATHSUMMARYPAGE.id);
 
       sink.writeByte((byte) 0);
@@ -565,14 +563,20 @@ public enum PageKind {
     @Override
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-      return new OverflowPage(source);
+
+      final byte[] data = new byte[source.readInt()];
+      source.read(data);
+
+      return new OverflowPage(data);
     }
 
     @Override
     void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
         @NonNull SerializationType type) {
+      OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
-      page.serialize(pageReadTrx, sink, type);
+      sink.writeInt(overflowPage.getData().length);
+      sink.write(overflowPage.getData());
     }
 
     @Override
