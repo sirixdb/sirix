@@ -643,17 +643,30 @@ public enum PageKind {
    * {@link PathPage}.
    */
   DEWEYIDPAGE((byte) 11, DeweyIDPage.class) {
-    @Override
-    void serializePage(@NonNull PageReadOnlyTrx pageReadTrx, Bytes<ByteBuffer> sink, @NonNull Page page,
-        @NonNull SerializationType type) {
-      sink.writeByte(DEWEYIDPAGE.id);
-      //page.serialize(pageReadTrx, sink, type);
-    }
 
     @Override
     Page deserializePage(@NonNull PageReadOnlyTrx pageReadTrx, Bytes<?> source,
+                         @NonNull SerializationType type) {
+
+      Page delegate = PageUtils.createDelegate(source, type);
+      final long maxNodeKey = source.readLong();
+      final int currentMaxLevelOfIndirectPages = source.readByte() & 0xFF;
+      return new DeweyIDPage(delegate, maxNodeKey, currentMaxLevelOfIndirectPages);
+    }
+    @Override
+    void serializePage(@NonNull PageReadOnlyTrx pageReadTrx, Bytes<ByteBuffer> sink, @NonNull Page page,
         @NonNull SerializationType type) {
-      return new DeweyIDPage(source, type);
+      DeweyIDPage deweyIDPage = (DeweyIDPage) page;
+      Page delegate = deweyIDPage.delegate();
+      sink.writeByte(DEWEYIDPAGE.id);
+
+      if (delegate instanceof ReferencesPage4) {
+        sink.writeByte((byte) 0);
+      } else if (delegate instanceof BitmapReferencesPage) {
+        sink.writeByte((byte) 1);
+      }
+      sink.writeLong(deweyIDPage.getMaxNodeKey());
+      sink.writeByte((byte) deweyIDPage.getCurrentMaxLevelOfIndirectPages());
     }
 
     @Override
