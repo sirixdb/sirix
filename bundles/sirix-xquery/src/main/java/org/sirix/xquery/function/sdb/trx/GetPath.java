@@ -56,7 +56,17 @@ public final class GetPath extends AbstractFunction {
           return null;
         }
         assert pathSummaryReader.getPathNode() != null;
-        final var path = pathSummaryReader.getPathNode().getPath(pathSummaryReader);
+        var pathNode = pathSummaryReader.getPathNode();
+        var path = pathNode.getPath();
+
+        if (path == null) {
+          path = pathSummaryReader.getPath();
+          pathSummaryReader.getPathNode().setPath(path);
+        }
+
+        if (path == null) {
+          return null;
+        }
 
         if (!(rtx instanceof final JsonNodeReadOnlyTrx trx))
           return new Str(path.toString());

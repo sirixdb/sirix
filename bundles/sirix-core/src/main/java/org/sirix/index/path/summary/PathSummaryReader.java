@@ -328,8 +328,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return a set of PCRs matching the specified collection of paths
    * @throws SirixException if parsing a path fails
    */
-  public LongSet getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache)
-      throws PathException {
+  public LongSet getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache) throws PathException {
     assertNotClosed();
     final LongSet pcrs = new LongOpenHashSet();
     for (final Path<QNm> path : expressions) {
@@ -398,7 +397,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         continue;
       }
 
-      if (path.matches(node.getPath(this))) {
+      Path<QNm> nodePath = node.getPath();
+
+      if (nodePath == null) {
+        moveTo(node.getNodeKey());
+        nodePath = getPath();
+        node.setPath(nodePath);
+      }
+
+      if (path.matches(nodePath)) {
         pcrSet.add(node.getNodeKey());
       }
     }
