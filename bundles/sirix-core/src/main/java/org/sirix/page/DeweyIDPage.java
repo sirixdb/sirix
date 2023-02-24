@@ -22,7 +22,6 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.map.ChronicleMap;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
@@ -33,12 +32,10 @@ import org.sirix.index.IndexType;
 import org.sirix.node.DeweyIDNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
 
 public final class DeweyIDPage extends AbstractForwardingPage {
 
@@ -72,30 +69,43 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     currentMaxLevelOfIndirectPages = 1;
   }
 
+//  /**
+//   * Read name page.
+//   *
+//   * @param in input bytes to read from
+//   */
+//  DeweyIDPage(final Bytes<?> in, final SerializationType type) {
+//    delegate = PageUtils.createDelegate(in, type);
+//    maxNodeKey = in.readLong();
+//    currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
+//  }
+
   /**
-   * Read name page.
+   *  Constructor to set deserialized data.
    *
-   * @param in input bytes to read from
+   * @param delegate The references page delegate instance.
+   * @param maxNodeKey Maximum node key.
+   * @param currentMaxLevelOfIndirectPages Current maximum levels of indirect pages in the tree.
    */
-  DeweyIDPage(final Bytes<?> in, final SerializationType type) {
-    delegate = PageUtils.createDelegate(in, type);
-    maxNodeKey = in.readLong();
-    currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
+  public DeweyIDPage(final Page delegate,final long maxNodeKey, final int currentMaxLevelOfIndirectPages){
+    this.delegate = delegate;
+    this.maxNodeKey = maxNodeKey;
+    this.currentMaxLevelOfIndirectPages=currentMaxLevelOfIndirectPages;
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-      final SerializationType type) {
-    if (delegate instanceof ReferencesPage4) {
-      out.writeByte((byte) 0);
-    } else if (delegate instanceof BitmapReferencesPage) {
-      out.writeByte((byte) 1);
-    }
-    super.serialize(pageReadOnlyTrx, out, type);
-
-    out.writeLong(maxNodeKey);
-    out.writeByte((byte) currentMaxLevelOfIndirectPages);
-  }
+//  @Override
+//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+//      final SerializationType type) {
+//    if (delegate instanceof ReferencesPage4) {
+//      out.writeByte((byte) 0);
+//    } else if (delegate instanceof BitmapReferencesPage) {
+//      out.writeByte((byte) 1);
+//    }
+//    super.serialize(pageReadOnlyTrx, out, type);
+//
+//    out.writeLong(maxNodeKey);
+//    out.writeByte((byte) currentMaxLevelOfIndirectPages);
+//  }
 
   public int getCurrentMaxLevelOfIndirectPages() {
     return currentMaxLevelOfIndirectPages;

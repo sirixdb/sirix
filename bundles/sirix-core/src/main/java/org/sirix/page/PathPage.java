@@ -15,7 +15,6 @@ import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-
 /**
  * Page to hold references to a value summary.
  *
