@@ -6,8 +6,6 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
 import org.sirix.cache.Cache;
 import org.sirix.cache.RBIndexKey;
 import org.sirix.exception.SirixIOException;
@@ -38,7 +36,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @param <V> the value
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@SuppressWarnings("ConstantConditions")
+@SuppressWarnings({ "ConstantConditions", "unchecked" })
 public final class RBTreeReader<K extends Comparable<? super K>, V extends References> implements NodeCursor {
 
   /**
@@ -135,19 +133,19 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         this.pageReadOnlyTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
     if (currentNode == null) {
-      throw  new IllegalStateException("Node couldn't be fetched from persistent storage!");
+      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
 
-    for (final long nodeKey : new DescendantAxis(this, IncludeSelf.YES)) {
-      if (nodeKey == 0) {
-        continue;
-      }
-
+    // TODO: move this / constructor of course should not do any work!
+    for (RBNodeIterator it = new RBNodeIterator(0); it.hasNext(); ) {
+      RBNode<K, V> node = it.next();
+      assert node.getNodeKey() != 0;
       if (pageReadOnlyTrx instanceof PageTrx) {
         continue;
       }
-      this.cache.put(new RBIndexKey(nodeKey, revisionNumber, indexType, indexNumber), getCurrentNode());
+      this.cache.put(new RBIndexKey(node.getNodeKey(), revisionNumber, indexType, indexNumber), getCurrentNode());
     }
+    moveToDocumentRoot();
   }
 
   /**
@@ -170,8 +168,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   // Internal function to dump data to a PrintStream instance.
   private void internalDump(final PrintStream out) {
     out.println(getCurrentNode());
-    @SuppressWarnings("ConstantConditions")
-    final long nodeKey = getCurrentNode().getNodeKey();
+    @SuppressWarnings("ConstantConditions") final long nodeKey = getCurrentNode().getNodeKey();
     if (getCurrentNode().hasLeftChild()) {
       moveToFirstChild();
       internalDump(out);
@@ -191,8 +188,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   RBNode<K, V> getCurrentNode() {
     assertNotClosed();
     if (currentNode.getKind() != NodeKind.XML_DOCUMENT && currentNode.getKind() != NodeKind.JSON_DOCUMENT) {
-      final RBNode<K, V> node = (RBNode<K, V>) currentNode;
-      return node;
+      return (RBNode<K, V>) currentNode;
     }
     return null;
   }
@@ -384,8 +380,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * @param comp comparator to be used to compare keys
    * @return Optional {@link RBNode} reference
    */
-  public Optional<RBNode<K, V>> getCurrentNode(final K key, final SearchMode mode,
-      final Comparator<? super K> comp) {
+  public Optional<RBNode<K, V>> getCurrentNode(final K key, final SearchMode mode, final Comparator<? super K> comp) {
     assertNotClosed();
     moveToDocumentRoot();
     if (!((StructNode) getNode()).hasFirstChild()) {
@@ -428,7 +423,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   void assertNotClosed() {
     if (isClosed) {
-      throw new IllegalStateException("AVL tree reader is already closed.");
+      throw new IllegalStateException("Tree reader is already closed.");
     }
   }
 
@@ -537,7 +532,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         return false;
       }
       final var move = moveTo(node.getLeftChildKey());
-      final var currentNode = (RBNode<K, V>) this.currentNode;
+      @SuppressWarnings("unchecked") final var currentNode = (RBNode<K, V>) this.currentNode;
       node.setLeftChild(currentNode);
       currentNode.setParent(node);
       return move;
@@ -554,7 +549,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         return false;
       }
       final var move = moveTo(node.getRightChildKey());
-      final var currentNode = (RBNode<K, V>) this.currentNode;
+      @SuppressWarnings("unchecked") final var currentNode = (RBNode<K, V>) this.currentNode;
       node.setRightChild(currentNode);
       currentNode.setParent(node);
       return move;
