@@ -454,7 +454,9 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
           jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
         """;
     final String query =
-        "for $i in jn:doc('json-path1','mydoc.jn') where deep-equal($i.generic, 2) return replace json value of $i.\"generic\" with 1";
+        """
+          for $i in jn:doc('json-path1','mydoc.jn') where deep-equal($i.generic, 2) return replace json value of $i."generic" with 1
+        """;
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
     final String assertion = """
           [{"generic":1,"location":{"state":"CA","city":"Los Angeles"}},{"generic":1,"location":{"state":"NY","city":"New York"}}]
@@ -468,7 +470,9 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
           jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
         """;
     final String query =
-        "let $obj := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2) return replace json value of $obj.location with {\"state\": \"NY\", \"city\": \"New York\"}";
+        """
+          let $obj := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2) return replace json value of $obj.location with {"state": "NY", "city": "New York"}
+        """;
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
     final String assertion = """
           [{"generic":1,"location":{"state":"NY","city":"New York"}},{"generic":2,"location":{"state":"NY","city":"New York"}}]

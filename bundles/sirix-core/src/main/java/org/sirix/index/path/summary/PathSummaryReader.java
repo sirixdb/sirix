@@ -17,6 +17,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
+import org.sirix.axis.pathsummary.LevelOrderSettingInMemoryInstancesAxis;
 import org.sirix.cache.Cache;
 import org.sirix.cache.PathSummaryData;
 import org.sirix.exception.SirixException;
@@ -114,28 +115,24 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       pathNodeMapping = new Long2ObjectOpenHashMap<>(maxNrOfNodes);
       qnmMapping = new HashMap<>(maxNrOfNodes);
       boolean first = true;
-      PathNode previousPathNode = null;
-      var axis = new DescendantAxis(this, IncludeSelf.YES);
-      while (axis.hasNext()) {
-        final var nodeKey = axis.nextLong();
-        final var structuralNode = this.getStructuralNode();
-        pathNodeMapping.put(nodeKey, structuralNode);
-
-        if (first) {
-          first = false;
-        } else {
-          final var pathNode = this.getPathNode();
-          if (!(pageReadTrx instanceof PageTrx)) {
-            updateInMemoryNodeRelations(previousPathNode, structuralNode, pathNode);
-          }
+      boolean hasMoved = moveToFirstChild();
+      if (hasMoved) {
+        int numberOfNodesTraversed = 0;
+        var axis = new LevelOrderSettingInMemoryInstancesAxis.Builder(this).includeSelf().build();
+        while (axis.hasNext()) {
+          final var pathNode = axis.next();
+          numberOfNodesTraversed++;
+          pathNodeMapping.put(pathNode.getNodeKey(), pathNode);
+          moveTo(pathNode.getNodeKey());
+          assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
-          previousPathNode = pathNode;
+          assert this.getName().equals(pathNode.getName());
         }
-      }
 
+        moveToDocumentRoot();
+      }
       if (!pageReadTrx.hasTrxIntentLog()) {
-        pathSummaryCache.put(pageReadTrx.getRevisionNumber(),
-                             new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
+        pathSummaryCache.put(pageReadTrx.getRevisionNumber(), new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
       }
     } else {
       currentNode = pathSummaryData.currentNode();
@@ -144,36 +141,6 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
 
     init = false;
-  }
-
-  private void updateInMemoryNodeRelations(PathNode previousPathNode, StructNode structuralNode, PathNode pathNode) {
-    if (previousPathNode != null) {
-      if (!structuralNode.hasLeftSibling()) {
-        previousPathNode.setFirstChild(pathNode);
-        previousPathNode.setLastChild(pathNode);
-        pathNode.setParent(previousPathNode);
-      } else {
-        if (previousPathNode.getNodeKey() == structuralNode.getLeftSiblingKey()) {
-          previousPathNode.setRightSibling(pathNode);
-          pathNode.setLeftSibling(previousPathNode);
-        } else {
-          final var leftSiblingPathNode = (PathNode) pathNodeMapping.get(structuralNode.getLeftSiblingKey());
-          leftSiblingPathNode.setRightSibling(pathNode);
-          pathNode.setLeftSibling(leftSiblingPathNode);
-        }
-      }
-
-      if (structuralNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        if (pathNode.getParent() == null) {
-          final var parentPathNode = (PathNode) pathNodeMapping.get(structuralNode.getParentKey());
-          pathNode.setParent(parentPathNode);
-        }
-        if (!structuralNode.hasRightSibling()) {
-          final var parentPathNode = (PathNode) pathNodeMapping.get(structuralNode.getParentKey());
-          parentPathNode.setLastChild(pathNode);
-        }
-      }
-    }
   }
 
   @Override
