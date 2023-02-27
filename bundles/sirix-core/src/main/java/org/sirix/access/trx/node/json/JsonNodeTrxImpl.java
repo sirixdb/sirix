@@ -2223,7 +2223,7 @@ final class JsonNodeTrxImpl extends
       // Remove old keys from mapping.
       final NodeKind nodeKind = node.getKind();
       final int oldNameKey = node.getNameKey();
-      final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
+      final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
       page.removeName(oldNameKey, nodeKind, pageTrx);
 
       // Create new key for mapping.
