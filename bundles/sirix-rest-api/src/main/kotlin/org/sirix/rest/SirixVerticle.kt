@@ -50,15 +50,13 @@ class SirixVerticle : CoroutineVerticle() {
         val router = createRouter()
 
         // Start an HTTP/2 server
-        if (config.getBoolean("use.http", false)) {
-            val server = vertx.createHttpServer(
+        val server = if (config.getBoolean("use.http", false)) {
+            vertx.createHttpServer(
                 httpServerOptionsOf()
                     .setSsl(false)
             )
-
-            listen(server, router, 8000)
         } else {
-            val server = vertx.createHttpServer(
+            vertx.createHttpServer(
                 httpServerOptionsOf()
                     .setSsl(true)
                     .setUseAlpn(true)
@@ -69,14 +67,14 @@ class SirixVerticle : CoroutineVerticle() {
                             )
                     )
             )
-
-            listen(server, router, 9443)
         }
+
+        listen(server, router)
     }
 
-    private suspend fun listen(server: HttpServer, router: Router, port: Int) {
+    private suspend fun listen(server: HttpServer, router: Router) {
         server.requestHandler { router.handle(it) }
-            .listen(config.getInteger("port", port)).await()
+            .listen(config.getInteger("port", 9443)).await()
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
@@ -158,6 +156,7 @@ class SirixVerticle : CoroutineVerticle() {
                             .put("refresh_token", rc.queryParam("refresh_token"))
                         refreshToken(keycloak, json, rc)
                     }
+
                     else -> getToken(keycloak, dataToAuthenticate, rc)
                 }
             } catch (e: DecodeException) {

@@ -35,27 +35,27 @@ final class LeafNodeComparator implements NodeComparator<Long> {
 
   private final QNm mId;
 
-  private final XmlNodeReadOnlyTrx mOldRtx;
+  private final XmlNodeReadOnlyTrx oldRtx;
 
-  private final XmlNodeReadOnlyTrx mNewRtx;
+  private final XmlNodeReadOnlyTrx newRtx;
 
   /** Path summary reader for the old revision. */
-  private final PathSummaryReader mOldPathSummary;
+  private final PathSummaryReader oldPathSummary;
 
   /** Path summary reader for the new revision. */
-  private final PathSummaryReader mNewPathSummary;
+  private final PathSummaryReader newPathSummary;
 
-  private final FMSENodeComparisonUtils mNodeComparisonUtils;
+  private final FMSENodeComparisonUtils nodeComparisonUtils;
 
   public LeafNodeComparator(final QNm id, final XmlNodeReadOnlyTrx oldRtx, final XmlNodeReadOnlyTrx newRtx,
       final PathSummaryReader oldPathSummary, final PathSummaryReader newPathSummary,
       final FMSENodeComparisonUtils nodeComparisonUtils) {
     mId = id;
-    mOldRtx = oldRtx;
-    mNewRtx = newRtx;
-    mOldPathSummary = oldPathSummary;
-    mNewPathSummary = newPathSummary;
-    mNodeComparisonUtils = nodeComparisonUtils;
+    this.oldRtx = oldRtx;
+    this.newRtx = newRtx;
+    this.oldPathSummary = oldPathSummary;
+    this.newPathSummary = newPathSummary;
+    this.nodeComparisonUtils = nodeComparisonUtils;
   }
 
   @Override
@@ -64,20 +64,20 @@ final class LeafNodeComparator implements NodeComparator<Long> {
     assert secondNode != null;
 
     // Old.
-    mOldRtx.moveTo(firstNode);
+    oldRtx.moveTo(firstNode);
 
     // New.
-    mNewRtx.moveTo(secondNode);
+    newRtx.moveTo(secondNode);
 
-    assert mOldRtx.getKind() == mNewRtx.getKind();
+    assert oldRtx.getKind() == newRtx.getKind();
     double ratio = 0;
 
-    if (mOldRtx.getKind() == NodeKind.ATTRIBUTE || mOldRtx.getKind() == NodeKind.NAMESPACE
-        || mOldRtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
-      if (mOldRtx.getName().equals(mNewRtx.getName())) {
+    if (oldRtx.getKind() == NodeKind.ATTRIBUTE || oldRtx.getKind() == NodeKind.NAMESPACE
+        || oldRtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
+      if (oldRtx.getName().equals(newRtx.getName())) {
         ratio = 1;
-        if (mOldRtx.getKind() == NodeKind.ATTRIBUTE || mOldRtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
-          ratio = mNodeComparisonUtils.calculateRatio(mOldRtx.getValue(), mNewRtx.getValue());
+        if (oldRtx.getKind() == NodeKind.ATTRIBUTE || oldRtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
+          ratio = nodeComparisonUtils.calculateRatio(oldRtx.getValue(), newRtx.getValue());
 
           if (ratio > FMESF) {
             final Path paths = checkPaths();
@@ -87,19 +87,19 @@ final class LeafNodeComparator implements NodeComparator<Long> {
         }
       }
     } else {
-      if (mNodeComparisonUtils.nodeValuesEqual(firstNode, secondNode, mOldRtx, mNewRtx)) {
+      if (nodeComparisonUtils.nodeValuesEqual(firstNode, secondNode, oldRtx, newRtx)) {
         ratio = 1;
       } else {
-        ratio = mNodeComparisonUtils.calculateRatio(mNodeComparisonUtils.getNodeValue(firstNode, mOldRtx),
-            mNodeComparisonUtils.getNodeValue(secondNode, mNewRtx));
+        ratio = nodeComparisonUtils.calculateRatio(nodeComparisonUtils.getNodeValue(firstNode, oldRtx),
+                                                   nodeComparisonUtils.getNodeValue(secondNode, newRtx));
       }
 
       if (ratio > FMESF) {
-        mOldRtx.moveToParent();
-        mNewRtx.moveToParent();
+        oldRtx.moveToParent();
+        newRtx.moveToParent();
 
-        ratio = mNodeComparisonUtils.calculateRatio(mNodeComparisonUtils.getNodeValue(mOldRtx.getNodeKey(), mOldRtx),
-            mNodeComparisonUtils.getNodeValue(mNewRtx.getNodeKey(), mNewRtx));
+        ratio = nodeComparisonUtils.calculateRatio(nodeComparisonUtils.getNodeValue(oldRtx.getNodeKey(), oldRtx),
+                                                   nodeComparisonUtils.getNodeValue(newRtx.getNodeKey(), newRtx));
 
         if (ratio > FMESF) {
           final var paths = checkPaths();
@@ -110,14 +110,14 @@ final class LeafNodeComparator implements NodeComparator<Long> {
     }
 
     if (ratio > FMESF && mId != null
-        && mNodeComparisonUtils.checkIfAncestorIdsMatch(mOldRtx.getNodeKey(), mNewRtx.getNodeKey(), mId))
+        && nodeComparisonUtils.checkIfAncestorIdsMatch(oldRtx.getNodeKey(), newRtx.getNodeKey(), mId))
       ratio = 1;
 
     // Old.
-    mOldRtx.moveTo(firstNode);
+    oldRtx.moveTo(firstNode);
 
     // New.
-    mNewRtx.moveTo(secondNode);
+    newRtx.moveTo(secondNode);
 
     return ratio > FMESF;
   }
@@ -125,13 +125,13 @@ final class LeafNodeComparator implements NodeComparator<Long> {
   private double adaptRatioByUsingThePathChecks(final Path paths) {
     double ratio;
     if (paths != Path.PATH_LENGTH_IS_NOT_EQUAL && mId != null) {
-      ratio = mNodeComparisonUtils.checkIfAncestorIdsMatch(mOldRtx.getNodeKey(), mNewRtx.getNodeKey(), mId)
+      ratio = nodeComparisonUtils.checkIfAncestorIdsMatch(oldRtx.getNodeKey(), newRtx.getNodeKey(), mId)
           ? 1
           : 0;
     } else if (paths == Path.MATCHES) {
       ratio = 1;
     } else if (paths == Path.NO_PATH) {
-      ratio = mNodeComparisonUtils.checkAncestors(mOldRtx.getNodeKey(), mNewRtx.getNodeKey())
+      ratio = nodeComparisonUtils.checkAncestors(oldRtx.getNodeKey(), newRtx.getNodeKey())
           ? 1
           : 0;
     } else {
@@ -141,15 +141,18 @@ final class LeafNodeComparator implements NodeComparator<Long> {
   }
 
   private Path checkPaths() {
-    if (mOldRtx.getPathNodeKey() == 0 || mNewRtx.getPathNodeKey() == 0)
+    if (oldRtx.getPathNodeKey() == 0 || newRtx.getPathNodeKey() == 0)
       return Path.NO_PATH;
 
-    final var oldPathNode = mNewPathSummary.getPathNodeForPathNodeKey(mNewRtx.getPathNodeKey());
-    final var oldPath = oldPathNode.getPath(mNewPathSummary);
+    final var oldPathNode = newPathSummary.getPathNodeForPathNodeKey(newRtx.getPathNodeKey());
+    newPathSummary.moveTo(oldPathNode.getNodeKey());
+    var oldPath = newPathSummary.getPath();
 
-    final var newPathNode = mOldPathSummary.getPathNodeForPathNodeKey(mOldRtx.getPathNodeKey());
-    final var newPath = newPathNode.getPath(mOldPathSummary);
+    final var newPathNode = oldPathSummary.getPathNodeForPathNodeKey(oldRtx.getPathNodeKey());
+    oldPathSummary.moveTo(newPathNode.getNodeKey());
+    var newPath = oldPathSummary.getPath();
 
+    //noinspection DataFlowIssue
     if (oldPath.getLength() != newPath.getLength())
       return Path.PATH_LENGTH_IS_NOT_EQUAL;
     else if (oldPath.matches(newPath))

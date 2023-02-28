@@ -1,15 +1,16 @@
 package org.sirix.xquery.json;
 
-import java.math.BigDecimal;
+import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.AbstractNumeric;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.atomic.Numeric;
-import org.brackit.xquery.xdm.Type;
+import org.brackit.xquery.jdm.Type;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceSession;
 import org.sirix.xquery.StructuredDBItem;
-import com.google.common.base.Preconditions;
+
+import java.math.BigDecimal;
 
 public final class NumericJsonDBItem extends AbstractNumeric
     implements JsonDBItem, Numeric, StructuredDBItem<JsonNodeReadOnlyTrx> {

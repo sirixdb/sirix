@@ -61,6 +61,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -561,61 +562,50 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       return mostRecentPageContainer1;
     }
 
+    final Function<IndexLogKey, PageContainer> fetchPageContainer = (key) -> {
+      final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
+
+      // Get the reference to the unordered key/value page storing the records.
+      final PageReference reference = treeModifier.prepareLeafOfTree(pageRtx,
+                                                                     log,
+                                                                     getUberPage().getPageCountExp(indexType),
+                                                                     pageReference,
+                                                                     recordPageKey,
+                                                                     indexNumber,
+                                                                     indexType,
+                                                                     newRevisionRootPage);
+
+      var pageContainer = log.get(reference);
+
+      if (pageContainer != null) {
+        return pageContainer;
+      }
+
+      if (reference.getKey() == Constants.NULL_ID_LONG) {
+        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
+        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(completePage);
+        pageContainer = PageContainer.getInstance(completePage, modifyPage);
+      } else {
+        pageContainer = dereferenceRecordPageForModification(reference);
+      }
+
+      assert pageContainer != null;
+
+      // $CASES-OMITTED$
+      switch (indexType) {
+        case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME ->
+            appendLogRecord(reference, pageContainer);
+        default -> throw new IllegalStateException("Page kind not known!");
+      }
+
+      return pageContainer;
+    };
+
     var currPageContainer = pageContainerCache.computeIfAbsent(new IndexLogKey(indexType,
                                                                                recordPageKey,
                                                                                indexNumber,
                                                                                newRevisionRootPage.getRevision()),
-                                                               (key) -> {
-                                                                 final PageReference pageReference =
-                                                                     pageRtx.getPageReference(newRevisionRootPage,
-                                                                                              indexType,
-                                                                                              indexNumber);
-
-                                                                 // Get the reference to the unordered key/value page storing the records.
-                                                                 final PageReference reference =
-                                                                     treeModifier.prepareLeafOfTree(pageRtx,
-                                                                                                    log,
-                                                                                                    getUberPage().getPageCountExp(
-                                                                                                        indexType),
-                                                                                                    pageReference,
-                                                                                                    recordPageKey,
-                                                                                                    indexNumber,
-                                                                                                    indexType,
-                                                                                                    newRevisionRootPage);
-
-                                                                 var pageContainer = log.get(reference);
-
-                                                                 if (pageContainer != null) {
-                                                                   return pageContainer;
-                                                                 }
-
-                                                                 if (reference.getKey() == Constants.NULL_ID_LONG) {
-                                                                   final KeyValueLeafPage completePage =
-                                                                       new KeyValueLeafPage(recordPageKey,
-                                                                                            indexType,
-                                                                                            pageRtx);
-                                                                   final KeyValueLeafPage modifyPage =
-                                                                       new KeyValueLeafPage(completePage);
-                                                                   pageContainer = PageContainer.getInstance(
-                                                                       completePage,
-                                                                       modifyPage);
-                                                                 } else {
-                                                                   pageContainer =
-                                                                       dereferenceRecordPageForModification(reference);
-                                                                 }
-
-                                                                 assert pageContainer != null;
-
-                                                                 // $CASES-OMITTED$
-                                                                 switch (indexType) {
-                                                                   case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME ->
-                                                                       appendLogRecord(reference, pageContainer);
-                                                                   default -> throw new IllegalStateException(
-                                                                       "Page kind not known!");
-                                                                 }
-
-                                                                 return pageContainer;
-                                                               });
+                                                               fetchPageContainer);
 
     if (indexType == IndexType.PATH_SUMMARY) {
       mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(indexType,
@@ -650,6 +640,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public RevisionRootPage getActualRevisionRootPage() {
+    pageRtx.assertNotClosed();
     return newRevisionRootPage;
   }
 

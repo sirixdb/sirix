@@ -5,14 +5,13 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ComparisonChain;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.xdm.Type;
+import org.brackit.xquery.jdm.Type;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.exception.SirixException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Value representing a text value, attribute value, element QName or any other byte encoded value.
@@ -97,8 +96,7 @@ public final class CASValue implements Comparable<CASValue> {
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof CASValue) {
-      final CASValue otherValue = (CASValue) obj;
+    if (obj instanceof final CASValue otherValue) {
       return Objects.equal(otherValue.value, value) && Objects.equal(otherValue.type, type)
           && otherValue.pathNodeKey == pathNodeKey;
     }

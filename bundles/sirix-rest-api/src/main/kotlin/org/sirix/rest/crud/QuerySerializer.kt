@@ -3,8 +3,8 @@ package org.sirix.rest.crud
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
+import org.brackit.xquery.jdm.Item
 import org.brackit.xquery.util.serialize.Serializer
-import org.brackit.xquery.xdm.Item
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 

@@ -4,16 +4,11 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.function.json.JSONFun;
+import org.brackit.xquery.jdm.*;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.BaseIter;
 import org.brackit.xquery.sequence.LazySequence;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Stream;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.TemporalJsonDBItem;
 
 /**

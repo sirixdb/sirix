@@ -1,13 +1,14 @@
 package org.sirix.xquery.function.xml;
 
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.jdm.Signature;
+import org.brackit.xquery.jdm.type.AnyJsonItemType;
+import org.brackit.xquery.jdm.type.AtomicType;
+import org.brackit.xquery.jdm.type.Cardinality;
+import org.brackit.xquery.jdm.type.SequenceType;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.type.AnyJsonItemType;
-import org.brackit.xquery.xdm.type.AtomicType;
-import org.brackit.xquery.xdm.type.Cardinality;
-import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.xquery.function.sdb.trx.LevelOrder;
 import org.sirix.xquery.function.xml.diff.Diff;
 import org.sirix.xquery.function.xml.index.SortByDocOrder;
 import org.sirix.xquery.function.xml.index.create.CreateCASIndex;
@@ -21,10 +22,10 @@ import org.sirix.xquery.function.xml.index.scan.ScanCASIndexRange;
 import org.sirix.xquery.function.xml.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.xml.index.scan.ScanPathIndex;
 import org.sirix.xquery.function.xml.io.*;
-import org.sirix.xquery.function.sdb.trx.*;
 import org.sirix.xquery.function.xml.trx.GetAttributeCount;
 import org.sirix.xquery.function.xml.trx.GetNamespaceCount;
 
+import static org.sirix.xquery.function.sdb.trx.LevelOrder.LEVEL_ORDER;
 import static org.sirix.xquery.function.xml.diff.Diff.DIFF;
 import static org.sirix.xquery.function.xml.index.SortByDocOrder.SORT;
 import static org.sirix.xquery.function.xml.index.create.CreateCASIndex.CREATE_CAS_INDEX;
@@ -41,7 +42,6 @@ import static org.sirix.xquery.function.xml.io.OpenRevisions.OPEN_REVISIONS;
 import static org.sirix.xquery.function.xml.io.Store.STORE;
 import static org.sirix.xquery.function.xml.trx.GetAttributeCount.GET_ATTRIBUTE_COUNT;
 import static org.sirix.xquery.function.xml.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
-import static org.sirix.xquery.function.sdb.trx.LevelOrder.LEVEL_ORDER;
 
 /**
  * Function definitions.

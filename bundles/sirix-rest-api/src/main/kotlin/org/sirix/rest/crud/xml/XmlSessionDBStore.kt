@@ -4,13 +4,13 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
-import org.brackit.xquery.node.parser.SubtreeParser
-import org.brackit.xquery.xdm.Stream
-import java.time.Instant
+import org.brackit.xquery.jdm.Stream
+import org.brackit.xquery.node.parser.NodeSubtreeParser
 import org.sirix.rest.Auth
 import org.sirix.rest.AuthRole
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBStore
+import java.time.Instant
 
 class XmlSessionDBStore(
     private val ctx: RoutingContext,
@@ -30,7 +30,7 @@ class XmlSessionDBStore(
         return dbStore.create(name)
     }
 
-    override fun create(name: String, parser: SubtreeParser): XmlDBCollection {
+    override fun create(name: String, parser: NodeSubtreeParser): XmlDBCollection {
         Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
         return dbStore.create(name, parser)
@@ -38,7 +38,7 @@ class XmlSessionDBStore(
 
     override fun create(
         name: String,
-        parser: SubtreeParser,
+        parser: NodeSubtreeParser,
         commitMessage: String?,
         commitTimestamp: Instant?
     ): XmlDBCollection {
@@ -47,20 +47,20 @@ class XmlSessionDBStore(
         return dbStore.create(name, parser, commitMessage, commitTimestamp)
     }
 
-    override fun create(name: String, parsers: Stream<SubtreeParser>): XmlDBCollection {
+    override fun create(name: String, parsers: Stream<NodeSubtreeParser>): XmlDBCollection {
         Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
         return dbStore.create(name, parsers)
     }
 
-    override fun create(dbName: String, resourceName: String, parsers: SubtreeParser): XmlDBCollection {
+    override fun create(dbName: String, resourceName: String, parsers: NodeSubtreeParser): XmlDBCollection {
         Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), dbName, AuthRole.CREATE, authz)
 
         return dbStore.create(dbName, resourceName, parsers)
     }
 
     override fun create(
-        dbName: String, resourceName: String, parser: SubtreeParser, commitMessage: String?,
+        dbName: String, resourceName: String, parser: NodeSubtreeParser, commitMessage: String?,
         commitTimestamp: Instant?
     ): XmlDBCollection {
         Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), dbName, AuthRole.CREATE, authz)

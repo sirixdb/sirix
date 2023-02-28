@@ -61,7 +61,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   private int nameKey;
 
-  private String name;
+  private QNm name;
 
   private long pathNodeKey;
 
@@ -79,7 +79,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     assert name != null;
     structNodeDelegate = structDel;
     this.nameKey = nameKey;
-    this.name = name;
+    this.name = new QNm(name);
     this.pathNodeKey = pathNodeKey;
   }
 
@@ -98,7 +98,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     assert structDel != null;
     structNodeDelegate = structDel;
     this.nameKey = nameKey;
-    this.name = name;
+    this.name = new QNm(name);
     this.pathNodeKey = pathNodeKey;
   }
 
@@ -152,7 +152,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   public void setName(final String name) {
-    this.name = name;
+    this.name = new QNm(name);
   }
 
   @Override
@@ -217,6 +217,6 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   public QNm getName() {
-    return new QNm(name);
+    return name;
   }
 }

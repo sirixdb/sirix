@@ -27,27 +27,18 @@
  */
 package org.sirix.xquery.function.xml.diff;
 
-import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-
+import com.google.api.client.util.Objects;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Signature;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -64,8 +55,18 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.xml.XMLFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
-import com.google.api.client.util.Objects;
-import com.google.common.collect.ImmutableSet;
+
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -213,7 +214,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                 continue;
 
               if (newRtx.isAttribute()) {
-                buf.append("  insert node " + printNode(newRtx) + " into sdb:select-item($doc");
+                buf.append("  insert node ").append(printNode(newRtx)).append(" into sdb:select-item($doc");
                 buf.append(",");
                 buf.append(newRtx.getParentKey());
                 buf.append(")");
@@ -342,8 +343,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   @Override
-  public void diffListener(final DiffType diffType, final long newNodeKey, final long oldNodeKey,
-      final DiffDepth depth) {
+  public void diffListener(final @NonNull DiffType diffType, final long newNodeKey, final long oldNodeKey,
+      final @NonNull DiffDepth depth) {
     diffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
   }
 
@@ -354,29 +355,29 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   private static String printSubtreeNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
-      case ELEMENT:
+      case ELEMENT -> {
         final OutputStream out = new ByteArrayOutputStream();
         final XmlSerializer serializer =
             XmlSerializer.newBuilder(rtx.getResourceSession(), out).startNodeKey(rtx.getNodeKey()).build();
         serializer.call();
         return out.toString();
-      case ATTRIBUTE:
+      }
+      case ATTRIBUTE -> {
         return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
+      }
       // $CASES-OMITTED$
-      default:
+      default -> {
         return "\"" + rtx.getValue() + "\"";
+      }
     }
   }
 
   private static String printNode(final XmlNodeReadOnlyTrx rtx) {
-    switch (rtx.getKind()) {
-      case ELEMENT:
-        return "<" + rtx.getName() + "/>";
-      case ATTRIBUTE:
-        return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
+    return switch (rtx.getKind()) {
+      case ELEMENT -> "<" + rtx.getName() + "/>";
+      case ATTRIBUTE -> "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
       // $CASES-OMITTED$
-      default:
-        return "\"" + rtx.getValue() + "\"";
-    }
+      default -> "\"" + rtx.getValue() + "\"";
+    };
   }
 }

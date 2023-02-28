@@ -31,11 +31,11 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.compiler.CompileChain;
+import org.brackit.xquery.jdm.node.Node;
+import org.brackit.xquery.jdm.node.TemporalNodeCollection;
 import org.brackit.xquery.node.parser.DocumentParser;
-import org.brackit.xquery.node.parser.SubtreeParser;
+import org.brackit.xquery.node.parser.NodeSubtreeParser;
 import org.brackit.xquery.util.io.URIHandler;
-import org.brackit.xquery.xdm.node.Node;
-import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.json.BasicJsonDBStore;
 import org.sirix.xquery.json.JsonDBCollection;
@@ -119,7 +119,7 @@ public final class Main {
           } else {
             final URI uri = new URI(file);
             try (InputStream in = URIHandler.getInputStream(uri)) {
-              final SubtreeParser parser = new DocumentParser(in);
+              final NodeSubtreeParser parser = new DocumentParser(in);
               final String name = uri.toURL().getFile();
 
               final TemporalNodeCollection<?> coll = nodeStore.create(name, parser);

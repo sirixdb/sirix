@@ -2,8 +2,8 @@ package org.sirix.xquery.json;
 
 import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.json.Array;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.json.Array;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.temporal.AllTimeAxis;

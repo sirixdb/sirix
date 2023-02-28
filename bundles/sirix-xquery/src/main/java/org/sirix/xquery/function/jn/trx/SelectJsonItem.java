@@ -5,12 +5,11 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.function.json.JSONFun;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Signature;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.xquery.function.FunUtil;
-import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.json.JsonItemFactory;
 

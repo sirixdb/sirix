@@ -2,8 +2,8 @@ package org.sirix.xquery.json;
 
 import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.json.JsonStore;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.json.JsonStore;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonResourceSession;
 

@@ -1,9 +1,9 @@
 package org.sirix.api.json;
 
-import org.brackit.xquery.xdm.Item;
+import com.google.gson.stream.JsonReader;
+import org.brackit.xquery.jdm.Item;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.api.NodeTrx;
-import com.google.gson.stream.JsonReader;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   enum Commit {

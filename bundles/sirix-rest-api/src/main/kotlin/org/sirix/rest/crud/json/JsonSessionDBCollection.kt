@@ -2,7 +2,7 @@ package org.sirix.rest.crud.json
 
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
-import org.brackit.xquery.xdm.json.TemporalJsonCollection
+import org.brackit.xquery.jdm.json.TemporalJsonCollection
 import org.sirix.xquery.json.JsonDBItem
 
 class JsonSessionDBCollection<T>(

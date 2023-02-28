@@ -17,6 +17,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
+import org.sirix.axis.pathsummary.LevelOrderSettingInMemoryInstancesAxis;
 import org.sirix.cache.Cache;
 import org.sirix.cache.PathSummaryData;
 import org.sirix.exception.SirixException;
@@ -36,7 +37,6 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-import java.math.BigInteger;
 import java.time.Instant;
 import java.util.*;
 
@@ -115,28 +115,24 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       pathNodeMapping = new Long2ObjectOpenHashMap<>(maxNrOfNodes);
       qnmMapping = new HashMap<>(maxNrOfNodes);
       boolean first = true;
-      PathNode previousPathNode = null;
-      var axis = new DescendantAxis(this, IncludeSelf.YES);
-      while (axis.hasNext()) {
-        final var nodeKey = axis.nextLong();
-        final var structuralNode = this.getStructuralNode();
-        pathNodeMapping.put(nodeKey, structuralNode);
-
-        if (first) {
-          first = false;
-        } else {
-          final var pathNode = this.getPathNode();
-          if (!(pageReadTrx instanceof PageTrx)) {
-            updateInMemoryNodeRelations(previousPathNode, structuralNode, pathNode);
-          }
+      boolean hasMoved = moveToFirstChild();
+      if (hasMoved) {
+        int numberOfNodesTraversed = 0;
+        var axis = new LevelOrderSettingInMemoryInstancesAxis.Builder(this).includeSelf().build();
+        while (axis.hasNext()) {
+          final var pathNode = axis.next();
+          numberOfNodesTraversed++;
+          pathNodeMapping.put(pathNode.getNodeKey(), pathNode);
+          moveTo(pathNode.getNodeKey());
+          assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
-          previousPathNode = pathNode;
+          assert this.getName().equals(pathNode.getName());
         }
-      }
 
+        moveToDocumentRoot();
+      }
       if (!pageReadTrx.hasTrxIntentLog()) {
-        pathSummaryCache.put(pageReadTrx.getRevisionNumber(),
-                             new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
+        pathSummaryCache.put(pageReadTrx.getRevisionNumber(), new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
       }
     } else {
       currentNode = pathSummaryData.currentNode();
@@ -145,36 +141,6 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
 
     init = false;
-  }
-
-  private void updateInMemoryNodeRelations(PathNode previousPathNode, StructNode structuralNode, PathNode pathNode) {
-    if (previousPathNode != null) {
-      if (!structuralNode.hasLeftSibling()) {
-        previousPathNode.setFirstChild(pathNode);
-        previousPathNode.setLastChild(pathNode);
-        pathNode.setParent(previousPathNode);
-      } else {
-        if (previousPathNode.getNodeKey() == structuralNode.getLeftSiblingKey()) {
-          previousPathNode.setRightSibling(pathNode);
-          pathNode.setLeftSibling(previousPathNode);
-        } else {
-          final var leftSiblingPathNode = (PathNode) pathNodeMapping.get(structuralNode.getLeftSiblingKey());
-          leftSiblingPathNode.setRightSibling(pathNode);
-          pathNode.setLeftSibling(leftSiblingPathNode);
-        }
-      }
-
-      if (structuralNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        if (pathNode.getParent() == null) {
-          final var parentPathNode = (PathNode) pathNodeMapping.get(structuralNode.getParentKey());
-          pathNode.setParent(parentPathNode);
-        }
-        if (!structuralNode.hasRightSibling()) {
-          final var parentPathNode = (PathNode) pathNodeMapping.get(structuralNode.getParentKey());
-          parentPathNode.setLastChild(pathNode);
-        }
-      }
-    }
   }
 
   @Override
@@ -329,13 +295,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return a set of PCRs matching the specified collection of paths
    * @throws SirixException if parsing a path fails
    */
-  public Set<Long> getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache)
-      throws PathException {
+  public LongSet getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache) throws PathException {
     assertNotClosed();
-    final Set<Long> pcrs = new HashSet<>();
+    final LongSet pcrs = new LongOpenHashSet();
     for (final Path<QNm> path : expressions) {
-      final Set<Long> pcrsForPath = getPCRsForPath(path, useCache);
-      pcrs.addAll(pcrsForPath);
+      pcrs.addAll(getPCRsForPath(path, useCache));
     }
     return pcrs;
   }
@@ -400,7 +364,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         continue;
       }
 
-      if (path.matches(node.getPath(this))) {
+      final Path<QNm> nodePath = getPath();
+
+      if (path.matches(nodePath)) {
         pcrSet.add(node.getNodeKey());
       }
     }
@@ -577,6 +543,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public QNm getName() {
     assertNotClosed();
     if (currentNode instanceof NameNode nameNode) {
+      final QNm name = nameNode.getName();
+      if (name != null) {
+        return nameNode.getName();
+      }
       final int uriKey = nameNode.getURIKey();
       final String uri = uriKey == -1 || pageReadTrx.getResourceSession() instanceof JsonResourceSession
           ? ""
@@ -587,7 +557,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final int localNameKey = nameNode.getLocalNameKey();
       final String localName =
           localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
-      return new QNm(uri, prefix, localName);
+      final var qNm = new QNm(uri, prefix, localName);
+      if (nameNode instanceof PathNode pathNode) {
+        pathNode.setName(qNm);
+      }
+      return qNm;
     } else {
       return null;
     }
@@ -641,7 +615,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @return path up to the root
    */
   public Path<QNm> getPath() {
-    PathNode node = getPathNode();
+    PathNode currNode = getPathNode();
+    PathNode node = currNode;
     if (node == null) {
       moveToFirstChild();
       node = getPathNode();
@@ -649,6 +624,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       if (node == null) {
         return null;
       }
+    }
+    final Path<QNm> pathFromNode = node.getPath();
+    if (pathFromNode != null) {
+      return pathFromNode;
     }
     final long nodeKey = getNodeKey();
     moveTo(node.getNodeKey());
@@ -673,6 +652,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     moveTo(nodeKey);
+    currNode.setPath(path);
     return path;
   }
 

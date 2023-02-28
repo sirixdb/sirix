@@ -6,9 +6,9 @@ import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.topdown.ScopeWalker;
 import org.brackit.xquery.function.json.JSONFun;
+import org.brackit.xquery.jdm.Type;
 import org.brackit.xquery.util.Cfg;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.xdm.Type;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -237,7 +237,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     for (final int pathNodeKey : pathNodeKeys) {
       final var foundPathNode = pathSummary.getPathNodeForPathNodeKey(pathNodeKey);
       assert foundPathNode != null;
-      final var pathToFoundNode = foundPathNode.getPath(pathSummary);
+      pathSummary.moveTo(pathNodeKey);
+      final var pathToFoundNode = pathSummary.getPath();
 
       final var indexController = revisionData.revision() == -1
           ? resMgr.getRtxIndexController(resMgr.getMostRecentRevisionNumber())

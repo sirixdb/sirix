@@ -26,7 +26,7 @@ import com.google.gson.stream.JsonToken;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.jdm.Item;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -2195,12 +2195,12 @@ final class JsonNodeTrxImpl extends
     if (getCurrentNode() instanceof ImmutableNameNode node) {
       indexController.notifyChange(ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
-      final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
+      final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
       page.removeName(node.getLocalNameKey(), nodeKind, pageTrx);
 
       assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (buildPathSummary) {
-        pathSummaryWriter.remove(node, nodeKind, page);
+        pathSummaryWriter.remove(node);
       }
     }
   }
@@ -2223,7 +2223,7 @@ final class JsonNodeTrxImpl extends
       // Remove old keys from mapping.
       final NodeKind nodeKind = node.getKind();
       final int oldNameKey = node.getNameKey();
-      final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
+      final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
       page.removeName(oldNameKey, nodeKind, pageTrx);
 
       // Create new key for mapping.

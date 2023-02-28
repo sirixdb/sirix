@@ -2,11 +2,11 @@ package org.sirix.examples;
 
 import org.brackit.xquery.*;
 import org.brackit.xquery.compiler.CompileChain;
+import org.brackit.xquery.jdm.Item;
+import org.brackit.xquery.jdm.Iter;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.node.Node;
 import org.brackit.xquery.sequence.SortedNodeSequence;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.node.Node;
 import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
@@ -360,7 +360,7 @@ public final class XQueryUsage {
 
     // Query CAS index.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
-      System.out.println("");
+      System.out.println();
       System.out.println("Find CAS index for all attribute values.");
       final QueryContext ctx3 = SirixQueryContext.createWithNodeStore(store);
       final String query =
@@ -382,7 +382,7 @@ public final class XQueryUsage {
 
     // Query CAS index.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
-      System.out.println("");
+      System.out.println();
       System.out.println("Find CAS index for all text values which are integers between 10 and 100.");
       final QueryContext ctx3 = SirixQueryContext.createWithNodeStore(store);
       final String query =
@@ -404,7 +404,7 @@ public final class XQueryUsage {
 
     // Query path index which are children of the log-element (only elements).
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
-      System.out.println("");
+      System.out.println();
       System.out.println("Find path index for all elements which are children of the log-element (only elements).");
       final QueryContext ctx3 = SirixQueryContext.createWithNodeStore(store);
       final XmlDBNode node =
@@ -431,7 +431,7 @@ public final class XQueryUsage {
 
     // Query name index.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
-      System.out.println("");
+      System.out.println();
       System.out.println("Query name index (src-element).");
       final QueryContext ctx3 = new BrackitQueryContext(store);
       final String query = "let $doc := xml:doc('mydocs.col', 'resource1')"

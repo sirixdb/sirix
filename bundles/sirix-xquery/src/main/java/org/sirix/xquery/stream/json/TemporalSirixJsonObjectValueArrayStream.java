@@ -1,7 +1,7 @@
 package org.sirix.xquery.stream.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import org.brackit.xquery.xdm.Stream;
+import com.google.common.base.MoreObjects;
+import org.brackit.xquery.jdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -9,7 +9,8 @@ import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonObjectValueDBArray;
 import org.sirix.xquery.node.XmlDBCollection;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * {@link Stream}, wrapping a temporal axis.
