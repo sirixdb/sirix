@@ -1,10 +1,10 @@
 package org.sirix.xquery.node;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Scope;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Scope;
+import org.brackit.xquery.jdm.Stream;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
@@ -19,7 +19,7 @@ import org.sirix.settings.Fixed;
 public final class SirixScope implements Scope {
 
   /** Sirix {@link XmlNodeReadOnlyTrx}. */
-  private final XmlNodeReadOnlyTrx mRtx;
+  private final XmlNodeReadOnlyTrx rtx;
 
   /**
    * Constructor.
@@ -29,27 +29,28 @@ public final class SirixScope implements Scope {
   public SirixScope(final XmlDBNode node) {
     // Assertion instead of checkNotNull(...) (part of internal API).
     assert node != null;
-    mRtx = node.getTrx();
+    rtx = node.getTrx();
   }
 
   @Override
   public Stream<String> localPrefixes() {
-    return new Stream<String>() {
-      private int mIndex;
+    return new Stream<>() {
+      private int index;
 
-      private final int mNamespaces = mRtx.getNamespaceCount();
+      private final int mNamespaces = rtx.getNamespaceCount();
 
       @Override
       public String next() throws DocumentException {
-        if (mIndex < mNamespaces) {
-          mRtx.moveToNamespace(mIndex++);
-          return mRtx.nameForKey(mRtx.getPrefixKey());
+        if (index < mNamespaces) {
+          rtx.moveToNamespace(index++);
+          return rtx.nameForKey(rtx.getPrefixKey());
         }
         return null;
       }
 
       @Override
-      public void close() {}
+      public void close() {
+      }
     };
   }
 
@@ -60,8 +61,7 @@ public final class SirixScope implements Scope {
 
   @Override
   public void addPrefix(final String prefix, final String uri) {
-    if (mRtx instanceof XmlNodeTrx) {
-      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
+    if (rtx instanceof final XmlNodeTrx wtx) {
       try {
         wtx.insertNamespace(new QNm(uri, prefix, ""));
       } catch (final SirixException e) {
@@ -74,20 +74,20 @@ public final class SirixScope implements Scope {
   public String resolvePrefix(final @Nullable String prefix) {
     final int prefixVocID = (prefix == null || prefix.isEmpty())
         ? -1
-        : mRtx.keyForName(prefix);
+        : rtx.keyForName(prefix);
     while (true) {
       // First iterate over all namespaces.
-      for (int i = 0, namespaces = mRtx.getNamespaceCount(); i < namespaces; i++) {
-        mRtx.moveToNamespace(i);
-        final String name = mRtx.nameForKey(prefixVocID);
+      for (int i = 0, namespaces = rtx.getNamespaceCount(); i < namespaces; i++) {
+        rtx.moveToNamespace(i);
+        final String name = rtx.nameForKey(prefixVocID);
         if (name != null) {
           return name;
         }
-        mRtx.moveToParent();
+        rtx.moveToParent();
       }
       // Then move to parent.
-      if (mRtx.hasParent() && mRtx.getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        mRtx.moveToParent();
+      if (rtx.hasParent() && rtx.getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        rtx.moveToParent();
       } else {
         break;
       }

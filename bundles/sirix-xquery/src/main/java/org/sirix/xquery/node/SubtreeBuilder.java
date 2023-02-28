@@ -2,10 +2,10 @@ package org.sirix.xquery.node;
 
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.node.parser.SubtreeHandler;
-import org.brackit.xquery.node.parser.SubtreeListener;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.node.AbstractTemporalNode;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.node.AbstractTemporalNode;
+import org.brackit.xquery.node.parser.NodeSubtreeHandler;
+import org.brackit.xquery.node.parser.NodeSubtreeListener;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.InsertPosition;
@@ -22,7 +22,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @author Johannes Lichtenberger
  */
-public final class SubtreeBuilder extends AbstractShredder implements SubtreeHandler {
+public final class SubtreeBuilder extends AbstractShredder implements NodeSubtreeHandler {
 
   /** {@link SubtreeProcessor} for listeners. */
   private final SubtreeProcessor<AbstractTemporalNode<XmlDBNode>> subtreeProcessor;
@@ -57,7 +57,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
    * @param listeners listeners which implement
    */
   public SubtreeBuilder(final XmlDBCollection collection, final XmlNodeTrx wtx, final InsertPosition insertPos,
-      final List<SubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
+      final List<NodeSubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
     super(wtx, insertPos);
     //((InternalXmlNodeTrx) wtx).setBulkInsertion(true);
     this.collection = checkNotNull(collection);

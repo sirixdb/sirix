@@ -7,14 +7,14 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.jdm.*;
+import org.brackit.xquery.jdm.node.Node;
+import org.brackit.xquery.jdm.type.*;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.node.parser.StreamSubtreeParser;
-import org.brackit.xquery.node.parser.SubtreeHandler;
-import org.brackit.xquery.node.parser.SubtreeParser;
+import org.brackit.xquery.node.parser.NodeStreamSubtreeParser;
+import org.brackit.xquery.node.parser.NodeSubtreeHandler;
+import org.brackit.xquery.node.parser.NodeSubtreeParser;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.*;
-import org.brackit.xquery.xdm.node.Node;
-import org.brackit.xquery.xdm.type.*;
 import org.sirix.xquery.function.DateTimeToInstant;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.xml.XMLFun;
@@ -128,7 +128,7 @@ public final class Store extends AbstractFunction {
       coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       try (ParserStream parsers = new ParserStream(nodes)) {
-        for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
+        for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
           coll.add(parser);
         }
       }
@@ -144,24 +144,26 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static class StoreParser extends StreamSubtreeParser {
+  private static class StoreParser implements NodeSubtreeParser {
+
+    private final NodeStreamSubtreeParser parser;
     private final boolean intercept;
 
     public StoreParser(final Node<?> node) throws DocumentException {
-      super(node.getSubtree());
+      parser = new NodeStreamSubtreeParser(node.getSubtree());
       intercept = (node.getKind() != Kind.DOCUMENT);
     }
 
     @Override
-    public void parse(SubtreeHandler handler) throws DocumentException {
+    public void parse(NodeSubtreeHandler handler) throws DocumentException {
       if (intercept) {
         handler = new InterceptorHandler(handler);
       }
-      super.parse(handler);
+      parser.parse(handler);
     }
   }
 
-  private record InterceptorHandler(SubtreeHandler handler) implements SubtreeHandler {
+  private record InterceptorHandler(NodeSubtreeHandler handler) implements NodeSubtreeHandler {
 
     @Override
     public void beginFragment() throws DocumentException {
@@ -241,7 +243,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static class ParserStream implements Stream<SubtreeParser> {
+  private static class ParserStream implements Stream<NodeSubtreeParser> {
     private final Iter it;
 
     public ParserStream(final Sequence locs) {
@@ -249,7 +251,7 @@ public final class Store extends AbstractFunction {
     }
 
     @Override
-    public SubtreeParser next() throws DocumentException {
+    public NodeSubtreeParser next() throws DocumentException {
       try {
         final Item i = it.next();
         if (i == null) {

@@ -1,8 +1,8 @@
 package org.sirix.xquery.json;
 
 import com.google.common.collect.AbstractIterator;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
+import org.brackit.xquery.jdm.Item;
+import org.brackit.xquery.jdm.Iter;
 import org.sirix.axis.IncludeSelf;
 
 import java.util.ArrayDeque;

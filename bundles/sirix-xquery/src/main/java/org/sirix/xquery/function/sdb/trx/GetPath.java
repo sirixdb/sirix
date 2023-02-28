@@ -4,10 +4,10 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Signature;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -56,7 +56,11 @@ public final class GetPath extends AbstractFunction {
           return null;
         }
         assert pathSummaryReader.getPathNode() != null;
-        final var path = pathSummaryReader.getPathNode().getPath(pathSummaryReader);
+        var path = pathSummaryReader.getPath();
+
+        if (path == null) {
+          return null;
+        }
 
         if (!(rtx instanceof final JsonNodeReadOnlyTrx trx))
           return new Str(path.toString());

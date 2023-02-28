@@ -27,7 +27,7 @@
  */
 package org.sirix.access.trx.page;
 
-import org.brackit.xquery.xdm.DocumentException;
+import org.brackit.xquery.jdm.DocumentException;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;

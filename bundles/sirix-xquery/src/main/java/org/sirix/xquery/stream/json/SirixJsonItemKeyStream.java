@@ -1,7 +1,7 @@
 package org.sirix.xquery.stream.json;
 
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.jdm.Item;
+import org.brackit.xquery.jdm.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;

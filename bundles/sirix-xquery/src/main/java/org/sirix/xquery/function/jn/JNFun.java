@@ -2,12 +2,12 @@ package org.sirix.xquery.function.jn;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.json.JSONFun;
+import org.brackit.xquery.jdm.Signature;
+import org.brackit.xquery.jdm.type.AnyJsonItemType;
+import org.brackit.xquery.jdm.type.AtomicType;
+import org.brackit.xquery.jdm.type.Cardinality;
+import org.brackit.xquery.jdm.type.SequenceType;
 import org.brackit.xquery.module.Functions;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.type.AnyJsonItemType;
-import org.brackit.xquery.xdm.type.AtomicType;
-import org.brackit.xquery.xdm.type.Cardinality;
-import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.jn.diff.Diff;
 import org.sirix.xquery.function.jn.index.create.CreateCASIndex;
 import org.sirix.xquery.function.jn.index.create.CreateNameIndex;

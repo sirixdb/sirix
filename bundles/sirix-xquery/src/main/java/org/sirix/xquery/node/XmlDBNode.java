@@ -5,17 +5,17 @@ import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Una;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.Kind;
+import org.brackit.xquery.jdm.Scope;
+import org.brackit.xquery.jdm.Stream;
+import org.brackit.xquery.jdm.node.AbstractTemporalNode;
+import org.brackit.xquery.jdm.node.Node;
+import org.brackit.xquery.jdm.node.TemporalNode;
+import org.brackit.xquery.jdm.type.NodeType;
 import org.brackit.xquery.node.parser.NavigationalSubtreeParser;
-import org.brackit.xquery.node.parser.SubtreeHandler;
-import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.Scope;
-import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.node.AbstractTemporalNode;
-import org.brackit.xquery.xdm.node.Node;
-import org.brackit.xquery.xdm.node.TemporalNode;
-import org.brackit.xquery.xdm.type.NodeType;
+import org.brackit.xquery.node.parser.NodeSubtreeHandler;
+import org.brackit.xquery.node.parser.NodeSubtreeParser;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -704,7 +704,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public XmlDBNode append(final SubtreeParser parser) {
+  public XmlDBNode append(final NodeSubtreeParser parser) {
     if (isWtx) {
       try {
         moveRtx();
@@ -726,7 +726,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
   }
 
-  private XmlDBNode append(final XmlNodeReadOnlyTrx rtx, final SubtreeParser parser) {
+  private XmlDBNode append(final XmlNodeReadOnlyTrx rtx, final NodeSubtreeParser parser) {
     try {
       if (rtx.hasFirstChild()) {
         rtx.moveToLastChild();
@@ -821,7 +821,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public XmlDBNode prepend(final SubtreeParser parser) {
+  public XmlDBNode prepend(final NodeSubtreeParser parser) {
     if (isWtx) {
       try {
         moveRtx();
@@ -843,7 +843,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
   }
 
-  private XmlDBNode prepend(final XmlNodeTrx wtx, final SubtreeParser parser) {
+  private XmlDBNode prepend(final XmlNodeTrx wtx, final NodeSubtreeParser parser) {
     try {
       parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
       moveRtx();
@@ -949,7 +949,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public XmlDBNode insertBefore(final SubtreeParser parser) {
+  public XmlDBNode insertBefore(final NodeSubtreeParser parser) {
     if (isWtx) {
       try {
         moveRtx();
@@ -971,7 +971,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
   }
 
-  private XmlDBNode insertBefore(final XmlNodeTrx wtx, final SubtreeParser parser) {
+  private XmlDBNode insertBefore(final XmlNodeTrx wtx, final NodeSubtreeParser parser) {
     try {
       final SubtreeBuilder builder =
           new SubtreeBuilder(collection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
@@ -1052,7 +1052,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public XmlDBNode insertAfter(final SubtreeParser parser) {
+  public XmlDBNode insertAfter(final NodeSubtreeParser parser) {
     if (isWtx) {
       try {
         moveRtx();
@@ -1074,7 +1074,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
   }
 
-  private XmlDBNode insertAfter(final XmlNodeTrx wtx, final SubtreeParser parser) {
+  private XmlDBNode insertAfter(final XmlNodeTrx wtx, final NodeSubtreeParser parser) {
     try {
       final SubtreeBuilder builder =
           new SubtreeBuilder(collection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
@@ -1260,7 +1260,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public XmlDBNode replaceWith(final SubtreeParser parser) {
+  public XmlDBNode replaceWith(final NodeSubtreeParser parser) {
     if (isWtx) {
       try {
         moveRtx();
@@ -1283,7 +1283,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
   }
 
-  private XmlDBNode replaceWith(final XmlNodeTrx wtx, final SubtreeParser parser) {
+  private XmlDBNode replaceWith(final XmlNodeTrx wtx, final NodeSubtreeParser parser) {
     final SubtreeBuilder builder = createBuilder(wtx);
     parser.parse(builder);
     try {
@@ -1432,9 +1432,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public void parse(final SubtreeHandler handler) {
+  public void parse(final NodeSubtreeHandler handler) {
     moveRtx();
-    final SubtreeParser parser = new NavigationalSubtreeParser(this);
+    final NodeSubtreeParser parser = new NavigationalSubtreeParser(this);
     parser.parse(handler);
   }
 
@@ -1621,7 +1621,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Stream<? extends Node<?>> performStep(final org.brackit.xquery.xdm.Axis axis, final NodeType test) {
+  public Stream<? extends Node<?>> performStep(final org.brackit.xquery.jdm.Axis axis, final NodeType test) {
     return null;
   }
 

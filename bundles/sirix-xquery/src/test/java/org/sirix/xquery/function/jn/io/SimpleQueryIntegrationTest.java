@@ -1,9 +1,9 @@
 package org.sirix.xquery.function.jn.io;
 
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.jdm.Sequence;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
-import org.brackit.xquery.xdm.Sequence;
 import org.junit.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

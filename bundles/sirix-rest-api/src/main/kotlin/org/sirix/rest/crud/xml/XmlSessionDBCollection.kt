@@ -2,8 +2,8 @@ package org.sirix.rest.crud.xml
 
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
-import org.brackit.xquery.xdm.node.AbstractTemporalNode
-import org.brackit.xquery.xdm.node.TemporalNodeCollection
+import org.brackit.xquery.jdm.node.AbstractTemporalNode
+import org.brackit.xquery.jdm.node.TemporalNodeCollection
 import org.sirix.xquery.node.XmlDBNode
 
 class XmlSessionDBCollection<T>(

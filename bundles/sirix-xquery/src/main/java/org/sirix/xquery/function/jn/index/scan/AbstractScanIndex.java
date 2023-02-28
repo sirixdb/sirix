@@ -2,9 +2,9 @@ package org.sirix.xquery.function.jn.index.scan;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.jdm.*;
 import org.brackit.xquery.sequence.BaseIter;
 import org.brackit.xquery.sequence.LazySequence;
-import org.brackit.xquery.xdm.*;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.stream.json.SirixJsonItemKeyStream;

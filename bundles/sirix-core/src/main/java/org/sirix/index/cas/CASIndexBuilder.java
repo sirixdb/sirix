@@ -2,9 +2,9 @@ package org.sirix.index.cas;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.jdm.Type;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
-import org.brackit.xquery.xdm.Type;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixIOException;
@@ -50,21 +50,16 @@ public final class CASIndexBuilder {
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths, true).contains(pathNodeKey)) {
-        final Str strValue;
-
-        if (node instanceof ImmutableValueNode) {
-          strValue = new Str(((ImmutableValueNode) node).getValue());
-        } else if (node instanceof ImmutableObjectNumberNode) {
-          strValue = new Str(String.valueOf(((ImmutableObjectNumberNode) node).getValue()));
-        } else if (node instanceof ImmutableNumberNode) {
-          strValue = new Str(String.valueOf(((ImmutableNumberNode) node).getValue()));
-        } else if (node instanceof ImmutableObjectBooleanNode) {
-          strValue = new Str(String.valueOf(((ImmutableObjectBooleanNode) node).getValue()));
-        } else if (node instanceof ImmutableBooleanNode) {
-          strValue = new Str(String.valueOf(((ImmutableBooleanNode) node).getValue()));
-        } else {
-          throw new IllegalStateException("Value not supported.");
-        }
+        final Str strValue = switch (node) {
+          case ImmutableValueNode immutableValueNode -> new Str(immutableValueNode.getValue());
+          case ImmutableObjectNumberNode immutableObjectNumberNode ->
+              new Str(String.valueOf(immutableObjectNumberNode.getValue()));
+          case ImmutableNumberNode immutableNumberNode -> new Str(String.valueOf(immutableNumberNode.getValue()));
+          case ImmutableObjectBooleanNode immutableObjectBooleanNode ->
+              new Str(String.valueOf(immutableObjectBooleanNode.getValue()));
+          case ImmutableBooleanNode immutableBooleanNode -> new Str(String.valueOf(immutableBooleanNode.getValue()));
+          case null, default -> throw new IllegalStateException("Value not supported.");
+        };
 
         boolean isOfType = false;
         try {

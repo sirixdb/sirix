@@ -3,14 +3,14 @@ package org.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.index.redblacktree.RBNode;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.Map;
 
 public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, ?>> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<RBIndexKey, RBNode<?, ?>> pageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<RBIndexKey, RBNode<?, ?>> cache;
 
   public RedBlackTreeNodeCache(final int maxSize) {
     final RemovalListener<RBIndexKey, RBNode<?, ?>> removalListener =
@@ -20,35 +20,35 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, 
           final RBNode<?, ?> parent = value.getParent();
 
           if (parent != null) {
-            if (parent.getLeftChild().equals(value)) {
+            if (value.equals(parent.getLeftChild())) {
               parent.setLeftChild(null);
-            } else if (parent.getRightChild().equals(value)) {
+            } else if (value.equals(parent.getRightChild())) {
               parent.setRightChild(null);
             }
           }
         };
 
-    pageCache = Caffeine.newBuilder().maximumSize(maxSize).removalListener(removalListener).build();
+    cache = Caffeine.newBuilder().maximumSize(maxSize).removalListener(removalListener).build();
   }
 
   @Override
   public void clear() {
-    pageCache.invalidateAll();
+    cache.invalidateAll();
   }
 
   @Override
   public RBNode<?, ?> get(RBIndexKey key) {
-    return pageCache.getIfPresent(key);
+    return cache.getIfPresent(key);
   }
 
   @Override
   public void put(RBIndexKey key, @NonNull RBNode<?, ?> value) {
-    pageCache.put(key, value);
+    cache.put(key, value);
   }
 
   @Override
   public void putAll(Map<? extends RBIndexKey, ? extends RBNode<?, ?>> map) {
-    pageCache.putAll(map);
+    cache.putAll(map);
   }
 
   @Override
@@ -58,12 +58,12 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, 
 
   @Override
   public Map<RBIndexKey, RBNode<?, ?>> getAll(Iterable<? extends RBIndexKey> keys) {
-    return pageCache.getAllPresent(keys);
+    return cache.getAllPresent(keys);
   }
 
   @Override
   public void remove(RBIndexKey key) {
-    pageCache.invalidate(key);
+    cache.invalidate(key);
   }
 
   @Override

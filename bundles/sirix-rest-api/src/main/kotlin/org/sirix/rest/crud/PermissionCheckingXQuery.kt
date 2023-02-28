@@ -11,12 +11,12 @@ import org.brackit.xquery.ErrorCode
 import org.brackit.xquery.QueryContext
 import org.brackit.xquery.QueryException
 import org.brackit.xquery.compiler.CompileChain
+import org.brackit.xquery.jdm.Item
+import org.brackit.xquery.jdm.Sequence
 import org.brackit.xquery.module.Module
 import org.brackit.xquery.operator.TupleImpl
 import org.brackit.xquery.util.serialize.Serializer
 import org.brackit.xquery.util.serialize.StringSerializer
-import org.brackit.xquery.xdm.Item
-import org.brackit.xquery.xdm.Sequence
 import org.sirix.rest.AuthRole
 import java.io.PrintStream
 import java.io.PrintWriter

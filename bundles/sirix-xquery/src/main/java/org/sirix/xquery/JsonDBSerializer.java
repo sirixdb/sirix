@@ -28,14 +28,14 @@
 package org.sirix.xquery;
 
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.jdm.Item;
+import org.brackit.xquery.jdm.Iter;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Type;
+import org.brackit.xquery.jdm.json.Array;
+import org.brackit.xquery.jdm.json.Object;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.brackit.xquery.util.serialize.StringSerializer;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Type;
-import org.brackit.xquery.xdm.json.Array;
-import org.brackit.xquery.xdm.json.Object;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 
@@ -95,7 +95,6 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
           }
           while (item != null) {
             if (item instanceof StructuredDBItem) {
-              @SuppressWarnings("unchecked")
               final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
               trxSet.add(node.getTrx());
 

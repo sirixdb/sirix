@@ -4,7 +4,6 @@ import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.NodeFactory;
-import org.sirix.access.trx.node.xml.InsertPos;
 import org.sirix.api.*;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -25,7 +24,6 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.page.NamePage;
 import org.sirix.settings.Fixed;
 
 import javax.xml.namespace.QName;
@@ -218,8 +216,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   private void adaptForInsert(final Node newNode) {
     assert newNode != null;
-    assert InsertPos.ASFIRSTCHILD != null;
-    assert IndexType.PATH_SUMMARY != null;
 
     if (newNode instanceof StructNode strucNode) {
       final StructNode parent = pageTrx.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
@@ -296,6 +292,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
           pathNode.setPrefixKey(prefixKey);
           pathNode.setLocalNameKey(localNameKey);
           pathNode.setURIKey(uriKey);
+          pathNode.setName(name);
           pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
           pathSummaryReader.putQNameMapping(pathNode, name);
         }
@@ -436,7 +433,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if Sirix fails to do so
    */
   private void processFoundPathNode(final @NonNegative long oldPathNodeKey, final @NonNegative long newPathNodeKey,
-      final @NonNegative long oldNodeKey, final QNm name, final int uriKey, final int prefixKey, final int localNameKey) {
+      final @NonNegative long oldNodeKey, final QNm name, final int uriKey, final int prefixKey,
+      final int localNameKey) {
     nodeRtx.moveTo(oldNodeKey);
 
     // Set new reference count of the root.
@@ -446,6 +444,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     currNode.setLocalNameKey(localNameKey);
     currNode.setPrefixKey(prefixKey);
     currNode.setURIKey(uriKey);
+    currNode.setName(name);
     pathSummaryReader.putMapping(currNode.getNodeKey(), currNode);
     pathSummaryReader.putQNameMapping(currNode, name);
 
@@ -675,17 +674,17 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
     pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
 
-//    pathSummaryReader.moveToDocumentRoot();
-//
-//    System.out.println("removed: =====================");
-//
-//    for (final var descendantAxis = new DescendantAxis(pathSummaryReader); descendantAxis.hasNext(); ) {
-//      descendantAxis.nextLong();
-//      System.out.println("path: " + pathSummaryReader.getPath());
-//      System.out.println("nodeKey: " + pathSummaryReader.getNodeKey());
-//      System.out.println("rightSiblingKey: " + pathSummaryReader.getRightSiblingKey());
-//      System.out.println("references: " + pathSummaryReader.getReferences());
-//    }
+    //    pathSummaryReader.moveToDocumentRoot();
+    //
+    //    System.out.println("removed: =====================");
+    //
+    //    for (final var descendantAxis = new DescendantAxis(pathSummaryReader); descendantAxis.hasNext(); ) {
+    //      descendantAxis.nextLong();
+    //      System.out.println("path: " + pathSummaryReader.getPath());
+    //      System.out.println("nodeKey: " + pathSummaryReader.getNodeKey());
+    //      System.out.println("rightSiblingKey: " + pathSummaryReader.getRightSiblingKey());
+    //      System.out.println("references: " + pathSummaryReader.getReferences());
+    //    }
   }
 
   private void deleteOrDecrement() {
@@ -706,22 +705,19 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Decrements the reference-counter of the node or removes the path node if the reference-counter
    * would be zero otherwise.
    *
-   * @param node     node which is going to removed from the storage
-   * @param nodeKind the node kind
-   * @param page     the name page
+   * @param node     node which is going to be removed from the storage
    * @throws SirixException if anything went wrong
    */
-  public void remove(final ImmutableNameNode node, final NodeKind nodeKind, final NamePage page) {
+  public void remove(final ImmutableNameNode node) {
     if (pathSummaryReader.moveTo(node.getPathNodeKey())) {
       if (pathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);
       } else {
-        if (pathSummaryReader.getReferences() > 1) {
-          final PathNode pathNode =
-              pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
-          pathNode.decrementReferenceCount();
-          pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
-        }
+        assert pathSummaryReader.getReferences() > 1;
+        final PathNode pathNode =
+            pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+        pathNode.decrementReferenceCount();
+        pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
       }
     }
   }

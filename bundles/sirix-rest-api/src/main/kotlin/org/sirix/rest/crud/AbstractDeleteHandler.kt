@@ -10,14 +10,13 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.brackit.xquery.xdm.StructuredItemStore
+import org.brackit.xquery.jdm.StructuredItemStore
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.access.User
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.ResourceSession
-import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
 

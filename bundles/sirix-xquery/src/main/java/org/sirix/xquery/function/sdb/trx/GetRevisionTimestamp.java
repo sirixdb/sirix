@@ -1,16 +1,17 @@
 package org.sirix.xquery.function.sdb.trx;
 
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.jdm.Sequence;
+import org.brackit.xquery.jdm.Signature;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
+
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 
 /**
  * <p>

@@ -2,10 +2,10 @@ package org.sirix.xquery.node;
 
 import org.brackit.xquery.XMarkTest;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.jdm.DocumentException;
+import org.brackit.xquery.jdm.node.NodeCollection;
+import org.brackit.xquery.jdm.node.NodeStore;
 import org.brackit.xquery.node.parser.DocumentParser;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.node.NodeCollection;
-import org.brackit.xquery.xdm.node.NodeStore;
 import org.junit.After;
 import org.sirix.xquery.SirixCompileChain;
 

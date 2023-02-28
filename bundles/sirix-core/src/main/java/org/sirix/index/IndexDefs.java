@@ -2,8 +2,8 @@ package org.sirix.index;
 
 import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.jdm.Type;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.xdm.Type;
 import org.sirix.page.PageConstants;
 
 import java.util.Set;
