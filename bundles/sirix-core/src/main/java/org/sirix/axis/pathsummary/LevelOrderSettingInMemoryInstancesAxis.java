@@ -1,23 +1,31 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * <p>
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
- * <p>
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/*
+ * Copyright (c) 2023, Sirix Contributors
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 package org.sirix.axis.pathsummary;
 
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -36,33 +44,32 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * Iterates over a subtree in levelorder / in a breath first traversal.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
 
+  /**
+   * The reader used to navigate.
+   */
   private final PathSummaryReader reader;
 
   /**
-   * Determines if structural or structural and non structural nodes should be included.
+   * {@link Deque} for remembering next nodeKey in document order.
    */
-  private enum IncludeNodes {
-    /** Only structural nodes. */
-    STRUCTURAL,
-
-    /** Structural and non-structural nodes. */
-    NONSTRUCTURAL
-  }
-
-  /** {@link Deque} for remembering next nodeKey in document order. */
   private Deque<PathNode> firstChildren;
 
-  /** Determines if {@code hasNext()} is called for the first time. */
+  /**
+   * Determines if {@code hasNext()} is called for the first time.
+   */
   private boolean isFirst;
 
-  /** Filter by level. */
+  /**
+   * Filter by level.
+   */
   private int filterLevel = Integer.MAX_VALUE;
 
-  /** Current level. */
+  /**
+   * Current level.
+   */
   private int level;
 
   /**
@@ -75,15 +82,23 @@ public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
     return new Builder(rtx);
   }
 
-  /** Builder. */
+  /**
+   * Builder.
+   */
   public static class Builder {
-    /** Filter by level. */
+    /**
+     * Filter by level.
+     */
     private int filterLevel = Integer.MAX_VALUE;
 
-    /** Sirix {@link PathSummaryReader}. */
+    /**
+     * Sirix {@link PathSummaryReader}.
+     */
     private final PathSummaryReader reader;
 
-    /** Determines if current start node to traversal should be included or not. */
+    /**
+     * Determines if current start node to traversal should be included or not.
+     */
     private IncludeSelf includeSelf = IncludeSelf.NO;
 
     /**
@@ -145,7 +160,7 @@ public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
     isFirst = true;
     firstChildren = new ArrayDeque<>();
     if (reader != null) {
-      reader.moveTo(startPathNode.getNodeKey());
+      reader.moveTo(pathNode.getNodeKey());
     }
   }
 
@@ -232,7 +247,6 @@ public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
     if (firstChild.getParent() == null) {
       firstChild.setParent(nextNode);
     }
-    //reader.moveTo(firstChild.getNodeKey());
     return firstChild;
   }
 
@@ -249,7 +263,6 @@ public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
       rightSibling.setParent(parentNode);
       rightSibling.setLeftSibling(nextNode);
     }
-    //reader.moveTo(rightSibling.getNodeKey());
     return rightSibling;
   }
 

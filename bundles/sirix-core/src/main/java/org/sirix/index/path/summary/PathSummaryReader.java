@@ -1,10 +1,10 @@
 package org.sirix.index.path.summary;
 
 import com.google.common.base.MoreObjects;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import one.jasyncfio.collections.IntObjectHashMap;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -73,7 +73,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Mapping of a path node key to the path node/document root node.
    */
-  private final Long2ObjectMap<StructNode> pathNodeMapping;
+  private final IntObjectHashMap<StructNode> pathNodeMapping;
 
   /**
    * Mapping of a {@link QNm} to a set of path nodes.
@@ -103,8 +103,6 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final Cache<Integer, PathSummaryData> pathSummaryCache = pageReadTrx.getBufferManager().getPathSummaryCache();
     final PathSummaryData pathSummaryData = pathSummaryCache.get(pageReadTrx.getRevisionNumber());
 
-    final int maxNrOfNodes =
-        (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
     if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
       currentNode =
           this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
@@ -112,17 +110,20 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       if (currentNode == null) {
         throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
       }
-      pathNodeMapping = new Long2ObjectOpenHashMap<>(maxNrOfNodes);
-      qnmMapping = new HashMap<>(maxNrOfNodes);
+
+      final int maxNrOfNodes =
+          (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
+      final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
+      pathNodeMapping =
+          new IntObjectHashMap<>(maxNrOfNodes);
+      qnmMapping = new HashMap<>(maxNrOfNodesForMap);
       boolean first = true;
       boolean hasMoved = moveToFirstChild();
       if (hasMoved) {
-        int numberOfNodesTraversed = 0;
         var axis = new LevelOrderSettingInMemoryInstancesAxis.Builder(this).includeSelf().build();
         while (axis.hasNext()) {
           final var pathNode = axis.next();
-          numberOfNodesTraversed++;
-          pathNodeMapping.put(pathNode.getNodeKey(), pathNode);
+          pathNodeMapping.put((int) pathNode.getNodeKey(), pathNode);
           moveTo(pathNode.getNodeKey());
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
@@ -132,7 +133,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         moveToDocumentRoot();
       }
       if (!pageReadTrx.hasTrxIntentLog()) {
-        pathSummaryCache.put(pageReadTrx.getRevisionNumber(), new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
+        pathSummaryCache.put(pageReadTrx.getRevisionNumber(),
+                             new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
       }
     } else {
       currentNode = pathSummaryData.currentNode();
@@ -172,12 +174,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   // package private, only used in writer to keep the mapping always up-to-date
   void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
-    pathNodeMapping.put(pathNodeKey, node);
+    pathNodeMapping.put((int) pathNodeKey, node);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
   StructNode removeMapping(final @NonNegative long pathNodeKey) {
-    return pathNodeMapping.remove(pathNodeKey);
+    return pathNodeMapping.remove((int) pathNodeKey);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
@@ -313,7 +315,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public PathNode getPathNodeForPathNodeKey(final @NonNegative long pathNodeKey) {
     assertNotClosed();
 
-    return (PathNode) pathNodeMapping.get(pathNodeKey);
+    return (PathNode) pathNodeMapping.get((int) pathNodeKey);
   }
 
   @Override
@@ -432,6 +434,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean moveToParent() {
     assertNotClosed();
+    if (!getStructuralNode().hasParent()) {
+      return false;
+    }
+    final var node = getStructuralNode();
+    if (node instanceof PathNode pathNode && pathNode.getParent() != null) {
+      currentNode = pathNode.getParent();
+      return true;
+    }
     return moveTo(getStructuralNode().getParentKey());
   }
 
@@ -440,6 +450,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
     if (!getStructuralNode().hasFirstChild()) {
       return false;
+    }
+    final var node = getStructuralNode();
+    if (node instanceof PathNode pathNode && pathNode.getFirstChild() != null) {
+      currentNode = pathNode.getFirstChild();
+      return true;
     }
     return moveTo(getStructuralNode().getFirstChildKey());
   }
@@ -450,6 +465,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     if (!getStructuralNode().hasLeftSibling()) {
       return false;
     }
+    final var node = getStructuralNode();
+    if (node instanceof PathNode pathNode && pathNode.getLeftSibling() != null) {
+      currentNode = pathNode.getLeftSibling();
+      return true;
+    }
     return moveTo(getStructuralNode().getLeftSiblingKey());
   }
 
@@ -458,6 +478,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
     if (!getStructuralNode().hasRightSibling()) {
       return false;
+    }
+    final var node = getStructuralNode();
+    if (node instanceof PathNode pathNode && pathNode.getRightSibling() != null) {
+      currentNode = pathNode.getRightSibling();
+      return true;
     }
     return moveTo(getStructuralNode().getRightSiblingKey());
   }
@@ -936,5 +961,18 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public int getPreviousRevisionNumber() {
     throw new UnsupportedOperationException();
+  }
+
+  private static class DictionaryHashStrategy implements LongHash.Strategy {
+
+    @Override
+    public int hashCode(long l) {
+      return (int) (l ^ (l >>> 32));
+    }
+
+    @Override
+    public boolean equals(long l1, long l2) {
+      return l1 == l2;
+    }
   }
 }
