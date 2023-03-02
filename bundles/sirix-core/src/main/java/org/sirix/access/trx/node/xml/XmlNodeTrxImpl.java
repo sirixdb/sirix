@@ -163,7 +163,7 @@ final class XmlNodeTrxImpl extends
     try {
       checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(), "Argument must be a valid node key!");
 
-      checkArgument(fromKey != getCurrentNode().getNodeKey(), "Can't move itself to right sibling of itself!");
+      checkArgument(fromKey != getCurrentNode().getNodeKey(), "Can't move itself to first child of itself!");
 
       final DataRecord node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
       if (node == null) {
@@ -1297,16 +1297,16 @@ final class XmlNodeTrxImpl extends
         removeName();
         removeValue();
 
-        //        getPathSummary().moveToDocumentRoot();
-        //
-        //        System.out.println("=====================");
-        //
-        //        for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
-        //          descendantAxis.nextLong();
-        //          System.out.println("path: " + getPathSummary().getPath());
-        //          System.out.println("nodeKey: " + getPathSummary().getNodeKey());
-        //          System.out.println("references: " + getPathSummary().getReferences());
-        //        }
+//                getPathSummary().moveToDocumentRoot();
+//
+//                System.out.println("=====================");
+//
+//                for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+//                  descendantAxis.nextLong();
+//                  System.out.println("path: " + getPathSummary().getPath());
+//                  System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+//                  System.out.println("references: " + getPathSummary().getReferences());
+//                }
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
@@ -1793,7 +1793,7 @@ final class XmlNodeTrxImpl extends
 
     final NodeKind kind = rtx.getKind();
     switch (kind) {
-      case TEXT:
+      case TEXT -> {
         final String textValue = rtx.getValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertTextAsFirstChild(textValue);
@@ -1801,16 +1801,16 @@ final class XmlNodeTrxImpl extends
           case AS_RIGHT_SIBLING -> insertTextAsRightSibling(textValue);
           default -> throw new IllegalStateException();
         }
-        break;
-      case PROCESSING_INSTRUCTION:
+      }
+      case PROCESSING_INSTRUCTION -> {
         switch (insert) {
           case AS_FIRST_CHILD -> insertPIAsFirstChild(rtx.getName().getLocalName(), rtx.getValue());
           case AS_LEFT_SIBLING -> insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
           case AS_RIGHT_SIBLING -> insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
           default -> throw new IllegalStateException();
         }
-        break;
-      case COMMENT:
+      }
+      case COMMENT -> {
         final String commentValue = rtx.getValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertCommentAsFirstChild(commentValue);
@@ -1818,10 +1818,9 @@ final class XmlNodeTrxImpl extends
           case AS_RIGHT_SIBLING -> insertCommentAsRightSibling(commentValue);
           default -> throw new IllegalStateException();
         }
-        break;
+      }
       // $CASES-OMITTED$
-      default:
-        new XmlShredder.Builder(this, new StAXSerializer(rtx), insert).build().call();
+      default -> new XmlShredder.Builder(this, new StAXSerializer(rtx), insert).build().call();
     }
     rtx.close();
   }
