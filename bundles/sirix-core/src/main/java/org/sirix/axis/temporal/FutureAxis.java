@@ -1,7 +1,5 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -9,6 +7,8 @@ import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Retrieve a node by node key in all future revisions. In each revision a
@@ -29,7 +29,7 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
   private final ResourceSession<R, W> resourceSession;
 
   /** Node key to lookup and retrieve. */
-  private long nodeKey;
+  private final long nodeKey;
 
   /**
    * Constructor.

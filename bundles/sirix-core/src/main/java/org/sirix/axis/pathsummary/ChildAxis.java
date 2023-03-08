@@ -25,6 +25,12 @@ public final class ChildAxis extends AbstractAxis {
   }
 
   @Override
+  public void reset(PathNode pathNode) {
+    first = true;
+    super.reset(pathNode);
+  }
+
+  @Override
   protected PathNode nextNode() {
     if (!first && nextNode.hasRightSibling()) {
       return nextNode.getRightSibling();

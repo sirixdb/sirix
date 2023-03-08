@@ -29,7 +29,7 @@ import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
-import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 import org.sirix.xquery.compiler.XQExt;
 import org.sirix.xquery.compiler.expression.IndexExpr;
 import org.sirix.xquery.node.XmlDBNode;
@@ -846,11 +846,11 @@ public final class SirixTranslator extends TopDownTranslator {
     } else {
       var rtx = dbNode.getRtx();
       int level = -1;
-      while (rtx.hasParent() && rtx.getParentKey() != Constants.NULL_ID_LONG) {
-        rtx.moveToParent();
-        if (!rtx.isAttribute()) {
+      while (rtx.hasParent() && rtx.getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        if (!rtx.isAttribute() && !rtx.isNamespace()) {
           level++;
         }
+        rtx.moveToParent();
       }
       return level;
     }

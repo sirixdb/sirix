@@ -89,6 +89,10 @@ public abstract class AbstractAxis implements Iterator<PathNode>, Iterable<PathN
     reset(startPathNode);
   }
 
+  public PathNode getStartPathNode() {
+    return startPathNode;
+  }
+
   @Override
   public final Iterator<PathNode> iterator() {
     return this;
