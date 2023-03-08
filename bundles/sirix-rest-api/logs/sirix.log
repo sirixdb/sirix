@@ -1857,3 +1857,983 @@ java.lang.IllegalAccessException: class io.netty.util.internal.PlatformDependent
 15273 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
 15276 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
 15277 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+408  [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+433  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+449  [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/mydoc.jn
+452  [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+454  [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+660  [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+660  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+857  [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+867  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+868  [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+5992 [Test worker] DEBUG net.openhft.chronicle.core.Jvm - No system.properties file found
+5992 [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/Users/claudia.madrid/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+6670 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6671 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6684 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6684 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6684 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6759 [Test worker] DEBUG i.n.u.i.l.InternalLoggerFactory - Using SLF4J as the default logging framework
+6760 [Test worker] DEBUG io.netty.util.ResourceLeakDetector - -Dio.netty.leakDetection.level: simple
+6760 [Test worker] DEBUG io.netty.util.ResourceLeakDetector - -Dio.netty.leakDetection.targetRecords: 4
+6781 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - -Dio.netty.noUnsafe: false
+6781 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - Java version: 19
+6781 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - sun.misc.Unsafe.theUnsafe: available
+6782 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - sun.misc.Unsafe.copyMemory: available
+6782 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.Buffer.address: available
+6786 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - direct buffer constructor: unavailable
+java.lang.UnsupportedOperationException: Reflective setAccessible(true) disabled
+	at io.netty.util.internal.ReflectionUtil.trySetAccessible(ReflectionUtil.java:31)
+	at io.netty.util.internal.PlatformDependent0$4.run(PlatformDependent0.java:253)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:318)
+	at io.netty.util.internal.PlatformDependent0.<clinit>(PlatformDependent0.java:247)
+	at io.netty.util.internal.PlatformDependent.isAndroid(PlatformDependent.java:294)
+	at io.netty.util.internal.PlatformDependent.<clinit>(PlatformDependent.java:88)
+	at io.netty.buffer.EmptyByteBuf.<clinit>(EmptyByteBuf.java:49)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:102)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:91)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<init>(VertxByteBufAllocator.java:18)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator$1.<init>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<clinit>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:76)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:84)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:88)
+	at io.vertx.core.buffer.impl.BufferImpl.buffer(BufferImpl.java:50)
+	at io.vertx.core.buffer.Buffer.buffer(Buffer.java:72)
+	at org.sirix.rest.JsonStreamingShredderTest.testString(JsonStreamingShredderTest.kt:94)
+	at org.sirix.rest.JsonStreamingShredderTest.testSimpleObject(JsonStreamingShredderTest.kt:39)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:53)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:79)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:75)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:62)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:193)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+6787 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.Bits.unaligned: available, true
+6788 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - jdk.internal.misc.Unsafe.allocateUninitializedArray(int): unavailable
+java.lang.IllegalAccessException: class io.netty.util.internal.PlatformDependent0$6 cannot access class jdk.internal.misc.Unsafe (in module java.base) because module java.base does not export jdk.internal.misc to unnamed module @11fc564b
+	at java.base/jdk.internal.reflect.Reflection.newIllegalAccessException(Reflection.java:420)
+	at java.base/java.lang.reflect.AccessibleObject.checkAccess(AccessibleObject.java:709)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at io.netty.util.internal.PlatformDependent0$6.run(PlatformDependent0.java:375)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:318)
+	at io.netty.util.internal.PlatformDependent0.<clinit>(PlatformDependent0.java:366)
+	at io.netty.util.internal.PlatformDependent.isAndroid(PlatformDependent.java:294)
+	at io.netty.util.internal.PlatformDependent.<clinit>(PlatformDependent.java:88)
+	at io.netty.buffer.EmptyByteBuf.<clinit>(EmptyByteBuf.java:49)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:102)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:91)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<init>(VertxByteBufAllocator.java:18)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator$1.<init>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<clinit>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:76)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:84)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:88)
+	at io.vertx.core.buffer.impl.BufferImpl.buffer(BufferImpl.java:50)
+	at io.vertx.core.buffer.Buffer.buffer(Buffer.java:72)
+	at org.sirix.rest.JsonStreamingShredderTest.testString(JsonStreamingShredderTest.kt:94)
+	at org.sirix.rest.JsonStreamingShredderTest.testSimpleObject(JsonStreamingShredderTest.kt:39)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:53)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:79)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:75)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:62)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:193)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+6789 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.DirectByteBuffer.<init>(long, int): unavailable
+6789 [Test worker] DEBUG i.n.util.internal.PlatformDependent - sun.misc.Unsafe: available
+6790 [Test worker] DEBUG i.n.util.internal.PlatformDependent - maxDirectMemory: 7516192768 bytes (maybe)
+6790 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.tmpdir: /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T (java.io.tmpdir)
+6790 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.bitMode: 64 (sun.arch.data.model)
+6790 [Test worker] DEBUG i.n.util.internal.PlatformDependent - Platform: MacOS
+6791 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.maxDirectMemory: -1 bytes
+6791 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.uninitializedArrayAllocationThreshold: -1
+6792 [Test worker] DEBUG io.netty.util.internal.CleanerJava9 - java.nio.ByteBuffer.cleaner(): available
+6792 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.noPreferDirect: false
+6800 [Test worker] DEBUG io.netty.buffer.AbstractByteBuf - -Dio.netty.buffer.checkAccessible: true
+6800 [Test worker] DEBUG io.netty.buffer.AbstractByteBuf - -Dio.netty.buffer.checkBounds: true
+6802 [Test worker] DEBUG i.n.u.ResourceLeakDetectorFactory - Loaded default ResourceLeakDetector: io.netty.util.ResourceLeakDetector@6b587673
+6931 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6958 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6958 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6958 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6961 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6962 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6967 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6970 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6970 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6983 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6984 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6989 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6990 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6990 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7076 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7076 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7083 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7084 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7084 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7178 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7183 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7184 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7184 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7185 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7185 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7190 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7191 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7191 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7198 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7198 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7204 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7204 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7204 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7261 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7262 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7266 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7267 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7267 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7330 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7334 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7335 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7335 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7336 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7336 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7341 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7341 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7341 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7348 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7349 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7354 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7355 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7355 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7411 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7411 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7416 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7416 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7417 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7485 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7490 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7490 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7490 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7491 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7491 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7495 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7496 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7496 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7523 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7523 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7530 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7530 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7530 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7587 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7587 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7592 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7593 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7593 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+8188 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+8488 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+8488 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+8488 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+8489 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+8489 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+8494 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+8496 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+8496 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+302  [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+320  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+410  [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+417  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+417  [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+5492 [Test worker] DEBUG net.openhft.chronicle.core.Jvm - No system.properties file found
+5492 [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/Users/claudia.madrid/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+6176 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6177 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6191 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6191 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6191 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6260 [Test worker] DEBUG i.n.u.i.l.InternalLoggerFactory - Using SLF4J as the default logging framework
+6261 [Test worker] DEBUG io.netty.util.ResourceLeakDetector - -Dio.netty.leakDetection.level: simple
+6261 [Test worker] DEBUG io.netty.util.ResourceLeakDetector - -Dio.netty.leakDetection.targetRecords: 4
+6281 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - -Dio.netty.noUnsafe: false
+6281 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - Java version: 19
+6281 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - sun.misc.Unsafe.theUnsafe: available
+6282 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - sun.misc.Unsafe.copyMemory: available
+6282 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.Buffer.address: available
+6285 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - direct buffer constructor: unavailable
+java.lang.UnsupportedOperationException: Reflective setAccessible(true) disabled
+	at io.netty.util.internal.ReflectionUtil.trySetAccessible(ReflectionUtil.java:31)
+	at io.netty.util.internal.PlatformDependent0$4.run(PlatformDependent0.java:253)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:318)
+	at io.netty.util.internal.PlatformDependent0.<clinit>(PlatformDependent0.java:247)
+	at io.netty.util.internal.PlatformDependent.isAndroid(PlatformDependent.java:294)
+	at io.netty.util.internal.PlatformDependent.<clinit>(PlatformDependent.java:88)
+	at io.netty.buffer.EmptyByteBuf.<clinit>(EmptyByteBuf.java:49)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:102)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:91)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<init>(VertxByteBufAllocator.java:18)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator$1.<init>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<clinit>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:76)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:84)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:88)
+	at io.vertx.core.buffer.impl.BufferImpl.buffer(BufferImpl.java:50)
+	at io.vertx.core.buffer.Buffer.buffer(Buffer.java:72)
+	at org.sirix.rest.JsonStreamingShredderTest.testString(JsonStreamingShredderTest.kt:94)
+	at org.sirix.rest.JsonStreamingShredderTest.testSimpleObject(JsonStreamingShredderTest.kt:39)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:53)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:79)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:75)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:62)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:193)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+6285 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.Bits.unaligned: available, true
+6286 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - jdk.internal.misc.Unsafe.allocateUninitializedArray(int): unavailable
+java.lang.IllegalAccessException: class io.netty.util.internal.PlatformDependent0$6 cannot access class jdk.internal.misc.Unsafe (in module java.base) because module java.base does not export jdk.internal.misc to unnamed module @11fc564b
+	at java.base/jdk.internal.reflect.Reflection.newIllegalAccessException(Reflection.java:420)
+	at java.base/java.lang.reflect.AccessibleObject.checkAccess(AccessibleObject.java:709)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at io.netty.util.internal.PlatformDependent0$6.run(PlatformDependent0.java:375)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:318)
+	at io.netty.util.internal.PlatformDependent0.<clinit>(PlatformDependent0.java:366)
+	at io.netty.util.internal.PlatformDependent.isAndroid(PlatformDependent.java:294)
+	at io.netty.util.internal.PlatformDependent.<clinit>(PlatformDependent.java:88)
+	at io.netty.buffer.EmptyByteBuf.<clinit>(EmptyByteBuf.java:49)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:102)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:91)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<init>(VertxByteBufAllocator.java:18)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator$1.<init>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<clinit>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:76)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:84)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:88)
+	at io.vertx.core.buffer.impl.BufferImpl.buffer(BufferImpl.java:50)
+	at io.vertx.core.buffer.Buffer.buffer(Buffer.java:72)
+	at org.sirix.rest.JsonStreamingShredderTest.testString(JsonStreamingShredderTest.kt:94)
+	at org.sirix.rest.JsonStreamingShredderTest.testSimpleObject(JsonStreamingShredderTest.kt:39)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:53)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:79)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:75)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:62)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:193)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+6287 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.DirectByteBuffer.<init>(long, int): unavailable
+6288 [Test worker] DEBUG i.n.util.internal.PlatformDependent - sun.misc.Unsafe: available
+6289 [Test worker] DEBUG i.n.util.internal.PlatformDependent - maxDirectMemory: 7516192768 bytes (maybe)
+6289 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.tmpdir: /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T (java.io.tmpdir)
+6289 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.bitMode: 64 (sun.arch.data.model)
+6289 [Test worker] DEBUG i.n.util.internal.PlatformDependent - Platform: MacOS
+6290 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.maxDirectMemory: -1 bytes
+6290 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.uninitializedArrayAllocationThreshold: -1
+6291 [Test worker] DEBUG io.netty.util.internal.CleanerJava9 - java.nio.ByteBuffer.cleaner(): available
+6291 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.noPreferDirect: false
+6299 [Test worker] DEBUG io.netty.buffer.AbstractByteBuf - -Dio.netty.buffer.checkAccessible: true
+6299 [Test worker] DEBUG io.netty.buffer.AbstractByteBuf - -Dio.netty.buffer.checkBounds: true
+6301 [Test worker] DEBUG i.n.u.ResourceLeakDetectorFactory - Loaded default ResourceLeakDetector: io.netty.util.ResourceLeakDetector@6f8e0cee
+6415 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6440 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6441 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6441 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6445 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6445 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6453 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6456 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6457 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6470 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6470 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6476 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6476 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6476 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6544 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6544 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6548 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6549 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6549 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6637 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6643 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6644 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6644 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6645 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6645 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6650 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6651 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6651 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6658 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6658 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6663 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6663 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6663 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6722 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6722 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6727 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6727 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6727 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6797 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6802 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6802 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6802 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6803 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6803 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6808 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6808 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6809 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6816 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6816 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6820 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6821 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6821 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6877 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6878 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6883 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6883 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6883 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6948 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6954 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6954 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6954 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6955 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6956 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6962 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6962 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6963 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7029 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7030 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7035 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7035 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7035 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7092 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7092 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7098 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7098 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7098 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7664 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7983 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7984 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7984 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7985 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7986 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7994 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7996 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7996 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+274  [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+300  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+412  [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+422  [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+422  [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+5489 [Test worker] DEBUG net.openhft.chronicle.core.Jvm - No system.properties file found
+5489 [Test worker] INFO  net.openhft.chronicle.core.Jvm - Chronicle core loaded from file:/Users/claudia.madrid/.gradle/caches/modules-2/files-2.1/net.openhft/chronicle-core/2.22.34/c8832c23dd3524838bce9b699fb5db396a5ea1b5/chronicle-core-2.22.34.jar
+6157 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6158 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6171 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6171 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6172 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6248 [Test worker] DEBUG i.n.u.i.l.InternalLoggerFactory - Using SLF4J as the default logging framework
+6249 [Test worker] DEBUG io.netty.util.ResourceLeakDetector - -Dio.netty.leakDetection.level: simple
+6249 [Test worker] DEBUG io.netty.util.ResourceLeakDetector - -Dio.netty.leakDetection.targetRecords: 4
+6271 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - -Dio.netty.noUnsafe: false
+6271 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - Java version: 19
+6272 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - sun.misc.Unsafe.theUnsafe: available
+6273 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - sun.misc.Unsafe.copyMemory: available
+6273 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.Buffer.address: available
+6276 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - direct buffer constructor: unavailable
+java.lang.UnsupportedOperationException: Reflective setAccessible(true) disabled
+	at io.netty.util.internal.ReflectionUtil.trySetAccessible(ReflectionUtil.java:31)
+	at io.netty.util.internal.PlatformDependent0$4.run(PlatformDependent0.java:253)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:318)
+	at io.netty.util.internal.PlatformDependent0.<clinit>(PlatformDependent0.java:247)
+	at io.netty.util.internal.PlatformDependent.isAndroid(PlatformDependent.java:294)
+	at io.netty.util.internal.PlatformDependent.<clinit>(PlatformDependent.java:88)
+	at io.netty.buffer.EmptyByteBuf.<clinit>(EmptyByteBuf.java:49)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:102)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:91)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<init>(VertxByteBufAllocator.java:18)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator$1.<init>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<clinit>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:76)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:84)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:88)
+	at io.vertx.core.buffer.impl.BufferImpl.buffer(BufferImpl.java:50)
+	at io.vertx.core.buffer.Buffer.buffer(Buffer.java:72)
+	at org.sirix.rest.JsonStreamingShredderTest.testString(JsonStreamingShredderTest.kt:94)
+	at org.sirix.rest.JsonStreamingShredderTest.testSimpleObject(JsonStreamingShredderTest.kt:39)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:53)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:79)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:75)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:62)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:193)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+6277 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.Bits.unaligned: available, true
+6278 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - jdk.internal.misc.Unsafe.allocateUninitializedArray(int): unavailable
+java.lang.IllegalAccessException: class io.netty.util.internal.PlatformDependent0$6 cannot access class jdk.internal.misc.Unsafe (in module java.base) because module java.base does not export jdk.internal.misc to unnamed module @11fc564b
+	at java.base/jdk.internal.reflect.Reflection.newIllegalAccessException(Reflection.java:420)
+	at java.base/java.lang.reflect.AccessibleObject.checkAccess(AccessibleObject.java:709)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at io.netty.util.internal.PlatformDependent0$6.run(PlatformDependent0.java:375)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:318)
+	at io.netty.util.internal.PlatformDependent0.<clinit>(PlatformDependent0.java:366)
+	at io.netty.util.internal.PlatformDependent.isAndroid(PlatformDependent.java:294)
+	at io.netty.util.internal.PlatformDependent.<clinit>(PlatformDependent.java:88)
+	at io.netty.buffer.EmptyByteBuf.<clinit>(EmptyByteBuf.java:49)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:102)
+	at io.netty.buffer.AbstractByteBufAllocator.<init>(AbstractByteBufAllocator.java:91)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<init>(VertxByteBufAllocator.java:18)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator$1.<init>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.VertxByteBufAllocator.<clinit>(VertxByteBufAllocator.java:20)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:76)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:84)
+	at io.vertx.core.buffer.impl.BufferImpl.<init>(BufferImpl.java:88)
+	at io.vertx.core.buffer.impl.BufferImpl.buffer(BufferImpl.java:50)
+	at io.vertx.core.buffer.Buffer.buffer(Buffer.java:72)
+	at org.sirix.rest.JsonStreamingShredderTest.testString(JsonStreamingShredderTest.kt:94)
+	at org.sirix.rest.JsonStreamingShredderTest.testSimpleObject(JsonStreamingShredderTest.kt:39)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:53)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:79)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:75)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:62)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:578)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:193)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+6279 [Test worker] DEBUG i.n.u.internal.PlatformDependent0 - java.nio.DirectByteBuffer.<init>(long, int): unavailable
+6279 [Test worker] DEBUG i.n.util.internal.PlatformDependent - sun.misc.Unsafe: available
+6280 [Test worker] DEBUG i.n.util.internal.PlatformDependent - maxDirectMemory: 7516192768 bytes (maybe)
+6280 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.tmpdir: /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T (java.io.tmpdir)
+6280 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.bitMode: 64 (sun.arch.data.model)
+6280 [Test worker] DEBUG i.n.util.internal.PlatformDependent - Platform: MacOS
+6281 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.maxDirectMemory: -1 bytes
+6281 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.uninitializedArrayAllocationThreshold: -1
+6282 [Test worker] DEBUG io.netty.util.internal.CleanerJava9 - java.nio.ByteBuffer.cleaner(): available
+6282 [Test worker] DEBUG i.n.util.internal.PlatformDependent - -Dio.netty.noPreferDirect: false
+6290 [Test worker] DEBUG io.netty.buffer.AbstractByteBuf - -Dio.netty.buffer.checkAccessible: true
+6290 [Test worker] DEBUG io.netty.buffer.AbstractByteBuf - -Dio.netty.buffer.checkBounds: true
+6291 [Test worker] DEBUG i.n.u.ResourceLeakDetectorFactory - Loaded default ResourceLeakDetector: io.netty.util.ResourceLeakDetector@6f8e0cee
+6447 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6477 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6477 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6478 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6482 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6482 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6490 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6494 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6494 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6510 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6510 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6516 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6516 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6516 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6601 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6602 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6607 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6607 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6607 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6703 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6709 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6710 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6710 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6711 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6711 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6717 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6718 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6718 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6724 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6724 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6728 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6728 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6729 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6787 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6787 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6789 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6789 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6789 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6869 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6874 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6875 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6875 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6876 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6876 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6881 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6881 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+6881 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6888 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+6889 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+6894 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6894 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6894 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+6951 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+6952 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6957 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6957 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+6957 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7031 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7035 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7036 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7036 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7037 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7037 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7041 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7042 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+7042 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7050 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+7051 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+7055 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7056 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7056 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7108 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+7108 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7113 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Getting lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7113 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+7113 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock: lock acquired (beginNodeTrx)
+7725 [Test worker] TRACE o.s.a.t.n.AbstractResourceSession - Lock unlock (closeWriteTransaction).
+8042 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+8042 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+8043 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+8044 [Test worker] TRACE o.s.a.json.LocalJsonDatabaseFactory - Creating new local JSON database instance (open)
+8044 [Test worker] TRACE org.sirix.access.PathBasedPool - Registering new session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
+8049 [Test worker] TRACE org.sirix.access.WriteLocksRegistry - Removing lock for resource with path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1/resources/shredded
+8051 [Test worker] TRACE org.sirix.access.LocalDatabase - Close local database instance.
+8051 [Test worker] TRACE org.sirix.access.PathBasedPool - Removing session in path /var/folders/z8/_q2yy7m9757dp74llq2gpt_c0000gn/T/sirix/json-path1
