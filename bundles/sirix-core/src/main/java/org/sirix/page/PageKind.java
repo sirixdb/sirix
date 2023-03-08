@@ -26,6 +26,7 @@ import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.ResourceConfiguration;
 
@@ -59,20 +60,20 @@ public enum PageKind {
     @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
 
-      final long recordPageKey = getVarLong(source);
-      final int revision = source.readInt();
-      final IndexType indexType = IndexType.getType(source.readByte());
+      final BytesIn<?> in = source;
+      final long recordPageKey = getVarLong(in);
+      final int revision = in.readInt();
+      final IndexType indexType = IndexType.getType(in.readByte());
       final ResourceConfiguration resourceConfig = pageReadTrx.getResourceSession().getResourceConfig();
       final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
       final byte[][] slots = new byte[Constants.NDP_NODE_COUNT][];
       final byte[][] deweyIds = new byte[Constants.NDP_NODE_COUNT][];
-      final int overlongEntrySize = source.readInt();
-      final Map<Long, PageReference> references = new LinkedHashMap<>(overlongEntrySize);
+
 
       if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
-        final var deweyIdsBitmap = SerializationType.deserializeBitSet(source);
-        final int deweyIdsSize = source.readInt();
+        final var deweyIdsBitmap = SerializationType.deserializeBitSet(in);
+        final int deweyIdsSize = in.readInt();
         boolean hasDeweyIds = deweyIdsSize != 0;
 
         if (hasDeweyIds) {
@@ -88,15 +89,15 @@ public enum PageKind {
               continue; // No document root.
             }
 
-            deweyId = serializer.deserializeDeweyID(source, deweyId, resourceConfig);
+            deweyId = serializer.deserializeDeweyID(in, deweyId, resourceConfig);
             deweyIds[setBit] = deweyId;
           }
         }
       }
 
-      final var entriesBitmap = SerializationType.deserializeBitSet(source);
-      final var overlongEntriesBitmap = SerializationType.deserializeBitSet(source);
-      final int normalEntrySize = source.readInt();
+      final var entriesBitmap = SerializationType.deserializeBitSet(in);
+      final var overlongEntriesBitmap = SerializationType.deserializeBitSet(in);
+      final int normalEntrySize = in.readInt();
       var setBit = -1;
 
       for (int index = 0; index < normalEntrySize; index++) {
@@ -104,16 +105,17 @@ public enum PageKind {
         setBit = entriesBitmap.nextSetBit(setBit + 1);
         assert setBit >= 0;
         final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
-        final int dataSize = source.readInt();
+        final int dataSize = in.readInt();
         assert dataSize > 0;
         final byte[] data = new byte[dataSize];
-        source.read(data);
+        in.read(data);
         final var offset = PageReadOnlyTrx.recordPageOffset(key);
 
         slots[offset] = data;
       }
 
-
+      final int overlongEntrySize = in.readInt();
+      final Map<Long, PageReference> references = new LinkedHashMap<>(overlongEntrySize);
       setBit = -1;
       for (int index = 0; index < overlongEntrySize; index++) {
 
@@ -122,7 +124,7 @@ public enum PageKind {
         //recordPageKey * Constants.NDP_NODE_COUNT + setBit;
         final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
         final PageReference reference = new PageReference();
-        reference.setKey(source.readLong());
+        reference.setKey(in.readLong());
         references.put(key, reference);
       }
       return new KeyValueLeafPage(recordPageKey, revision, indexType, resourceConfig, areDeweyIDsStored,
@@ -269,6 +271,7 @@ public enum PageKind {
       } else if (delegate instanceof BitmapReferencesPage) {
         sink.writeByte((byte) 1);
       }
+      PageKind.serializeDelegate(sink, delegate, type);
 
       final int maxNodeKeySize = namePage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeySize);
@@ -348,6 +351,9 @@ public enum PageKind {
         sink.writeByte((byte) 2);
       }
 
+      PageKind.serializeDelegate(sink,delegate, type);
+
+
     }
 
     @Override
@@ -366,10 +372,10 @@ public enum PageKind {
 
       Page delegate = new BitmapReferencesPage(8, source, type);
       final int revision = source.readInt();
-      final Long maxNodeKeyInDocumentIndex = source.readLong();
-      final Long maxNodeKeyInChangedNodesIndex = source.readLong();
-      final Long maxNodeKeyInRecordToRevisionsIndex = source.readLong();
-      final Long revisionTimestamp = source.readLong();
+      final long maxNodeKeyInDocumentIndex = source.readLong();
+      final long maxNodeKeyInChangedNodesIndex = source.readLong();
+      final long maxNodeKeyInRecordToRevisionsIndex = source.readLong();
+      final long revisionTimestamp = source.readLong();
       String commitMessage = null;
       User user = null;
       if (source.readBoolean()) {
@@ -397,6 +403,9 @@ public enum PageKind {
 
       RevisionRootPage revisionRootPage = (RevisionRootPage) page;
       sink.writeByte(REVISIONROOTPAGE.id);
+
+      Page delegate = revisionRootPage.delegate();
+      PageKind.serializeDelegate(sink, delegate, type);
 
       //initial variables from RevisionRootPage, to serialize
       final long revisionTimestamp;
@@ -475,6 +484,9 @@ public enum PageKind {
 
       sink.writeByte((byte) 0);
 
+      Page delegate = pathSummaryPage.delegate();
+      PageKind.serializeDelegate(sink, delegate, type);
+
       final int  maxNodeKeySize =  pathSummaryPage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeySize);
       for (int i = 0; i < maxNodeKeySize; i++) {
@@ -536,6 +548,7 @@ public enum PageKind {
         sink.writeByte((byte) 1);
       }
 
+      PageKind.serializeDelegate(sink, delegate, type);
       final int  maxNodeKeySize =  casPage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeySize);
       for (int i = 0; i < maxNodeKeySize; i++) {
@@ -621,6 +634,8 @@ public enum PageKind {
       } else if (delegate instanceof BitmapReferencesPage) {
         sink.writeByte((byte) 1);
       }
+
+      PageKind.serializeDelegate(sink,delegate,type);
       final int maxNodeKeysSize = pathPage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeysSize);
       for (int i = 0; i < maxNodeKeysSize; i++) {
@@ -665,6 +680,8 @@ public enum PageKind {
       } else if (delegate instanceof BitmapReferencesPage) {
         sink.writeByte((byte) 1);
       }
+
+      PageKind.serializeDelegate(sink, delegate, type);
       sink.writeLong(deweyIDPage.getMaxNodeKey());
       sink.writeByte((byte) deweyIDPage.getCurrentMaxLevelOfIndirectPages());
     }
@@ -674,6 +691,23 @@ public enum PageKind {
       return new DeweyIDPage();
     }
   };
+
+  private static void serializeDelegate(Bytes<ByteBuffer> sink, Page delegate, SerializationType type){
+
+    if(delegate instanceof ReferencesPage4){
+      type.serializeReferencesPage4(sink,
+              delegate.getReferences(), ((ReferencesPage4) delegate).getOffsets() );
+
+    }else if(delegate instanceof BitmapReferencesPage){
+      type.serializeBitmapReferencesPage(sink,
+              delegate.getReferences(), ((BitmapReferencesPage) delegate).getBitmap());
+    }else{
+      type.serializeFullReferencesPage(sink,
+              ((FullReferencesPage) delegate).getReferencesArray());
+    }
+
+
+  }
 
   /**
    * Mapping of keys -> page

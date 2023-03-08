@@ -145,14 +145,6 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    assert out != null;
-    assert type != null;
-
-    type.serializeReferencesPage4(out, references, offsets);
-  }
-
-  @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     for (final int offset : offsets) {

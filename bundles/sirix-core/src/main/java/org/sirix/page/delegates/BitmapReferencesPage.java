@@ -116,6 +116,7 @@ public final class BitmapReferencesPage implements Page {
       final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
+    System.out.print(references);
     bitmap = tuple.getBitmap();
     offsetBitmap = new BitSet(bitmap.size());
   }
@@ -206,14 +207,6 @@ public final class BitmapReferencesPage implements Page {
     final var cardinality =  offsetBitmap.cardinality();
 
     return cardinality;
-  }
-
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    assert out != null;
-    assert type != null;
-
-    type.serializeBitmapReferencesPage(out, references, bitmap);
   }
 
   @Override
