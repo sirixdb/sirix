@@ -49,11 +49,6 @@ public class ForEach extends RecursiveAction {
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
         final PageContainer container = log.get(reference);
         final Page page = container.getModified();
-
-        if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-          final var byteBufferBytes = Bytes.elasticHeapByteBuffer();
-          keyValueLeafPage.serialize(pageTrx, byteBufferBytes, SerializationType.DATA);
-        }
       }
     }
   }
