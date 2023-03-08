@@ -1,12 +1,12 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Open the next revision and try to move to the node with the given node key.
@@ -27,7 +27,7 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   private int revision;
 
   /** Node key to lookup and retrieve. */
-  private long nodeKey;
+  private final long nodeKey;
 
   /**
    * Constructor.

@@ -1,13 +1,13 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Retrieve a node by node key in all revisions. In each revision a {@link XmlNodeReadOnlyTrx} is
@@ -27,7 +27,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   private final ResourceSession<R, W> resourceSession;
 
   /** Node key to lookup and retrieve. */
-  private long nodeKey;
+  private final long nodeKey;
 
   /** Determines if node has been found before and now has been deleted. */
   private boolean hasMoved;
