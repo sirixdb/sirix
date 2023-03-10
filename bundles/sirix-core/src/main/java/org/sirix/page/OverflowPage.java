@@ -1,12 +1,9 @@
 package org.sirix.page;
 
-import net.openhft.chronicle.bytes.Bytes;
 import org.jetbrains.annotations.NotNull;
-import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.page.interfaces.Page;
 
-import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
@@ -35,10 +32,6 @@ public final class OverflowPage implements Page {
     this.data = data;
   }
 
-  public OverflowPage(final Bytes<?> in) {
-    data = new byte[in.readInt()];
-    in.read(data);
-  }
 
   @Override
   public List<PageReference> getReferences() {
@@ -59,12 +52,12 @@ public final class OverflowPage implements Page {
     throw new UnsupportedOperationException();
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-      final SerializationType type) {
-    out.writeInt(data.length);
-    out.write(data);
-  }
+//  @Override
+//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+//      final SerializationType type) {
+//    out.writeInt(data.length);
+//    out.write(data);
+//  }
 
   public byte[] getData() {
     return data;

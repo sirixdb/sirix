@@ -6,7 +6,7 @@ buildscript {
         }
     }
     dependencies {
-        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.0"
+        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
         classpath 'net.researchgate:gradle-release:3.0.2'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.46.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
@@ -92,7 +92,7 @@ subprojects {
         withJavadocJar()
 
         if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException("This build must be run with Java " + targetCompatibility.toString())
+            throw new GradleException( JavaVersion.current().toString()+ targetCompatibility.toString())
         }
     }
 

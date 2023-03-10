@@ -60,22 +60,18 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   }
 
   /**
-   * Read meta page.
+   * Constructor to set deserialized values for PathSummaryPage
    *
-   * @param in input bytes to read from
+   * @param delegate page
+   * @param maxNodeKeys Hashmap deserialized
+   * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
    */
-  PathSummaryPage(final Bytes<?> in, final SerializationType type) {
-    delegate = PageUtils.createDelegate(in, type);
-    final int size = in.readInt();
-    maxNodeKeys = new Int2LongOpenHashMap(size);
-    for (int i = 0; i < size; i++) {
-      maxNodeKeys.put(i, in.readLong());
-    }
-    final int currentMaxLevelOfIndirectPages = in.readInt();
-    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(currentMaxLevelOfIndirectPages);
-    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
-    }
+  PathSummaryPage(final Page delegate, final  Int2LongMap maxNodeKeys,
+                  final Int2IntMap currentMaxLevelsOfIndirectPages ){
+    this.delegate = delegate;
+    this.maxNodeKeys = maxNodeKeys;
+    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+
   }
 
   @Override
@@ -115,29 +111,29 @@ public final class PathSummaryPage extends AbstractForwardingPage {
     }
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-      final SerializationType type) {
-    out.writeByte((byte) 0);
-    super.serialize(pageReadOnlyTrx, out, type);
-    final int size = maxNodeKeys.size();
-    out.writeInt(size);
-    for (int i = 0; i < size; i++) {
-      out.writeLong(maxNodeKeys.get(i));
-    }
-    final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
-    out.writeInt(currentMaxLevelOfIndirectPages);
-    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte((byte) currentMaxLevelsOfIndirectPages.get(i));
-    }
-  }
-
   public int getCurrentMaxLevelOfIndirectPages(int index) {
     return currentMaxLevelsOfIndirectPages.getOrDefault(index, 1);
   }
 
+  /**
+   * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
+   * @return int Size of CurrentMaxLevelOfIndirectPage
+   */
+  public int getCurrentMaxLevelOfIndirectPagesSize(){
+    return currentMaxLevelsOfIndirectPages.size();
+  }
+
+
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
     return currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
+  }
+
+  /**
+   * Get the size of MaxNodeKey to Serialize
+   * @return int Size of MaxNodeKey
+   */
+  public int getMaxNodeKeySize(){
+    return maxNodeKeys.size();
   }
 
   /**

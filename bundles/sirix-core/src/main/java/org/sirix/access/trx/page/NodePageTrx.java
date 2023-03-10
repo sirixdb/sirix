@@ -64,6 +64,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -405,7 +406,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .filter(page -> page instanceof KeyValueLeafPage)
          .forEach(page -> {
            final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
-           page.serialize(this, bytes, SerializationType.DATA);
+           PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
          });
 
       // Recursively write indirectly referenced pages.
