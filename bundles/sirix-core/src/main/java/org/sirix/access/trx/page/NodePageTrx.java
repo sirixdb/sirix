@@ -402,7 +402,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .parallelStream()
          .map(Map.Entry::getValue)
          .map(PageContainer::getModified)
-         .filter(page -> page instanceof KeyValueLeafPage);
+         .filter(page -> page instanceof KeyValueLeafPage)
+         .forEach(page -> {
+           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(15_000);
+           PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+         });
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);

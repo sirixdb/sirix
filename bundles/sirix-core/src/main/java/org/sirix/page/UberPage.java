@@ -76,12 +76,10 @@ public final class UberPage implements Page {
    * Read uber page deserialized.
    *
    * @param revisionCount Number of revisions.
-   * @param  isBootstrap {@code true} if this uber page is the uber
-   *         page of a fresh sirix file, {@code false} otherwise.
    */
-  public UberPage(final int revisionCount, final boolean isBootstrap){
+  public UberPage(final int revisionCount){
     this.revisionCount = revisionCount;
-    this.isBootstrap = isBootstrap;
+    this.isBootstrap = false;
     this.rootPage = null;
   }
 
