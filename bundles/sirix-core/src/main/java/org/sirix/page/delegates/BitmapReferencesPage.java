@@ -25,14 +25,12 @@ import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.magicwerk.brownies.collections.GapList;
-import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.DeserializedBitmapReferencesPageTuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -75,7 +73,7 @@ public final class BitmapReferencesPage implements Page {
     final var pageReferences = pageToCopy.getReferences();
 
     for (int i = 0, size = offsets.size(); i < size; i++) {
-      setOrCreateReference(offsets.get(i), pageReferences.get(i));
+      setOrCreateReference(offsets.getShort(i), pageReferences.get(i));
     }
   }
 
@@ -203,9 +201,7 @@ public final class BitmapReferencesPage implements Page {
 
     offsetBitmap.and(bitmap);
 
-    final var cardinality =  offsetBitmap.cardinality();
-
-    return cardinality;
+    return offsetBitmap.cardinality();
   }
 
   @Override

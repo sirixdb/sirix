@@ -383,30 +383,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       createIfAbsent(commitFile);
 
       final PageReference uberPageReference = new PageReference();
-      final UberPage uberPage = getUberPage();
+      final UberPage uberPage = pageRtx.getUberPage();
       uberPageReference.setPage(uberPage);
-      final int revision = uberPage.getRevisionNumber();
 
       setUserIfPresent();
+      setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
 
-      if (commitMessage != null) {
-        newRevisionRootPage.setCommitMessage(commitMessage);
-      }
-
-      if (commitTimestamp != null) {
-        newRevisionRootPage.setCommitTimestamp(commitTimestamp);
-      }
-
-      log.getMap()
-         .long2ObjectEntrySet()
-         .parallelStream()
-         .map(Map.Entry::getValue)
-         .map(PageContainer::getModified)
-         .filter(page -> page instanceof KeyValueLeafPage)
-         .forEach(page -> {
-           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
-           PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
-         });
+      parallelSerializationOfKeyValuePages();
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);
@@ -415,17 +398,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       storagePageReaderWriter.writeUberPageReference(this, uberPageReference, bufferBytes);
       uberPageReference.setPage(null);
 
-      if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
-        final Path indexes = pageRtx.getResourceSession()
-                                    .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                     .resolve(revision + ".xml");
-
-        try (final OutputStream out = newOutputStream(indexes, CREATE)) {
-          indexController.serialize(out);
-        } catch (final IOException e) {
-          throw new SirixIOException("Index definitions couldn't be serialized!", e);
-        }
-      }
+      final int revision = uberPage.getRevisionNumber();
+      serializeIndexDefinitions(revision);
 
       log.truncate();
       pageContainerCache.clear();
@@ -441,6 +415,44 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     return readUberPage();
+  }
+
+  private void setCommitMessageAndTimestampIfRequired(@org.jetbrains.annotations.Nullable String commitMessage,
+      @org.jetbrains.annotations.Nullable Instant commitTimestamp) {
+    if (commitMessage != null) {
+      newRevisionRootPage.setCommitMessage(commitMessage);
+    }
+
+    if (commitTimestamp != null) {
+      newRevisionRootPage.setCommitTimestamp(commitTimestamp);
+    }
+  }
+
+  private void serializeIndexDefinitions(int revision) {
+    if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
+      final Path indexes = pageRtx.getResourceSession()
+                                  .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                                   .resolve(revision + ".xml");
+
+      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+        indexController.serialize(out);
+      } catch (final IOException e) {
+        throw new SirixIOException("Index definitions couldn't be serialized!", e);
+      }
+    }
+  }
+
+  private void parallelSerializationOfKeyValuePages() {
+    log.getMap()
+       .long2ObjectEntrySet()
+       .parallelStream()
+       .map(Map.Entry::getValue)
+       .map(PageContainer::getModified)
+       .filter(page -> page instanceof KeyValueLeafPage)
+       .forEach(page -> {
+         final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
+         PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+       });
   }
 
   private UberPage readUberPage() {
@@ -459,7 +471,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   private void setUserIfPresent() {
     final Optional<User> optionalUser = pageRtx.resourceSession.getUser();
-    optionalUser.ifPresent(user -> getActualRevisionRootPage().setUser(user));
+    optionalUser.ifPresent(user -> newRevisionRootPage.setUser(user));
   }
 
   @Override
