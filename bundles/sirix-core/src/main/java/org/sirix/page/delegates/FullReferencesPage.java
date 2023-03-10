@@ -25,14 +25,12 @@ import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -101,6 +99,10 @@ public final class FullReferencesPage implements Page {
     return Arrays.asList(references);
   }
 
+  public PageReference[] getReferencesArray(){
+    return this.references;
+  }
+
   /**
    * Get page reference of given offset.
    *
@@ -163,12 +165,6 @@ public final class FullReferencesPage implements Page {
     }
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    assert out != null;
-    assert type != null;
-    type.serializeFullReferencesPage(out, references);
-  }
 
   @Override
   public String toString() {

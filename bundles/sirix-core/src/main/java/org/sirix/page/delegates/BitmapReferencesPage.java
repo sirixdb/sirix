@@ -209,14 +209,6 @@ public final class BitmapReferencesPage implements Page {
   }
 
   @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    assert out != null;
-    assert type != null;
-
-    type.serializeBitmapReferencesPage(out, references, bitmap);
-  }
-
-  @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     for (final PageReference ref : references) {
