@@ -41,7 +41,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.time.Instant;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Reader, to read from a memory-mapped file.
@@ -69,9 +69,9 @@ public final class MMFileReader extends AbstractReader {
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
     super(byteHandler, pagePersistenter, type);
-    this.dataFileSegment = checkNotNull(dataFileSegment);
-    this.revisionsOffsetFileSegment = checkNotNull(revisionFileSegment);
-    this.cache = checkNotNull(cache);
+    this.dataFileSegment = requireNonNull(dataFileSegment);
+    this.revisionsOffsetFileSegment = requireNonNull(revisionFileSegment);
+    this.cache = requireNonNull(cache);
   }
 
   @Override

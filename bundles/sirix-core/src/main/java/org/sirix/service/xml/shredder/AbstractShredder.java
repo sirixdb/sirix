@@ -9,7 +9,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.service.InsertPosition;
 import org.sirix.settings.Fixed;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Skeleton implementation of {@link Shredder} interface methods.
@@ -40,15 +40,15 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
    *         {@code null}
    */
   public AbstractShredder(final XmlNodeTrx wtx, final InsertPosition insertLocation) {
-    this.wtx = checkNotNull(wtx);
-    this.insertLocation = checkNotNull(insertLocation);
+    this.wtx = requireNonNull(wtx);
+    this.insertLocation = requireNonNull(insertLocation);
     parents = new LongArrayList();
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
   }
 
   @Override
   public void processComment(final String commentValue) throws SirixException {
-    final String value = checkNotNull(commentValue);
+    final String value = requireNonNull(commentValue);
     if (!value.isEmpty()) {
       final long key;
 
@@ -65,8 +65,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 
   @Override
   public void processPI(final String processingContent, final String processingTarget) throws SirixException {
-    final String content = checkNotNull(processingContent);
-    final String target = checkNotNull(processingTarget);
+    final String content = requireNonNull(processingContent);
+    final String target = requireNonNull(processingTarget);
 
     if (!target.isEmpty()) {
       final long key;
@@ -84,7 +84,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 
   @Override
   public void processText(final String textValue) throws SirixException {
-    final String text = checkNotNull(textValue);
+    final String text = requireNonNull(textValue);
     if (!text.isEmpty()) {
       final long key;
 
@@ -101,7 +101,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 
   @Override
   public void processStartTag(final QNm elementName) throws SirixException {
-    final QNm name = checkNotNull(elementName);
+    final QNm name = requireNonNull(elementName);
     long key;
     switch (insertLocation) {
       case AS_FIRST_CHILD -> {

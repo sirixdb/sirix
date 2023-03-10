@@ -42,7 +42,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * File Writer for providing read/write access for file as a Sirix backend.
@@ -95,11 +95,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final SerializationType serializationType, final PagePersister pagePersister,
       final AsyncCache<Integer, RevisionFileData> cache, final FileChannelReader reader) {
     this.dataFileChannel = dataFileChannel;
-    this.serializationType = checkNotNull(serializationType);
+    this.serializationType = requireNonNull(serializationType);
     this.revisionsFileChannel = revisionsOffsetFileChannel;
-    this.pagePersister = checkNotNull(pagePersister);
-    this.cache = checkNotNull(cache);
-    this.reader = checkNotNull(reader);
+    this.pagePersister = requireNonNull(pagePersister);
+    this.cache = requireNonNull(cache);
+    this.reader = requireNonNull(reader);
   }
 
   @Override

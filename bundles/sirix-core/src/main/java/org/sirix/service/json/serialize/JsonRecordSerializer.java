@@ -15,7 +15,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
 
@@ -238,8 +238,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
         final int... revisions) {
       this.numberOfRecords = numberOfRecords;
       nodeKey = 0;
-      this.resourceMgr = checkNotNull(resourceMgr);
-      this.stream = checkNotNull(stream);
+      this.resourceMgr = requireNonNull(resourceMgr);
+      this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
         version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
@@ -264,9 +264,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       this.numberOfRecords = numberOfRecords;
       maxLevel = -1;
-      this.resourceMgr = checkNotNull(resourceMgr);
+      this.resourceMgr = requireNonNull(resourceMgr);
       this.nodeKey = nodeKey;
-      this.stream = checkNotNull(stream);
+      this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
         version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
@@ -274,9 +274,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
         versions = new int[revisions.length - 1];
         System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
       }
-      final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
-      indent = checkNotNull((Boolean) map.get(S_INDENT[0]));
-      indentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
+      final ConcurrentMap<?, ?> map = requireNonNull(properties.getProps());
+      indent = requireNonNull((Boolean) map.get(S_INDENT[0]));
+      indentSpaces = requireNonNull((Integer) map.get(S_INDENT_SPACES[0]));
     }
 
     /**
@@ -402,7 +402,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
      * @return this reference
      */
     public Builder revisions(final int[] revisions) {
-      checkNotNull(revisions);
+      requireNonNull(revisions);
 
       version = revisions[0];
 

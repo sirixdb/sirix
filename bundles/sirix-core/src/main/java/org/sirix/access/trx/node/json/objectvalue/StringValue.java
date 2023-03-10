@@ -23,13 +23,13 @@ package org.sirix.access.trx.node.json.objectvalue;
 
 import org.sirix.node.NodeKind;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class StringValue implements ObjectRecordValue<String> {
   private final String value;
 
   public StringValue(final String value) {
-    this.value = checkNotNull(value);
+    this.value = requireNonNull(value);
   }
 
   @Override

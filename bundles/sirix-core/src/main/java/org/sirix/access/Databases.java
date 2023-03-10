@@ -23,7 +23,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Utility methods for {@link Database} handling.
@@ -269,7 +269,7 @@ public final class Databases {
 
   private static <M extends ResourceSession<R, W>, R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
       final Path file, final User user, final DatabaseType databaseType) {
-    checkNotNull(file);
+    requireNonNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }

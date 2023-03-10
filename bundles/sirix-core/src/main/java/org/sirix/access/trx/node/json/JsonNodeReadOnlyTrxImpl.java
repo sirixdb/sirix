@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.brackit.xquery.atomic.QNm;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import org.sirix.access.trx.node.InternalResourceSession;
@@ -19,37 +20,14 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.diff.JsonDiffSerializer;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.immutable.json.ImmutableArrayNode;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
-import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableObjectNode;
-import org.sirix.node.immutable.json.ImmutableObjectNullNode;
-import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectStringNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
+import org.sirix.node.immutable.json.*;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.JsonDocumentRootNode;
-import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectBooleanNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.ObjectNullNode;
-import org.sirix.node.json.ObjectNumberNode;
-import org.sirix.node.json.ObjectStringNode;
-import org.sirix.node.json.StringNode;
+import org.sirix.node.json.*;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -60,7 +38,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx, JsonNodeTrx,
         ImmutableNode> implements InternalJsonNodeReadOnlyTrx {
@@ -157,7 +135,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
   @Override
   public List<JsonObject> getUpdateOperationsInSubtreeOfNode(final SirixDeweyID rootDeweyId, final long maxDepth) {
-    checkNotNull(rootDeweyId);
+    requireNonNull(rootDeweyId);
 
     final var updateOperations = getUpdateOperations();
 

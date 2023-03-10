@@ -1,7 +1,5 @@
 package org.sirix.axis.concurrent
 
-import com.google.common.base.Preconditions
-
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.checkerframework.checker.index.qual.NonNegative
@@ -11,8 +9,9 @@ import org.sirix.api.NodeReadOnlyTrx
 import org.sirix.axis.AbstractAxis
 import org.sirix.settings.Fixed
 import org.sirix.utils.LogWrapper
-
 import org.slf4j.LoggerFactory
+import java.util.*
+import java.util.Objects.requireNonNull
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -67,7 +66,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
 
     init {
         require(rtx.id != childAxis.getTrx<R>().id) { "The filter must be bound to another transaction but on the same revision/node!" }
-        producerAxis = Preconditions.checkNotNull(childAxis)
+        producerAxis = requireNonNull(childAxis)
         results = Channel(CAPACITY)
         producer = CoroutineAxisHelper(producerAxis!!, results)
         first = true

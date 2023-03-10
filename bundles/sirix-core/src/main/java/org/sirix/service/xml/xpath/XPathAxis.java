@@ -21,12 +21,13 @@
 
 package org.sirix.service.xml.xpath;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.Fixed;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -102,7 +103,7 @@ public final class XPathAxis extends AbstractAxis {
     // EXECUTOR = Executors.newFixedThreadPool(THREADPOOLSIZE);
 
     // start parsing and get execution plans
-    final XPathParser parser = new XPathParser(pRtx, checkNotNull(pQuery));
+    final XPathParser parser = new XPathParser(pRtx, requireNonNull(pQuery));
     parser.parseQuery();
     mPipeline = parser.getQueryPipeline();
   }

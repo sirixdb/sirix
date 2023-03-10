@@ -1,6 +1,5 @@
 package org.sirix.axis.filter.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Filter;
@@ -8,6 +7,8 @@ import org.sirix.api.ResourceSession;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Filter for temporal axis.
@@ -34,7 +35,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   @SafeVarargs
   public TemporalJsonNodeReadFilterAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
-    checkNotNull(firstAxisTest);
+    requireNonNull(firstAxisTest);
     mAxis = axis;
     mAxisFilter = new ArrayList<F>();
     mAxisFilter.add(firstAxisTest);

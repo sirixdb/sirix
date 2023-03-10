@@ -1,6 +1,5 @@
 package org.sirix.fs;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
@@ -75,7 +74,7 @@ public class HierarchyFileVisitor extends AbstractShredder
      * @param pDatabase sirix {@link XmlNodeTrx}
      */
     public Builder(final XmlNodeTrx pWtx) {
-      mWtx = checkNotNull(pWtx);
+      mWtx = requireNonNull(pWtx);
     }
 
     /**
@@ -154,8 +153,8 @@ public class HierarchyFileVisitor extends AbstractShredder
   @Override
   public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs)
       throws IOException {
-    checkNotNull(dir);
-    checkNotNull(attrs);
+    requireNonNull(dir);
+    requireNonNull(attrs);
     try {
       mIndex.put(dir, org.sirix.fs.FileSystemPath.ISDIRECTORY);
       processStartTag(new QNm("dir"));
@@ -173,7 +172,7 @@ public class HierarchyFileVisitor extends AbstractShredder
   @Override
   public FileVisitResult postVisitDirectory(final Path dir, final IOException exc)
       throws IOException {
-    checkNotNull(dir);
+    requireNonNull(dir);
     if (exc != null) {
       LOGWRAPPER.debug(exc.getMessage(), exc);
     }
@@ -196,8 +195,8 @@ public class HierarchyFileVisitor extends AbstractShredder
   @Override
   public FileVisitResult visitFile(final Path pFile, final BasicFileAttributes pAttrs)
       throws IOException {
-    checkNotNull(pFile);
-    checkNotNull(pAttrs);
+    requireNonNull(pFile);
+    requireNonNull(pAttrs);
     try {
       if (Files.isRegularFile(pFile) | Files.isSymbolicLink(pFile)) {
         mIndex.put(pFile, org.sirix.fs.FileSystemPath.ISFILE);

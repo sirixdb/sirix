@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Database storage.
@@ -128,7 +128,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder storageType(final StorageType storageType) {
-      this.storageType = checkNotNull(storageType);
+      this.storageType = requireNonNull(storageType);
       return this;
     }
 
@@ -161,7 +161,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder location(final Path location) {
-      this.location = checkNotNull(location);
+      this.location = requireNonNull(location);
       return this;
     }
 
@@ -172,7 +172,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder hashType(final HashType hashType) {
-      this.hashType = checkNotNull(hashType);
+      this.hashType = requireNonNull(hashType);
       return this;
     }
 

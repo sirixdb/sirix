@@ -8,7 +8,7 @@ import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Compression/Decompression for text values or any other data.
@@ -41,7 +41,7 @@ public final class Compression {
    * @throws NullPointerException if {@code toCompress} is {@code null}
    */
   public static byte[] compress(final byte[] toCompress, final int level) {
-    checkNotNull(toCompress);
+    requireNonNull(toCompress);
     checkArgument(level >= -1 && level <= 9, "level must be between 0 and 9!");
 
     // Compressed result.
@@ -85,7 +85,7 @@ public final class Compression {
    * @throws NullPointerException if {@code pCompressed} is {@code null}
    */
   public static byte[] decompress(final byte[] compressed) {
-    checkNotNull(compressed);
+    requireNonNull(compressed);
 
     // Reset the decompressor and give it the data to compress.
     mDecompressor.reset();

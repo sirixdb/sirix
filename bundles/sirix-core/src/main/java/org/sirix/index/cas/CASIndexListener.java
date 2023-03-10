@@ -35,19 +35,21 @@ public final class CASIndexListener {
   }
 
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
-    assert pathSummaryReader.moveTo(pathNodeKey);
+    var hasMoved = pathSummaryReader.moveTo(pathNodeKey);
+    assert hasMoved;
     switch (type) {
-      case INSERT:
-        if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
+      case INSERT -> {
+        if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
           insert(node, pathNodeKey, value);
         }
-        break;
-      case DELETE:
-        if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
+      }
+      case DELETE -> {
+        if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
           redBlackTreeWriter.remove(new CASValue(value, this.type, pathNodeKey), node.getNodeKey());
         }
-        break;
-      default:
+      }
+      default -> {
+      }
     }
   }
 
@@ -56,7 +58,7 @@ public final class CASIndexListener {
     try {
       AtomicUtil.toType(value, type);
       isOfType = true;
-    } catch (final SirixRuntimeException e) {
+    } catch (final SirixRuntimeException ignored) {
     }
 
     if (isOfType) {

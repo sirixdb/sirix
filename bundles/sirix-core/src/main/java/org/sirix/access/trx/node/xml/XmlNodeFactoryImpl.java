@@ -23,7 +23,7 @@ import org.sirix.utils.NamePageHash;
 
 import java.util.zip.Deflater;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Node factory to create nodes.
@@ -54,12 +54,12 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * @param pageWriteTrx {@link PageTrx} implementation
    */
   XmlNodeFactoryImpl(final LongHashFunction hashFunction, final PageTrx pageWriteTrx) {
-    this.pageTrx = checkNotNull(pageWriteTrx);
+    this.pageTrx = requireNonNull(pageWriteTrx);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.ELEMENT);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
-    this.hashFunction = checkNotNull(hashFunction);
+    this.hashFunction = requireNonNull(hashFunction);
     this.revisionNumber = pageWriteTrx.getRevisionNumber();
   }
 

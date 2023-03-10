@@ -20,11 +20,12 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.utils.Pair;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Useful functions.
@@ -59,8 +60,8 @@ public final class Util {
       return new ArrayList<>();
     }
 
-    final List<T> x = checkNotNull(first);
-    final List<T> y = checkNotNull(second);
+    final List<T> x = requireNonNull(first);
+    final List<T> y = requireNonNull(second);
     final int n = x.size();
     final int m = y.size();
     final int max = n + m;

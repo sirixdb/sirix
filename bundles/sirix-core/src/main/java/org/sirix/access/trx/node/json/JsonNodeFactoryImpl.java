@@ -23,7 +23,7 @@ import org.sirix.utils.NamePageHash;
 
 import java.util.zip.Deflater;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Node factory to create nodes.
@@ -54,8 +54,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    * @param pageTrx      {@link PageTrx} implementation
    */
   JsonNodeFactoryImpl(final LongHashFunction hashFunction, final PageTrx pageTrx) {
-    this.hashFunction = checkNotNull(hashFunction);
-    this.pageTrx = checkNotNull(pageTrx);
+    this.hashFunction = requireNonNull(hashFunction);
+    this.pageTrx = requireNonNull(pageTrx);
     this.revisionNumber = pageTrx.getRevisionNumber();
   }
 

@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Provides the fast match / edit script (fmes) tree to tree correction algorithm as described in
@@ -141,7 +141,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    */
   private FMSE(final QNm idName, final NodeComparisonFactory nodeComparisonFactory) {
     this.idName = idName;
-    this.nodeComparisonFactory = checkNotNull(nodeComparisonFactory);
+    this.nodeComparisonFactory = requireNonNull(nodeComparisonFactory);
   }
 
   /**
@@ -167,8 +167,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   @Override
   public void diff(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
-    this.wtx = checkNotNull(wtx);
-    this.rtx = checkNotNull(rtx);
+    this.wtx = requireNonNull(wtx);
+    this.rtx = requireNonNull(rtx);
     oldStartKey = this.wtx.getNodeKey();
     newStartKey = this.rtx.getNodeKey();
     descendantsOldRev = new HashMap<>();

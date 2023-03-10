@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to delete unmatched nodes
@@ -54,8 +54,8 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
    */
   public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching,
       @NonNegative final long startKey) {
-    this.wtx = checkNotNull(wtx);
-    this.matching = checkNotNull(matching);
+    this.wtx = requireNonNull(wtx);
+    this.matching = requireNonNull(matching);
     checkArgument(startKey >= 0, "start key must be >= 0!");
     this.startKey = startKey;
   }

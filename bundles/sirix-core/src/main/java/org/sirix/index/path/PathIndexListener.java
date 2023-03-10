@@ -33,7 +33,7 @@ public final class PathIndexListener {
     try {
       switch (type) {
         case INSERT:
-          if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
+          if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
             final Optional<NodeReferences> textReferences = indexWriter.get(pathNodeKey, SearchMode.EQUAL);
             if (textReferences.isPresent()) {
               setNodeReferences(node, textReferences.get(), pathNodeKey);
@@ -43,7 +43,7 @@ public final class PathIndexListener {
           }
           break;
         case DELETE:
-          if (pathSummaryReader.getPCRsForPaths(paths, false).contains(pathNodeKey)) {
+          if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
             indexWriter.remove(pathNodeKey, node.getNodeKey());
           }
           break;

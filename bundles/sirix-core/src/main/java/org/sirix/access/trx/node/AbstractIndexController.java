@@ -29,7 +29,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
@@ -94,7 +94,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void serialize(final OutputStream out) {
     try {
-      final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(checkNotNull(out)));
+      final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(requireNonNull(out)));
       serializer.print(indexes.materialize());
       serializer.end();
     } catch (final DocumentException e) {
@@ -114,22 +114,18 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public IndexController<R, W> createIndexListeners(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
-    checkNotNull(nodeWriteTrx);
+    requireNonNull(nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {
       indexes.add(indexDef);
       switch (indexDef.getType()) {
-        case PATH:
-          listeners.add(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-          break;
-        case CAS:
-          listeners.add(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-          break;
-        case NAME:
-          listeners.add(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
-          break;
-        default:
-          break;
+        case PATH ->
+            listeners.add(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case CAS ->
+            listeners.add(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case NAME -> listeners.add(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
+        default -> {
+        }
       }
     }
 

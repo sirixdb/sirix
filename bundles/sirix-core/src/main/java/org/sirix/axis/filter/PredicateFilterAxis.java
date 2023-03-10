@@ -26,7 +26,7 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -58,7 +58,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
   public PredicateFilterAxis(final NodeCursor nodeCursor, final Axis predicate) {
     super(nodeCursor);
     isFirst = true;
-    this.predicate = checkNotNull(predicate);
+    this.predicate = requireNonNull(predicate);
   }
 
   @Override

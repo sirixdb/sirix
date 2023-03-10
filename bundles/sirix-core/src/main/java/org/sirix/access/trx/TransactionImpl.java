@@ -7,7 +7,7 @@ import org.sirix.api.TransactionManager;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class TransactionImpl implements Transaction {
 
@@ -16,7 +16,7 @@ public final class TransactionImpl implements Transaction {
 
   public TransactionImpl(TransactionManager trxMgr) {
     this.resourceTrxs = new ArrayList<>();
-    this.trxMgr = checkNotNull(trxMgr);
+    this.trxMgr = requireNonNull(trxMgr);
   }
 
   @Override
@@ -65,7 +65,7 @@ public final class TransactionImpl implements Transaction {
 
   @Override
   public Transaction add(NodeTrx writer) {
-    resourceTrxs.add(checkNotNull(writer));
+    resourceTrxs.add(requireNonNull(writer));
     return this;
   }
 

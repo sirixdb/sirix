@@ -20,13 +20,14 @@
  */
 package org.sirix.axis.concurrent;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.concurrent.BlockingQueue;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -62,8 +63,8 @@ public class ConcurrentAxisHelper implements Runnable {
    * @param results queue which has results related to the axis
    */
   public ConcurrentAxisHelper(final Axis axis, @NonNull final BlockingQueue<Long> results) {
-    this.axis = checkNotNull(axis);
-    this.results = checkNotNull(results);
+    this.axis = requireNonNull(axis);
+    this.results = requireNonNull(results);
   }
 
   @Override

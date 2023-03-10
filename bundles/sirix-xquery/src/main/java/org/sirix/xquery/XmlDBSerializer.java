@@ -45,7 +45,7 @@ import java.io.PrintStream;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -64,7 +64,7 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
   private final Set<XmlNodeReadOnlyTrx> trxSet;
 
   public XmlDBSerializer(final PrintStream out, final boolean emitRESTful, final boolean prettyPrint) {
-    this.out = checkNotNull(out);
+    this.out = requireNonNull(out);
     this.emitRESTful = emitRESTful;
     this.prettyPrint = prettyPrint;
     first = true;

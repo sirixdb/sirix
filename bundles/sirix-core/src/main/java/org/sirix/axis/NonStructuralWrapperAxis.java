@@ -25,7 +25,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.settings.Fixed;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -55,7 +55,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
    */
   public NonStructuralWrapperAxis(final Axis parentAxis) {
     super(parentAxis.asXmlNodeReadTrx());
-    mParentAxis = checkNotNull(parentAxis);
+    mParentAxis = requireNonNull(parentAxis);
   }
 
   @Override
