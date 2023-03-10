@@ -73,7 +73,7 @@ public class SirixFS {
   // * if anything fails while opening a new transaction
   // */
   // private SirixFS(final File pPath) throws SirixException {
-  // mPath = checkNotNull(pPath);
+  // mPath = requireNonNull(pPath);
   // final IDatabase database = Database.openDatabase(pPath);
   // mWtx = database.getSession(new
   // SessionConfiguration.Builder("shredded").build()).beginNodeWriteTrx();
@@ -113,7 +113,7 @@ public class SirixFS {
   // * arguments to mount the filesystem
   // */
   // public MountThread(final String[] pArgs) {
-  // mArgs = checkNotNull(pArgs);
+  // mArgs = requireNonNull(pArgs);
   // }
   //
   // /** {@inheritDoc} */

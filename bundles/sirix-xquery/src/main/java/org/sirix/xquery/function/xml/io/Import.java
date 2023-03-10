@@ -26,7 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -84,12 +84,13 @@ public final class Import extends AbstractFunction {
                                      .getResourceSession()
                                      .getNodeTrx()
                                      .orElse(doc.getTrx().getResourceSession().beginNodeTrx())) {
-        final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
+        final Path pathOfResToImport = Paths.get(resToImport);
+        final Path newRevTarget = Files.createTempDirectory(pathOfResToImport.getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
         }
 
-        new FMSEImport().shredder(checkNotNull(Paths.get(resToImport)), newRevTarget);
+        new FMSEImport().shredder(requireNonNull(pathOfResToImport), newRevTarget);
 
         try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
              final XmlResourceSession resourceNew = databaseNew.beginResourceSession("shredded");

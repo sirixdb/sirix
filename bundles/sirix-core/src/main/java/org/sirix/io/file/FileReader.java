@@ -30,7 +30,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.BytesUtils;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.RevisionFileData;
@@ -44,7 +43,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
@@ -99,12 +98,12 @@ public final class FileReader implements Reader {
       final ByteHandler byteHandler, final SerializationType serializationType, final PagePersister pagePersister,
       final Cache<Integer, RevisionFileData> cache) {
     hashFunction = Hashing.sha256();
-    this.dataFile = checkNotNull(dataFile);
+    this.dataFile = requireNonNull(dataFile);
 
-    this.revisionsOffsetFile = serializationType == SerializationType.DATA ? checkNotNull(revisionsOffsetFile) : null;
-    this.byteHandler = checkNotNull(byteHandler);
-    this.serializationType = checkNotNull(serializationType);
-    this.pagePersiter = checkNotNull(pagePersister);
+    this.revisionsOffsetFile = serializationType == SerializationType.DATA ? requireNonNull(revisionsOffsetFile) : null;
+    this.byteHandler = requireNonNull(byteHandler);
+    this.serializationType = requireNonNull(serializationType);
+    this.pagePersiter = requireNonNull(pagePersister);
     this.cache = cache;
   }
 

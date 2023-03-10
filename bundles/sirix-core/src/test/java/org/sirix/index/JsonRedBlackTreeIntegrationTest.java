@@ -59,7 +59,7 @@ public final class JsonRedBlackTreeIntegrationTest {
                                                     InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
-      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToGetSummary, false);
+      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToGetSummary);
 
       assertEquals(1, pathNodeKeys.size());
 
@@ -248,7 +248,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       RBTreeReader<CASValue, NodeReferences> reader =
           RBTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
-      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType, false);
+      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
 
       assertEquals(1, pathNodeKeys.size());
 
@@ -398,7 +398,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       RBTreeReader<Long, NodeReferences> reader =
           RBTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
-      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType, false);
+      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
 
       assertEquals(1, pathNodeKeys.size());
 

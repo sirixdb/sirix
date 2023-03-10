@@ -21,14 +21,12 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
-import org.sirix.service.xml.xpath.XPathError;
-import org.sirix.service.xml.xpath.XPathError.ErrorType;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -56,8 +54,8 @@ public class UnionAxis extends AbstractAxis {
   public UnionAxis(final NodeCursor cursor, @NonNull final Axis operand1,
       @NonNull final Axis operand2) {
     super(cursor);
-    op1 = checkNotNull(operand1);
-    op2 = checkNotNull(operand2);
+    op1 = requireNonNull(operand1);
+    op2 = requireNonNull(operand2);
   }
 
   @Override

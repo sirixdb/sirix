@@ -1,6 +1,5 @@
 package org.sirix.rest
 
-import com.google.common.base.Preconditions
 import io.vertx.core.Future
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
@@ -12,6 +11,9 @@ import org.sirix.api.json.JsonNodeTrx
 import org.sirix.node.NodeKind
 import org.sirix.service.InsertPosition
 import org.sirix.settings.Fixed
+import java.util.*
+import java.util.Objects.requireNonNull
+import kotlin.collections.ArrayDeque
 
 class KotlinJsonStreamingShredder(
     private val wtx: JsonNodeTrx,
@@ -245,7 +247,7 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun insertNumberValue(numberValue: Number): Long {
-        val value = Preconditions.checkNotNull(numberValue)
+        val value = requireNonNull(numberValue)
         val key = when (insert) {
             InsertPosition.AS_FIRST_CHILD -> if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
                 wtx.insertNumberValueAsFirstChild(value).nodeKey

@@ -21,13 +21,9 @@
 
 package org.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -40,17 +36,15 @@ import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.ContentHandler;
-import org.xml.sax.DTDHandler;
-import org.xml.sax.EntityResolver;
-import org.xml.sax.ErrorHandler;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
-import org.xml.sax.SAXNotRecognizedException;
-import org.xml.sax.SAXNotSupportedException;
-import org.xml.sax.XMLReader;
+import org.xml.sax.*;
 import org.xml.sax.helpers.AttributesImpl;
 import org.xml.sax.helpers.DefaultHandler;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  *
@@ -366,7 +360,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   /* Implements XMLReader method. */
   @Override
   public void setContentHandler(final ContentHandler contentHandler) {
-    this.contentHandler = checkNotNull(contentHandler);
+    this.contentHandler = requireNonNull(contentHandler);
   }
 
   /* Implements XMLReader method. */

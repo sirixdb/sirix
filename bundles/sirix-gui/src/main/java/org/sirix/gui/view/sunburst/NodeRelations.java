@@ -28,7 +28,7 @@
 package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
 
@@ -89,7 +89,7 @@ public final class NodeRelations {
 			final float pMaxValue, final int pIndexToParent) {
 		checkArgument(pOrigDepth >= 0, "pOrigDepth must be >= 0!");
 		checkArgument(pDepth >= 0, "pDepth must be >= 0!");
-		checkNotNull(pStructKind);
+		requireNonNull(pStructKind);
 		checkArgument(pValue >= 0, "pValue must be >= 0!");
 		checkArgument(pMinValue >= 0, "pMinValue must be >= 0!");
 		checkArgument(pMaxValue >= 0, "pMaxValue must be >= 0!");

@@ -15,7 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * @author Karsten Schmidt
@@ -101,7 +101,7 @@ public final class Indexes implements Materializable {
   }
 
   public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
-    checkNotNull(path);
+    requireNonNull(path);
     try {
       for (final IndexDef index : indexes) {
         if (index.isPathIndex()) {
@@ -124,7 +124,7 @@ public final class Indexes implements Materializable {
 
   public Optional<IndexDef> findCASIndex(final Path<QNm> path, final Type type)
       throws DocumentException {
-    checkNotNull(path);
+    requireNonNull(path);
     try {
       for (final IndexDef index : indexes) {
         if (index.isCasIndex() && index.getContentType().equals(type)) {
@@ -146,7 +146,7 @@ public final class Indexes implements Materializable {
   }
 
   public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
-    checkNotNull(names);
+    requireNonNull(names);
     out: for (final IndexDef index : indexes) {
       if (index.isNameIndex()) {
         final Set<QNm> incl = index.getIncluded();
@@ -168,7 +168,7 @@ public final class Indexes implements Materializable {
   }
 
   public int getNrOfIndexDefsWithType(final IndexType type) {
-    checkNotNull(type);
+    requireNonNull(type);
     int nr = 0;
     for (final IndexDef index : indexes) {
       if (index.getType() == type) {

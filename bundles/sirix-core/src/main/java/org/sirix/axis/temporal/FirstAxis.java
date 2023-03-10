@@ -1,12 +1,12 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Open the first revision and try to move to the node with the given node key.
@@ -33,7 +33,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
    * @param rtx the transactional cursor
    */
   public FirstAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
-    this.resourceSession = checkNotNull(resourceSession);
+    this.resourceSession = requireNonNull(resourceSession);
     nodeKey = rtx.getNodeKey();
     first = true;
   }

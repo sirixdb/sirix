@@ -21,7 +21,6 @@
 
 package org.sirix.access.trx.page;
 
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.MoreObjects;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -59,7 +58,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
@@ -161,10 +160,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     this.trxId = trxId;
     this.resourceBufferManager = resourceBufferManager;
     this.isClosed = false;
-    this.resourceSession = checkNotNull(resourceSession);
+    this.resourceSession = requireNonNull(resourceSession);
     this.resourceConfig = resourceSession.getResourceConfig();
-    this.pageReader = checkNotNull(reader);
-    this.uberPage = checkNotNull(uberPage);
+    this.pageReader = requireNonNull(reader);
+    this.uberPage = requireNonNull(uberPage);
     this.trxIntentLog = trxIntentLog;
 
     revisionNumber = revision;
@@ -250,7 +249,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Override
   public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType,
       @NonNegative final int index) {
-    checkNotNull(indexType);
+    requireNonNull(indexType);
     assertNotClosed();
 
     if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -438,7 +437,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     // Second: Traverse trie.
     final var pageReferenceToRecordPage = getLeafPageReference(indexLogKey.getRecordPageKey(),
                                                                indexLogKey.getIndexNumber(),
-                                                               checkNotNull(indexLogKey.getIndexType()));
+                                                               requireNonNull(indexLogKey.getIndexType()));
 
     if (pageReferenceToRecordPage == null) {
       return null;
@@ -706,7 +705,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     assertNotClosed();
 
     // Initial state pointing to the indirect page of level 0.
-    PageReference reference = checkNotNull(startReference);
+    PageReference reference = requireNonNull(startReference);
     int offset;
     long levelKey = pageKey;
     final int[] inpLevelPageCountExp = uberPage.getPageCountExp(indexType);

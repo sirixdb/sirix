@@ -30,7 +30,7 @@ import org.sirix.node.NodeKind;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Keeps track of nodes in a matching.
@@ -68,8 +68,8 @@ public final class Matching {
     mapping = new HashMap<>();
     reverseMapping = new HashMap<>();
     isInSubtree = new ConnectionMap<>();
-    this.rtxOld = checkNotNull(rtxOld);
-    this.rtxNew = checkNotNull(rtxNew);
+    this.rtxOld = requireNonNull(rtxOld);
+    this.rtxNew = requireNonNull(rtxNew);
   }
 
   /**

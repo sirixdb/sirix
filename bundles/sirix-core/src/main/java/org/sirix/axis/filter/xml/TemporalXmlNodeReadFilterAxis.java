@@ -1,6 +1,5 @@
 package org.sirix.axis.filter.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Filter;
@@ -8,6 +7,8 @@ import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Filter for temporal axis.
@@ -34,7 +35,7 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
   @SafeVarargs
   public TemporalXmlNodeReadFilterAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
-    checkNotNull(firstAxisTest);
+    requireNonNull(firstAxisTest);
     this.axis = axis;
     axisFilter = new ArrayList<>();
     axisFilter.add(firstAxisTest);

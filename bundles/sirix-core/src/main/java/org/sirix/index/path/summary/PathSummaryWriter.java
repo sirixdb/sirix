@@ -28,7 +28,7 @@ import org.sirix.settings.Fixed;
 
 import javax.xml.namespace.QName;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Path summary writer organizing the path classes of a resource.
@@ -110,10 +110,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   public PathSummaryWriter(final PageTrx pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
       final NodeFactory nodeFactory, final R rtx) {
-    this.pageTrx = checkNotNull(pageTrx);
+    this.pageTrx = requireNonNull(pageTrx);
     pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);
-    nodeRtx = checkNotNull(rtx);
-    this.nodeFactory = checkNotNull(nodeFactory);
+    nodeRtx = requireNonNull(rtx);
+    this.nodeFactory = requireNonNull(nodeFactory);
     storeChildCount = resMgr.getResourceConfig().storeChildCount();
   }
 
@@ -199,6 +199,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     final long rightSibKey = pathSummaryReader.getFirstChildKey();
     final PathNode node = nodeFactory.createPathNode(parentKey, leftSibKey, rightSibKey, name, pathKind, level);
 
+    pathSummaryReader.removeFromCache(name);
     pathSummaryReader.putMapping(node.getNodeKey(), node);
     pathSummaryReader.moveTo(node.getNodeKey());
     adaptForInsert(node);
@@ -632,6 +633,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if Sirix fails to remove the path node
    */
   private void removePathSummaryNode(final RemoveSubtreePath remove) {
+    pathSummaryReader.clearCache();
+
     // Remove all descendant nodes.
     if (remove == RemoveSubtreePath.YES) {
       for (final Axis axis = new PostOrderAxis(pathSummaryReader); axis.hasNext(); ) {

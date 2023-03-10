@@ -13,7 +13,7 @@ import org.sirix.settings.Fixed;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable document root node wrapper.
@@ -31,7 +31,7 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
    * @param node mutable {@link XmlDocumentRootNode}
    */
   private ImmutableXmlDocumentRootNode(final XmlDocumentRootNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

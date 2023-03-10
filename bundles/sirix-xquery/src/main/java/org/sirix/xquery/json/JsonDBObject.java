@@ -34,6 +34,8 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
+import static java.util.Objects.requireNonNull;
+
 public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Object, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
@@ -76,8 +78,8 @@ public final class JsonDBObject extends AbstractItem
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonDBObject(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
 
     if (this.rtx.isDocumentRoot()) {
       this.rtx.moveToFirstChild();

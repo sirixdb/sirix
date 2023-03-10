@@ -1,7 +1,6 @@
 package org.sirix.xquery.node;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Una;
@@ -36,6 +35,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.Objects;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * A node which is used to provide all XDM functionality as well as temporal functions.
@@ -73,8 +74,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @param collection {@link XmlDBCollection} reference
    */
   public XmlDBNode(final XmlNodeReadOnlyTrx rtx, final XmlDBCollection collection) {
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
     isWtx = this.rtx instanceof XmlNodeTrx;
     nodeKey = this.rtx.getNodeKey();
     kind = this.rtx.getKind();

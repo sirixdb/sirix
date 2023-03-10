@@ -17,7 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.*;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class IndexDef implements Materializable {
   private static final QNm DB_TYPE_ATTRIBUTE = new QNm("dbType");
@@ -100,7 +100,7 @@ public final class IndexDef implements Materializable {
   IndexDef(final Type contentType, final Set<Path<QNm>> paths, final boolean unique,
       final int indexDefNo, final DbType dbType) {
     type = IndexType.CAS;
-    this.contentType = checkNotNull(contentType);
+    this.contentType = requireNonNull(contentType);
     this.paths.addAll(paths);
     this.unique = unique;
     id = indexDefNo;

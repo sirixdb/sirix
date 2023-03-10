@@ -75,8 +75,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -181,8 +181,7 @@ final class JsonNodeTrxImpl extends
           transactionLock,
           afterCommitDelay,
           maxNodeCount);
-
-    this.databaseName = checkNotNull(databaseName);
+    this.databaseName = requireNonNull(databaseName);
 
     hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
     storeChildCount = resourceManager.getResourceConfig().storeChildCount();
@@ -294,7 +293,7 @@ final class JsonNodeTrxImpl extends
   private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition, Commit commit,
       final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
     nodeReadOnlyTrx.assertNotClosed();
-    checkNotNull(reader);
+    requireNonNull(reader);
     assert insertionPosition != null;
 
     runLocked(() -> {
@@ -478,7 +477,7 @@ final class JsonNodeTrxImpl extends
   private JsonNodeTrx insertSubtree(final Item item, final InsertPosition insertionPosition, Commit commit,
       final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken) {
     nodeReadOnlyTrx.assertNotClosed();
-    checkNotNull(item);
+    requireNonNull(item);
     assert insertionPosition != null;
 
     runLocked(() -> {
@@ -745,7 +744,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertObjectRecordAsFirstChild(final String key, final ObjectRecordValue<?> value) {
-    checkNotNull(key);
+    requireNonNull(key);
     if (lock != null) {
       lock.lock();
     }
@@ -804,7 +803,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertObjectRecordAsLastChild(final String key, final ObjectRecordValue<?> value) {
-    checkNotNull(key);
+    requireNonNull(key);
     if (lock != null) {
       lock.lock();
     }
@@ -929,7 +928,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertObjectRecordAsLeftSibling(final String key, final ObjectRecordValue<?> value) {
-    checkNotNull(key);
+    requireNonNull(key);
     if (lock != null) {
       lock.lock();
     }
@@ -981,7 +980,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertObjectRecordAsRightSibling(final String key, final ObjectRecordValue<?> value) {
-    checkNotNull(key);
+    requireNonNull(key);
     if (lock != null) {
       lock.lock();
     }
@@ -1215,7 +1214,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx replaceObjectRecordValue(ObjectRecordValue<?> value) {
-    checkNotNull(value);
+    requireNonNull(value);
 
     if (lock != null) {
       lock.lock();
@@ -1252,7 +1251,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertStringValueAsFirstChild(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1309,7 +1308,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertStringValueAsLastChild(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1389,7 +1388,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertStringValueAsLeftSibling(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1430,7 +1429,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertStringValueAsRightSibling(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1688,7 +1687,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertNumberValueAsFirstChild(Number value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1742,7 +1741,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx insertNumberValueAsLastChild(Number value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -2207,7 +2206,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx setObjectKeyName(final String key) {
-    checkNotNull(key);
+    requireNonNull(key);
     if (lock != null) {
       lock.lock();
     }
@@ -2288,7 +2287,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx setStringValue(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -2389,7 +2388,7 @@ final class JsonNodeTrxImpl extends
 
   @Override
   public JsonNodeTrx setNumberValue(final Number value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -2408,7 +2407,6 @@ final class JsonNodeTrxImpl extends
 
       // Remove old value from indexes.
       indexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
-
 
       final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
 

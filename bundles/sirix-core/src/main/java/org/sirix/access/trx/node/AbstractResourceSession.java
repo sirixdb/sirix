@@ -53,7 +53,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
@@ -154,10 +154,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
       final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
       final @Nullable User user, final PageTrxFactory pageTrxFactory) {
-    this.resourceStore = checkNotNull(resourceStore);
-    resourceConfig = checkNotNull(resourceConf);
-    this.bufferManager = checkNotNull(bufferManager);
-    this.storage = checkNotNull(storage);
+    this.resourceStore = requireNonNull(resourceStore);
+    resourceConfig = requireNonNull(resourceConf);
+    this.bufferManager = requireNonNull(bufferManager);
+    this.storage = requireNonNull(storage);
     this.pageTrxFactory = pageTrxFactory;
 
     nodeTrxMap = new ConcurrentHashMap<>();
@@ -168,7 +168,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     pageTrxIDCounter = new AtomicLong();
     commitLock = new ReentrantLock(false);
 
-    this.writeLock = checkNotNull(writeLock);
+    this.writeLock = requireNonNull(writeLock);
 
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     this.user = user;
@@ -423,7 +423,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (maxNodeCount < 0 || maxTime < 0) {
       throw new SirixUsageException("maxNodeCount may not be < 0!");
     }
-    checkNotNull(timeUnit);
+    requireNonNull(timeUnit);
 
     // Make sure not to exceed available number of write transactions.
     try {
@@ -651,7 +651,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public void setLastCommittedUberPage(final UberPage page) {
     assertNotClosed();
 
-    lastCommittedUberPage.set(checkNotNull(page));
+    lastCommittedUberPage.set(requireNonNull(page));
   }
 
   @Override
@@ -771,7 +771,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public R beginNodeReadOnlyTrx(final @NonNull Instant pointInTime) {
-    checkNotNull(pointInTime);
+    requireNonNull(pointInTime);
     assertNotClosed();
 
     final long timestamp = pointInTime.toEpochMilli();
@@ -826,7 +826,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public int getRevisionNumber(final @NonNull Instant pointInTime) {
-    checkNotNull(pointInTime);
+    requireNonNull(pointInTime);
     assertNotClosed();
 
     final long timestamp = pointInTime.toEpochMilli();

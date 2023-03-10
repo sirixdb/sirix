@@ -23,7 +23,7 @@ package org.sirix.diff.algorithm.fmse;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Stores whether two objects have a (unidirectional) connection. /!\ The identities of the objects
@@ -62,8 +62,8 @@ public final class ConnectionMap<T> {
    * @param bool if connection is established or not
    */
   public void set(final T origin, final T destination, final boolean bool) {
-    checkNotNull(destination);
-    if (!map.containsKey(checkNotNull(origin))) {
+    requireNonNull(destination);
+    if (!map.containsKey(requireNonNull(origin))) {
       map.put(origin, new HashMap<>());
     }
     map.get(origin).put(destination, bool);

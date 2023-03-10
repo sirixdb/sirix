@@ -10,7 +10,7 @@ import org.sirix.settings.Constants;
 
 import java.util.concurrent.Callable;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -60,7 +60,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     stack = new LongArrayList();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
     initialize(revision, revisions);
-    this.resMgr = checkNotNull(resMgr);
+    this.resMgr = requireNonNull(resMgr);
     startNodeKey = 0;
   }
 
@@ -78,7 +78,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     stack = new LongArrayList();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
     initialize(revision, revisions);
-    this.resMgr = checkNotNull(resMgr);
+    this.resMgr = requireNonNull(resMgr);
     startNodeKey = key;
   }
 

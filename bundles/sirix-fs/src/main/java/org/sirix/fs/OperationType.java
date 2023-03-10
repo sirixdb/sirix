@@ -1,7 +1,6 @@
 package org.sirix.fs;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -26,10 +25,10 @@ enum OperationType implements Operation<XmlNodeTrx> {
     public void execute(final XmlNodeTrx wtx, final Visitor<XmlNodeTrx> visitor,
         final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
         throws SirixException {
-      checkNotNull(wtx);
-      checkNotNull(child);
-      checkNotNull(visitor);
-      checkNotNull(index);
+      requireNonNull(wtx);
+      requireNonNull(child);
+      requireNonNull(visitor);
+      requireNonNull(index);
       checkArgument(
           wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
       if (Files.isDirectory(child)) {
@@ -52,10 +51,10 @@ enum OperationType implements Operation<XmlNodeTrx> {
     public void execute(final XmlNodeTrx wtx, final Visitor<XmlNodeTrx> visitor,
         final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
         throws SirixException {
-      checkNotNull(wtx);
-      checkNotNull(child);
-      checkNotNull(visitor);
-      checkNotNull(index);
+      requireNonNull(wtx);
+      requireNonNull(child);
+      requireNonNull(visitor);
+      requireNonNull(index);
       checkArgument(
           wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
       final long nodeKey = wtx.getNodeKey();
@@ -69,10 +68,10 @@ enum OperationType implements Operation<XmlNodeTrx> {
     public void execute(final XmlNodeTrx wtx, final Visitor<XmlNodeTrx> visitor,
         final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
         throws SirixException {
-      checkNotNull(wtx);
-      checkNotNull(child);
-      checkNotNull(visitor);
-      checkNotNull(index);
+      requireNonNull(wtx);
+      requireNonNull(child);
+      requireNonNull(visitor);
+      requireNonNull(index);
       checkArgument(
           wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
       wtx.remove();

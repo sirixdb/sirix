@@ -1,8 +1,9 @@
 package org.sirix.gui.view.sunburst;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 import java.util.List;
+
 
 public final class ListContainer {
 
@@ -11,6 +12,6 @@ public final class ListContainer {
 
 	public ListContainer(final int pMaxDepth, final List<SunburstItem> pItems) {
 		mMaxDepth = pMaxDepth;
-		mItems = checkNotNull(pItems);
+		mItems = requireNonNull(pItems);
 	}
 }

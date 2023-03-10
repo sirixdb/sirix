@@ -27,7 +27,7 @@
 package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNUll;
 
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -128,8 +128,8 @@ public final class SunburstControl extends AbstractSunburstControl {
 			final Embedded pParent,
 			final Model<SunburstContainer, SunburstItem> pModel, final ReadDB pDb) {
 		if (mControl == null) {
-			mControl = new SunburstControl(checkNotNull(pParent),
-					checkNotNull(pModel), checkNotNull(pDb));
+			mControl = new SunburstControl(requireNonNull(pParent),
+			                               requireNonNull(pModel), requireNonNull(pDb));
 		}
 		return mControl;
 	}

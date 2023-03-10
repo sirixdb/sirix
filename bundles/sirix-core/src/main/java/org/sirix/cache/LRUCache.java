@@ -27,7 +27,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.*;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible second cache as a
@@ -59,7 +59,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    *        gets removed from the first one.
    */
   public LRUCache(final Cache<K, V> secondCache) {
-    // Assertion instead of checkNotNull(...).
+    // Assertion instead of requireNonNull(...).
     assert secondCache != null;
     this.secondCache = secondCache;
     map = new LinkedHashMap<>(CACHE_CAPACITY) {
@@ -169,7 +169,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
   @Override
   public void putAll(final Map<? extends K, ? extends V> map) {
-    this.map.putAll(checkNotNull(map));
+    this.map.putAll(requireNonNull(map));
   }
 
   @Override

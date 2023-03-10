@@ -21,12 +21,13 @@
 
 package org.sirix.axis.filter;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import com.google.common.base.Predicate;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -44,7 +45,7 @@ public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> imp
    * @param rtx transaction to operate with
    */
   protected AbstractFilter(final R rtx) {
-    this.rtx = checkNotNull(rtx);
+    this.rtx = requireNonNull(rtx);
   }
 
   @Override
@@ -54,7 +55,7 @@ public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> imp
 
   @Override
   public void setTrx(R rtx) {
-    this.rtx = checkNotNull(rtx);
+    this.rtx = requireNonNull(rtx);
   }
 
   @Override
@@ -62,7 +63,7 @@ public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> imp
 
   @Override
   public boolean apply(final @Nullable Long nodeKey) {
-    rtx.moveTo(checkNotNull(nodeKey));
+    rtx.moveTo(requireNonNull(nodeKey));
     return filter();
   }
 }

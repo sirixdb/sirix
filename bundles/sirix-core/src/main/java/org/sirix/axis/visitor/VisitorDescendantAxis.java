@@ -35,7 +35,7 @@ import org.sirix.settings.Fixed;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -89,7 +89,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @param rtx Sirix {@link NodeCursor}
      */
     public Builder(final NodeCursor rtx) {
-      this.rtx = checkNotNull(rtx);
+      this.rtx = requireNonNull(rtx);
     }
 
     /**
@@ -109,7 +109,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder visitor(final NodeVisitor visitor) {
-      this.visitor = checkNotNull(visitor);
+      this.visitor = requireNonNull(visitor);
       return this;
     }
 

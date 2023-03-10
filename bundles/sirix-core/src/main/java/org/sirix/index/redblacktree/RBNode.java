@@ -13,7 +13,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Red-black tree node which is mutable.
@@ -54,9 +54,9 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
    * @param nodeDelegate the used node delegate
    */
   public RBNode(final K key, final V value, final NodeDelegate nodeDelegate) {
-    this.key = checkNotNull(key);
-    this.value = checkNotNull(value);
-    this.nodeDelegate = checkNotNull(nodeDelegate);
+    this.key = requireNonNull(key);
+    this.value = requireNonNull(value);
+    this.nodeDelegate = requireNonNull(nodeDelegate);
   }
 
   @Override
@@ -186,12 +186,12 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
 
   @Override
   public void setKey(final K key) {
-    this.key = checkNotNull(key);
+    this.key = requireNonNull(key);
   }
 
   @Override
   public void setValue(final V value) {
-    this.value = checkNotNull(value);
+    this.value = requireNonNull(value);
   }
 
   @Override

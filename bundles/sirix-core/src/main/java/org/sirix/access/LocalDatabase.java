@@ -1,6 +1,5 @@
 package org.sirix.access;
 
-import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -17,7 +16,6 @@ import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.io.RevisionFileData;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.utils.SirixFiles;
@@ -34,7 +32,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, W>, W extends NodeTrx & NodeCursor>
     implements Database<T> {
@@ -109,7 +107,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
       final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
     this.transactionManager = transactionManager;
-    this.dbConfig = checkNotNull(dbConfig);
+    this.dbConfig = requireNonNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
     this.resourceManagers = resourceManagers;
@@ -268,7 +266,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized Database<T> removeResource(final String name) {
     assertNotClosed();
-    checkNotNull(name);
+    requireNonNull(name);
 
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
@@ -312,7 +310,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized long getResourceID(final String name) {
     assertNotClosed();
-    return resourceIDsToResourceNames.inverse().get(checkNotNull(name));
+    return resourceIDsToResourceNames.inverse().get(requireNonNull(name));
   }
 
   private void assertNotClosed() {

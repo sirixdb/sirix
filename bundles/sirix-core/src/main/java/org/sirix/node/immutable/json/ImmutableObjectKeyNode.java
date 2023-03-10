@@ -12,7 +12,7 @@ import org.sirix.node.json.ObjectNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable JSONObject wrapper.
@@ -31,7 +31,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
    * @param node mutable {@link ObjectNode}
    */
   private ImmutableObjectKeyNode(final ObjectKeyNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

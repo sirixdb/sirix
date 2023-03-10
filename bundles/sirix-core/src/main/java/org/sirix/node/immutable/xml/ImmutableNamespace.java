@@ -14,7 +14,7 @@ import org.sirix.node.xml.NamespaceNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable namespace node wrapper.
@@ -33,7 +33,7 @@ public class ImmutableNamespace implements ImmutableNameNode, ImmutableXmlNode {
    * @param node {@link NamespaceNode} to wrap
    */
   private ImmutableNamespace(final NamespaceNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

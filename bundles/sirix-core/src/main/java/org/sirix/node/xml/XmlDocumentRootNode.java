@@ -46,7 +46,7 @@ import org.sirix.settings.Fixed;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
@@ -74,8 +74,8 @@ public final class XmlDocumentRootNode extends AbstractStructForwardingNode impl
    */
   public XmlDocumentRootNode(final @NonNull NodeDelegate nodeDelegate,
       final @NonNull StructNodeDelegate structNodeDelegate) {
-    this.nodeDelegate = checkNotNull(nodeDelegate);
-    this.structNodeDelegate = checkNotNull(structNodeDelegate);
+    this.nodeDelegate = requireNonNull(nodeDelegate);
+    this.structNodeDelegate = requireNonNull(structNodeDelegate);
   }
 
   @Override

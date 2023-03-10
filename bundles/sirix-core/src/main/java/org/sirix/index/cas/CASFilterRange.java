@@ -13,7 +13,7 @@ import org.sirix.index.path.PathFilter;
 
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * CASFilter filter.
@@ -53,10 +53,10 @@ public final class CASFilterRange implements Filter {
    */
   public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min, final Atomic max,
       final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) {
-    mPaths = checkNotNull(paths);
+    mPaths = requireNonNull(paths);
     mPathFilter = new PathFilter(mPaths, pcrCollector);
-    mMin = checkNotNull(min);
-    mMax = checkNotNull(max);
+    mMin = requireNonNull(min);
+    mMax = requireNonNull(max);
     mIncMin = incMin;
     mIncMax = incMax;
   }

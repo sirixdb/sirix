@@ -29,7 +29,7 @@ import org.sirix.utils.TypedValue;
 
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -59,8 +59,8 @@ public class SomeExpr extends AbstractExpression {
   public SomeExpr(final XmlNodeReadOnlyTrx pRtx, @NonNull final List<Axis> pVars,
       @NonNull final Axis pSatisfy) {
     super(pRtx);
-    mVars = checkNotNull(pVars);
-    mSatisfy = checkNotNull(pSatisfy);
+    mVars = requireNonNull(pVars);
+    mSatisfy = requireNonNull(pSatisfy);
   }
 
   @Override

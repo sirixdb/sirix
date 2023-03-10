@@ -146,7 +146,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
       final PageReadOnlyTrx pageReadOnlyTrx) {
-    // Assertions instead of checkNotNull(...) checks as it's part of the
+    // Assertions instead of requireNonNull(...) checks as it's part of the
     // internal flow.
     assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
 

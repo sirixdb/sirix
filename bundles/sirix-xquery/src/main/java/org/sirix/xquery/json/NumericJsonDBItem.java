@@ -1,6 +1,5 @@
 package org.sirix.xquery.json;
 
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.AbstractNumeric;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.IntNumeric;
@@ -11,6 +10,8 @@ import org.sirix.api.json.JsonResourceSession;
 import org.sirix.xquery.StructuredDBItem;
 
 import java.math.BigDecimal;
+
+import static java.util.Objects.requireNonNull;
 
 public final class NumericJsonDBItem extends AbstractNumeric
     implements JsonDBItem, Numeric, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -35,8 +36,8 @@ public final class NumericJsonDBItem extends AbstractNumeric
    * @param atomic the atomic value delegate
    */
   public NumericJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final Numeric atomic) {
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
     nodeKey = this.rtx.getNodeKey();
     this.atomic = atomic;
   }

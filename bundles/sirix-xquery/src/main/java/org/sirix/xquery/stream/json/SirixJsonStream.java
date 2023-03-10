@@ -8,7 +8,7 @@ import org.sirix.api.SirixAxis;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonItemFactory;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * {@link Stream}, wrapping a Sirix {@link Axis}.
@@ -34,8 +34,8 @@ public final class SirixJsonStream implements Stream<Item> {
    * @param collection {@link JsonDBCollection} the nodes belong to
    */
   public SirixJsonStream(final Axis axis, final JsonDBCollection collection) {
-    this.axis = checkNotNull(axis);
-    this.collection = checkNotNull(collection);
+    this.axis = requireNonNull(axis);
+    this.collection = requireNonNull(collection);
   }
 
   @Override

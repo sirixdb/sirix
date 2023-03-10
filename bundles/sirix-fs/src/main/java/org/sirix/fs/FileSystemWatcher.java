@@ -20,7 +20,6 @@
  */
 package org.sirix.fs;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
@@ -123,8 +122,8 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param database {@link Database} to use for importing changed data into sirix
    */
   private FileSystemWatcher(final Path path, final Database<XmlResourceManager> database) throws SirixException {
-    mPath = checkNotNull(path);
-    mDatabase = checkNotNull(database);
+    mPath = requireNonNull(path);
+    mDatabase = requireNonNull(database);
     mResource = mDatabase.openResourceManager("shredded");
     mWtx = mResource.beginNodeTrx();
     mState = State.LOOP;
@@ -164,7 +163,7 @@ public class FileSystemWatcher implements AutoCloseable {
     final WatchService watcher = FileSystems.getDefault().newWatchService();
     final WatchRecursivelyVisitor fileVisitor = WatchRecursivelyVisitor.getInstance(watcher);
     Files.walkFileTree(mPath, fileVisitor);
-    checkNotNull(index);
+    requireNonNull(index);
 
     for (; mState == State.LOOP;) {
       // Wait for key to be signaled.
@@ -207,8 +206,8 @@ public class FileSystemWatcher implements AutoCloseable {
               @Override
               public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs)
                   throws IOException {
-                checkNotNull(dir);
-                checkNotNull(attrs);
+                requireNonNull(dir);
+                requireNonNull(attrs);
                 final WatchKey key = dir.register(watcher, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
                 keys.put(key, dir);
                 entryCreated(visitor, index, dir);
@@ -217,8 +216,8 @@ public class FileSystemWatcher implements AutoCloseable {
 
               @Override
               public FileVisitResult visitFile(final Path pFile, final BasicFileAttributes pAttrs) throws IOException {
-                checkNotNull(pFile);
-                checkNotNull(pAttrs);
+                requireNonNull(pFile);
+                requireNonNull(pAttrs);
                 entryCreated(visitor, index, pFile);
                 return FileVisitResult.CONTINUE;
               }
@@ -254,7 +253,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws NullPointerException if {@code pState} is {@code null}
    */
   public void setState(final State pState) {
-    mState = checkNotNull(pState);
+    mState = requireNonNull(pState);
   }
 
   /**
@@ -293,7 +292,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws NullPointerException if {@code pXPath} is {@code null}
    */
   private void findNode(final String query) throws SirixXPathException {
-    final Axis axis = new XPathAxis(mWtx, checkNotNull(query));
+    final Axis axis = new XPathAxis(mWtx, requireNonNull(query));
     int countResults = 0;
     long resultNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
     while (axis.hasNext()) {

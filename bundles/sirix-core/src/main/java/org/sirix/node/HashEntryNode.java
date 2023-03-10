@@ -25,7 +25,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import org.sirix.node.interfaces.DataRecord;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Hash entry node.
@@ -51,7 +51,7 @@ public final class HashEntryNode implements DataRecord {
   public HashEntryNode(final long nodeKey, final int key, final String value) {
     this.nodeKey = nodeKey;
     this.key = key;
-    this.value = checkNotNull(value);
+    this.value = requireNonNull(value);
   }
 
   @Override

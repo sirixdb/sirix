@@ -64,10 +64,10 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -164,12 +164,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
-    this.treeModifier = checkNotNull(treeModifier);
-    storagePageReaderWriter = checkNotNull(writer);
-    this.log = checkNotNull(log);
-    newRevisionRootPage = checkNotNull(revisionRootPage);
-    this.pageRtx = checkNotNull(pageRtx);
-    this.indexController = checkNotNull(indexController);
+    this.treeModifier = requireNonNull(treeModifier);
+    storagePageReaderWriter = requireNonNull(writer);
+    this.log = requireNonNull(log);
+    newRevisionRootPage = requireNonNull(revisionRootPage);
+    this.pageRtx = requireNonNull(pageRtx);
+    this.indexController = requireNonNull(indexController);
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
@@ -213,7 +213,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int index) {
     pageRtx.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
-    checkNotNull(indexType);
+    requireNonNull(indexType);
 
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
@@ -299,7 +299,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     pageRtx.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
-    checkNotNull(indexType);
+    requireNonNull(indexType);
 
     // Calculate page.
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
@@ -330,7 +330,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   @Override
   public int createNameKey(final @Nullable String name, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
-    checkNotNull(nodeKind);
+    requireNonNull(nodeKind);
     final String string = name == null ? "" : name;
     final NamePage namePage = getNamePage(newRevisionRootPage);
     return namePage.setName(string, nodeKind, this);
@@ -404,7 +404,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
          .map(PageContainer::getModified)
          .filter(page -> page instanceof KeyValueLeafPage)
          .forEach(page -> {
-           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(15_000);
+           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
            page.serialize(this, bytes, SerializationType.DATA);
          });
 
@@ -429,7 +429,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       log.truncate();
       pageContainerCache.clear();
-      System.gc();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -656,14 +655,14 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public PageTrx appendLogRecord(@NonNull final PageReference reference, @NonNull final PageContainer pageContainer) {
-    checkNotNull(pageContainer);
+    requireNonNull(pageContainer);
     log.put(reference, pageContainer);
     return this;
   }
 
   @Override
   public PageContainer getLogRecord(final PageReference reference) {
-    checkNotNull(reference);
+    requireNonNull(reference);
     return log.get(reference);
   }
 

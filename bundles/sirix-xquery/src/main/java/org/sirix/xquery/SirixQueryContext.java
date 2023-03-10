@@ -1,6 +1,5 @@
 package org.sirix.xquery;
 
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.BrackitQueryContext;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -30,6 +29,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Query context for Sirix.
@@ -129,7 +130,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     xmlStore = nodeStore == null ? BasicXmlDBStore.newBuilder().build() : nodeStore;
     jsonStore = jsonItemStore == null ? BasicJsonDBStore.newBuilder().build() : jsonItemStore;
     queryContextDelegate = new BrackitQueryContext(nodeStore);
-    this.commitStrategy = Preconditions.checkNotNull(commitStrategy);
+    this.commitStrategy = requireNonNull(commitStrategy);
     this.commitMessage = commitMessage;
     this.commitTimestamp = commitTimestamp;
   }

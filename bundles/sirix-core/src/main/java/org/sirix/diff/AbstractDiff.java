@@ -36,7 +36,7 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Abstract diff class which implements common functionality.
@@ -161,7 +161,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   AbstractDiff(final Builder<R, W> builder) throws SirixException {
     skipSubtrees = builder.skipSubtrees;
-    diffKind = checkNotNull(builder).kind;
+    diffKind = requireNonNull(builder).kind;
     oldMaxDepth = builder.oldMaxDepth;
     synchronized (builder.resMgr) {
       newRtx = builder.resMgr.beginNodeReadOnlyTrx(builder.newRev);
