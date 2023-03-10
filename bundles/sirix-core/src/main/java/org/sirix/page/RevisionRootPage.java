@@ -22,7 +22,7 @@
 package org.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.Bytes;
+
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
@@ -36,10 +36,8 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -165,31 +163,36 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   /**
-   * Read revision root page.
+   * Constructor to deserialized the page.
    *
-   * @param in input stream
+   * @param delegate                                        Page
+   * @param revision                                        int revision
+   * @param maxNodeKeyInDocumentIndex                       Last allocated node key.
+   * @param maxNodeKeyInChangedNodesIndex                   Last allocated node key.
+   * @param maxNodeKeyInRecordToRevisionsIndex              Last allocated node key.
+   * @param revisionTimestamp                               Timestamp of revision.
+   * @param commitMessage                                   Optional commit message.
+   * @param currentMaxLevelOfDocumentIndexIndirectPages     Current maximum level of indirect pages in the document index tree.
+   * @param currentMaxLevelOfChangedNodesIndirectPages      Current maximum level of indirect pages in the document index tree.
+   * @param currentMaxLevelOfRecordToRevisionsIndirectPages Current maximum level of indirect pages in the document index tree.
+   * @param user                                            which committed or is probably committing the revision
    */
-  RevisionRootPage(final Bytes<?> in, final SerializationType type) {
-    delegate = new BitmapReferencesPage(8, in, type);
-    revision = in.readInt();
-    maxNodeKeyInDocumentIndex = in.readLong();
-    maxNodeKeyInChangedNodesIndex = in.readLong();
-    maxNodeKeyInRecordToRevisionsIndex = in.readLong();
-    revisionTimestamp = in.readLong();
-    if (in.readBoolean()) {
-      final byte[] commitMessage = new byte[in.readInt()];
-      in.read(commitMessage);
-      this.commitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
-    }
-    currentMaxLevelOfDocumentIndexIndirectPages = in.readByte() & 0xFF;
-    currentMaxLevelOfChangedNodesIndirectPages = in.readByte() & 0xFF;
-    currentMaxLevelOfRecordToRevisionsIndirectPages = in.readByte() & 0xFF;
-
-    if (in.readBoolean()) {
-      user = new User(in.readUtf8(), UUID.fromString(in.readUtf8()));
-    } else {
-      user = null;
-    }
+  RevisionRootPage(final Page delegate, final int revision, final long maxNodeKeyInDocumentIndex,
+      final long maxNodeKeyInChangedNodesIndex, final long maxNodeKeyInRecordToRevisionsIndex,
+      final long revisionTimestamp, final String commitMessage, final int currentMaxLevelOfDocumentIndexIndirectPages,
+      final int currentMaxLevelOfChangedNodesIndirectPages, final int currentMaxLevelOfRecordToRevisionsIndirectPages,
+      final User user) {
+    this.delegate = delegate;
+    this.revision = revision;
+    this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
+    this.maxNodeKeyInChangedNodesIndex = maxNodeKeyInChangedNodesIndex;
+    this.maxNodeKeyInRecordToRevisionsIndex = maxNodeKeyInRecordToRevisionsIndex;
+    this.revisionTimestamp = revisionTimestamp;
+    this.commitMessage = commitMessage;
+    this.currentMaxLevelOfDocumentIndexIndirectPages = currentMaxLevelOfDocumentIndexIndirectPages;
+    this.currentMaxLevelOfChangedNodesIndirectPages = currentMaxLevelOfChangedNodesIndirectPages;
+    this.currentMaxLevelOfRecordToRevisionsIndirectPages = currentMaxLevelOfRecordToRevisionsIndirectPages;
+    this.user = user;
   }
 
   /**
@@ -284,6 +287,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public PageReference getDeweyIdPageReference() {
     return getOrCreateReference(DEWEYID_REFERENCE_OFFSET);
+  }
+
+  /**
+   * Get commitMessage when is serialized page RevisionRootPage
+   *
+   * @return String commitMessage
+   */
+  public String getCommitMessage() {
+    return commitMessage;
   }
 
   /**
@@ -382,40 +394,27 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     }
   }
 
+  /***
+   * This value is used to serialize Page
+   * @return commitTimestamp
+   */
+
+  public Instant getCommitTimestamp() {
+    return commitTimestamp;
+  }
+
   public void setCommitTimestamp(final Instant revisionTimestamp) {
     checkNotNull(revisionTimestamp);
     final long revisionTimestampToSet = revisionTimestamp.toEpochMilli();
     if (this.revisionTimestamp > revisionTimestampToSet || revisionTimestamp.isAfter(Instant.now())) {
-      throw new IllegalStateException("Revision timestamp must be bigger than previous revision timestamp, but not bigger than current time.");
+      throw new IllegalStateException(
+          "Revision timestamp must be bigger than previous revision timestamp, but not bigger than current time.");
     }
     this.commitTimestamp = revisionTimestamp;
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    revisionTimestamp = commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
-    delegate.serialize(pageReadOnlyTrx, out, type);
-    out.writeInt(revision);
-    out.writeLong(maxNodeKeyInDocumentIndex);
-    out.writeLong(maxNodeKeyInChangedNodesIndex);
-    out.writeLong(maxNodeKeyInRecordToRevisionsIndex);
-    out.writeLong(revisionTimestamp);
-    out.writeBoolean(commitMessage != null);
-    if (commitMessage != null) {
-      final byte[] commitMessage = this.commitMessage.getBytes(Constants.DEFAULT_ENCODING);
-      out.writeInt(commitMessage.length);
-      out.write(commitMessage);
-    }
-
-    out.writeByte((byte) currentMaxLevelOfDocumentIndexIndirectPages);
-    out.writeByte((byte) currentMaxLevelOfChangedNodesIndirectPages);
-    out.writeByte((byte) currentMaxLevelOfRecordToRevisionsIndirectPages);
-    final boolean hasUser = user != null;
-    out.writeBoolean(hasUser);
-    if (hasUser) {
-      out.writeUtf8(user.getName());
-      out.writeUtf8(user.getId().toString());
-    }
+  public void setRevisionTimestamp(final long revisionTimestamp) {
+    this.revisionTimestamp = revisionTimestamp;
   }
 
   public int getCurrentMaxLevelOfDocumentIndexIndirectPages() {
@@ -470,12 +469,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param pageReadTrx  {@link PageReadOnlyTrx} instance
    * @param log          the transaction intent log
    */
-  public void createDocumentIndexTree(final DatabaseType databaseType,
-                                      final PageReadOnlyTrx pageReadTrx,
-                                      final TransactionIntentLog log) {
+  public void createDocumentIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+      final TransactionIntentLog log) {
     PageReference reference = getIndirectDocumentIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT) {
+        && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.DOCUMENT, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInDocumentIndex();
     }
@@ -488,12 +486,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param pageReadTrx  {@link PageReadOnlyTrx} instance
    * @param log          the transaction intent log
    */
-  public void createChangedNodesIndexTree(final DatabaseType databaseType,
-                                          final PageReadOnlyTrx pageReadTrx,
-                                          final TransactionIntentLog log) {
+  public void createChangedNodesIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+      final TransactionIntentLog log) {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT) {
+        && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.CHANGED_NODES, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInChangedNodesIndex();
     }
@@ -506,12 +503,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param pageReadTrx  {@link PageReadOnlyTrx} instance
    * @param log          the transaction intent log
    */
-  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType,
-                                               final PageReadOnlyTrx pageReadTrx,
-                                               final TransactionIntentLog log) {
+  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+      final TransactionIntentLog log) {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-            && reference.getLogKey() == Constants.NULL_ID_INT) {
+        && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.RECORD_TO_REVISIONS, pageReadTrx, log);
       incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
     }

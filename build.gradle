@@ -92,7 +92,7 @@ subprojects {
         withJavadocJar()
 
         if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException("This build must be run with Java " + targetCompatibility.toString())
+            throw new GradleException( JavaVersion.current().toString()+ targetCompatibility.toString())
         }
     }
 
