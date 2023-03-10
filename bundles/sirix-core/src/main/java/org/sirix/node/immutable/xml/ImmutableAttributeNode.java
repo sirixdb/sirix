@@ -17,7 +17,7 @@ import org.sirix.settings.Constants;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable attribute node wrapper.
@@ -36,7 +36,7 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
    * @param node mutable {@link AttributeNode}
    */
   private ImmutableAttributeNode(final AttributeNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

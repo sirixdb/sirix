@@ -12,6 +12,8 @@ import org.sirix.axis.temporal.PastAxis;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.TemporalSirixJsonArrayStream;
 
+import static java.util.Objects.requireNonNull;
+
 public final class JsonDBArray extends AbstractJsonDBArray<JsonDBArray>
     implements TemporalJsonDBItem<JsonDBArray>, Array, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
@@ -29,8 +31,8 @@ public final class JsonDBArray extends AbstractJsonDBArray<JsonDBArray>
    */
   public JsonDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     super(rtx, collection, new JsonItemFactory());
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
 
     if (this.rtx.isDocumentRoot()) {
       this.rtx.moveToFirstChild();

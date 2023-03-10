@@ -15,7 +15,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Subtree builder to build a new tree.
@@ -60,9 +60,9 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
       final List<NodeSubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
     super(wtx, insertPos);
     //((InternalXmlNodeTrx) wtx).setBulkInsertion(true);
-    this.collection = checkNotNull(collection);
-    subtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
-    this.wtx = checkNotNull(wtx);
+    this.collection = requireNonNull(collection);
+    subtreeProcessor = new SubtreeProcessor<>(requireNonNull(listeners));
+    this.wtx = requireNonNull(wtx);
     parents = new ArrayDeque<>();
     first = true;
     namespaces = new ArrayDeque<>();

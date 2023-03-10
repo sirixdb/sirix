@@ -9,7 +9,7 @@ import java.util.Set;
 public abstract class AbstractPCRCollector implements PCRCollector {
   public PCRValue getPcrValue(Set<Path<QNm>> paths, PathSummaryReader reader) {
     final long maxPCR = reader.getMaxNodeKey();
-    final Set<Long> pathClassRecords = reader.getPCRsForPaths(paths, true);
+    final Set<Long> pathClassRecords = reader.getPCRsForPaths(paths);
     return PCRValue.getInstance(maxPCR, pathClassRecords);
   }
 }

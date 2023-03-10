@@ -8,7 +8,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Retrieve a node by node key in all earlier revisions. In each revision a
@@ -49,10 +49,10 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param includeSelf determines if current revision must be included or not
    */
   public PastAxis(final ResourceSession<R, W> resourceSession, final R rtx, final IncludeSelf includeSelf) {
-    this.resourceSession = checkNotNull(resourceSession);
+    this.resourceSession = requireNonNull(resourceSession);
     revision = 0;
     nodeKey = rtx.getNodeKey();
-    revision = checkNotNull(includeSelf) == IncludeSelf.YES
+    revision = requireNonNull(includeSelf) == IncludeSelf.YES
         ? rtx.getRevisionNumber()
         : rtx.getRevisionNumber() - 1;
   }

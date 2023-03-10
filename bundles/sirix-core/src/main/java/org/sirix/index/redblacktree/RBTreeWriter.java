@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Simple RBTreeWriter (balanced binary search-tree -- based on BaseX(.org) version).
@@ -249,7 +249,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    */
   public boolean remove(final K key, final @NonNegative long nodeKey) {
     checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
-    final Optional<V> searchedValue = rbTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
+    final Optional<V> searchedValue = rbTreeReader.get(requireNonNull(key), SearchMode.EQUAL);
     boolean removed = false;
     if (searchedValue.isPresent()) {
       final V value = searchedValue.get();
@@ -526,7 +526,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * value hasn't been found)
    */
   public Optional<V> get(final K key, final SearchMode mode) {
-    return rbTreeReader.get(checkNotNull(key), checkNotNull(mode));
+    return rbTreeReader.get(requireNonNull(key), requireNonNull(mode));
   }
 
   /**

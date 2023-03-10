@@ -1,6 +1,5 @@
 package org.sirix.xquery.node;
 
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.jdm.DocumentException;
 import org.brackit.xquery.jdm.Stream;
 import org.brackit.xquery.jdm.node.AbstractTemporalNode;
@@ -29,6 +28,8 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Database collection.
@@ -75,8 +76,8 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
    * @param database Sirix {@link Database} reference
    */
   public XmlDBCollection(final String name, final Database<XmlResourceSession> database) {
-    super(Preconditions.checkNotNull(name));
-    this.database = Preconditions.checkNotNull(database);
+    super(requireNonNull(name));
+    this.database = requireNonNull(database);
     id = ID_SEQUENCE.incrementAndGet();
     documentDataToXmlDBNodes = new HashMap<>();
     instantDocumentDataToXmlDBNodes = new HashMap<>();

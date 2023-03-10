@@ -35,8 +35,8 @@ import org.sirix.settings.Fixed;
 
 import java.util.NoSuchElementException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -89,7 +89,7 @@ public abstract class AbstractAxis implements Axis {
    * @throws NullPointerException if {@code nodeCursor} is {@code null}
    */
   public AbstractAxis(final NodeCursor nodeCursor) {
-    this.nodeCursor = checkNotNull(nodeCursor);
+    this.nodeCursor = requireNonNull(nodeCursor);
     includeSelf = IncludeSelf.NO;
     reset(nodeCursor.getNodeKey());
   }
@@ -102,8 +102,8 @@ public abstract class AbstractAxis implements Axis {
    * @throws NullPointerException if {@code nodeCursor} or {@code includeSelf} is {@code null}
    */
   public AbstractAxis(final NodeCursor nodeCursor, final IncludeSelf includeSelf) {
-    this.nodeCursor = checkNotNull(nodeCursor);
-    this.includeSelf = checkNotNull(includeSelf);
+    this.nodeCursor = requireNonNull(nodeCursor);
+    this.includeSelf = requireNonNull(includeSelf);
     reset(nodeCursor.getNodeKey());
   }
 
@@ -297,7 +297,7 @@ public abstract class AbstractAxis implements Axis {
    * @return key of node where transaction was before the first call of {@code hasNext()}
    */
   private long resetToStartKey() {
-    // No check because of IAxis Convention 4.
+    // No check because of Axis Convention 4.
     nodeCursor.moveTo(startNodeKey);
     return startNodeKey;
   }
@@ -309,8 +309,10 @@ public abstract class AbstractAxis implements Axis {
    * @return key of node where transaction was after the last call of {@code hasNext()}
    */
   protected final long resetToLastKey() {
-    // No check because of IAxis Convention 4.
-    nodeCursor.moveTo(nextNodeKey);
+    // No check because of Axis convention 4.
+    if (nodeCursor.getNodeKey() != nextNodeKey) {
+      nodeCursor.moveTo(nextNodeKey);
+    }
     return nextNodeKey;
   }
 
@@ -339,7 +341,7 @@ public abstract class AbstractAxis implements Axis {
    */
   @Override
   public final void foreach(final XmlNodeVisitor visitor) {
-    checkNotNull(visitor);
+    requireNonNull(visitor);
     if (nodeCursor instanceof XmlNodeReadOnlyTrx) {
       while (hasNext()) {
         nextLong();

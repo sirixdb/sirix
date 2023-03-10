@@ -6,7 +6,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceSession;
 import org.sirix.axis.AbstractTemporalAxis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Open the previous revision and try to move to the node with the given node key.
@@ -35,7 +35,7 @@ public final class PreviousAxis<R extends NodeReadOnlyTrx & NodeCursor, W extend
    * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
   public PreviousAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
-    this.resourceSession = checkNotNull(resourceSession);
+    this.resourceSession = requireNonNull(resourceSession);
     nodeKey = rtx.getNodeKey();
     revision = rtx.getRevisionNumber() - 1;
     first = true;

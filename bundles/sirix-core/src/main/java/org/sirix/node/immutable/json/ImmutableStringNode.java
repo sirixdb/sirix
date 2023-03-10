@@ -14,7 +14,7 @@ import org.sirix.node.xml.TextNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable JSONValueString wrapper.
@@ -32,7 +32,7 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
    * @param node {@link StringNode} to wrap
    */
   private ImmutableStringNode(final StringNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

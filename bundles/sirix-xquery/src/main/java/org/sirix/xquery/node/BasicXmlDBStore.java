@@ -30,7 +30,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Database storage.
@@ -176,7 +176,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder hashType(final HashType hashType) {
-      this.hashType = checkNotNull(hashType);
+      this.hashType = requireNonNull(hashType);
       return this;
     }
 
@@ -187,7 +187,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder storageType(final StorageType storageType) {
-      this.storageType = checkNotNull(storageType);
+      this.storageType = requireNonNull(storageType);
       return this;
     }
 
@@ -220,7 +220,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder location(final Path location) {
-      this.location = checkNotNull(location);
+      this.location = requireNonNull(location);
       return this;
     }
 

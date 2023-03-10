@@ -8,7 +8,7 @@ import org.sirix.api.SirixAxis;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * {@link Stream}, wrapping a Sirix {@link Axis}.
@@ -30,8 +30,8 @@ public final class SirixNodeStream implements Stream<XmlDBNode> {
    * @param collection {@link XmlDBCollection} the nodes belong to
    */
   public SirixNodeStream(final Axis axis, final XmlDBCollection collection) {
-    this.axis = checkNotNull(axis);
-    this.collection = checkNotNull(collection);
+    this.axis = requireNonNull(axis);
+    this.collection = requireNonNull(collection);
   }
 
   @Override

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -35,7 +35,7 @@ import org.sirix.settings.Fixed;
 
 import java.util.NoSuchElementException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  *
@@ -75,7 +75,7 @@ public abstract class AbstractAxis implements Axis {
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   public AbstractAxis(final NodeCursor rtx) {
-    this.rtx = checkNotNull(rtx);
+    this.rtx = requireNonNull(rtx);
     includeSelf = IncludeSelf.NO;
     hasNext = true;
     reset(rtx.getNodeKey());
@@ -88,8 +88,8 @@ public abstract class AbstractAxis implements Axis {
    * @param pIncludeSelf determines if self is included
    */
   public AbstractAxis(final NodeCursor pRtx, final IncludeSelf pIncludeSelf) {
-    rtx = checkNotNull(pRtx);
-    includeSelf = checkNotNull(pIncludeSelf);
+    rtx = requireNonNull(pRtx);
+    includeSelf = requireNonNull(pIncludeSelf);
     hasNext = true;
     reset(pRtx.getNodeKey());
   }
@@ -307,7 +307,7 @@ public abstract class AbstractAxis implements Axis {
    */
   @Override
   public final void foreach(final XmlNodeVisitor pVisitor) {
-    checkNotNull(pVisitor);
+    requireNonNull(pVisitor);
     for (; hasNext(); nextLong()) {
       ((XmlNodeReadOnlyTrx) rtx).acceptVisitor(pVisitor);
     }

@@ -7,7 +7,7 @@ import org.sirix.api.ResourceSession;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Retrieve a node by node key in all revisions. In each revision a {@link XmlNodeReadOnlyTrx} is
@@ -39,7 +39,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
    * @param rtx the read only transactional cursor
    */
   public AllTimeAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
-    this.resourceSession = checkNotNull(resourceSession);
+    this.resourceSession = requireNonNull(resourceSession);
     revision = 1;
     nodeKey = rtx.getNodeKey();
   }

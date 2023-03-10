@@ -8,7 +8,7 @@ import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import java.util.Collections;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class NameFilter implements Filter {
 
@@ -17,8 +17,8 @@ public final class NameFilter implements Filter {
   private final Set<QNm> excludes;
 
   public NameFilter(final Set<QNm> included, final Set<QNm> excluded) {
-    includes = checkNotNull(included);
-    excludes = checkNotNull(excluded);
+    includes = requireNonNull(included);
+    excludes = requireNonNull(excluded);
   }
 
   public Set<QNm> getIncludes() {
@@ -31,17 +31,12 @@ public final class NameFilter implements Filter {
 
   @Override
   public <K extends Comparable<? super K>> boolean filter(final RBNode<K, NodeReferences> node) {
-    if (!(node.getKey() instanceof QNm))
+    if (!(node.getKey() instanceof final QNm name))
       throw new IllegalStateException("Key is not of type QNm!");
 
-    final QNm name = (QNm) node.getKey();
     final boolean included = (includes.isEmpty() || includes.contains(name));
     final boolean excluded = (!excludes.isEmpty() && excludes.contains(name));
 
-    if (!included || excluded) {
-      return false;
-    }
-
-    return true;
+    return included && !excluded;
   }
 }

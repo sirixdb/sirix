@@ -1,6 +1,5 @@
 package org.sirix.fs;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Database;
@@ -33,8 +32,8 @@ public final class PathDBContainer {
    * @param pDatabase sirix {@link Database} reference
    */
   public PathDBContainer(final Path pPath, final Database pDatabase) {
-    mPath = checkNotNull(pPath);
-    mDatabase = checkNotNull(pDatabase);
+    mPath = requireNonNull(pPath);
+    mDatabase = requireNonNull(pDatabase);
   }
 
   @Override

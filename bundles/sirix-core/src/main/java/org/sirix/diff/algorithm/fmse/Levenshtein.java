@@ -29,10 +29,11 @@
 
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.diff.algorithm.fmse.utils.SubCost01;
 import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Implements the levenstein distance function.
@@ -110,20 +111,16 @@ public final class Levenshtein {
    * @throws NullPointerException if {@code pFirst} or {@code pSecond} is {@code null}
    */
   public static float getSimilarity(final String first, @NonNull final String second) {
-    checkNotNull(first);
-    checkNotNull(second);
-    if (first == second || first.equals(second)) {
+    requireNonNull(first);
+    requireNonNull(second);
+    if (first.equals(second)) {
       return 1f;
     }
 
     final int firstLength = first.length();
     final int secondLength = second.length();
     if (firstLength > MAX | secondLength > MAX | firstLength < MIN | secondLength < MIN) {
-      if (first.equals(second)) {
-        return 1f;
-      } else {
-        return 0f;
-      }
+      return 0f;
     }
 
     final float levenshteinDistance = getUnNormalisedSimilarity(first, second);

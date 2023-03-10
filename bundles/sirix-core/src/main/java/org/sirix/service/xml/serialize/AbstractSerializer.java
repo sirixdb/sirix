@@ -36,7 +36,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Callable;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -71,7 +71,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
         ? new int[1]
         : new int[revisions.length + 1];
     initialize(revision, revisions);
-    mResMgr = checkNotNull(resMgr);
+    mResMgr = requireNonNull(resMgr);
     mNodeKey = 0;
   }
 
@@ -90,7 +90,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
         ? new int[1]
         : new int[revisions.length + 1];
     initialize(revision, revisions);
-    mResMgr = checkNotNull(resMgr);
+    mResMgr = requireNonNull(resMgr);
     mNodeKey = key;
   }
 

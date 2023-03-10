@@ -35,7 +35,7 @@ import org.jetbrains.annotations.NotNull;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.
@@ -56,7 +56,7 @@ public final class DeletedNode extends AbstractForwardingNode {
    * @param nodeDel node delegate
    */
   public DeletedNode(final NodeDelegate nodeDel) {
-    nodeDelegate = checkNotNull(nodeDel);
+    nodeDelegate = requireNonNull(nodeDel);
   }
 
   @Override

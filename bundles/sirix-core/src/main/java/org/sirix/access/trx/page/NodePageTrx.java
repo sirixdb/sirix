@@ -64,10 +64,10 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -164,12 +164,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
-    this.treeModifier = checkNotNull(treeModifier);
-    storagePageReaderWriter = checkNotNull(writer);
-    this.log = checkNotNull(log);
-    newRevisionRootPage = checkNotNull(revisionRootPage);
-    this.pageRtx = checkNotNull(pageRtx);
-    this.indexController = checkNotNull(indexController);
+    this.treeModifier = requireNonNull(treeModifier);
+    storagePageReaderWriter = requireNonNull(writer);
+    this.log = requireNonNull(log);
+    newRevisionRootPage = requireNonNull(revisionRootPage);
+    this.pageRtx = requireNonNull(pageRtx);
+    this.indexController = requireNonNull(indexController);
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
@@ -213,7 +213,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int index) {
     pageRtx.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
-    checkNotNull(indexType);
+    requireNonNull(indexType);
 
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
@@ -299,7 +299,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     pageRtx.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
-    checkNotNull(indexType);
+    requireNonNull(indexType);
 
     // Calculate page.
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
@@ -330,7 +330,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   @Override
   public int createNameKey(final @Nullable String name, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
-    checkNotNull(nodeKind);
+    requireNonNull(nodeKind);
     final String string = name == null ? "" : name;
     final NamePage namePage = getNamePage(newRevisionRootPage);
     return namePage.setName(string, nodeKind, this);
@@ -383,30 +383,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       createIfAbsent(commitFile);
 
       final PageReference uberPageReference = new PageReference();
-      final UberPage uberPage = getUberPage();
+      final UberPage uberPage = pageRtx.getUberPage();
       uberPageReference.setPage(uberPage);
-      final int revision = uberPage.getRevisionNumber();
 
       setUserIfPresent();
+      setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
 
-      if (commitMessage != null) {
-        newRevisionRootPage.setCommitMessage(commitMessage);
-      }
-
-      if (commitTimestamp != null) {
-        newRevisionRootPage.setCommitTimestamp(commitTimestamp);
-      }
-
-      log.getMap()
-         .long2ObjectEntrySet()
-         .parallelStream()
-         .map(Map.Entry::getValue)
-         .map(PageContainer::getModified)
-         .filter(page -> page instanceof KeyValueLeafPage)
-         .forEach(page -> {
-           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(15_000);
-           PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
-         });
+      parallelSerializationOfKeyValuePages();
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);
@@ -415,21 +398,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       storagePageReaderWriter.writeUberPageReference(this, uberPageReference, bufferBytes);
       uberPageReference.setPage(null);
 
-      if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
-        final Path indexes = pageRtx.getResourceSession()
-                                    .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                     .resolve(revision + ".xml");
-
-        try (final OutputStream out = newOutputStream(indexes, CREATE)) {
-          indexController.serialize(out);
-        } catch (final IOException e) {
-          throw new SirixIOException("Index definitions couldn't be serialized!", e);
-        }
-      }
+      final int revision = uberPage.getRevisionNumber();
+      serializeIndexDefinitions(revision);
 
       log.truncate();
       pageContainerCache.clear();
-      System.gc();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -442,6 +415,44 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     return readUberPage();
+  }
+
+  private void setCommitMessageAndTimestampIfRequired(@org.jetbrains.annotations.Nullable String commitMessage,
+      @org.jetbrains.annotations.Nullable Instant commitTimestamp) {
+    if (commitMessage != null) {
+      newRevisionRootPage.setCommitMessage(commitMessage);
+    }
+
+    if (commitTimestamp != null) {
+      newRevisionRootPage.setCommitTimestamp(commitTimestamp);
+    }
+  }
+
+  private void serializeIndexDefinitions(int revision) {
+    if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
+      final Path indexes = pageRtx.getResourceSession()
+                                  .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                                   .resolve(revision + ".xml");
+
+      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+        indexController.serialize(out);
+      } catch (final IOException e) {
+        throw new SirixIOException("Index definitions couldn't be serialized!", e);
+      }
+    }
+  }
+
+  private void parallelSerializationOfKeyValuePages() {
+    log.getMap()
+       .long2ObjectEntrySet()
+       .parallelStream()
+       .map(Map.Entry::getValue)
+       .map(PageContainer::getModified)
+       .filter(page -> page instanceof KeyValueLeafPage)
+       .forEach(page -> {
+         final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
+         PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+       });
   }
 
   private UberPage readUberPage() {
@@ -460,7 +471,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   private void setUserIfPresent() {
     final Optional<User> optionalUser = pageRtx.resourceSession.getUser();
-    optionalUser.ifPresent(user -> getActualRevisionRootPage().setUser(user));
+    optionalUser.ifPresent(user -> newRevisionRootPage.setUser(user));
   }
 
   @Override
@@ -656,14 +667,14 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public PageTrx appendLogRecord(@NonNull final PageReference reference, @NonNull final PageContainer pageContainer) {
-    checkNotNull(pageContainer);
+    requireNonNull(pageContainer);
     log.put(reference, pageContainer);
     return this;
   }
 
   @Override
   public PageContainer getLogRecord(final PageReference reference) {
-    checkNotNull(reference);
+    requireNonNull(reference);
     return log.get(reference);
   }
 

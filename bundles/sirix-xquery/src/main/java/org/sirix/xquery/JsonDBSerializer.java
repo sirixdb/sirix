@@ -47,7 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -63,7 +63,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
   private final Set<JsonNodeReadOnlyTrx> trxSet;
 
   public JsonDBSerializer(final Appendable out, final boolean prettyPrint) {
-    this.out = checkNotNull(out);
+    this.out = requireNonNull(out);
     this.prettyPrint = prettyPrint;
     first = true;
     trxSet = new HashSet<>();

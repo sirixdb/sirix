@@ -31,7 +31,7 @@ import org.sirix.settings.Fixed;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Null node (NullObject pattern).
@@ -51,7 +51,7 @@ public final class NullNode implements StructNode {
    * @throws NullPointerException if {@code pNode} is {@code null}
    */
   public NullNode(final ImmutableNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   @Override

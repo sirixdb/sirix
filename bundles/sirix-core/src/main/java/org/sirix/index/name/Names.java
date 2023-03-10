@@ -1,5 +1,7 @@
 package org.sirix.index.name;
 
+import static java.util.Objects.requireNonNull;
+
 import it.unimi.dsi.fastutil.ints.*;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -8,8 +10,6 @@ import org.sirix.node.HashCountEntryNode;
 import org.sirix.node.HashEntryNode;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Names index structure.
@@ -183,7 +183,7 @@ public final class Names {
       countNodeMap.put(newKey, maxNodeKey);
       pageTrx.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
 
-      nameMap.put(newKey, checkNotNull(getBytes(name)));
+      nameMap.put(newKey, requireNonNull(getBytes(name)));
       countNameMapping.put(newKey, 1);
 
       return newKey;

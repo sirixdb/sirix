@@ -37,10 +37,9 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
 
-import java.math.BigInteger;
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -70,7 +69,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
    * @param type the item's type
    */
   public AtomicValue(final byte[] value, final int type) {
-    this.value = checkNotNull(value);
+    this.value = requireNonNull(value);
     this.type = type;
   }
 
@@ -271,7 +270,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   @Override
   public void setRawValue(byte[] pVal) {
-    value = checkNotNull(pVal);
+    value = requireNonNull(pVal);
   }
 
   @Override

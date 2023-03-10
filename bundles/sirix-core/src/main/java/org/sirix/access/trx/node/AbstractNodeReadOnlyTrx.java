@@ -26,7 +26,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * A skeletal implementation of a read-only node transaction.
@@ -75,10 +75,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
                                     final InternalResourceSession<T, W> resourceSession,
                                     final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
-    this.resourceSession = checkNotNull(resourceSession);
+    this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
-    this.pageReadOnlyTrx = checkNotNull(pageReadTransaction);
-    this.currentNode = checkNotNull(documentNode);
+    this.pageReadOnlyTrx = requireNonNull(pageReadTransaction);
+    this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
   }
 

@@ -83,7 +83,7 @@ public final class XmlRedBlackTreeIntegrationTest {
                                  indexDef.getType(),
                                  indexDef.getID());
 
-    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"), false);
+    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"));
 
     assertEquals(Set.of(3L, 8L), pathNodeKeys);
 
@@ -201,7 +201,7 @@ public final class XmlRedBlackTreeIntegrationTest {
 
     check(blablaRefs, new LongLinkedOpenHashSet());
 
-    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"), false);
+    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"));
 
     assertTrue(pathNodeKeys.isEmpty());
   }

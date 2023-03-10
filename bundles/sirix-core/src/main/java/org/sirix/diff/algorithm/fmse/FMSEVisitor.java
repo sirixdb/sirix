@@ -33,7 +33,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Initialize data structures.
@@ -63,9 +63,9 @@ public final class FMSEVisitor extends AbstractXmlNodeVisitor {
    */
   public FMSEVisitor(final XmlNodeReadOnlyTrx readTransaction, final Map<Long, Boolean> inOrder,
       final Map<Long, Long> descendants) {
-    rtx = checkNotNull(readTransaction);
-    this.inOrder = checkNotNull(inOrder);
-    this.descendants = checkNotNull(descendants);
+    rtx = requireNonNull(readTransaction);
+    this.inOrder = requireNonNull(inOrder);
+    this.descendants = requireNonNull(descendants);
   }
 
   @Override
