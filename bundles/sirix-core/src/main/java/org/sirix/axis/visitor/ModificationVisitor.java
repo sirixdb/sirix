@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Random;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to modify nodes.
@@ -54,7 +54,7 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
    * @param startKey start key
    */
   public ModificationVisitor(final XmlNodeTrx wtx, final long startKey) {
-    this.wtx = checkNotNull(wtx);
+    this.wtx = requireNonNull(wtx);
     checkArgument(startKey >= 0, "start key must be >= 0!");
     this.startKey = startKey;
     nodeIndex = 1;

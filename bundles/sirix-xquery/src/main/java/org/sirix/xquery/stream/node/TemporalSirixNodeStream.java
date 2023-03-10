@@ -11,7 +11,7 @@ import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * {@link Stream}, wrapping a temporal axis.
@@ -35,8 +35,8 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
    */
   public TemporalSirixNodeStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
       final XmlDBCollection collection) {
-    this.axis = checkNotNull(axis);
-    this.collection = checkNotNull(collection);
+    this.axis = requireNonNull(axis);
+    this.collection = requireNonNull(collection);
   }
 
   @Override

@@ -1,11 +1,12 @@
 package org.sirix.index;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Iterator;
 import java.util.Set;
 import org.sirix.index.redblacktree.RBNode;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import com.google.common.collect.AbstractIterator;
+
+import static java.util.Objects.requireNonNull;
 
 public final class IndexFilterAxis<K extends Comparable<? super K>>
     extends AbstractIterator<NodeReferences> {
@@ -16,8 +17,8 @@ public final class IndexFilterAxis<K extends Comparable<? super K>>
 
   public IndexFilterAxis(final Iterator<RBNode<K, NodeReferences>> iter,
       final Set<? extends Filter> filter) {
-    this.iter = checkNotNull(iter);
-    this.filter = checkNotNull(filter);
+    this.iter = requireNonNull(iter);
+    this.filter = requireNonNull(filter);
   }
 
   @Override

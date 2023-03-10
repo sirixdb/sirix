@@ -39,7 +39,7 @@ import org.sirix.settings.Fixed;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -71,8 +71,8 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
    * @param structNodeDelegate {@link StructNodeDelegate} reference
    */
   public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDelegate, @NonNull final StructNodeDelegate structNodeDelegate) {
-    this.nodeDelegate = checkNotNull(nodeDelegate);
-    this.structNodeDelegate = checkNotNull(structNodeDelegate);
+    this.nodeDelegate = requireNonNull(nodeDelegate);
+    this.structNodeDelegate = requireNonNull(structNodeDelegate);
   }
 
   @Override

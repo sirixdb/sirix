@@ -25,7 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.Callable;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * This class appends a given {@link JsonReader} to a {@link JsonNodeTrx} . The content of the
@@ -90,9 +90,9 @@ public final class JsonShredder implements Callable<Long> {
      * @throws NullPointerException if one of the arguments is {@code null}
      */
     public Builder(final JsonNodeTrx wtx, final JsonReader reader, final InsertPosition insert) {
-      this.wtx = checkNotNull(wtx);
-      this.reader = checkNotNull(reader);
-      this.insert = checkNotNull(insert);
+      this.wtx = requireNonNull(wtx);
+      this.reader = requireNonNull(reader);
+      this.insert = requireNonNull(insert);
     }
 
     /**
@@ -296,7 +296,7 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {
-    final String value = checkNotNull(stringValue);
+    final String value = requireNonNull(stringValue);
     final long key;
 
     switch (insert) {
@@ -363,7 +363,7 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private long insertNumberValue(final Number numberValue, final boolean nextTokenIsParent) {
-    final Number value = checkNotNull(numberValue);
+    final Number value = requireNonNull(numberValue);
 
     final long key;
 
@@ -651,7 +651,7 @@ public final class JsonShredder implements Callable<Long> {
    * @return an {@link JsonReader} instance
    */
   public static JsonReader createFileReader(final Path path) {
-    checkNotNull(path);
+    requireNonNull(path);
 
     try {
       final var fileReader = new FileReader(path.toFile());
@@ -670,7 +670,7 @@ public final class JsonShredder implements Callable<Long> {
    * @return an {@link JsonReader} instance
    */
   public static JsonReader createStringReader(final String json) {
-    checkNotNull(json);
+    requireNonNull(json);
 
     final var stringReader = new StringReader(json);
     final var jsonReader = new JsonReader(stringReader);

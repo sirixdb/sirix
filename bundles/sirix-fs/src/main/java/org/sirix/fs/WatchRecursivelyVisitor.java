@@ -20,7 +20,6 @@
  */
 package org.sirix.fs;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
@@ -68,7 +67,7 @@ public final class WatchRecursivelyVisitor extends SimpleFileVisitor<Path> {
    * @return {@link WatchRecursivelyVisitor} reference
    */
   public static WatchRecursivelyVisitor getInstance(final WatchService pWatcher) {
-    return new WatchRecursivelyVisitor(checkNotNull(pWatcher));
+    return new WatchRecursivelyVisitor(requireNonNull(pWatcher));
   }
 
   /**
@@ -77,8 +76,8 @@ public final class WatchRecursivelyVisitor extends SimpleFileVisitor<Path> {
   @Override
   public FileVisitResult preVisitDirectory(final Path pDir, final BasicFileAttributes pAttrs)
       throws IOException {
-    checkNotNull(pDir);
-    checkNotNull(pAttrs);
+    requireNonNull(pDir);
+    requireNonNull(pAttrs);
     final WatchKey key = pDir.register(mWatcher, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
     mKeys.put(key, pDir);
     if (mIdentifiers.get(pAttrs.fileKey()) == null) {

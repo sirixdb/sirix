@@ -1,5 +1,7 @@
 package org.sirix.index.cas;
 
+import static java.util.Objects.requireNonNull;
+
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
@@ -7,8 +9,6 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.redblacktree.RBTreeWriter;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class CASIndexListenerFactory {
 
@@ -20,7 +20,7 @@ public final class CASIndexListenerFactory {
 
   public CASIndexListener create(final PageTrx pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var pathSummary = checkNotNull(pathSummaryReader);
+    final var pathSummary = requireNonNull(pathSummaryReader);
     final var avlTreeWriter =
         RBTreeWriter.<CASValue, NodeReferences>getInstance(
                 this.databaseType,
@@ -28,8 +28,8 @@ public final class CASIndexListenerFactory {
                 indexDef.getType(),
                 indexDef.getID()
         );
-    final var type = checkNotNull(indexDef.getContentType());
-    final var paths = checkNotNull(indexDef.getPaths());
+    final var type = requireNonNull(indexDef.getContentType());
+    final var paths = requireNonNull(indexDef.getPaths());
 
     return new CASIndexListener(pathSummary, avlTreeWriter, paths, type);
   }

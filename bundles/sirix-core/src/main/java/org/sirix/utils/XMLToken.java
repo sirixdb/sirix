@@ -1,11 +1,13 @@
 package org.sirix.utils;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.brackit.xquery.atomic.QNm;
+
+import javax.xml.namespace.QName;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
-import javax.xml.namespace.QName;
-import org.brackit.xquery.atomic.QNm;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * This class provides convenience operations for XML-specific character operations.
@@ -153,7 +155,7 @@ public final class XMLToken {
    * @throws NullPointerException if {@code name} is {@code null}
    */
   public static boolean isValidQName(final QNm name) {
-    final String localPart = checkNotNull(name).getLocalName();
+    final String localPart = requireNonNull(name).getLocalName();
     if (!localPart.isEmpty() && !isNCName(localPart.getBytes())) {
       return false;
     }
@@ -274,7 +276,7 @@ public final class XMLToken {
    * @throws NullPointerException if {@code pValue} is {@code null}
    */
   public static String escapeAttribute(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     final StringBuilder escape = new StringBuilder();
     for (final char i : value.toCharArray()) {
       switch (i) {
@@ -308,7 +310,7 @@ public final class XMLToken {
    * @throws NullPointerException if {@code value} is {@code null}
    */
   public static String escapeContent(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     final StringBuilder escape = new StringBuilder();
     for (final char i : value.toCharArray()) {
       switch (i) {

@@ -16,7 +16,7 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Path node in the {@link PathSummaryReader}.
@@ -87,10 +87,10 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
       @NonNull final NameNodeDelegate nameNodeDel, @NonNull final NodeKind kind, @NonNegative final int references,
       @NonNegative final int level) {
     this.name = name;
-    this.nodeDel = checkNotNull(nodeDel);
-    this.structNodeDel = checkNotNull(structNodeDel);
-    this.nameNodeDel = checkNotNull(nameNodeDel);
-    this.kind = checkNotNull(kind);
+    this.nodeDel = requireNonNull(nodeDel);
+    this.structNodeDel = requireNonNull(structNodeDel);
+    this.nameNodeDel = requireNonNull(nameNodeDel);
+    this.kind = requireNonNull(kind);
     checkArgument(references > 0, "references must be > 0!");
     this.references = references;
     this.level = level;

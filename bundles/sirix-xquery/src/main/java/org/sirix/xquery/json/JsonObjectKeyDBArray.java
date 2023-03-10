@@ -1,6 +1,5 @@
 package org.sirix.xquery.json;
 
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.jdm.Stream;
 import org.brackit.xquery.jdm.json.Array;
@@ -11,6 +10,8 @@ import org.sirix.axis.temporal.AllTimeAxis;
 import org.sirix.axis.temporal.FutureAxis;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectKeyArrayStream;
+
+import static java.util.Objects.requireNonNull;
 
 public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKeyDBArray>
     implements TemporalJsonItem<JsonObjectKeyDBArray> {
@@ -33,8 +34,8 @@ public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKe
    */
   public JsonObjectKeyDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     super(rtx, collection, new JsonItemFactory());
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
     assert this.rtx.isObject();
   }
 

@@ -29,7 +29,7 @@ import java.io.Serializable;
 import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Container for diffs.
@@ -71,7 +71,7 @@ public final class DiffTuple implements Serializable {
     checkArgument(newNodeKey >= 0);
     checkArgument(oldNodeKey >= 0);
 
-    this.diff = checkNotNull(diff);
+    this.diff = requireNonNull(diff);
     this.newNodeKey = newNodeKey;
     this.oldNodeKey = oldNodeKey;
     this.depth = depth;
@@ -92,7 +92,7 @@ public final class DiffTuple implements Serializable {
    * @param diffType kind of diff
    */
   public DiffTuple setDiff(final DiffType diffType) {
-    diff = checkNotNull(diffType);
+    diff = requireNonNull(diffType);
     return this;
   }
 

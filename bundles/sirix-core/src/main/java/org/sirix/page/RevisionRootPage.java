@@ -41,7 +41,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Revision root page holds a reference to the name page as well as the static node page tree.
@@ -383,7 +383,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   public void setCommitTimestamp(final Instant revisionTimestamp) {
-    checkNotNull(revisionTimestamp);
+    requireNonNull(revisionTimestamp);
     final long revisionTimestampToSet = revisionTimestamp.toEpochMilli();
     if (this.revisionTimestamp > revisionTimestampToSet || revisionTimestamp.isAfter(Instant.now())) {
       throw new IllegalStateException("Revision timestamp must be bigger than previous revision timestamp, but not bigger than current time.");

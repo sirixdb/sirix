@@ -29,7 +29,7 @@ import org.sirix.node.NodeKind;
 import java.util.Deque;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Iterates over a subtree in levelorder / in a breath first traversal.
@@ -99,7 +99,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      * @param rtx Sirix {@link NodeCursor}
      */
     public Builder(final NodeCursor rtx) {
-      mRtx = checkNotNull(rtx);
+      mRtx = requireNonNull(rtx);
     }
 
     /**

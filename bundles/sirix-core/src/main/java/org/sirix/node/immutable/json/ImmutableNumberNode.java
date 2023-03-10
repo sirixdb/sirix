@@ -9,7 +9,7 @@ import org.sirix.node.json.NumberNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable NumberNode wrapper.
@@ -27,7 +27,7 @@ public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNo
    * @param node {@link NumberNode} to wrap
    */
   private ImmutableNumberNode(final NumberNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

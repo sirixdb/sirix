@@ -14,10 +14,9 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.PINode;
 
-import java.math.BigInteger;
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable processing instruction node wrapper.
@@ -35,7 +34,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
    * @param node {@link PINode} to wrap
    */
   private ImmutablePI(final PINode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

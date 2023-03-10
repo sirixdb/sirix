@@ -38,7 +38,7 @@ public final class PathIndexBuilder {
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       final long PCR = pathNodeKey;
-      if (pathSummaryReader.getPCRsForPaths(paths, true).contains(PCR) || paths.isEmpty()) {
+      if (pathSummaryReader.getPCRsForPaths(paths).contains(PCR) || paths.isEmpty()) {
         final Optional<NodeReferences> textReferences = indexWriter.get(PCR, SearchMode.EQUAL);
         if (textReferences.isPresent()) {
           setNodeReferences(node, textReferences.get(), PCR);

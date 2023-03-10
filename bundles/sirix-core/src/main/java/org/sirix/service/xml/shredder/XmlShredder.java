@@ -49,7 +49,7 @@ import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.Callable;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * This class appends a given {@link XMLStreamReader} to a {@link XmlNodeTrx} . The content of the
@@ -117,9 +117,9 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      * @param insert insertion position
      */
     public Builder(final XmlNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
-      this.wtx = checkNotNull(wtx);
-      this.reader = checkNotNull(reader);
-      this.insert = checkNotNull(insert);
+      this.wtx = requireNonNull(wtx);
+      this.reader = requireNonNull(reader);
+      this.insert = requireNonNull(insert);
     }
 
     /**
@@ -335,7 +335,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @throws SirixException if creating the xml event reader fails.
    */
   public static XMLEventReader createFileReader(final FileInputStream fis) {
-    checkNotNull(fis);
+    requireNonNull(fis);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
     try {
@@ -359,7 +359,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @throws SirixException if creating the xml event reader fails.
    */
   public static XMLEventReader createStringReader(final String xmlString) {
-    checkNotNull(xmlString);
+    requireNonNull(xmlString);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
     try {
@@ -379,6 +379,6 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @throws XMLStreamException if any parsing error occurs
    */
   public static XMLEventReader createQueueReader(final Queue<XMLEvent> events) throws IOException, XMLStreamException {
-    return new QueueEventReader(checkNotNull(events));
+    return new QueueEventReader(requireNonNull(events));
   }
 }

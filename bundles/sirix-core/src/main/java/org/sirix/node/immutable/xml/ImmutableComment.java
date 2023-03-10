@@ -14,7 +14,7 @@ import org.sirix.node.xml.CommentNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable comment node wrapper.
@@ -33,7 +33,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
    * @param node mutable {@link CommentNode}
    */
   private ImmutableComment(final CommentNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

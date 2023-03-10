@@ -27,7 +27,7 @@ import java.util.Deque;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Simple Red-black tree reader (balanced binary search-tree -- based on BaseX(.org) version).
@@ -121,9 +121,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   private RBTreeReader(final Cache<RBIndexKey, RBNode<?, ?>> cache, final PageReadOnlyTrx pageReadOnlyTrx,
       final IndexType indexType, final int indexNumber) {
-    this.cache = checkNotNull(cache);
-    this.pageReadOnlyTrx = checkNotNull(pageReadOnlyTrx);
-    this.indexType = checkNotNull(indexType);
+    this.cache = requireNonNull(cache);
+    this.pageReadOnlyTrx = requireNonNull(pageReadOnlyTrx);
+    this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
     revisionNumber = pageReadOnlyTrx.getRevisionNumber();
     isClosed = false;

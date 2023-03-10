@@ -1,10 +1,11 @@
 package org.sirix.xquery.json;
 
-import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.Bool;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonResourceSession;
 import org.sirix.xquery.StructuredDBItem;
+
+import static java.util.Objects.requireNonNull;
 
 public final class AtomicBooleanJsonDBItem extends Bool
     implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -28,8 +29,8 @@ public final class AtomicBooleanJsonDBItem extends Bool
   public AtomicBooleanJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
       final Bool bool) {
     super(bool);
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
     nodeKey = this.rtx.getNodeKey();
   }
 

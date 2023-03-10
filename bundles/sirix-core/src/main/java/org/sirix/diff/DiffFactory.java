@@ -22,7 +22,8 @@
 package org.sirix.diff;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
+
 import java.util.Set;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.trx.node.HashType;
@@ -217,13 +218,13 @@ public final class DiffFactory {
      */
     public Builder(final ResourceSession<R, W> resMgr, final @NonNegative int newRev, final @NonNegative int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
-      this.resMgr = checkNotNull(resMgr);
+      this.resMgr = requireNonNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       this.newRev = newRev;
       checkArgument(oldRev >= 0, "paramOldRev must be >= 0!");
       this.oldRev = oldRev;
-      kind = checkNotNull(diffKind);
-      this.observers = checkNotNull(observers);
+      kind = requireNonNull(diffKind);
+      this.observers = requireNonNull(observers);
     }
 
     /**
@@ -305,7 +306,7 @@ public final class DiffFactory {
      * @return this builder
      */
     public Builder<R, W> diffAlgorithm(final DiffAlgorithm diffAlgorithm) {
-      mDiffKind = checkNotNull(diffAlgorithm);
+      mDiffKind = requireNonNull(diffAlgorithm);
       return this;
     }
 
@@ -316,7 +317,7 @@ public final class DiffFactory {
      * @return this builder
      */
     public Builder<R, W> hashKind(final HashType kind) {
-      hashKind = checkNotNull(kind);
+      hashKind = requireNonNull(kind);
       return this;
     }
 

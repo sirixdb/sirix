@@ -27,9 +27,8 @@
 
 package org.sirix.gui.view.sunburst;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.beans.PropertyChangeEvent;
+import java.util.Objects.requireNonNull;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;

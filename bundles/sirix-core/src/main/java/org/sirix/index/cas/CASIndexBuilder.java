@@ -49,7 +49,7 @@ public final class CASIndexBuilder {
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
-      if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths, true).contains(pathNodeKey)) {
+      if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
         final Str strValue = switch (node) {
           case ImmutableValueNode immutableValueNode -> new Str(immutableValueNode.getValue());
           case ImmutableObjectNumberNode immutableObjectNumberNode ->

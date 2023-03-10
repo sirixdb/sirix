@@ -4,7 +4,6 @@ import com.google.common.base.MoreObjects;
 import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import one.jasyncfio.collections.IntObjectHashMap;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -35,12 +34,13 @@ import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
+import org.sirix.utils.IntToObjectMap;
 import org.sirix.utils.NamePageHash;
 
 import java.time.Instant;
 import java.util.*;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Path summary reader organizing the path classes of a resource.
@@ -73,7 +73,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Mapping of a path node key to the path node/document root node.
    */
-  private final IntObjectHashMap<StructNode> pathNodeMapping;
+  private final IntToObjectMap<StructNode> pathNodeMapping;
 
   /**
    * Mapping of a {@link QNm} to a set of path nodes.
@@ -115,7 +115,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
       pathNodeMapping =
-          new IntObjectHashMap<>(maxNrOfNodes);
+          new IntToObjectMap<>(maxNrOfNodes);
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
       boolean first = true;
       boolean hasMoved = moveToFirstChild();
@@ -169,7 +169,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public static PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
       final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
-    return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceSession));
+    return new PathSummaryReader(requireNonNull(pageReadTrx), requireNonNull(resourceSession));
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
@@ -293,15 +293,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Get a set of PCRs matching the specified collection of paths
    *
    * @param expressions the paths to lookup
-   * @param useCache    determines if the cache can be used or not
    * @return a set of PCRs matching the specified collection of paths
    * @throws SirixException if parsing a path fails
    */
-  public LongSet getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache) throws PathException {
+  public LongSet getPCRsForPaths(final Collection<Path<QNm>> expressions) throws PathException {
     assertNotClosed();
     final LongSet pcrs = new LongOpenHashSet();
     for (final Path<QNm> path : expressions) {
-      pcrs.addAll(getPCRsForPath(path, useCache));
+      pcrs.addAll(getPCRsForPath(path));
     }
     return pcrs;
   }
@@ -333,17 +332,17 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Get path class records (PCRs) for the specified path.
    *
    * @param path     the path for which to get a set of PCRs
-   * @param useCache determines if the path cache can be used or not
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */
-  public LongSet getPCRsForPath(final Path<QNm> path, final boolean useCache) throws PathException {
-    final LongSet pcrSet;
-    if (useCache) {
-      pcrSet = pathCache.computeIfAbsent(path, (unused) -> new LongOpenHashSet());
-    } else {
-      pcrSet = new LongOpenHashSet();
+  public LongSet getPCRsForPath(final Path<QNm> path) throws PathException {
+    var pcrSet = pathCache.get(path);
+
+    if (pcrSet != null) {
+      return pcrSet;
     }
+
+    pcrSet = new LongOpenHashSet();
 
     final boolean isAttributePattern = path.isAttribute();
     final int pathLength = path.getLength();
@@ -373,9 +372,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     moveTo(nodeKey);
-    if (useCache) {
-      pathCache.put(path, pcrSet);
-    }
+    pathCache.put(path, pcrSet);
     return pcrSet;
   }
 
@@ -403,7 +400,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
 
     if (!init && nodeKey != 0) {
-      final PathNode node = getPathNodeForPathNodeKey(nodeKey);
+      final PathNode node = (PathNode) pathNodeMapping.get((int) nodeKey);
 
       if (node != null) {
         currentNode = node;
@@ -961,6 +958,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public int getPreviousRevisionNumber() {
     throw new UnsupportedOperationException();
+  }
+
+  public void clearCache() {
+    pathCache.clear();
+  }
+
+  public void removeFromCache(final QNm name) {
+    pathCache.keySet().removeIf(path -> path.tail().equals(name));
   }
 
   private static class DictionaryHashStrategy implements LongHash.Strategy {

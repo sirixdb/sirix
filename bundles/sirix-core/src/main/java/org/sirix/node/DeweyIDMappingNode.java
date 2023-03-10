@@ -1,9 +1,9 @@
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.jetbrains.annotations.NotNull;
 import org.sirix.node.delegates.NodeDelegate;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.
@@ -24,7 +24,7 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
    * @param nodeDelegate node delegate
    */
   public DeweyIDMappingNode(final NodeDelegate nodeDelegate) {
-    mDelegate = checkNotNull(nodeDelegate);
+    mDelegate = requireNonNull(nodeDelegate);
   }
 
   @Override

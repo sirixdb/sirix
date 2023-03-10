@@ -30,7 +30,7 @@ import org.sirix.page.interfaces.Page;
 import java.nio.ByteBuffer;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Forwarding the implementation of all methods in the {@link Page} interface to a delegate.
@@ -50,7 +50,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 
   @Override
   public void commit(final PageTrx pageWriteTrx) {
-    delegate().commit(checkNotNull(pageWriteTrx));
+    delegate().commit(requireNonNull(pageWriteTrx));
   }
 
   @Override

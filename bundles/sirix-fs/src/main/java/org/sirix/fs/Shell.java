@@ -51,7 +51,7 @@ public final class Shell {
   // * @return user input
   // */
   // private String input(final String prompt) {
-  // checkNotNull(prompt);
+  // requireNonNull(prompt);
   // LOGWRAPPER.info(prompt);
   // return SCANNER.nextLine();
   // }

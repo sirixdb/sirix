@@ -10,7 +10,7 @@ import org.sirix.xquery.json.JsonItemFactory;
 
 import java.util.Iterator;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class SirixJsonItemKeyStream implements Stream<Item> {
 
@@ -26,9 +26,9 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
 
   public SirixJsonItemKeyStream(final Iterator<NodeReferences> iter, final JsonDBCollection collection,
       final JsonNodeReadOnlyTrx rtx) {
-    this.iter = checkNotNull(iter);
-    this.collection = checkNotNull(collection);
-    this.rtx = checkNotNull(rtx);
+    this.iter = requireNonNull(iter);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
   }
 
   @Override

@@ -31,8 +31,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.Files.deleteIfExists;
+import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 
 /**
@@ -168,17 +168,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
     this.commitScheduler = newScheduledThreadPool(1, threadFactory);
     this.hashType = hashType;
-    this.nodeReadOnlyTrx = checkNotNull(nodeReadOnlyTrx);
+    this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
     this.typeSpecificTrx = typeSpecificTrx;
-    this.resourceSession = checkNotNull(resourceManager);
+    this.resourceSession = requireNonNull(resourceManager);
     this.lock = transactionLock;
-    this.afterCommitState = checkNotNull(afterCommitState);
-    this.nodeHashing = checkNotNull(nodeHashing);
+    this.afterCommitState = requireNonNull(afterCommitState);
+    this.nodeHashing = requireNonNull(nodeHashing);
     this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
-    this.nodeFactory = checkNotNull(nodeFactory);
+    this.nodeFactory = requireNonNull(nodeFactory);
     this.pathSummaryWriter = pathSummaryWriter;
     this.indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    this.nodeToRevisionsIndex = checkNotNull(nodeToRevisionsIndex);
+    this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
     this.updateOperationsOrdered = new TreeMap<>();
     this.updateOperationsUnordered = new HashMap<>();
@@ -483,7 +483,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     try {
-      preCommitHooks.add(checkNotNull(hook));
+      preCommitHooks.add(requireNonNull(hook));
       return self();
     } finally {
       if (lock != null) {
@@ -499,7 +499,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     try {
-      postCommitHooks.add(checkNotNull(hook));
+      postCommitHooks.add(requireNonNull(hook));
       return self();
     } finally {
       if (lock != null) {

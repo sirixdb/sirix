@@ -19,6 +19,8 @@ import org.sirix.xquery.stream.json.TemporalSirixJsonArraySliceStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
+
 public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice> {
 
   /** Sirix read-only transaction. */
@@ -49,8 +51,8 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
   public JsonDBArraySlice(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final int fromIndex,
       final int toIndex) {
     super(rtx, collection, new JsonItemFactory());
-    this.collection = Preconditions.checkNotNull(collection);
-    this.rtx = Preconditions.checkNotNull(rtx);
+    this.collection = requireNonNull(collection);
+    this.rtx = requireNonNull(rtx);
 
     if (this.rtx.isDocumentRoot()) {
       this.rtx.moveToFirstChild();

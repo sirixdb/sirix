@@ -21,7 +21,7 @@ import org.sirix.settings.Fixed;
 
 import java.util.concurrent.Callable;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * This class appends a given {@link JsonReader} to a {@link JsonNodeTrx} . The content of the
@@ -97,9 +97,9 @@ public final class JsonItemShredder implements Callable<Long> {
      * @throws NullPointerException if one of the arguments is {@code null}
      */
     public Builder(final JsonNodeTrx wtx, final Item item, final InsertPosition insert) {
-      this.wtx = checkNotNull(wtx);
-      this.item = checkNotNull(item);
-      this.insert = checkNotNull(insert);
+      this.wtx = requireNonNull(wtx);
+      this.item = requireNonNull(item);
+      this.insert = requireNonNull(insert);
     }
 
     /**
@@ -265,7 +265,7 @@ public final class JsonItemShredder implements Callable<Long> {
   }
 
   private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {
-    final String value = checkNotNull(stringValue);
+    final String value = requireNonNull(stringValue);
     final long key;
 
     switch (insert) {
@@ -322,7 +322,7 @@ public final class JsonItemShredder implements Callable<Long> {
   }
 
   private long insertNumberValue(final Number numberValue, final boolean nextTokenIsParent) {
-    final Number value = checkNotNull(numberValue);
+    final Number value = requireNonNull(numberValue);
 
     final long key;
 

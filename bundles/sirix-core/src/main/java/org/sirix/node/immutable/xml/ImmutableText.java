@@ -14,7 +14,7 @@ import org.sirix.node.xml.TextNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable text node wrapper.
@@ -32,7 +32,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
    * @param node {@link TextNode} to wrap
    */
   private ImmutableText(final TextNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

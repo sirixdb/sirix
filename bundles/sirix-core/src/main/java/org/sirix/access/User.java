@@ -1,7 +1,8 @@
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Objects.hash;
+import static java.util.Objects.requireNonNull;
+
 import java.util.Objects;
 import java.util.UUID;
 import com.google.common.base.MoreObjects;
@@ -12,8 +13,8 @@ public final class User {
   private final UUID userId;
 
   public User(final String userName, final UUID userId) {
-    this.userName = checkNotNull(userName);
-    this.userId = checkNotNull(userId);
+    this.userName = requireNonNull(userName);
+    this.userId = requireNonNull(userId);
   }
 
   public UUID getId() {
