@@ -213,17 +213,17 @@ class SirixVerticle : CoroutineVerticle() {
             GetHandler(location, keycloak, authz).handle(it)
         }
 
-        put("/:database").consumes("application/xml").coroutineHandler {
+        put("/:database").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XmlCreate(location, false).handle(it)
+            CreateHandler(location, false).handle(it)
         }
-        put("/:database").consumes("application/json").coroutineHandler {
+        put("/:database").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
-            JsonCreate(location, true).handle(it)
+            CreateHandler(location, true).handle(it)
         }
 
         delete("/:database").coroutineHandler {
