@@ -116,7 +116,6 @@ public final class BitmapReferencesPage implements Page {
       final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
-    System.out.print(references);
     bitmap = tuple.getBitmap();
     offsetBitmap = new BitSet(bitmap.size());
   }
