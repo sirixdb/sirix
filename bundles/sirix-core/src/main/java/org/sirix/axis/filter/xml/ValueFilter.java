@@ -21,11 +21,12 @@
 
 package org.sirix.axis.filter.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -45,7 +46,7 @@ public final class ValueFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    */
   public ValueFilter(final XmlNodeReadOnlyTrx rtx, final byte[] value) {
     super(rtx);
-    mValue = checkNotNull(value);
+    mValue = requireNonNull(value);
   }
 
   /**

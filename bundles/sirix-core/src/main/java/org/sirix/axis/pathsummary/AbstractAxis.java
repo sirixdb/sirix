@@ -7,8 +7,8 @@ import org.sirix.index.path.summary.PathNode;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Provide standard Java iterator capability compatible with the enhanced for loop available since Java 5. Override the
@@ -70,7 +70,7 @@ public abstract class AbstractAxis implements Iterator<PathNode>, Iterable<PathN
    * @throws NullPointerException if {@code nodeCursor} is {@code null}
    */
   public AbstractAxis(final PathNode pathNode) {
-    this.startPathNode = checkNotNull(pathNode);
+    this.startPathNode = requireNonNull(pathNode);
     this.nextNode = pathNode;
     includeSelf = IncludeSelf.NO;
     reset(startPathNode);
@@ -84,8 +84,8 @@ public abstract class AbstractAxis implements Iterator<PathNode>, Iterable<PathN
    * @throws NullPointerException if {@code nodeCursor} or {@code includeSelf} is {@code null}
    */
   public AbstractAxis(final PathNode pathNode, final IncludeSelf includeSelf) {
-    startPathNode = checkNotNull(pathNode);
-    this.includeSelf = checkNotNull(includeSelf);
+    startPathNode = requireNonNull(pathNode);
+    this.includeSelf = requireNonNull(includeSelf);
     reset(startPathNode);
   }
 

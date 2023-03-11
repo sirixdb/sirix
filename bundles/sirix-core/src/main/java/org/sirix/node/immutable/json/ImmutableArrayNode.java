@@ -10,7 +10,7 @@ import org.sirix.node.xml.ElementNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable array node wrapper.
@@ -29,7 +29,7 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
    * @param node mutable {@link ElementNode}
    */
   private ImmutableArrayNode(final ArrayNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

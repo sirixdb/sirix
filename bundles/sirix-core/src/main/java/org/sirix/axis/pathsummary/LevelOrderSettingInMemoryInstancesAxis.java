@@ -38,7 +38,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Iterates over a subtree in levelorder / in a breath first traversal.
@@ -107,7 +107,7 @@ public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
      * @param pathSummaryReader Sirix {@link PathSummaryReader}
      */
     public Builder(final PathSummaryReader pathSummaryReader) {
-      this.reader = checkNotNull(pathSummaryReader);
+      this.reader = requireNonNull(pathSummaryReader);
     }
 
     /**

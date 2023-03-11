@@ -9,7 +9,7 @@ import org.sirix.node.json.JsonDocumentRootNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable document root node wrapper.
@@ -27,7 +27,7 @@ public final class ImmutableJsonDocumentRootNode extends AbstractImmutableJsonSt
    * @param node mutable {@link JsonDocumentRootNode}
    */
   private ImmutableJsonDocumentRootNode(final JsonDocumentRootNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

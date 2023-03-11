@@ -21,10 +21,11 @@
 
 package org.sirix.axis.filter.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -60,8 +61,8 @@ public final class WildcardFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    */
   public WildcardFilter(final XmlNodeReadOnlyTrx rtx, final String knownPart, final EType type) {
     super(rtx);
-    mType = checkNotNull(type);
-    mKnownPartKey = getTrx().keyForName(checkNotNull(knownPart));
+    mType = requireNonNull(type);
+    mKnownPartKey = getTrx().keyForName(requireNonNull(knownPart));
   }
 
   @Override

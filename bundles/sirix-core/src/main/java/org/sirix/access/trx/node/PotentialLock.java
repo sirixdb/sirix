@@ -1,18 +1,19 @@
 package org.sirix.access.trx.node;
 
-import com.google.common.base.Preconditions;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 
+import static java.util.Objects.requireNonNull;
+
 public final class PotentialLock implements Lock, AutoCloseable {
 
   private final Lock lock;
 
   public PotentialLock(final Lock lock) {
-    this.lock = Preconditions.checkNotNull(lock);
+    this.lock = requireNonNull(lock);
   }
 
   @Override

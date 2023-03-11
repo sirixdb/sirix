@@ -32,7 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Label visitor. Treats empty-elements as internal nodes.
@@ -57,7 +57,7 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    * @param readTrx a read only transaction
    */
   public LabelFMSEVisitor(final XmlNodeReadOnlyTrx readTrx) {
-    rtx = checkNotNull(readTrx);
+    rtx = requireNonNull(readTrx);
     labels = new HashMap<>();
     leafLabels = new HashMap<>();
   }

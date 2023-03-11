@@ -25,9 +25,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.exception.SirixIOException;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -36,7 +36,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Represents a configuration of a database. Includes all settings which have to be made during the
@@ -85,7 +85,7 @@ public final class DatabaseConfiguration {
      * @param isFolder determines if the file is a folder instead
      */
     DatabasePaths(final Path file, final boolean isFolder) {
-      mFile = checkNotNull(file);
+      mFile = requireNonNull(file);
       mIsFolder = isFolder;
     }
 
@@ -115,7 +115,7 @@ public final class DatabaseConfiguration {
      * structure has more folders
      */
     public static int compareStructure(final Path file) {
-      checkNotNull(file);
+      requireNonNull(file);
       int existing = 0;
       for (final DatabasePaths paths : values()) {
         final Path currentFile = file.resolve(paths.getFile());
@@ -170,7 +170,7 @@ public final class DatabaseConfiguration {
    * @return this {@link DatabaseConfiguration} instance
    */
   public DatabaseConfiguration setDatabaseType(final DatabaseType type) {
-    databaseType = checkNotNull(type);
+    databaseType = requireNonNull(type);
     return this;
   }
 

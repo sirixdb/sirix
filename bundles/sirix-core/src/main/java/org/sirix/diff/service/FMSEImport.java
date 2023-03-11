@@ -20,7 +20,6 @@
  */
 package org.sirix.diff.service;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -41,6 +40,8 @@ import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Import using the FMSE algorithm.
@@ -110,7 +111,7 @@ public final class FMSEImport {
       if (Files.exists(newRevTarget)) {
         SirixFiles.recursiveRemove(newRevTarget);
       }
-      shredder(checkNotNull(resNewRev), newRevTarget);
+      shredder(requireNonNull(resNewRev), newRevTarget);
 
       try (final var databaseOld = Databases.openXmlDatabase(resOldRev);
            final var resMgrOld = databaseOld.beginResourceSession("shredded");

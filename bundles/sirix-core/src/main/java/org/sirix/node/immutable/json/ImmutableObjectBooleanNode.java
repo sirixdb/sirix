@@ -11,7 +11,7 @@ import org.sirix.node.xml.TextNode;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Immutable JSONBooleanNode wrapper.
@@ -29,7 +29,7 @@ public final class ImmutableObjectBooleanNode extends AbstractImmutableJsonStruc
    * @param node {@link StringNode} to wrap
    */
   private ImmutableObjectBooleanNode(final ObjectBooleanNode node) {
-    this.node = checkNotNull(node);
+    this.node = requireNonNull(node);
   }
 
   /**

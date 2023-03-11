@@ -45,7 +45,7 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  *
@@ -137,9 +137,9 @@ public final class StAXSerializer implements XMLEventReader {
    */
   public StAXSerializer(final XmlNodeReadOnlyTrx pRtx, final boolean pCloseRtx) {
     mNextTag = false;
-    mAxis = new DescendantAxis(checkNotNull(pRtx), IncludeSelf.YES);
+    mAxis = new DescendantAxis(requireNonNull(pRtx), IncludeSelf.YES);
     mCloseRtx = pCloseRtx;
-    mStack = new ArrayDeque<Long>();
+    mStack = new ArrayDeque<>();
     mFirst = true;
     mEmitEndDocument = true;
     mHasNext = true;
@@ -463,7 +463,7 @@ public final class StAXSerializer implements XMLEventReader {
      * @param rtx reference implementing the {@link XmlNodeReadOnlyTrx} interface
      */
     public AttributeIterator(final XmlNodeReadOnlyTrx rtx) {
-      mRtx = checkNotNull(rtx);
+      mRtx = requireNonNull(rtx);
       mNodeKey = mRtx.getNodeKey();
       mIndex = 0;
 
@@ -530,7 +530,7 @@ public final class StAXSerializer implements XMLEventReader {
      * @param rtx reference implementing the {@link XmlNodeReadOnlyTrx} interface
      */
     public NamespaceIterator(final XmlNodeReadOnlyTrx rtx) {
-      mRtx = checkNotNull(rtx);
+      mRtx = requireNonNull(rtx);
       mNodeKey = mRtx.getNodeKey();
       mIndex = 0;
 

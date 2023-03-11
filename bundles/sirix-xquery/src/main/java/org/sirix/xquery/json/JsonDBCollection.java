@@ -28,6 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static java.util.Objects.requireNonNull;
+
 public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
     implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {
 
@@ -60,8 +62,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * @param database Sirix {@link Database} reference
    */
   public JsonDBCollection(final String name, final Database<JsonResourceSession> database) {
-    super(Preconditions.checkNotNull(name));
-    this.database = Preconditions.checkNotNull(database);
+    super(requireNonNull(name));
+    this.database = requireNonNull(database);
     id = ID_SEQUENCE.incrementAndGet();
   }
 
@@ -73,10 +75,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    */
   public JsonDBCollection(final String name, final Database<JsonResourceSession> database,
       final JsonDBStore jsonDBStore) {
-    super(Preconditions.checkNotNull(name));
-    this.database = Preconditions.checkNotNull(database);
+    super(requireNonNull(name));
+    this.database = requireNonNull(database);
     id = ID_SEQUENCE.incrementAndGet();
-    this.jsonDbStore = Preconditions.checkNotNull(jsonDBStore);
+    this.jsonDbStore = requireNonNull(jsonDBStore);
   }
 
   public JsonDBCollection setJsonDBStore(final JsonDBStore jsonDBStore) {
@@ -297,7 +299,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   @Override
   public JsonDBItem add(final String json) {
-    Preconditions.checkNotNull(json);
+    requireNonNull(json);
 
     return add(JsonShredder.createStringReader(json), null, null);
   }
@@ -329,7 +331,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   @Override
   public JsonDBItem add(final Path file) {
-    Preconditions.checkNotNull(file);
+    requireNonNull(file);
 
     return add(JsonShredder.createFileReader(file), null, null);
   }

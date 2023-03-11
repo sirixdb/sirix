@@ -1,5 +1,7 @@
 package org.sirix.access;
 
+import static java.util.Objects.requireNonNull;
+
 import org.sirix.access.trx.node.AbstractResourceSession;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -10,8 +12,6 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements ResourceStore<R> {
@@ -49,13 +49,13 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   @Override
   public boolean hasOpenResourceSession(final Path resourceFile) {
-    checkNotNull(resourceFile);
+    requireNonNull(resourceFile);
     return resourceSessions.containsKey(resourceFile);
   }
 
   @Override
   public R getOpenResourceSession(final Path resourceFile) {
-    checkNotNull(resourceFile);
+    requireNonNull(resourceFile);
     return resourceSessions.get(resourceFile);
   }
 

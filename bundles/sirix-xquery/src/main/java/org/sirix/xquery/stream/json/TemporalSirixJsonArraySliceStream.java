@@ -10,7 +10,7 @@ import org.sirix.xquery.json.JsonDBArraySlice;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.node.XmlDBCollection;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * {@link Stream}, wrapping a temporal axis.
@@ -40,8 +40,8 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
    */
   public TemporalSirixJsonArraySliceStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final JsonDBCollection collection, final int fromIndex, final int toIndex) {
-    this.axis = checkNotNull(axis);
-    this.collection = checkNotNull(collection);
+    this.axis = requireNonNull(axis);
+    this.collection = requireNonNull(collection);
     this.fromIndex = fromIndex;
     this.toIndex = toIndex;
   }

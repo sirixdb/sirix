@@ -7,7 +7,7 @@ import javax.inject.Inject;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public final class TransactionManagerImpl implements TransactionManager {
 
@@ -27,7 +27,7 @@ public final class TransactionManagerImpl implements TransactionManager {
 
   @Override
   public TransactionManager closeTransaction(final Transaction trx) {
-    transactions.remove(checkNotNull(trx));
+    transactions.remove(requireNonNull(trx));
     return this;
   }
 

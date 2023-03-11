@@ -21,8 +21,9 @@
 
 package org.sirix.utils;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.slf4j.Logger;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Provides some logging helper methods.
@@ -41,7 +42,7 @@ public final class LogWrapper {
    * @param logger logger
    */
   public LogWrapper(final Logger logger) {
-    this.logger = checkNotNull(logger);
+    this.logger = requireNonNull(logger);
   }
 
   /**

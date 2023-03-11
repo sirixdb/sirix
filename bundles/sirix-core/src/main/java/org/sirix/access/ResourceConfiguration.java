@@ -58,7 +58,7 @@ import java.util.List;
 import java.util.Objects;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Holds the settings for a resource which acts as a base for session that can not change. This
@@ -325,7 +325,7 @@ public final class ResourceConfiguration {
   }
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
-    databaseConfig = checkNotNull(config);
+    databaseConfig = requireNonNull(config);
     resourcePath = databaseConfig.getDatabaseFile()
                                  .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
                                  .resolve(resourceName);
@@ -695,7 +695,7 @@ public final class ResourceConfiguration {
      * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
      */
     public Builder(final String resource) {
-      this.resource = checkNotNull(resource);
+      this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
       byteHandler = new ByteHandlerPipeline(new SnappyCompressor());//new LZ4Compressor()); // new Encryptor(path));
@@ -708,7 +708,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder storageType(final StorageType type) {
-      this.type = checkNotNull(type);
+      this.type = requireNonNull(type);
       return this;
     }
 
@@ -719,7 +719,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder persistenter(final RecordSerializer persistenter) {
-      this.persistenter = checkNotNull(persistenter);
+      this.persistenter = requireNonNull(persistenter);
       return this;
     }
 
@@ -741,7 +741,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder versioningApproach(final VersioningType versioning) {
-      revisionKind = checkNotNull(versioning);
+      revisionKind = requireNonNull(versioning);
       return this;
     }
 
@@ -752,7 +752,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder hashKind(final HashType hashKind) {
-      this.hashType = checkNotNull(hashKind);
+      this.hashType = requireNonNull(hashKind);
       return this;
     }
 
@@ -763,7 +763,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder byteHandlerPipeline(final ByteHandlerPipeline byteHandler) {
-      this.byteHandler = checkNotNull(byteHandler);
+      this.byteHandler = requireNonNull(byteHandler);
       return this;
     }
 

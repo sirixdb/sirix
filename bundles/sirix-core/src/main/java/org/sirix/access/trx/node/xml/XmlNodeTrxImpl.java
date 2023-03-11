@@ -67,7 +67,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
@@ -126,7 +126,6 @@ final class XmlNodeTrxImpl extends
       final @NonNegative int maxNodeCount, @Nullable final Lock transactionLock, final Duration afterCommitDelay,
       final @NonNull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory,
       final @NonNull AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
-
     super(Executors.defaultThreadFactory(),
           resourceManager.getResourceConfig().hashType,
           nodeReadOnlyTrx,
@@ -140,7 +139,6 @@ final class XmlNodeTrxImpl extends
           transactionLock,
           afterCommitDelay,
           maxNodeCount);
-
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     storeChildCount = this.resourceSession.getResourceConfig().storeChildCount();
 
@@ -479,7 +477,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertElementAsFirstChild(final QNm name) {
-    if (!XMLToken.isValidQName(checkNotNull(name))) {
+    if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
     if (lock != null) {
@@ -505,6 +503,8 @@ final class XmlNodeTrxImpl extends
         nodeReadOnlyTrx.setCurrentNode(node);
         nodeHashing.adaptHashesWithAdd();
 
+        indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+
         return this;
       } else {
         throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
@@ -518,7 +518,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertElementAsLeftSibling(final QNm name) {
-    if (!XMLToken.isValidQName(checkNotNull(name))) {
+    if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
     if (lock != null) {
@@ -547,6 +547,8 @@ final class XmlNodeTrxImpl extends
         nodeReadOnlyTrx.setCurrentNode(node);
         nodeHashing.adaptHashesWithAdd();
 
+        indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+
         return this;
       } else {
         throw new SirixUsageException(
@@ -561,7 +563,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertElementAsRightSibling(final QNm name) {
-    if (!XMLToken.isValidQName(checkNotNull(name))) {
+    if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
     if (lock != null) {
@@ -591,6 +593,8 @@ final class XmlNodeTrxImpl extends
       adaptForInsert(node, InsertPos.ASRIGHTSIBLING);
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashesWithAdd();
+
+      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       return this;
     } finally {
@@ -632,7 +636,7 @@ final class XmlNodeTrxImpl extends
 
   private XmlNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insertionPosition,
       final Commit commit) {
-    checkNotNull(reader);
+    requireNonNull(reader);
     assert insertionPosition != null;
 
     try {
@@ -720,7 +724,7 @@ final class XmlNodeTrxImpl extends
    */
   private XmlNodeTrx pi(final String target, final String content, final InsertPosition insert) {
     final byte[] targetBytes = getBytes(target);
-    if (!XMLToken.isNCName(checkNotNull(targetBytes))) {
+    if (!XMLToken.isNCName(requireNonNull(targetBytes))) {
       throw new IllegalArgumentException("The target is not valid!");
     }
     if (content.contains("?>-")) {
@@ -888,7 +892,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertTextAsFirstChild(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -941,7 +945,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertTextAsLeftSibling(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1012,7 +1016,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertTextAsRightSibling(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1098,8 +1102,8 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertAttribute(final QNm name, @NonNull final String value, @NonNull final Movement move) {
-    checkNotNull(value);
-    if (!XMLToken.isValidQName(checkNotNull(name))) {
+    requireNonNull(value);
+    if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
     if (lock != null) {
@@ -1180,7 +1184,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx insertNamespace(@NonNull final QNm name, @NonNull final Movement move) {
-    if (!XMLToken.isValidQName(checkNotNull(name))) {
+    if (!XMLToken.isValidQName(requireNonNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
     if (lock != null) {
@@ -1297,16 +1301,16 @@ final class XmlNodeTrxImpl extends
         removeName();
         removeValue();
 
-//                getPathSummary().moveToDocumentRoot();
-//
-//                System.out.println("=====================");
-//
-//                for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
-//                  descendantAxis.nextLong();
-//                  System.out.println("path: " + getPathSummary().getPath());
-//                  System.out.println("nodeKey: " + getPathSummary().getNodeKey());
-//                  System.out.println("references: " + getPathSummary().getReferences());
-//                }
+        //                getPathSummary().moveToDocumentRoot();
+        //
+        //                System.out.println("=====================");
+        //
+        //                for (final var descendantAxis = new DescendantAxis(getPathSummary()); descendantAxis.hasNext(); ) {
+        //                  descendantAxis.nextLong();
+        //                  System.out.println("path: " + getPathSummary().getPath());
+        //                  System.out.println("nodeKey: " + getPathSummary().getNodeKey());
+        //                  System.out.println("references: " + getPathSummary().getReferences());
+        //                }
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
@@ -1411,7 +1415,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx setName(final QNm name) {
-    checkNotNull(name);
+    requireNonNull(name);
     if (lock != null) {
       lock.lock();
     }
@@ -1479,7 +1483,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx setValue(final String value) {
-    checkNotNull(value);
+    requireNonNull(value);
     if (lock != null) {
       lock.lock();
     }
@@ -1708,7 +1712,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx copySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
-    checkNotNull(rtx);
+    requireNonNull(rtx);
     if (lock != null) {
       lock.lock();
     }
@@ -1729,7 +1733,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx copySubtreeAsLeftSibling(final XmlNodeReadOnlyTrx rtx) {
-    checkNotNull(rtx);
+    requireNonNull(rtx);
     if (lock != null) {
       lock.lock();
     }
@@ -1750,7 +1754,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx copySubtreeAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
-    checkNotNull(rtx);
+    requireNonNull(rtx);
     if (lock != null) {
       lock.lock();
     }
@@ -1827,7 +1831,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx replaceNode(final XMLEventReader reader) {
-    checkNotNull(reader);
+    requireNonNull(reader);
     if (lock != null) {
       lock.lock();
     }
@@ -1886,7 +1890,7 @@ final class XmlNodeTrxImpl extends
 
   @Override
   public XmlNodeTrx replaceNode(final XmlNodeReadOnlyTrx rtx) {
-    checkNotNull(rtx);
+    requireNonNull(rtx);
     if (lock != null) {
       lock.lock();
     }

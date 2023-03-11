@@ -22,7 +22,7 @@
 package org.sirix.service.xml.serialize;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_ID;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
@@ -613,8 +613,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
         final int... revisions) {
       maxLevel = -1;
       nodeKey = 0;
-      this.resourceMgr = checkNotNull(resourceMgr);
-      this.stream = checkNotNull(stream);
+      this.resourceMgr = requireNonNull(resourceMgr);
+      this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
         version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
@@ -637,9 +637,9 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       maxLevel = -1;
-      this.resourceMgr = checkNotNull(resourceMgr);
+      this.resourceMgr = requireNonNull(resourceMgr);
       this.nodeKey = nodeKey;
-      this.stream = checkNotNull(stream);
+      this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
         version = this.resourceMgr.getMostRecentRevisionNumber();
       } else {
@@ -647,12 +647,12 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
         versions = new int[revisions.length - 1];
         System.arraycopy(revisions, 1, versions, 0, revisions.length - 1);
       }
-      final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
-      indent = checkNotNull((Boolean) map.get(S_INDENT[0]));
-      rest = checkNotNull((Boolean) map.get(S_REST[0]));
-      id = checkNotNull((Boolean) map.get(S_ID[0]));
-      indentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
-      declaration = checkNotNull((Boolean) map.get(S_XMLDECL[0]));
+      final ConcurrentMap<?, ?> map = requireNonNull(properties.getProps());
+      indent = requireNonNull((Boolean) map.get(S_INDENT[0]));
+      rest = requireNonNull((Boolean) map.get(S_REST[0]));
+      id = requireNonNull((Boolean) map.get(S_ID[0]));
+      indentSpaces = requireNonNull((Integer) map.get(S_INDENT_SPACES[0]));
+      declaration = requireNonNull((Boolean) map.get(S_XMLDECL[0]));
     }
 
     /**
@@ -774,7 +774,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder revisions(final int[] revisions) {
-      checkNotNull(revisions);
+      requireNonNull(revisions);
 
       version = revisions[0];
 
