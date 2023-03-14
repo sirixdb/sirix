@@ -19,6 +19,7 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceSession
+import org.sirix.rest.crud.AbstractCreateHandler
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
@@ -28,9 +29,10 @@ import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
+import kotlin.collections.AbstractCollection
 
-class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
-    suspend fun handle(ctx: RoutingContext): Route {
+class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false): AbstractCreateHandler() {
+    override suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
 
@@ -57,7 +59,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         return ctx.currentRoute()
     }
 
-    private suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
+    override suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
@@ -96,25 +98,25 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         }
     }
 
-    private suspend fun shredder(
-        databaseName: String, resPathName: String = databaseName,
+    override suspend fun shredder(
+        databaseName: String, resPathName: String,
         ctx: RoutingContext
     ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
-        val dispatcher = ctx.vertx().dispatcher()
+//        val dispatcher = ctx.vertx().dispatcher()
         ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
         ctx.request().resume()
 
-        insertResource(dbFile, resPathName, dispatcher, ctx)
+        insertResource(dbFile, resPathName, ctx)
     }
 
-    private suspend fun insertResource(
+    override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
-        dispatcher: CoroutineDispatcher,
         ctx: RoutingContext
     ) {
+        val dispatcher = ctx.vertx().dispatcher()
         ctx.request().pause()
         val fileResolver = FileResolver()
 
@@ -176,7 +178,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         return XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
     }
 
-    private suspend fun createDatabaseIfNotExists(
+    override suspend fun createDatabaseIfNotExists(
         dbFile: Path,
         context: Context
     ): DatabaseConfiguration? {

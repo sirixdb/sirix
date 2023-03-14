@@ -18,6 +18,7 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceSession
 import org.sirix.rest.KotlinJsonStreamingShredder
+import org.sirix.rest.crud.AbstractCreateHandler
 import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
@@ -35,8 +36,8 @@ private val logger = LogWrapper(LoggerFactory.getLogger(DatabasesInternals::clas
 class JsonCreate(
     private val location: Path,
     private val createMultipleResources: Boolean = false
-) {
-    suspend fun handle(ctx: RoutingContext): Route {
+): AbstractCreateHandler() {
+    override suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
 
@@ -62,7 +63,7 @@ class JsonCreate(
         return ctx.currentRoute()
     }
 
-    private suspend fun createMultipleResources(
+    override suspend fun createMultipleResources(
         databaseName: String,
         ctx: RoutingContext
     ) {
@@ -107,8 +108,8 @@ class JsonCreate(
         ctx.response().setStatusCode(201).end()
     }
 
-    private suspend fun shredder(
-        databaseName: String, resPathName: String = databaseName,
+    override suspend fun shredder(
+        databaseName: String, resPathName: String,
         ctx: RoutingContext
     ) {
         val dbFile = location.resolve(databaseName)
@@ -119,7 +120,7 @@ class JsonCreate(
         insertResource(dbFile, resPathName, ctx)
     }
 
-    private suspend fun insertResource(
+    override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
@@ -205,7 +206,7 @@ class JsonCreate(
         )
     }
 
-    private suspend fun createDatabaseIfNotExists(
+    override suspend fun createDatabaseIfNotExists(
         dbFile: Path,
         context: Context
     ): DatabaseConfiguration? {
