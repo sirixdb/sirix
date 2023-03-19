@@ -348,8 +348,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       return;
     }
 
-    log.remove(reference);
-
     final var page = container.getModified();
 
     reference.setPage(page);
@@ -357,10 +355,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(this, reference, bufferBytes);
-
-    //    // Will only be used once the UberPage is written to durable storage.
-    //    reference.setLogKey(Constants.NULL_ID_INT);
-    //    bufferManager.getPageCache().put(reference, page);
 
     container.getComplete().clearPage();
     page.clearPage();
@@ -401,7 +395,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);
 
-      log.truncate();
+      log.clear();
       pageContainerCache.clear();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
@@ -418,7 +412,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   private void setCommitMessageAndTimestampIfRequired(@org.jetbrains.annotations.Nullable String commitMessage,
-      @org.jetbrains.annotations.Nullable Instant commitTimestamp) {
+      @Nullable Instant commitTimestamp) {
     if (commitMessage != null) {
       newRevisionRootPage.setCommitMessage(commitMessage);
     }
@@ -443,10 +437,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   private void parallelSerializationOfKeyValuePages() {
-    log.getMap()
-       .long2ObjectEntrySet()
+    log.getList()
        .parallelStream()
-       .map(Map.Entry::getValue)
        .map(PageContainer::getModified)
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
@@ -471,13 +463,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   private void setUserIfPresent() {
     final Optional<User> optionalUser = pageRtx.resourceSession.getUser();
-    optionalUser.ifPresent(user -> newRevisionRootPage.setUser(user));
+    optionalUser.ifPresent(newRevisionRootPage::setUser);
   }
 
   @Override
   public UberPage rollback() {
     pageRtx.assertNotClosed();
-    log.truncate();
+    log.clear();
     return readUberPage();
   }
 
