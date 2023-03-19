@@ -42,7 +42,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public PageContainer get(final PageReference key) {
     var logKey = key.getLogKey();
-    if (logKey >= this.logKey - 1 || logKey < 0) {
+    if ((logKey >= this.logKey) || logKey < 0) {
       return null;
     }
     return list.get(logKey);
