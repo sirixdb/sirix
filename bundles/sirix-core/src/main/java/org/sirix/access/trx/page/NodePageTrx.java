@@ -443,7 +443,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
          final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
-         PageKind.RECORDPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+         PageKind.KEYVALUELEAFPAGE.serializePage(this, bytes, page, SerializationType.DATA);
        });
   }
 
