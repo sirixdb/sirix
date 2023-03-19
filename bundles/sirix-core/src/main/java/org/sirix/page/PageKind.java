@@ -56,7 +56,6 @@ public enum PageKind {
     @NonNull
     public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
         final SerializationType type) {
-
       final long recordPageKey = getVarLong(source);
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
@@ -140,7 +139,6 @@ public enum PageKind {
     @Override
     public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> sink, final Page page,
         final SerializationType type) {
-
       KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
 
       final Bytes<ByteBuffer> bytes = keyValueLeafPage.getBytes();
@@ -259,7 +257,6 @@ public enum PageKind {
       final Int2IntMap currentMaxLevelsOfIndirectPages = PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
       return new NamePage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
-
     }
 
     @Override
