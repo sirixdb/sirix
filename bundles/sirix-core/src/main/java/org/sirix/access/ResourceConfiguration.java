@@ -33,6 +33,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.sirix.BinaryEncodingVersion;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
@@ -169,7 +170,7 @@ public final class ResourceConfiguration {
    * Standard storage.
    */
   private static final StorageType STORAGE =
-     OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+      OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -190,6 +191,11 @@ public final class ResourceConfiguration {
    * Serializer for records.
    */
   private static final RecordSerializer NODE_SERIALIZER = new NodeSerializerImpl();
+
+  /**
+   * The current binary encoding version.
+   */
+  public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
 
   // END FIXED STANDARD FIELDS
 
@@ -284,6 +290,11 @@ public final class ResourceConfiguration {
    */
   private final boolean storeNodeHistory;
 
+  /**
+   * Binary encoding version of storage.
+   */
+  private final BinaryEncodingVersion binaryVersion;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -318,6 +329,11 @@ public final class ResourceConfiguration {
     storeDiffs = builder.storeDiffs;
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
+    binaryVersion = builder.binaryEncodingVersion;
+  }
+
+  public BinaryEncodingVersion getBinaryEncodingVersion() {
+    return binaryVersion;
   }
 
   public boolean customCommitTimestamps() {
@@ -430,9 +446,9 @@ public final class ResourceConfiguration {
    * JSON names.
    */
   private static final String[] JSONNAMES =
-      { "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind",
-          "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter",
-          "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
+      { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
+          "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
+          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
 
   /**
    * Serialize the configuration.
@@ -445,43 +461,45 @@ public final class ResourceConfiguration {
     try (final FileWriter fileWriter = new FileWriter(configFile.toFile());
          final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
+      // Binary encoding | page layout.
+      jsonWriter.name(JSONNAMES[0]).value(config.binaryVersion.name());
       // Versioning.
-      jsonWriter.name(JSONNAMES[0]);
+      jsonWriter.name(JSONNAMES[1]);
       jsonWriter.beginObject();
-      jsonWriter.name(JSONNAMES[1]).value(config.versioningType.name());
-      jsonWriter.name(JSONNAMES[2]).value(config.maxNumberOfRevisionsToRestore);
+      jsonWriter.name(JSONNAMES[2]).value(config.versioningType.name());
+      jsonWriter.name(JSONNAMES[3]).value(config.maxNumberOfRevisionsToRestore);
       jsonWriter.endObject();
       // ByteHandlers.
-      jsonWriter.name(JSONNAMES[3]);
+      jsonWriter.name(JSONNAMES[4]);
       jsonWriter.beginArray();
       for (final ByteHandler handler : config.byteHandlePipeline.getComponents()) {
         ByteHandlerKind.getKind(handler.getClass()).serialize(handler, jsonWriter);
       }
       jsonWriter.endArray();
       // Storage type.
-      jsonWriter.name(JSONNAMES[4]).value(config.storageType.name());
+      jsonWriter.name(JSONNAMES[5]).value(config.storageType.name());
       // Hashing type.
-      jsonWriter.name(JSONNAMES[5]).value(config.hashType.name());
+      jsonWriter.name(JSONNAMES[6]).value(config.hashType.name());
       // Hash function.
-      jsonWriter.name(JSONNAMES[6]).value(config.nodeHashFunction.toString());
+      jsonWriter.name(JSONNAMES[7]).value(config.nodeHashFunction.toString());
       // Text compression.
-      jsonWriter.name(JSONNAMES[7]).value(config.useTextCompression);
+      jsonWriter.name(JSONNAMES[8]).value(config.useTextCompression);
       // Path summary.
-      jsonWriter.name(JSONNAMES[8]).value(config.withPathSummary);
+      jsonWriter.name(JSONNAMES[9]).value(config.withPathSummary);
       // ID.
-      jsonWriter.name(JSONNAMES[9]).value(config.id);
+      jsonWriter.name(JSONNAMES[10]).value(config.id);
       // Dewey IDs stored or not.
-      jsonWriter.name(JSONNAMES[10]).value(config.areDeweyIDsStored);
+      jsonWriter.name(JSONNAMES[11]).value(config.areDeweyIDsStored);
       // Persistenter.
-      jsonWriter.name(JSONNAMES[11]).value(config.recordPersister.getClass().getName());
+      jsonWriter.name(JSONNAMES[12]).value(config.recordPersister.getClass().getName());
       // Diffs.
-      jsonWriter.name(JSONNAMES[12]).value(config.storeDiffs);
+      jsonWriter.name(JSONNAMES[13]).value(config.storeDiffs);
       // Custom commit timestamps.
-      jsonWriter.name(JSONNAMES[13]).value(config.customCommitTimestamps);
+      jsonWriter.name(JSONNAMES[14]).value(config.customCommitTimestamps);
       // Node history.
-      jsonWriter.name(JSONNAMES[14]).value(config.storeNodeHistory);
+      jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
-      jsonWriter.name(JSONNAMES[15]).value(config.storeChildCount);
+      jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -505,26 +523,30 @@ public final class ResourceConfiguration {
       final FileReader fileReader = new FileReader(configFile.toFile());
       final JsonReader jsonReader = new JsonReader(fileReader);
       jsonReader.beginObject();
-      // Versioning.
+      // Binary encoding version.
       String name = jsonReader.nextName();
       assert name.equals(JSONNAMES[0]);
-      jsonReader.beginObject();
+      final BinaryEncodingVersion binaryEncodingVersion = BinaryEncodingVersion.valueOf(jsonReader.nextString());
+      // Versioning.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[1]);
-      final VersioningType revisioning = VersioningType.valueOf(jsonReader.nextString());
+      jsonReader.beginObject();
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[2]);
+      final VersioningType revisioning = VersioningType.valueOf(jsonReader.nextString());
+      name = jsonReader.nextName();
+      assert name.equals(JSONNAMES[3]);
       final int revisionToRestore = jsonReader.nextInt();
       jsonReader.endObject();
       // ByteHandlers.
       final List<ByteHandler> handlerList = new ArrayList<>();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[3]);
+      assert name.equals(JSONNAMES[4]);
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
-        @SuppressWarnings(
-            "unchecked") final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        @SuppressWarnings("unchecked") final Class<ByteHandler> clazzName =
+            (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
       }
@@ -532,47 +554,47 @@ public final class ResourceConfiguration {
       final ByteHandlerPipeline pipeline = new ByteHandlerPipeline(handlerList.toArray(new ByteHandler[0]));
       // Storage type.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[4]);
+      assert name.equals(JSONNAMES[5]);
       final StorageType storage = StorageType.valueOf(jsonReader.nextString());
       // Hashing type.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[5]);
+      assert name.equals(JSONNAMES[6]);
       final HashType hashing = HashType.valueOf(jsonReader.nextString());
       // Hashing function.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[6]);
+      assert name.equals(JSONNAMES[7]);
       jsonReader.nextString();
       // Text compression.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[7]);
+      assert name.equals(JSONNAMES[8]);
       final boolean compression = jsonReader.nextBoolean();
       // Path summary.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[8]);
+      assert name.equals(JSONNAMES[9]);
       final boolean pathSummary = jsonReader.nextBoolean();
       // Unique ID.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[9]);
+      assert name.equals(JSONNAMES[10]);
       final int ID = jsonReader.nextInt();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[10]);
+      assert name.equals(JSONNAMES[11]);
       final boolean deweyIDsStored = jsonReader.nextBoolean();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[11]);
+      assert name.equals(JSONNAMES[12]);
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
       final RecordSerializer serializer = (RecordSerializer) persistenterConstr.newInstance();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[12]);
+      assert name.equals(JSONNAMES[13]);
       final boolean storeDiffs = jsonReader.nextBoolean();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[13]);
+      assert name.equals(JSONNAMES[14]);
       final boolean customCommitTimestamps = jsonReader.nextBoolean();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[14]);
+      assert name.equals(JSONNAMES[15]);
       final boolean storeNodeHistory = jsonReader.nextBoolean();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[15]);
+      assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
       jsonReader.endObject();
@@ -584,7 +606,8 @@ public final class ResourceConfiguration {
 
       // Builder.
       final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(file.getFileName().toString());
-      builder.byteHandlerPipeline(pipeline)
+      builder.binaryEncodingVersion(binaryEncodingVersion)
+             .byteHandlerPipeline(pipeline)
              .hashKind(hashing)
              .versioningApproach(revisioning)
              .maxNumberOfRevisionsToRestore(revisionToRestore)
@@ -649,7 +672,7 @@ public final class ResourceConfiguration {
     private RecordSerializer persistenter = NODE_SERIALIZER;
 
     /**
-     w* Resource for this session.
+     * Resource for this session.
      */
     private final String resource;
 
@@ -687,6 +710,8 @@ public final class ResourceConfiguration {
      * Determines if node history should be stored or not.
      */
     private boolean storeNodeHistory;
+
+    private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -844,9 +869,21 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Set the binary encoding version number.
+     *
+     * @param binaryEncodingVersion the binary encoding version number
+     * @return reference to the builder object
+     */
+    public Builder binaryEncodingVersion(BinaryEncodingVersion binaryEncodingVersion) {
+      this.binaryEncodingVersion = requireNonNull(binaryEncodingVersion);
+      return this;
+    }
+
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
+                        .add("binaryEncodingVersion", binaryEncodingVersion)
                         .add("Type", type)
                         .add("RevisionKind", revisionKind)
                         .add("HashKind", hashType)
