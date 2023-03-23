@@ -182,7 +182,7 @@ return [$join]
 SirixDB through Brackit also supports array slices. Start index is 0, step is 1 and end index is 1 (exclusive) in the next query:
 
 ```xquery
-let $array := [{"foo": 0}, "bar", {"baz": true()}]
+let $array := [{"foo": 0}, "bar", {"baz": true}]
 return $array[[0:1:1]]
 ```
 
