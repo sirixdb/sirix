@@ -30,12 +30,12 @@ public final class SirixFiles {
    * @throws NullPointerException if any of the arguments are {@code null}
    */
   public static void recursiveRemove(final Path path) {
-    try {
-      if (Files.exists(path)) {
-        Files.walk(path).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+    if (Files.exists(path)) {
+      try (var stream = Files.walk(path)) {
+        stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
       }
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
     }
   }
 
