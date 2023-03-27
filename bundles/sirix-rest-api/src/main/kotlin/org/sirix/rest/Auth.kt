@@ -32,7 +32,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
             )
         }
 
-        val user = keycloak.authenticate(tokenToAuthenticate).await()
+        val user = keycloak.authenticate { tokenToAuthenticate }.await()
         val database = ctx.pathParam("database")
 
         authz.getAuthorizations(user).await()

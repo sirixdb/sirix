@@ -2,7 +2,7 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Promise
-import io.vertx.core.file.impl.FileResolver
+import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -77,7 +77,7 @@ class JsonCreate(
 
             database.use {
                 BodyHandler.create().handle(ctx)
-                val fileResolver = FileResolver()
+                val fileResolver = FileResolverImpl()
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                 ctx.fileUploads().forEach { fileUpload ->
                     val fileName = fileUpload.fileName()

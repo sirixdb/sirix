@@ -3,7 +3,7 @@ package org.sirix.rest.crud.xml
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.file.OpenOptions
-import io.vertx.core.file.impl.FileResolver
+import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
@@ -70,7 +70,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
             database.use {
                 BodyHandler.create().handle(ctx)
-                val fileResolver = FileResolver()
+                val fileResolver = FileResolverImpl()
                 ctx.fileUploads().forEach { fileUpload ->
                     val fileName = fileUpload.fileName()
                     val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
@@ -116,7 +116,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         ctx: RoutingContext
     ) {
         ctx.request().pause()
-        val fileResolver = FileResolver()
+        val fileResolver = FileResolverImpl()
 
         val filePath = withContext(Dispatchers.IO) {
             fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())

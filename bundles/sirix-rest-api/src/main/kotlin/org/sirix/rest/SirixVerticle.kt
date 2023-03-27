@@ -1,6 +1,7 @@
 package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.Handler
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
@@ -8,10 +9,11 @@ import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
+import io.vertx.ext.auth.impl.UserConverter
 import io.vertx.ext.auth.oauth2.OAuth2Auth
+import io.vertx.ext.auth.oauth2.OAuth2AuthorizationURL
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.auth.oauth2.authorization.KeycloakAuthorization
-import io.vertx.ext.auth.oauth2.impl.AccessTokenImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -81,7 +83,7 @@ class SirixVerticle : CoroutineVerticle() {
         val oauth2Config = oAuth2OptionsOf()
             .setFlow(OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD")))
             .setSite(config.getString("keycloak.url"))
-            .setClientID("sirix")
+            .setClientId("sirix")
             .setClientSecret(config.getString("client.secret"))
             .setTokenPath(config.getString("token.path"))
             .setAuthorizationPath(config.getString("auth.path"))
@@ -111,7 +113,7 @@ class SirixVerticle : CoroutineVerticle() {
         allowedMethods.add(HttpMethod.PUT)
 
         this.route().handler(
-            CorsHandler.create(
+            CorsHandler.create().addRelativeOrigin(
                 config.getString(
                     "cors.allowedOriginPattern",
                     "*"
@@ -130,10 +132,11 @@ class SirixVerticle : CoroutineVerticle() {
                 val state = rc.queryParam("state").getOrElse(0) { UUID.randomUUID().toString() }
 
                 val authorizationUri = keycloak.authorizeURL(
-                    JsonObject()
-                        .put("redirect_uri", redirectUri)
-                        .put("state", state)
+                    OAuth2AuthorizationURL()
+                        .setRedirectUri(redirectUri)
+                        .setState(state)
                 )
+
                 rc.response().putHeader("Location", authorizationUri)
                     .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
                     .end()
@@ -144,9 +147,9 @@ class SirixVerticle : CoroutineVerticle() {
             try {
                 val dataToAuthenticate: JsonObject =
                     when (rc.request().getHeader(HttpHeaders.CONTENT_TYPE)) {
-                        "application/json" -> rc.bodyAsJson
+                        "application/json" -> rc.body().asJsonObject()
                         "application/x-www-form-urlencoded" -> formToJson(rc)
-                        else -> rc.bodyAsJson
+                        else -> rc.body().asJsonObject()
                     }
 
                 when {
@@ -171,9 +174,13 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val token = AccessTokenImpl(rc.bodyAsJson, keycloak)
-            token.logout().await()
-            rc.response().end()
+            val user = UserConverter.decode(rc.body().asJsonObject())
+            
+            keycloak.revoke(user, "access-token").onSuccess {
+                keycloak.revoke(user, "refresh-token").onSuccess {
+                    rc.response().end()
+                }
+            }
         }
 
         // "/"
@@ -363,7 +370,7 @@ class SirixVerticle : CoroutineVerticle() {
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
-        val user = keycloak.authenticate(dataToAuthenticate).await()
+        val user = keycloak.authenticate{ dataToAuthenticate }.await()
         rc.response().end(user.principal().toString())
     }
 
@@ -372,9 +379,12 @@ class SirixVerticle : CoroutineVerticle() {
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
-        val token = AccessTokenImpl(dataToAuthenticate, keycloak)
-        token.refresh().await()
-        rc.response().end(token.principal().toString())
+        val user = UserConverter.decode(dataToAuthenticate)
+        keycloak.refresh(user, Handler {
+            if (it.succeeded()) {
+                rc.response().end(it.result().principal().toString())
+            }
+        })
     }
 
     private fun formToJson(rc: RoutingContext): JsonObject {
