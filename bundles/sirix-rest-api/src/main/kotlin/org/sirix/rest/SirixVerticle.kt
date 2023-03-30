@@ -1,7 +1,6 @@
 package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
-import io.vertx.core.Handler
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
@@ -16,18 +15,18 @@ import io.vertx.ext.auth.oauth2.OAuth2AuthorizationURL
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.auth.oauth2.Oauth2Credentials
 import io.vertx.ext.auth.oauth2.authorization.KeycloakAuthorization
+import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.CorsHandler
+import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
-import io.vertx.ext.auth.oauth2.providers.KeycloakAuth
-import io.vertx.ext.web.handler.HttpException
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.*
@@ -49,9 +48,6 @@ class SirixVerticle : CoroutineVerticle() {
 
     /** Storage for databases: Sirix data in home directory. */
     private val location = Paths.get(userHome, "sirix-data")
-
-    /** OAuth2 Flow Type. */
-    private val oAuth2FlowType = OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD"))
 
     override suspend fun start() {
         val router = createRouter()
@@ -85,6 +81,8 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
+        val oAuth2FlowType = OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD"))
+
         val oauth2Config = oAuth2OptionsOf()
             .setSite(config.getString("keycloak.url"))
             .setClientId("sirix")
@@ -176,7 +174,7 @@ class SirixVerticle : CoroutineVerticle() {
                         refreshToken(keycloak, json, rc)
                     }
 
-                    else -> getToken(keycloak, dataToAuthenticate, rc)
+                    else -> getToken(keycloak, dataToAuthenticate, rc, oAuth2FlowType)
                 }
             } catch (e: DecodeException) {
                 rc.fail(
@@ -383,7 +381,8 @@ class SirixVerticle : CoroutineVerticle() {
     private suspend fun getToken(
         keycloak: OAuth2Auth,
         dataToAuthenticate: JsonObject,
-        rc: RoutingContext
+        rc: RoutingContext,
+        oAuth2FlowType: OAuth2FlowType
     ) {
         val credentials = Oauth2Credentials(dataToAuthenticate)
             .setFlow(oAuth2FlowType)
@@ -391,17 +390,17 @@ class SirixVerticle : CoroutineVerticle() {
         rc.response().end(user.principal().toString())
     }
 
-    private suspend fun refreshToken(
+    private fun refreshToken(
         keycloak: OAuth2Auth,
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
         val user = UserConverter.decode(dataToAuthenticate)
-        keycloak.refresh(user, Handler {
+        keycloak.refresh(user) {
             if (it.succeeded()) {
                 rc.response().end(it.result().principal().toString())
             }
-        })
+        }
     }
 
     private fun formToJson(rc: RoutingContext): JsonObject {
