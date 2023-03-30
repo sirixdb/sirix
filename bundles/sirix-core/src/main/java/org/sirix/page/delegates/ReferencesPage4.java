@@ -26,13 +26,11 @@ import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.DeserializedReferencesPage4Tuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -142,14 +140,6 @@ public final class ReferencesPage4 implements Page {
     }
 
     return true;
-  }
-
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    assert out != null;
-    assert type != null;
-
-    type.serializeReferencesPage4(out, references, offsets);
   }
 
   @Override

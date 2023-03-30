@@ -25,6 +25,7 @@ import net.openhft.chronicle.bytes.Bytes;
 import org.sirix.XmlTestHelper;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageTrx;
+import org.sirix.api.ResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.page.PageReference;
@@ -80,7 +81,12 @@ public final class IOTestHelper {
     pageRef1.setPage(page1);
 
     // same instance check
+    final var session = mock(ResourceSession.class);
+    when(session.getResourceConfig()).thenReturn(resourceConf);
+
     final var pageReadOnlyTrx = mock(PageTrx.class);
+    when(pageReadOnlyTrx.getResourceSession()).thenReturn(session);
+
     verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();
     final Writer writer = fac.createWriter();
     writer.writeUberPageReference(pageReadOnlyTrx, pageRef1, bufferedBytes);

@@ -68,8 +68,4 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
     return delegate().setOrCreateReference(offset, pageReference);
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out, final SerializationType type) {
-    delegate().serialize(pageReadOnlyTrx, out, type);
-  }
 }
