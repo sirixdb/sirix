@@ -1,16 +1,18 @@
 package org.sirix.rest.crud
 
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.core.json.get
 import java.util.UUID
 
 class SirixDBUser {
     companion object {
         fun create(ctx: RoutingContext): org.sirix.access.User {
-            val user = ctx.get("user") as User
-            val principal = user.principal()
-            val userId = principal.getString("sub")
-            val userName = principal.getString("preferred_username")
+            val user = ctx.get<User>("user")
+            val accessToken = user.attributes().get<JsonObject>("accessToken")
+            val userId = accessToken.getString("sub")
+            val userName = accessToken.getString("preferred_username")
             val userUuid = UUID.fromString(userId)
             return org.sirix.access.User(userName, userUuid)
         }
