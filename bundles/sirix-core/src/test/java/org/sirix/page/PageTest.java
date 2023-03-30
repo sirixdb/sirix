@@ -65,11 +65,12 @@ public class PageTest {
   public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
       final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
-      handler.serialize(pageReadTrx, data, SerializationType.DATA);
+      PageKind.getKind(handler.getClass()).serializePage(pageReadTrx, data, handler, SerializationType.DATA);
+      //handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
       final Page serializedPage =
           PageKind.getKind(handler.getClass()).deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
-      serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
+      //serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
     }

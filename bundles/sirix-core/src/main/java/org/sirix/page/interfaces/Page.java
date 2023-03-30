@@ -41,17 +41,17 @@ import java.util.List;
  */
 public interface Page extends Closeable {
 
-  /**
-   * Serialize a page
-   *
-   * @param out  {@link DataOutput} to serialize to
-   * @param type serialization type (currently transaction intent log or normal commit)
-   */
-  void serialize(PageReadOnlyTrx pageReadOnlyTrx, Bytes<ByteBuffer> out, SerializationType type);
+//  /**
+//   * Serialize a page
+//   *
+//   * @param out  {@link DataOutput} to serialize to
+//   * @param type serialization type (currently transaction intent log or normal commit)
+//   */
+//  void serialize(PageReadOnlyTrx pageReadOnlyTrx, Bytes<ByteBuffer> out, SerializationType type);
 
   default Page clearPage() {
     return this;
-  };
+  }
 
   /**
    * Get all page references.

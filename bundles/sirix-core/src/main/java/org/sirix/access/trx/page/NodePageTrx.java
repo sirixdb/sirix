@@ -348,8 +348,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       return;
     }
 
-    log.remove(reference);
-
     final var page = container.getModified();
 
     reference.setPage(page);
@@ -357,10 +355,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(this, reference, bufferBytes);
-
-    //    // Will only be used once the UberPage is written to durable storage.
-    //    reference.setLogKey(Constants.NULL_ID_INT);
-    //    bufferManager.getPageCache().put(reference, page);
 
     container.getComplete().clearPage();
     page.clearPage();
@@ -383,30 +377,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       createIfAbsent(commitFile);
 
       final PageReference uberPageReference = new PageReference();
-      final UberPage uberPage = getUberPage();
+      final UberPage uberPage = pageRtx.getUberPage();
       uberPageReference.setPage(uberPage);
-      final int revision = uberPage.getRevisionNumber();
 
       setUserIfPresent();
+      setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
 
-      if (commitMessage != null) {
-        newRevisionRootPage.setCommitMessage(commitMessage);
-      }
-
-      if (commitTimestamp != null) {
-        newRevisionRootPage.setCommitTimestamp(commitTimestamp);
-      }
-
-      log.getMap()
-         .long2ObjectEntrySet()
-         .parallelStream()
-         .map(Map.Entry::getValue)
-         .map(PageContainer::getModified)
-         .filter(page -> page instanceof KeyValueLeafPage)
-         .forEach(page -> {
-           final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
-           page.serialize(this, bytes, SerializationType.DATA);
-         });
+      parallelSerializationOfKeyValuePages();
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);
@@ -415,19 +392,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       storagePageReaderWriter.writeUberPageReference(this, uberPageReference, bufferBytes);
       uberPageReference.setPage(null);
 
-      if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
-        final Path indexes = pageRtx.getResourceSession()
-                                    .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                     .resolve(revision + ".xml");
+      final int revision = uberPage.getRevisionNumber();
+      serializeIndexDefinitions(revision);
 
-        try (final OutputStream out = newOutputStream(indexes, CREATE)) {
-          indexController.serialize(out);
-        } catch (final IOException e) {
-          throw new SirixIOException("Index definitions couldn't be serialized!", e);
-        }
-      }
-
-      log.truncate();
+      log.clear();
       pageContainerCache.clear();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
@@ -441,6 +409,42 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     }
 
     return readUberPage();
+  }
+
+  private void setCommitMessageAndTimestampIfRequired(@org.jetbrains.annotations.Nullable String commitMessage,
+      @Nullable Instant commitTimestamp) {
+    if (commitMessage != null) {
+      newRevisionRootPage.setCommitMessage(commitMessage);
+    }
+
+    if (commitTimestamp != null) {
+      newRevisionRootPage.setCommitTimestamp(commitTimestamp);
+    }
+  }
+
+  private void serializeIndexDefinitions(int revision) {
+    if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
+      final Path indexes = pageRtx.getResourceSession()
+                                  .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                                   .resolve(revision + ".xml");
+
+      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+        indexController.serialize(out);
+      } catch (final IOException e) {
+        throw new SirixIOException("Index definitions couldn't be serialized!", e);
+      }
+    }
+  }
+
+  private void parallelSerializationOfKeyValuePages() {
+    log.getList()
+       .parallelStream()
+       .map(PageContainer::getModified)
+       .filter(page -> page instanceof KeyValueLeafPage)
+       .forEach(page -> {
+         final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
+         PageKind.KEYVALUELEAFPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+       });
   }
 
   private UberPage readUberPage() {
@@ -459,13 +463,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   private void setUserIfPresent() {
     final Optional<User> optionalUser = pageRtx.resourceSession.getUser();
-    optionalUser.ifPresent(user -> getActualRevisionRootPage().setUser(user));
+    optionalUser.ifPresent(newRevisionRootPage::setUser);
   }
 
   @Override
   public UberPage rollback() {
     pageRtx.assertNotClosed();
-    log.truncate();
+    log.clear();
     return readUberPage();
   }
 

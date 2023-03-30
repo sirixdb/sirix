@@ -1,22 +1,29 @@
 /*
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ * Copyright (c) 2023, Sirix Contributors
  *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
+ * All rights reserved.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.page;
@@ -26,7 +33,6 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadOnlyTrx;
@@ -41,8 +47,6 @@ import org.sirix.page.delegates.BitmapReferencesPage;
 import org.sirix.page.delegates.ReferencesPage4;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-
-import java.nio.ByteBuffer;
 
 /**
  * The name page holds all names and their keys for a revision. Furthermore it has references to name indexes.
@@ -109,6 +113,7 @@ public final class NamePage extends AbstractForwardingPage {
    */
   private final int numberOfArrays;
 
+
   /**
    * Maximum node keys.
    */
@@ -133,26 +138,20 @@ public final class NamePage extends AbstractForwardingPage {
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
     numberOfArrays = 0;
   }
-
   /**
-   * Read name page.
+   * Constructor when is deserialized data
    *
-   * @param in input bytes to read from
+   * @param delegate The references page delegate instance.
+   * @param maxNodeKeys Maximum node keys.
+   * @param currentMaxLevelsOfIndirectPages Current maximum levels of indirect pages in the tree.
+   * @param numberOfArrays The number of arrays stored.
    */
-  NamePage(final Bytes<?> in, final SerializationType type) {
-    delegate = PageUtils.createDelegate(in, type);
-    final int size = in.readInt();
-    maxNodeKeys = new Int2LongOpenHashMap((int) Math.ceil(size / 0.75));
-    for (int i = 0; i < size; i++) {
-      maxNodeKeys.put(i, in.readLong());
-    }
-
-    numberOfArrays = in.readInt();
-    final int currentMaxLevelOfIndirectPages = in.readInt();
-    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap((int) Math.ceil(currentMaxLevelOfIndirectPages / 0.75));
-    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      currentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
-    }
+  NamePage(final Page delegate, final Int2LongMap maxNodeKeys,
+           final Int2IntMap currentMaxLevelsOfIndirectPages, final int numberOfArrays){
+    this.delegate = delegate;
+    this.maxNodeKeys = maxNodeKeys;
+    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+    this.numberOfArrays = numberOfArrays;
   }
 
   /**
@@ -351,27 +350,12 @@ public final class NamePage extends AbstractForwardingPage {
     }
   }
 
-  @Override
-  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-      final SerializationType type) {
-    if (delegate instanceof ReferencesPage4) {
-      out.writeByte((byte) 0);
-    } else if (delegate instanceof BitmapReferencesPage) {
-      out.writeByte((byte) 1);
-    }
-    super.serialize(pageReadOnlyTrx, out, type);
-    final int size = maxNodeKeys.size();
-    out.writeInt(size);
-    for (int i = 0; i < size; i++) {
-      final long keys = maxNodeKeys.get(i);
-      out.writeLong(keys);
-    }
-    out.writeInt(numberOfArrays);
-    final int currentMaxLevelOfIndirectPages = maxNodeKeys.size();
-    out.writeInt(currentMaxLevelOfIndirectPages);
-    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
-      out.writeByte((byte) currentMaxLevelsOfIndirectPages.get(i));
-    }
+  /**
+   * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
+   * @return int Size of CurrentMaxLevelOfIndirectPage
+   */
+  public int getCurrentMaxLevelOfIndirectPagesSize(){
+    return currentMaxLevelsOfIndirectPages.size();
   }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
@@ -470,6 +454,9 @@ public final class NamePage extends AbstractForwardingPage {
   public PageReference getIndirectPageReference(final int offset) {
     return getOrCreateReference(offset);
   }
+  public int getNumberOfArrays() {
+    return numberOfArrays;
+  }
 
   /**
    * Get the maximum node key of the specified index by its index number.
@@ -479,6 +466,14 @@ public final class NamePage extends AbstractForwardingPage {
    */
   public long getMaxNodeKey(final int indexNumber) {
     return maxNodeKeys.get(indexNumber);
+  }
+
+  /**
+   * Get the size of MaxNodeKey to Serialize
+   * @return int Size of MaxNodeKey
+   */
+  public int getMaxNodeKeySize(){
+    return maxNodeKeys.size();
   }
 
   public long incrementAndGetMaxNodeKey(final int indexNumber) {
