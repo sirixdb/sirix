@@ -4,12 +4,9 @@ import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.file.OpenOptions
 import io.vertx.core.file.impl.FileResolverImpl
-import io.vertx.ext.web.Route
-import io.vertx.core.file.impl.FileResolver
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
@@ -30,10 +27,11 @@ import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
+
 class XmlCreate(
-        private val location: Path,
-        private val createMultipleResources: Boolean = false
-): AbstractCreateHandler<XmlResourceSession>(location, createMultipleResources) {
+    location: Path,
+    createMultipleResources: Boolean = false
+) : AbstractCreateHandler<XmlResourceSession>(location, createMultipleResources) {
     override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
@@ -91,13 +89,13 @@ class XmlCreate(
 
     override fun serializeResource(
         manager: XmlResourceSession,
-        routingCtx: RoutingContext
+        routingContext: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-        return XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
+        return XmlSerializeHelper().serializeXml(serializer, out, routingContext, manager, null)
     }
 
     override suspend fun createDatabaseIfNotExists(
@@ -113,9 +111,10 @@ class XmlCreate(
             promise.complete(dbConfig)
         }.await()
     }
+
     override fun insertResourceSubtreeAsFirstChild(
         manager: XmlResourceSession,
-        resFileToStore: Path,
+        filePath: Path,
         ctx: RoutingContext
     ): Long {
         val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
@@ -128,7 +127,7 @@ class XmlCreate(
 
         val wtx = manager.beginNodeTrx()
         return wtx.use {
-            val inputStream = FileInputStream(resFileToStore.toFile())
+            val inputStream = FileInputStream(filePath.toFile())
             return@use inputStream.use {
                 val eventStream = XmlShredder.createFileReader(inputStream)
                 wtx.insertSubtreeAsFirstChild(eventStream, XmlNodeTrx.Commit.No)

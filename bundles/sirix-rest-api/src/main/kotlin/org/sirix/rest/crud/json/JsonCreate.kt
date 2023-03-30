@@ -2,16 +2,16 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Promise
-import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.core.parsetools.JsonParser
-import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.sirix.access.*
+import org.sirix.access.DatabaseConfiguration
+import org.sirix.access.Databases
+import org.sirix.access.ResourceConfiguration
+import org.sirix.access.User
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceSession
@@ -21,20 +21,15 @@ import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
-import org.sirix.utils.LogWrapper
-import org.slf4j.LoggerFactory
 import java.io.StringWriter
-import java.nio.file.Files
 import java.nio.file.Path
 
 private const val MAX_NODES_TO_SERIALIZE = 5000
 
-private val logger = LogWrapper(LoggerFactory.getLogger(DatabasesInternals::class.java))
-
 class JsonCreate(
-    private val location: Path,
-    private val createMultipleResources: Boolean = false
-): AbstractCreateHandler<JsonResourceSession>(location, createMultipleResources) {
+    location: Path,
+    createMultipleResources: Boolean = false
+) : AbstractCreateHandler<JsonResourceSession>(location, createMultipleResources) {
     override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
@@ -81,7 +76,7 @@ class JsonCreate(
 
     override fun serializeResource(
         manager: JsonResourceSession,
-        routingCtx: RoutingContext
+        routingContext: RoutingContext
     ): String {
         val out = StringWriter()
         val serializerBuilder = JsonSerializer.newBuilder(manager, out)
@@ -90,7 +85,7 @@ class JsonCreate(
         return JsonSerializeHelper().serialize(
             serializer,
             out,
-            routingCtx,
+            routingContext,
             manager,
             intArrayOf(1),
             null
@@ -137,12 +132,12 @@ class JsonCreate(
 
     override fun insertResourceSubtreeAsFirstChild(
         manager: JsonResourceSession,
-        resFileToStore: Path,
+        filePath: Path,
         ctx: RoutingContext
     ): Long {
         val wtx = manager.beginNodeTrx()
         return wtx.use {
-            val eventReader = JsonShredder.createFileReader(resFileToStore)
+            val eventReader = JsonShredder.createFileReader(filePath)
             eventReader.use {
                 wtx.insertSubtreeAsFirstChild(eventReader)
             }
