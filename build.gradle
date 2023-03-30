@@ -110,7 +110,8 @@ subprojects {
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
                                  "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
-                                 "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
+                                 "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED",
+                                 "-Dio.vertx.web.router.setup.lenient=\"true\""]
     }
 
     compileTestJava {
@@ -260,7 +261,7 @@ subprojects {
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
-                 "-XX:EliminateAllocationArraySizeLimit=1024",
+                 "-XX:EliminateAllocationArraySizeLimit=1024"
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
