@@ -2,7 +2,7 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Promise
-import io.vertx.core.file.impl.FileResolver
+import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -40,19 +40,6 @@ class JsonCreate(
         ctx: RoutingContext
     ) {
         ctx.request().pause()
-//        val fileResolver = FileResolver()
-//
-//        val filePath = withContext(Dispatchers.IO) {
-//            fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
-//        }
-//
-//        val file = ctx.vertx().fileSystem().open(
-//            filePath.toString(),
-//            OpenOptions()
-//        ).await()
-//
-//        ctx.request().resume()
-//        ctx.request().pipeTo(file).await()
 
         withContext(Dispatchers.IO) {
             var body: String? = null

@@ -32,7 +32,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
-        val jsonBody = ctx.bodyAsJson
+        val jsonBody = ctx.body().asJsonObject()
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
         }

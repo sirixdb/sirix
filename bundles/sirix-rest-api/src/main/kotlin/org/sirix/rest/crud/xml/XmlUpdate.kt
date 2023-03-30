@@ -75,7 +75,7 @@ class XmlUpdate(private val location: Path) {
             throw IllegalArgumentException("Database name and resource name not given.")
         }
 
-        val body = ctx.bodyAsString
+        val body = ctx.body().asString()
 
         update(databaseName, resource, nodeId?.toLongOrNull(), insertionMode, body, ctx)
 
