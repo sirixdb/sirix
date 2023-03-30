@@ -3,6 +3,8 @@ package org.sirix.rest.crud.xml
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.file.OpenOptions
+import io.vertx.core.file.impl.FileResolverImpl
+import io.vertx.ext.web.Route
 import io.vertx.core.file.impl.FileResolver
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
@@ -28,20 +30,17 @@ import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
-
 class XmlCreate(
         private val location: Path,
         private val createMultipleResources: Boolean = false
 ): AbstractCreateHandler<XmlResourceSession>(location, createMultipleResources) {
-
-
     override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
         val dispatcher = ctx.vertx().dispatcher()
         ctx.request().pause()
-        val fileResolver = FileResolver()
+        val fileResolver = FileResolverImpl()
 
         val filePath = withContext(Dispatchers.IO) {
             fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())

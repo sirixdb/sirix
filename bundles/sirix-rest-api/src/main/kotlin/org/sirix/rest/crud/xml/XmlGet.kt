@@ -36,7 +36,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         val context = ctx.vertx().orCreateContext
         val databaseName: String = ctx.pathParam("database")
         val resource: String = ctx.pathParam("resource")
-        val jsonBody = ctx.bodyAsJson
+        val jsonBody = ctx.body().asJsonObject()
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
         }
