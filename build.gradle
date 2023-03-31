@@ -260,7 +260,7 @@ subprojects {
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
-                 "-XX:EliminateAllocationArraySizeLimit=1024",
+                 "-XX:EliminateAllocationArraySizeLimit=1024"
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
