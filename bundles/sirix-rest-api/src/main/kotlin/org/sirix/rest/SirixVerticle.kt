@@ -10,6 +10,7 @@ import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.JWTOptions
 import io.vertx.ext.auth.impl.UserConverter
+import io.vertx.ext.auth.impl.UserImpl
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.auth.oauth2.OAuth2AuthorizationURL
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
@@ -395,7 +396,7 @@ class SirixVerticle : CoroutineVerticle() {
         dataToAuthenticate: JsonObject,
         rc: RoutingContext
     ) {
-        val user = UserConverter.decode(dataToAuthenticate)
+        val user = UserImpl(dataToAuthenticate, JsonObject())
         keycloak.refresh(user) {
             if (it.succeeded()) {
                 rc.response().end(it.result().principal().toString())
