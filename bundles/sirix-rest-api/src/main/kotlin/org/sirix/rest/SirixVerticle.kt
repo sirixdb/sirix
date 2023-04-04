@@ -82,6 +82,9 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
+        // BodyHandler.create() added for all POST request
+        this.post().handler(BodyHandler.create())
+
         val oAuth2FlowType = OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD"))
 
         val oauth2Config = oAuth2OptionsOf()
@@ -158,7 +161,7 @@ class SirixVerticle : CoroutineVerticle() {
             }
         }
 
-        post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
+        post("/token").coroutineHandler { rc ->
             try {
                 val dataToAuthenticate: JsonObject =
                     when (rc.request().getHeader(HttpHeaders.CONTENT_TYPE)) {
@@ -188,7 +191,7 @@ class SirixVerticle : CoroutineVerticle() {
             }
         }
 
-        post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
+        post("/logout").coroutineHandler { rc ->
             val user = UserConverter.decode(rc.body().asJsonObject())
             keycloak.revoke(user, "access-token").onSuccess {
                 keycloak.revoke(user, "refresh-token").onSuccess {
@@ -201,7 +204,7 @@ class SirixVerticle : CoroutineVerticle() {
         post("/").coroutineHandler {
             Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
+        }.coroutineHandler {
             GetHandler(location, keycloak, authz).handle(it)
         }
 
@@ -223,7 +226,7 @@ class SirixVerticle : CoroutineVerticle() {
         post("/:database").consumes("multipart/form-data").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
+        }.coroutineHandler {
             CreateMultipleResources(location).handle(it)
         }
 
@@ -237,7 +240,7 @@ class SirixVerticle : CoroutineVerticle() {
         put("/:database").consumes("application/xml").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
+        }.coroutineHandler {
             XmlCreate(location, false).handle(it)
         }
         put("/:database").consumes("application/json").coroutineHandler {
@@ -275,7 +278,7 @@ class SirixVerticle : CoroutineVerticle() {
             .coroutineHandler {
                 Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            }.coroutineHandler {
                 XmlUpdate(location).handle(it)
             }
         post("/:database/:resource")
@@ -284,7 +287,7 @@ class SirixVerticle : CoroutineVerticle() {
             .coroutineHandler {
                 Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            }.coroutineHandler {
                 JsonUpdate(location).handle(it)
             }
 
@@ -292,7 +295,7 @@ class SirixVerticle : CoroutineVerticle() {
             .coroutineHandler {
                 Auth(keycloak, authz, AuthRole.VIEW).handle(it)
                 it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            }.coroutineHandler {
                 GetHandler(location, keycloak, authz).handle(it)
             }
 
