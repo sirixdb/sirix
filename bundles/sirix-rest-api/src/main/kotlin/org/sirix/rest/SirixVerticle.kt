@@ -41,7 +41,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
-import java.util.*
+import java.util.UUID
 
 class SirixVerticle : CoroutineVerticle() {
     /** User home directory. */
@@ -198,12 +198,14 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         // "/"
-        post("/").coroutineHandler {
-            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            GetHandler(location, keycloak, authz).handle(it)
-        }
+        post("/")
+            .handler(BodyHandler.create())
+            .coroutineHandler {
+                Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+                it.next()
+            }.coroutineHandler {
+                GetHandler(location, keycloak, authz).handle(it)
+            }
 
         get("/").coroutineHandler {
             Auth(keycloak, authz, AuthRole.VIEW).handle(it)
@@ -220,12 +222,15 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         // "/:database"
-        post("/:database").consumes("multipart/form-data").coroutineHandler {
-            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            CreateMultipleResources(location).handle(it)
-        }
+        post("/:database")
+            .consumes("multipart/form-data")
+            .handler(BodyHandler.create())
+            .coroutineHandler {
+                Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+                it.next()
+            }.coroutineHandler {
+                CreateMultipleResources(location).handle(it)
+            }
 
         get("/:database").coroutineHandler {
             Auth(keycloak, authz, AuthRole.VIEW).handle(it)
@@ -234,12 +239,15 @@ class SirixVerticle : CoroutineVerticle() {
             GetHandler(location, keycloak, authz).handle(it)
         }
 
-        put("/:database").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            XmlCreate(location, false).handle(it)
-        }
+        put("/:database")
+            .consumes("application/xml")
+            .handler(BodyHandler.create())
+            .coroutineHandler {
+                Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+                it.next()
+            }.coroutineHandler {
+                XmlCreate(location, false).handle(it)
+            }
         put("/:database").consumes("application/json").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
@@ -272,27 +280,30 @@ class SirixVerticle : CoroutineVerticle() {
         post("/:database/:resource")
             .consumes("application/xml")
             .produces("application/xml")
+            .handler(BodyHandler.create())
             .coroutineHandler {
                 Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            }.coroutineHandler {
                 XmlUpdate(location).handle(it)
             }
         post("/:database/:resource")
             .consumes("application/json")
             .produces("application/json")
+            .handler(BodyHandler.create())
             .coroutineHandler {
                 Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            }.coroutineHandler {
                 JsonUpdate(location).handle(it)
             }
 
         post("/:database/:resource")
+            .handler(BodyHandler.create())
             .coroutineHandler {
                 Auth(keycloak, authz, AuthRole.VIEW).handle(it)
                 it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            }.coroutineHandler {
                 GetHandler(location, keycloak, authz).handle(it)
             }
 
