@@ -70,7 +70,6 @@ compileTestKotlin {
 
 test {
     jvmArgs "-Duser.home=${buildDir}"
-    systemProperty "io.vertx.web.router.setup.lenient", "true"
 }
 
 task copyCertificates(type: Copy) {
