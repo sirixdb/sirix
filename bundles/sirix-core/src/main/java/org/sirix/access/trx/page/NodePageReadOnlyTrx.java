@@ -139,8 +139,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
 
-  private final IndexLogKey indexLogKey = new IndexLogKey(IndexType.CAS, 0, -1, -1);
-
   /**
    * Standard constructor.
    *
@@ -259,7 +257,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final long recordPageKey = pageKey(recordKey, indexType);
 
-    indexLogKey.setIndexType(indexType).setRecordPageKey(recordPageKey).setIndexNumber(index).setRevisionNumber(revisionNumber);
+    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
 
     // $CASES-OMITTED$
     final Page page = switch (indexType) {
