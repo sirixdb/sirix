@@ -21,6 +21,7 @@
 
 package org.sirix.cache;
 
+import com.github.benmanes.caffeine.cache.Scheduler;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
@@ -37,6 +38,8 @@ import java.util.Map;
  * @param <V> the value
  */
 public interface Cache<K, V> {
+  Scheduler scheduler = Scheduler.systemScheduler();
+
   /**
    * Clearing the cache. That is removing all elements.
    */

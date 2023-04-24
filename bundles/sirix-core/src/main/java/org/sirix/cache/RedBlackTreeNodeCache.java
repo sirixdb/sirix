@@ -28,7 +28,7 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, 
           }
         };
 
-    cache = Caffeine.newBuilder().maximumSize(maxSize).removalListener(removalListener).build();
+    cache = Caffeine.newBuilder().maximumSize(maxSize).removalListener(removalListener).scheduler(scheduler).build();
   }
 
   @Override

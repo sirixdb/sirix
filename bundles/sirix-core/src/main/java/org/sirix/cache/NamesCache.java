@@ -6,13 +6,15 @@ import org.sirix.index.name.Names;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class NamesCache implements Cache<NamesCacheKey, Names> {
+public final class NamesCache implements Cache<NamesCacheKey, Names> {
 
   private final com.github.benmanes.caffeine.cache.Cache<NamesCacheKey, Names> cache;
 
   public NamesCache(final int maxSize) {
     cache = Caffeine.newBuilder()
                     .maximumSize(maxSize)
+                    .expireAfterAccess(5, TimeUnit.MINUTES)
+                    .scheduler(scheduler)
                     .build();
   }
 
