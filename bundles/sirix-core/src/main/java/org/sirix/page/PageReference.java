@@ -41,7 +41,7 @@ import java.util.Objects;
 public final class PageReference {
 
   /** In-memory deserialized page instance. */
-  private Page page;
+  private volatile Page page;
 
   /** Key in persistent storage. */
   private long key = Constants.NULL_ID_LONG;

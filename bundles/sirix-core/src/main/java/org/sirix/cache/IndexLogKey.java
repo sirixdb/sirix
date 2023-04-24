@@ -9,10 +9,10 @@ import org.sirix.index.IndexType;
  * @author Johannes Lichtenberger
  */
 public final class IndexLogKey {
-  private final IndexType indexType;
-  private final long recordPageKey;
-  private final @NonNegative int indexNumber;
-  private final @NonNegative int revisionNumber;
+  private IndexType indexType;
+  private long recordPageKey;
+  private @NonNegative int indexNumber;
+  private @NonNegative int revisionNumber;
 
   public IndexLogKey(IndexType indexType, long recordPageKey, @NonNegative int indexNumber,
       @NonNegative int revisionNumber) {
@@ -20,6 +20,26 @@ public final class IndexLogKey {
     this.recordPageKey = recordPageKey;
     this.indexNumber = indexNumber;
     this.revisionNumber = revisionNumber;
+  }
+
+  public IndexLogKey setIndexType(IndexType indexType) {
+    this.indexType = indexType;
+    return this;
+  }
+
+  public IndexLogKey setRecordPageKey(long recordPageKey) {
+    this.recordPageKey = recordPageKey;
+    return this;
+  }
+
+  public IndexLogKey setIndexNumber(int indexNumber) {
+    this.indexNumber = indexNumber;
+    return this;
+  }
+
+  public IndexLogKey setRevisionNumber(int revisionNumber) {
+    this.revisionNumber = revisionNumber;
+    return this;
   }
 
   private int hash;
@@ -45,22 +65,6 @@ public final class IndexLogKey {
   }
 
   public int getRevisionNumber() {
-    return revisionNumber;
-  }
-
-  public IndexType indexType() {
-    return indexType;
-  }
-
-  public long recordPageKey() {
-    return recordPageKey;
-  }
-
-  public @NonNegative int indexNumber() {
-    return indexNumber;
-  }
-
-  public @NonNegative int revisionNumber() {
     return revisionNumber;
   }
 

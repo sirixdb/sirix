@@ -15,15 +15,18 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
 
   public RecordPageCache(final int maxSize) {
-    final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
-      assert key != null;
-      key.setPage(null);
-    };
+    final RemovalListener<PageReference, Page> removalListener =
+        (PageReference key, Page value, RemovalCause cause) -> {
+          key.setPage(null);
+          //      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
+          //        keyValueLeafPage.clearPage();
+          //      }
+        };
 
     pageCache = Caffeine.newBuilder()
                         .maximumSize(maxSize)
-                        .expireAfterWrite(15, TimeUnit.SECONDS)
-                        .expireAfterAccess(15, TimeUnit.SECONDS)
+                        .expireAfterAccess(5, TimeUnit.MINUTES)
+                        .scheduler(scheduler)
                         .removalListener(removalListener)
                         .build();
   }

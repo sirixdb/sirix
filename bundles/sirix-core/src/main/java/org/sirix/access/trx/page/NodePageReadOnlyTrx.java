@@ -139,6 +139,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
 
+  private final IndexLogKey indexLogKey = new IndexLogKey(IndexType.CAS, 0, -1, -1);
+
   /**
    * Standard constructor.
    *
@@ -245,7 +247,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType,
       @NonNegative final int index) {
@@ -258,7 +259,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final long recordPageKey = pageKey(recordKey, indexType);
 
-    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
+    indexLogKey.setIndexType(indexType).setRecordPageKey(recordPageKey).setIndexNumber(index).setRevisionNumber(revisionNumber);
 
     // $CASES-OMITTED$
     final Page page = switch (indexType) {
@@ -571,7 +572,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  @SuppressWarnings("unchecked")
   List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
@@ -618,7 +618,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                           .collect(Collectors.toList());
   }
 
-  @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
     final var pageReference = new PageReference().setKey(pageFragmentKey.key());
     if (trxIntentLog == null) {
@@ -629,7 +628,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
     }
     final var pageReadOnlyTrx = resourceSession.beginPageReadOnlyTrx(pageFragmentKey.revision());
-    //noinspection unchecked
     return (CompletableFuture<KeyValuePage<DataRecord>>) pageReadOnlyTrx.getReader()
                                                                         .readAsync(pageReference, pageReadOnlyTrx)
                                                                         .whenComplete((page, exception) -> {

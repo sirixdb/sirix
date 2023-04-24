@@ -313,7 +313,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       if (node == null) {
         node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
       }
-      //noinspection unchecked
       return (V) pageRtx.checkItemIfDeleted(node);
     }
   }
