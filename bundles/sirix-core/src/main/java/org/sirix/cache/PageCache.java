@@ -7,17 +7,24 @@ import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
 
   public PageCache(final int maxSize) {
-    RemovalListener<PageReference, Page> removalListener =
-        (PageReference key, Page value, RemovalCause cause) -> key.setPage(null);
+    RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
+      key.setPage(null);
+      //      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
+      //        keyValueLeafPage.clearPage();
+      //      }
+    };
 
     pageCache = Caffeine.newBuilder()
                         .maximumSize(maxSize)
+                        .expireAfterAccess(5, TimeUnit.MINUTES)
+                        .scheduler(scheduler)
                         .removalListener(removalListener)
                         .build();
   }
@@ -58,5 +65,6 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 }

@@ -27,10 +27,11 @@
  */
 package org.sirix.cache;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
+import org.sirix.page.RevisionRootPage;
+
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import org.sirix.page.RevisionRootPage;
-import com.github.benmanes.caffeine.cache.Caffeine;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -42,8 +43,8 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   public RevisionRootPageCache(final int maxSize) {
     pageCache = Caffeine.newBuilder()
                         .maximumSize(maxSize)
-                        .expireAfterWrite(30, TimeUnit.SECONDS)
-                        .expireAfterAccess(30, TimeUnit.SECONDS)
+                        .expireAfterAccess(5, TimeUnit.MINUTES)
+                        .scheduler(scheduler)
                         .build();
   }
 
@@ -83,5 +84,6 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 }

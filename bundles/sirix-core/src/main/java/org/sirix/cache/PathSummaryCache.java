@@ -3,6 +3,7 @@ package org.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class PathSummaryCache implements Cache<Integer, PathSummaryData> {
 
@@ -11,6 +12,7 @@ public class PathSummaryCache implements Cache<Integer, PathSummaryData> {
   public PathSummaryCache(final int maxSize) {
     cache = Caffeine.newBuilder()
                     .maximumSize(maxSize)
+                    .expireAfterAccess(5, TimeUnit.MINUTES)
                     .build();
   }
 
