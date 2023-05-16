@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.file.FileSystems;
+import java.nio.file.Path;
 import java.time.Instant;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -46,7 +47,8 @@ public class AmazonS3StorageReader implements Reader {
 
 	private FileReader reader;
 	
-	public AmazonS3StorageReader(String bucketName, S3Client s3Client, 
+	public AmazonS3StorageReader(String bucketName, String keyName, 
+			S3Client s3Client, 
 			final RandomAccessFile dataFile, 
 			final RandomAccessFile revisionsOffsetFile,
 			final ByteHandler byteHandler, 
@@ -63,7 +65,12 @@ public class AmazonS3StorageReader implements Reader {
                 cache);
 	}
 	
-	private void readObjectDataFromS3(String keyName) {
+	/**
+	 * @param keyName - Key name of the object to be read from S3 storage
+	 * @return path - The location of the local file that contains the data that is written to the file system storage 
+	 * in the system temp directory.
+	 */
+	protected Path readObjectDataFromS3(String keyName) {
 		
 		try {
             GetObjectRequest objectRequest = GetObjectRequest
@@ -77,15 +84,17 @@ public class AmazonS3StorageReader implements Reader {
             String path = System.getProperty("java.io.tmpdir")	+ FileSystems.getDefault().getSeparator() + keyName;
             // Write the data to a local file.
             File myFile = new File(path);
-            OutputStream os = new FileOutputStream(myFile);
-            os.write(data);
-            os.close();
+            try(OutputStream os = new FileOutputStream(myFile)){
+                os.write(data);
+            }
+            return Path.of(path);
         } catch (IOException ex) {
             ex.printStackTrace();
         } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
+            LOGGER.error(e.awsErrorDetails().errorMessage());
             System.exit(1);
         }
+		return null;
     }
 
 	@Override
