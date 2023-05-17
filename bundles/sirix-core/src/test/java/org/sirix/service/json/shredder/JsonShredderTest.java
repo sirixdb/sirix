@@ -17,6 +17,8 @@ import org.sirix.api.json.JsonResourceSession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.io.StorageType;
+import org.sirix.io.bytepipe.ByteHandlerPipeline;
+import org.sirix.io.bytepipe.LZ4Compressor;
 import org.sirix.service.InsertPosition;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.settings.VersioningType;
@@ -144,7 +146,7 @@ public final class JsonShredderTest {
                                                  .useTextCompression(false)
                                                  .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
-                                              //   .byteHandlerPipeline(new ByteHandlePipeline(new LZ4Compressor()))
+                                                 .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx(262_144 << 3)) {
