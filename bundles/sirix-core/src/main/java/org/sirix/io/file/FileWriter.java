@@ -140,12 +140,13 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       final byte[] serializedPage;
 
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000);
-           final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
-        pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, type);
-        final var byteArray = byteBufferBytes.toByteArray();
-        dataOutput.write(byteArray);
-        dataOutput.flush();
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000)) {
+        try (final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
+          pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, type);
+          final var byteArray = byteBufferBytes.toByteArray();
+          dataOutput.write(byteArray);
+          dataOutput.flush();
+        }
         serializedPage = output.toByteArray();
       }
 

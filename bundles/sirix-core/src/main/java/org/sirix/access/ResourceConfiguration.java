@@ -40,7 +40,7 @@ import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.ByteHandlerKind;
 import org.sirix.io.bytepipe.ByteHandlerPipeline;
-import org.sirix.io.bytepipe.SnappyCompressor;
+import org.sirix.io.bytepipe.LZ4Compressor;
 import org.sirix.node.NodeSerializerImpl;
 import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.settings.VersioningType;
@@ -723,7 +723,7 @@ public final class ResourceConfiguration {
       this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlerPipeline(new SnappyCompressor());//new LZ4Compressor()); // new Encryptor(path));
+      byteHandler = new ByteHandlerPipeline(new LZ4Compressor()); // new Encryptor(path));
     }
 
     /**

@@ -83,7 +83,7 @@ import static org.sirix.node.Utils.putVarLong;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@SuppressWarnings({ "DuplicatedCode", "unchecked" })
+@SuppressWarnings({ "DuplicatedCode" })
 public enum NodeKind implements DeweyIdSerializer {
 
   /**
@@ -368,7 +368,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -394,7 +394,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -422,7 +422,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -448,7 +448,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -474,7 +474,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -501,7 +501,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -549,7 +549,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -618,7 +618,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -675,7 +675,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -737,7 +737,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -764,7 +764,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -804,7 +804,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -846,7 +846,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -925,7 +925,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -973,7 +973,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1016,7 +1016,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1107,7 +1107,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1147,7 +1147,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1190,7 +1190,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1228,7 +1228,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1309,7 +1309,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1344,7 +1344,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1393,7 +1393,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1418,7 +1418,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1442,7 +1442,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1464,7 +1464,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1512,7 +1512,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
     }
   },
@@ -1538,7 +1538,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
@@ -1636,7 +1636,7 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   @Override
-  public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+  public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) {
   }
 
