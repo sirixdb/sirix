@@ -263,8 +263,8 @@ subprojects {
                  "-XX:EliminateAllocationArraySizeLimit=1024"
                 /* "-XX:MaxInlineSize=500" */])
 
-        minHeapSize = '8g'
-        maxHeapSize = '8g'
+        minHeapSize = '5g'
+        maxHeapSize = '5g'
     }
 }
 
