@@ -22,7 +22,7 @@
 package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.page.DeserializedBitmapReferencesPageTuple;
@@ -110,7 +110,7 @@ public final class BitmapReferencesPage implements Page {
    * @param in             input stream to read from
    * @param type           the serialization type
    */
-  public BitmapReferencesPage(final @NonNegative int referenceCount, final Bytes<?> in,
+  public BitmapReferencesPage(final @NonNegative int referenceCount, final BytesIn<?> in,
       final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();

@@ -21,13 +21,13 @@
 
 package org.sirix.page;
 
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.interfaces.Page;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 /**
  * Persists pages on secondary storage.
@@ -45,7 +45,7 @@ public final class PagePersister {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<?> source,
+  public @NonNull Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
       final SerializationType type) throws IOException {
     return PageKind.getKind(source.readByte()).deserializePage(pageReadTrx, source, type);
   }
@@ -57,7 +57,7 @@ public final class PagePersister {
    * @param page the {@link Page} to serialize
    * @throws IOException if an exception during serialization of a page occurs
    */
-  public void serializePage(final PageReadOnlyTrx pageReadTrx, final Bytes<ByteBuffer> sink, final Page page,
+  public void serializePage(final PageReadOnlyTrx pageReadTrx, final BytesOut<?> sink, final Page page,
       final SerializationType type) throws IOException {
     PageKind.getKind(page.getClass()).serializePage(pageReadTrx, sink, page, type);
   }
