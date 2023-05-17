@@ -22,7 +22,7 @@
 package org.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.PageTrx;
@@ -52,7 +52,7 @@ public final class FullReferencesPage implements Page {
    * @param in   input stream to read from
    * @param type the serialization type
    */
-  public FullReferencesPage(final Bytes<?> in, final SerializationType type) {
+  public FullReferencesPage(final BytesIn<?> in, final SerializationType type) {
     references = type.deserializeFullReferencesPage(in);
   }
 

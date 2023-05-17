@@ -24,7 +24,7 @@ package org.sirix.page.delegates;
 import com.google.common.base.MoreObjects;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.page.DeserializedReferencesPage4Tuple;
 import org.sirix.page.PageReference;
@@ -63,7 +63,7 @@ public final class ReferencesPage4 implements Page {
    * @param in   input stream to read from
    * @param type the serialization type
    */
-  public ReferencesPage4(final Bytes<?> in, final SerializationType type) {
+  public ReferencesPage4(final BytesIn<?> in, final SerializationType type) {
     final DeserializedReferencesPage4Tuple tuple = type.deserializeReferencesPage4(in);
     references = tuple.references();
     offsets = tuple.offsets();

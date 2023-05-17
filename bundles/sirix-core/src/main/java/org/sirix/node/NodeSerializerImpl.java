@@ -62,7 +62,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   }
 
   @Override
-  public void serializeDeweyID(BytesOut<ByteBuffer> sink, byte[] deweyID, byte[] nextDeweyID,
+  public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
       ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
       if (nextDeweyID != null) {
@@ -83,7 +83,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
     }
   }
 
-  private static void writeDeweyID(final BytesOut<ByteBuffer> sink, final byte[] deweyID, @NonNegative final int i) {
+  private static void writeDeweyID(final BytesOut<?> sink, final byte[] deweyID, @NonNegative final int i) {
     sink.writeByte((byte) i);
     sink.writeByte((byte) (deweyID.length - i));
     final var bytes = Arrays.copyOfRange(deweyID, i, deweyID.length);
