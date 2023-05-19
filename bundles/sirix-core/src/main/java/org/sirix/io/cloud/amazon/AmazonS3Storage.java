@@ -1,5 +1,8 @@
 package org.sirix.io.cloud.amazon;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.sirix.access.ResourceConfiguration;
@@ -9,6 +12,8 @@ import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.sirix.io.cloud.ICloudStorage;
+import org.sirix.page.PagePersister;
+import org.sirix.page.SerializationType;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -17,6 +22,7 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.core.waiters.WaiterResponse;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -31,7 +37,7 @@ import software.amazon.awssdk.services.s3.waiters.S3Waiter;
  * @Auther Sanket Band (@sband)
  **/
 
-public class AmazonS3Storage implements ICloudStorage {
+public final class AmazonS3Storage implements ICloudStorage {
 
 	/**
 	 * Data file name.
@@ -69,6 +75,11 @@ public class AmazonS3Storage implements ICloudStorage {
 	*/
     private final AsyncCache<Integer, RevisionFileData> cache;
 
+    private String awsProfile;
+    private String region;
+
+    private final AmazonS3StorageReader reader;
+
 	/**
 	 * Support AWS authentication only with .aws credentials file with the required
 	 * profile name from the creds file
@@ -79,32 +90,22 @@ public class AmazonS3Storage implements ICloudStorage {
 			AsyncCache<Integer, RevisionFileData> cache,
 			ByteHandlerPipeline byteHandlerPipeline) {
 		this.bucketName = bucketName;
-		this.s3Client = this.getS3Client(awsProfile,region);
-		/*
-		 * If the bucket does not exist, should create a new bucket based on the boolean
-		 */
-		/*
-		 * Exit the system if the cloud storage bucket cannot be created Alternatively,
-		 * we could just set a flag that could be checked before creating a reader or
-		 * writer. Return null if the bucket is not created OR does not exist But that
-		 * would keep the user under false impression that the bucket is created OR
-		 * exists already even if it does not exists
-		 */
-		if (!isBucketExists(bucketName, s3Client)) {
-			if (shouldCreateBucketIfNotExists) {
-				createBucket(bucketName, s3Client);
-			} else {
-				LOGGER.error(String.format("Bucket: %s, does not exists on Amazon S3 storage, exiting the system",
-						bucketName));
-				System.exit(1);
-			}
-		}
+		this.awsProfile = awsProfile;
+		this.region = region;
 		this.cache = cache;
 		this.byteHandlerPipeline = byteHandlerPipeline; 
 		this.file = resourceConfig.resourcePath;
+		this.reader = new AmazonS3StorageReader(bucketName,
+			    s3Client,
+			    getDataFilePath().toAbsolutePath().toString(),
+			    getRevisionFilePath().toAbsolutePath().toString(),
+			    new ByteHandlerPipeline(byteHandlerPipeline),
+                SerializationType.DATA,
+                new PagePersister(),
+                cache.synchronous());
 	}
 
-	private void createBucket(String bucketName, S3Client s3Client) {
+	void createBucket(String bucketName) {
 		try {
 			S3Waiter s3Waiter = s3Client.waiter();
 			CreateBucketRequest bucketRequest = CreateBucketRequest.builder().bucket(bucketName).build();
@@ -123,7 +124,7 @@ public class AmazonS3Storage implements ICloudStorage {
 		}
 	}
 
-	private boolean isBucketExists(String bucketName, S3Client s3Client) {
+	boolean isBucketExists(String bucketName) {
 		HeadBucketRequest headBucketRequest = HeadBucketRequest.builder().bucket(bucketName).build();
 
 		try {
@@ -134,7 +135,7 @@ public class AmazonS3Storage implements ICloudStorage {
 		} 
 	}
 
-	private S3Client getS3Client(String awsProfile, String region) {
+	S3Client getS3Client() {
 		S3Client s3Client = null;
 		s3Client = S3Client.builder()
 	            .region(Region.of(region))
@@ -143,33 +144,50 @@ public class AmazonS3Storage implements ICloudStorage {
 		return s3Client;
 	}
 
+	S3AsyncClient getAsyncS3Client() {
+		S3AsyncClient s3AsyncClient = S3AsyncClient.builder()
+                .region(Region.of(region))
+	            .credentialsProvider(ProfileCredentialsProvider.create(awsProfile))
+	            .build();
+		return s3AsyncClient;
+	}
+
 	@Override
 	public Writer createWriter() {
-		/*
-		 * This would create a writer that connects to the
-		 * remote storagee*/
-		return null;
+		AmazonS3StorageReader reader = new AmazonS3StorageReader(bucketName,
+			    s3Client,
+			    getDataFilePath().toAbsolutePath().toString(),
+			    getRevisionFilePath().toAbsolutePath().toString(),
+			    new ByteHandlerPipeline(byteHandlerPipeline),
+                SerializationType.DATA,
+                new PagePersister(),
+                cache.synchronous());
+		return new AmazonS3StorageWriter (getDataFilePath().toAbsolutePath().toString(),
+				getRevisionFilePath().toAbsolutePath().toString(),
+				bucketName,
+				SerializationType.DATA,new PagePersister(),
+			    cache,reader,
+			    this.getAsyncS3Client());
 	}
 
 	@Override
 	public Reader createReader() {
-		/*
-		 * This would create a reader that connects to the 
-		 * remote storage on cloud
-		 * */
-		return null;
+		return this.reader;
 	}
 
 	@Override
 	public void close() {
-		// TODO Auto-generated method stub
 
 	}
 
 	@Override
 	public boolean exists() {
-		// TODO Auto-generated method stub
-		return false;
+		Path storage = this.reader.readObjectDataFromS3(getDataFilePath().toAbsolutePath().toString());
+		try {
+	      return Files.exists(storage) && Files.size(storage) > 0;
+	    } catch (final IOException e) {
+	      throw new UncheckedIOException(e);
+	    }
 	}
 
 	@Override

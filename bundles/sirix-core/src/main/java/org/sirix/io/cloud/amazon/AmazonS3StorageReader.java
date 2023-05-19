@@ -1,6 +1,7 @@
 package org.sirix.io.cloud.amazon;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -24,6 +25,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.google.common.hash.HashFunction;
 
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -47,22 +49,30 @@ public class AmazonS3StorageReader implements Reader {
 
 	private FileReader reader;
 	
-	public AmazonS3StorageReader(String bucketName, String keyName, 
-			S3Client s3Client, 
-			final RandomAccessFile dataFile, 
-			final RandomAccessFile revisionsOffsetFile,
+	public AmazonS3StorageReader(String bucketName,
+			S3Client s3Client,
+			String dataFileKeyName,
+			String revisionsOffsetFileKeyName,
 			final ByteHandler byteHandler, 
 			final SerializationType serializationType, 
 			final PagePersister pagePersister,
 		    final Cache<Integer, RevisionFileData> cache) {
 		this.bucketName = bucketName;
 		this.s3Client = s3Client;
-		this.reader = new FileReader(dataFile,
-				revisionsOffsetFile,
-				byteHandler,
-				serializationType,
-				pagePersister,
-                cache);
+		Path dataFilePath = readObjectDataFromS3(dataFileKeyName);
+		Path revisionOffsetFilePath = readObjectDataFromS3(revisionsOffsetFileKeyName);
+		try {
+			this.reader = new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
+					new RandomAccessFile(revisionOffsetFilePath.toFile(), "r"),
+					byteHandler,
+					serializationType,
+					pagePersister,
+	                cache);
+		}catch(IOException io) {
+			LOGGER.error(io.getMessage());
+			System.exit(1);
+		}
+
 	}
 	
 	/**
@@ -96,6 +106,14 @@ public class AmazonS3StorageReader implements Reader {
         }
 		return null;
     }
+
+	ByteHandler getByteHandler() {
+		return this.reader.getByteHandler();
+	}
+
+	HashFunction getHashFunction() {
+		return this.reader.getHashFunction();
+	}
 
 	@Override
 	public PageReference readUberPageReference() {

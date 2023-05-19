@@ -205,4 +205,12 @@ public final class FileReader implements Reader {
       throw new SirixIOException(e);
     }
   }
+
+  public ByteHandler getByteHandler() {
+	  return this.byteHandler;
+  }
+
+  public HashFunction getHashFunction() {
+	  return this.hashFunction;
+  }
 }

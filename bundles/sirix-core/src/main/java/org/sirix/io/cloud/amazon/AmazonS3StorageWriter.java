@@ -39,9 +39,10 @@ import org.slf4j.LoggerFactory;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 
 import net.openhft.chronicle.bytes.Bytes;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.core.async.AsyncRequestBody;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public class AmazonS3StorageWriter extends AbstractForwardingReader implements Writer {
@@ -68,7 +69,7 @@ public class AmazonS3StorageWriter extends AbstractForwardingReader implements W
 
 	  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticByteBuffer(1_000);
 
-	  private final S3Client s3Client;
+	  private final S3AsyncClient s3Client;
 
 	  private final String bucketName;
 
@@ -79,12 +80,18 @@ public class AmazonS3StorageWriter extends AbstractForwardingReader implements W
 			  final String bucketName,
 		      final SerializationType serializationType, final PagePersister pagePersister,
 		      final AsyncCache<Integer, RevisionFileData> cache, final AmazonS3StorageReader reader,
-		      final S3Client s3Client) throws FileNotFoundException {
+		      final S3AsyncClient s3Client) {
 		this.bucketName = bucketName;
-		this.dataFile = new RandomAccessFile(requireNonNull(reader.readObjectDataFromS3(dataFileKeyName)).toFile(),"rw");
 		type = requireNonNull(serializationType);
-	    this.revisionsFile = type == SerializationType.DATA ? 
-	            new RandomAccessFile(requireNonNull(reader.readObjectDataFromS3(revisionsOffsetFileKeyName)).toFile(),"rw") : null;
+		try {
+			this.dataFile = new RandomAccessFile(requireNonNull(reader.readObjectDataFromS3(dataFileKeyName)).toFile(),"rw");
+		    this.revisionsFile = type == SerializationType.DATA ? 
+		            new RandomAccessFile(requireNonNull(reader.readObjectDataFromS3(revisionsOffsetFileKeyName)).toFile(),"rw") : null;
+		}catch(IOException io) {
+			LOGGER.error(String.format("Cannot create S3 storage writer, "
+					+ "please check if DATA path OR Revision offset file path exists. Error details : %s", io.getMessage()));
+		}
+
 	    this.pagePersister = requireNonNull(pagePersister);
 	    this.cache = cache;
 	    this.reader = requireNonNull(reader);
@@ -96,9 +103,7 @@ public class AmazonS3StorageWriter extends AbstractForwardingReader implements W
 	 * @param keyName - Name of the file that includes the full path that is supposed to be used on the local file system
 	 * @param object - File that could be read from the local filesystem that contains the actual information
 	 * to be stored on S3
-	 * 
-	 * The expectation is that user provides a File object which will contain the data that needs to backed up to the remote
-	 * storage i.e. AWS S3 in this case 
+	 *  
 	 * */
 	protected void writeObjectToS3(String keyName, File object, boolean isDataFile) {
 		try {
@@ -110,7 +115,25 @@ public class AmazonS3StorageWriter extends AbstractForwardingReader implements W
                 .metadata(metadata)
                 .build();
 
-            s3Client.putObject(putOb, RequestBody.fromFile(object));
+            CompletableFuture<PutObjectResponse> objectFutureResponse = s3Client.putObject(putOb, 
+                     AsyncRequestBody.fromFile(object));
+            objectFutureResponse.whenComplete((response, error) -> {
+                try {
+                    if (response != null) {
+                        LOGGER.info(String.format("Object: %s has been uploaded on %s", keyName,bucketName));
+                        object.delete();
+                    } else {
+                        // Handle error
+                        error.printStackTrace();
+                        LOGGER.error(error.getMessage());
+                        System.exit(1);
+                    }
+                } finally {
+                    s3Client.close();
+                }
+            });
+
+            objectFutureResponse.join();
         } catch (S3Exception e) {
             LOGGER.error(e.awsErrorDetails().errorMessage());
             System.exit(1);
@@ -147,10 +170,10 @@ public class AmazonS3StorageWriter extends AbstractForwardingReader implements W
 		    }
 	}
 
-
 	private String getFileKeyName(String fileDescriptorPath) {
 		return fileDescriptorPath.substring((System.getProperty("java.io.tmpdir")+FileSystems.getDefault().getSeparator()).length());
 	}
+
 	@NotNull
 	  private AmazonS3StorageWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
 	      long offset) {
