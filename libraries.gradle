@@ -44,7 +44,9 @@ implLibraries = [
         iouring                     : 'one.jasyncfio:jasyncfio:0.0.7:linux-amd64',
         roaringbitmap               : 'org.roaringbitmap:RoaringBitmap:0.9.36',
         fastObjectPool              : 'cn.danielw:fast-object-pool:2.2.1',
-        zeroAllocationHashing       : 'net.openhft:zero-allocation-hashing:0.16'
+        zeroAllocationHashing       : 'net.openhft:zero-allocation-hashing:0.16',
+        amazonS3                    : 'software.amazon.awssdk:s3:2.20.62'
+
 ]
 
 testLibraries = [
