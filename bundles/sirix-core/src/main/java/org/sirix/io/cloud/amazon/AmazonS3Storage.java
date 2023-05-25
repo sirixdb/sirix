@@ -87,19 +87,22 @@ public final class AmazonS3Storage implements ICloudStorage {
 	public AmazonS3Storage(String bucketName, String awsProfile,
 			String region,
 			boolean shouldCreateBucketIfNotExists, final ResourceConfiguration resourceConfig,
-			AsyncCache<Integer, RevisionFileData> cache,
-			ByteHandlerPipeline byteHandlerPipeline) {
+			AsyncCache<Integer, RevisionFileData> cache) {
 		this.bucketName = bucketName;
 		this.awsProfile = awsProfile;
 		this.region = region;
 		this.cache = cache;
-		this.byteHandlerPipeline = byteHandlerPipeline; 
+		this.byteHandlerPipeline = resourceConfig.byteHandlePipeline; 
 		this.file = resourceConfig.resourcePath;
+		this.s3Client = getS3Client(); //this client is needed for the below checks, so initialize it here only.
+		if(!isBucketExists(bucketName) && shouldCreateBucketIfNotExists) {
+			createBucket(bucketName);
+		}
 		this.reader = new AmazonS3StorageReader(bucketName,
 			    s3Client,
 			    getDataFilePath().toAbsolutePath().toString(),
 			    getRevisionFilePath().toAbsolutePath().toString(),
-			    new ByteHandlerPipeline(byteHandlerPipeline),
+			    new ByteHandlerPipeline(this.byteHandlerPipeline),
                 SerializationType.DATA,
                 new PagePersister(),
                 cache.synchronous());
@@ -125,7 +128,7 @@ public final class AmazonS3Storage implements ICloudStorage {
 	}
 
 	boolean isBucketExists(String bucketName) {
-		HeadBucketRequest headBucketRequest = HeadBucketRequest.builder().bucket(bucketName).build();
+        HeadBucketRequest headBucketRequest = HeadBucketRequest.builder().bucket(bucketName).build();
 
 		try {
 			s3Client.headBucket(headBucketRequest);
@@ -136,20 +139,17 @@ public final class AmazonS3Storage implements ICloudStorage {
 	}
 
 	S3Client getS3Client() {
-		S3Client s3Client = null;
-		s3Client = S3Client.builder()
+		return this.s3Client==null ? S3Client.builder()
 	            .region(Region.of(region))
 	            .credentialsProvider(ProfileCredentialsProvider.create(awsProfile))
-	            .build();
-		return s3Client;
+	            .build() : this.s3Client;
 	}
 
 	S3AsyncClient getAsyncS3Client() {
-		S3AsyncClient s3AsyncClient = S3AsyncClient.builder()
+		return S3AsyncClient.builder()
                 .region(Region.of(region))
 	            .credentialsProvider(ProfileCredentialsProvider.create(awsProfile))
 	            .build();
-		return s3AsyncClient;
 	}
 
 	@Override

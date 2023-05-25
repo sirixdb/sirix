@@ -121,7 +121,8 @@ public class AmazonS3StorageWriter extends AbstractForwardingReader implements W
                 try {
                     if (response != null) {
                         LOGGER.info(String.format("Object: %s has been uploaded on %s", keyName,bucketName));
-                        object.delete();
+                        /*No need to delete/cleanup the file as we are writing on the local file system, so this avoid 
+                         * unnecessarily filling up the filesystem space*/
                     } else {
                         // Handle error
                         error.printStackTrace();

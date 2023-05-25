@@ -19,6 +19,7 @@ dependencies {
     api implLibraries.iouring
     api implLibraries.lz4
     api implLibraries.roaringbitmap
+	api implLibraries.amazonS3
 
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections

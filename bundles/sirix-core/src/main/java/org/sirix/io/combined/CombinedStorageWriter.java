@@ -1,17 +1,17 @@
 package org.sirix.io.combined;
 
 import java.nio.ByteBuffer;
-import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
-import org.sirix.io.RevisionFileData;
 import org.sirix.io.Writer;
+import org.sirix.io.cloud.amazon.AmazonS3StorageReader;
 import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.interfaces.Page;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import net.openhft.chronicle.bytes.Bytes;
 
@@ -19,6 +19,8 @@ public class CombinedStorageWriter extends AbstractForwardingReader implements W
 	
 	private Writer localStorageWriter, remoteStorageWriter;
 	private Reader storageReader;
+	/** Logger. */
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CombinedStorageWriter.class));
 	
 	public CombinedStorageWriter(Writer localWriter, Writer remoteWriter, Reader storageReader) {
 		this.localStorageWriter = localWriter;
@@ -29,7 +31,15 @@ public class CombinedStorageWriter extends AbstractForwardingReader implements W
 	@Override
 	public Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes) {
 		Writer writer = localStorageWriter.write(pageReadOnlyTrx, pageReference, bufferedBytes);
-		remoteStorageWriter.write(pageReadOnlyTrx, pageReference, bufferedBytes);
+		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.write(pageReadOnlyTrx, pageReference, bufferedBytes));
+		if (writer == null) {
+			try {
+				writer = remoteWriterTask.get();
+			} catch (InterruptedException | ExecutionException e) {
+				LOGGER.error("Could not complete remote write operation, please check the error details");
+				e.printStackTrace();
+			}
+		}
 		return writer;
 	}
 
@@ -37,21 +47,45 @@ public class CombinedStorageWriter extends AbstractForwardingReader implements W
 	public Writer writeUberPageReference(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference,
 			Bytes<ByteBuffer> bufferedBytes) {
 		Writer writer = localStorageWriter.writeUberPageReference(pageReadOnlyTrx, pageReference, bufferedBytes);
-		remoteStorageWriter.writeUberPageReference(pageReadOnlyTrx, pageReference, bufferedBytes);
+		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.writeUberPageReference(pageReadOnlyTrx, pageReference, bufferedBytes));
+		if (writer == null) {
+			try {
+				writer = remoteWriterTask.get();
+			} catch (InterruptedException | ExecutionException e) {
+				LOGGER.error("Could not complete remote write operation, please check the error details");
+				e.printStackTrace();
+			}
+		}
 		return writer;
 	}
 
 	@Override
 	public Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision) {
 		Writer writer = localStorageWriter.truncateTo(pageReadOnlyTrx, revision);
-		remoteStorageWriter.truncateTo(pageReadOnlyTrx, revision);
+		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.truncateTo(pageReadOnlyTrx, revision));
+		if (writer == null) {
+			try {
+				writer = remoteWriterTask.get();
+			} catch (InterruptedException | ExecutionException e) {
+				LOGGER.error("Could not complete remote write operation, please check the error details");
+				e.printStackTrace();
+			}
+		}
 		return writer;
 	}
 
 	@Override
 	public Writer truncate() {
 		Writer writer = localStorageWriter.truncate();
-		remoteStorageWriter.truncate();
+		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.truncate());
+		if (writer == null) {
+			try {
+				writer = remoteWriterTask.get();
+			} catch (InterruptedException | ExecutionException e) {
+				LOGGER.error("Could not complete remote write operation, please check the error details");
+				e.printStackTrace();
+			}
+		}
 		return writer;
 	}
 

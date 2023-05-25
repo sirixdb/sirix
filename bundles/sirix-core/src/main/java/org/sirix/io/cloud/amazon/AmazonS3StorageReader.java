@@ -91,7 +91,9 @@ public class AmazonS3StorageReader implements Reader {
 
             ResponseBytes<GetObjectResponse> objectBytes = s3Client.getObjectAsBytes(objectRequest);
             byte[] data = objectBytes.asByteArray();
-            String path = System.getProperty("java.io.tmpdir")	+ FileSystems.getDefault().getSeparator() + keyName;
+            /*As the bucketName has to be same as the database name, it makes sense to use/create file on the local filesystem
+             * instead of in the tmp partition*/
+            String path = FileSystems.getDefault().getSeparator() + bucketName + FileSystems.getDefault().getSeparator() + keyName;
             // Write the data to a local file.
             File myFile = new File(path);
             try(OutputStream os = new FileOutputStream(myFile)){
