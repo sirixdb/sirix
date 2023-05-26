@@ -24,6 +24,7 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.cloud.amazon.AmazonS3Storage;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.filechannel.FileChannelStorage;
 import org.sirix.io.iouring.IOUringStorage;
@@ -113,6 +114,16 @@ public enum StorageType {
       storage.loadRevisionFileDataIntoMemory(cache);
       return storage;
     }
+  },
+
+  CLOUD {
+	@Override
+	public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+		final AsyncCache<Integer, RevisionFileData> cache =
+		          getIntegerRevisionFileDataAsyncCache(resourceConf);
+		final var storage = new AmazonS3Storage(resourceConf, cache);
+		return storage;
+	}
   };
 
   public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =

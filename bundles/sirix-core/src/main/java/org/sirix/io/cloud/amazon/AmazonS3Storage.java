@@ -54,12 +54,6 @@ public final class AmazonS3Storage implements ICloudStorage {
     */
     private final Path file;
 
-	/**
-	 * S3 storage bucket name
-	 * 
-	*/
-	private String bucketName;
-
 	private S3Client s3Client;
 
 	/** Logger. */
@@ -75,26 +69,24 @@ public final class AmazonS3Storage implements ICloudStorage {
 	*/
     private final AsyncCache<Integer, RevisionFileData> cache;
 
-    private String awsProfile;
-    private String region;
+    private ResourceConfiguration.AWSStorageInformation awsStorageInfo;
 
     private final AmazonS3StorageReader reader;
+
 
 	/**
 	 * Support AWS authentication only with .aws credentials file with the required
 	 * profile name from the creds file
 	 */
-	public AmazonS3Storage(String bucketName, String awsProfile,
-			String region,
-			boolean shouldCreateBucketIfNotExists, final ResourceConfiguration resourceConfig,
+	public AmazonS3Storage(final ResourceConfiguration resourceConfig,
 			AsyncCache<Integer, RevisionFileData> cache) {
-		this.bucketName = bucketName;
-		this.awsProfile = awsProfile;
-		this.region = region;
+		this.awsStorageInfo = resourceConfig.awsStoreInfo;
 		this.cache = cache;
 		this.byteHandlerPipeline = resourceConfig.byteHandlePipeline; 
 		this.file = resourceConfig.resourcePath;
 		this.s3Client = getS3Client(); //this client is needed for the below checks, so initialize it here only.
+		String bucketName = awsStorageInfo.getBucketName();
+		boolean shouldCreateBucketIfNotExists = awsStorageInfo.shouldCreateBucketIfNotExists();
 		if(!isBucketExists(bucketName) && shouldCreateBucketIfNotExists) {
 			createBucket(bucketName);
 		}
@@ -105,7 +97,8 @@ public final class AmazonS3Storage implements ICloudStorage {
 			    new ByteHandlerPipeline(this.byteHandlerPipeline),
                 SerializationType.DATA,
                 new PagePersister(),
-                cache.synchronous());
+                cache.synchronous(),
+                resourceConfig);
 	}
 
 	void createBucket(String bucketName) {
@@ -140,31 +133,23 @@ public final class AmazonS3Storage implements ICloudStorage {
 
 	S3Client getS3Client() {
 		return this.s3Client==null ? S3Client.builder()
-	            .region(Region.of(region))
-	            .credentialsProvider(ProfileCredentialsProvider.create(awsProfile))
+	            .region(Region.of(awsStorageInfo.getAwsRegion()))
+	            .credentialsProvider(ProfileCredentialsProvider.create(awsStorageInfo.getAwsProfile()))
 	            .build() : this.s3Client;
 	}
 
 	S3AsyncClient getAsyncS3Client() {
 		return S3AsyncClient.builder()
-                .region(Region.of(region))
-	            .credentialsProvider(ProfileCredentialsProvider.create(awsProfile))
+                .region(Region.of(awsStorageInfo.getAwsRegion()))
+	            .credentialsProvider(ProfileCredentialsProvider.create(awsStorageInfo.getAwsProfile()))
 	            .build();
 	}
 
 	@Override
 	public Writer createWriter() {
-		AmazonS3StorageReader reader = new AmazonS3StorageReader(bucketName,
-			    s3Client,
-			    getDataFilePath().toAbsolutePath().toString(),
-			    getRevisionFilePath().toAbsolutePath().toString(),
-			    new ByteHandlerPipeline(byteHandlerPipeline),
-                SerializationType.DATA,
-                new PagePersister(),
-                cache.synchronous());
 		return new AmazonS3StorageWriter (getDataFilePath().toAbsolutePath().toString(),
 				getRevisionFilePath().toAbsolutePath().toString(),
-				bucketName,
+				awsStorageInfo.getBucketName(),
 				SerializationType.DATA,new PagePersister(),
 			    cache,reader,
 			    this.getAsyncS3Client());
