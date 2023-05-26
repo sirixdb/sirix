@@ -29,8 +29,8 @@ package org.sirix.page;
 
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
@@ -39,7 +39,6 @@ import org.sirix.page.interfaces.PageFragmentKey;
 import org.sirix.settings.Constants;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -56,7 +55,7 @@ public enum SerializationType {
    */
   DATA {
     @Override
-    public void serializeBitmapReferencesPage(Bytes<ByteBuffer> out, List<PageReference> pageReferences,
+    public void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences,
         BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
@@ -74,7 +73,7 @@ public enum SerializationType {
     }
 
     @Override
-    public void serializeReferencesPage4(Bytes<ByteBuffer> out, List<PageReference> pageReferences,
+    public void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
         List<Short> offsets) {
       try {
         out.writeByte((byte) pageReferences.size());
@@ -92,7 +91,7 @@ public enum SerializationType {
 
     @Override
     public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
-        Bytes<?> in) {
+        BytesIn<?> in) {
       assert in != null;
 
       try {
@@ -114,7 +113,7 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<?> in) {
+    public DeserializedReferencesPage4Tuple deserializeReferencesPage4(BytesIn<?> in) {
       try {
         final byte size = in.readByte();
         final List<PageReference> pageReferences = new ArrayList<>(4);
@@ -135,7 +134,7 @@ public enum SerializationType {
     }
 
     @Override
-    public void serializeFullReferencesPage(Bytes<ByteBuffer> out, PageReference[] pageReferences) {
+    public void serializeFullReferencesPage(BytesOut<?> out, PageReference[] pageReferences) {
       try {
         final BitSet bitSet = new BitSet(Constants.INP_REFERENCE_COUNT);
         for (int i = 0, size = pageReferences.length; i < size; i++) {
@@ -158,7 +157,7 @@ public enum SerializationType {
     }
 
     @Override
-    public PageReference[] deserializeFullReferencesPage(Bytes<?> in) {
+    public PageReference[] deserializeFullReferencesPage(BytesIn<?> in) {
       try {
         final PageReference[] references = new PageReference[Constants.INP_REFERENCE_COUNT];
         final BitSet bitSet = deserializeBitSet(in);
@@ -178,7 +177,7 @@ public enum SerializationType {
     }
   };
 
-  private static void writeHash(Bytes<ByteBuffer> out, PageReference pageReference) throws IOException {
+  private static void writeHash(BytesOut<?> out, PageReference pageReference) throws IOException {
     if (pageReference.getHash() == null) {
       out.writeInt(-1);
     } else {
@@ -188,7 +187,7 @@ public enum SerializationType {
     }
   }
 
-  private static void readHash(Bytes<?> in, PageReference reference) throws IOException {
+  private static void readHash(BytesIn<?> in, PageReference reference) throws IOException {
     final int hashLength = in.readInt();
     if (hashLength != -1) {
       final byte[] hash = new byte[hashLength];
@@ -198,7 +197,7 @@ public enum SerializationType {
     }
   }
 
-  private static void readPageFragments(Bytes<?> in, PageReference reference) throws IOException {
+  private static void readPageFragments(BytesIn<?> in, PageReference reference) throws IOException {
     final int keysSize = in.readByte() & 0xff;
     if (keysSize > 0) {
       for (int i = 0; i < keysSize; i++) {
@@ -211,7 +210,7 @@ public enum SerializationType {
     reference.setKey(key);
   }
 
-  private static void writePageFragments(Bytes<ByteBuffer> out, PageReference pageReference) throws IOException {
+  private static void writePageFragments(BytesOut<?> out, PageReference pageReference) throws IOException {
     final var keys = pageReference.getPageFragments();
     out.writeByte((byte) keys.size());
     for (final PageFragmentKey key : keys) {
@@ -221,7 +220,7 @@ public enum SerializationType {
     out.writeLong(pageReference.getKey());
   }
 
-  public static void serializeBitSet(Bytes<ByteBuffer> out, @NonNull final BitSet bitmap) {
+  public static void serializeBitSet(BytesOut<?> out, @NonNull final BitSet bitmap) {
     final var bytes = bitmap.toByteArray();
     final int len = bytes.length;
     out.writeShort((short) len);
@@ -243,7 +242,7 @@ public enum SerializationType {
    * @param bitmap         the bitmap
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeBitmapReferencesPage(Bytes<ByteBuffer> out, List<PageReference> pageReferences,
+  public abstract void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences,
       BitSet bitmap);
 
   /**
@@ -254,7 +253,7 @@ public enum SerializationType {
    * @param offsets        the offset indexes
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeReferencesPage4(Bytes<ByteBuffer> out, List<PageReference> pageReferences,
+  public abstract void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
       List<Short> offsets);
 
   /**
@@ -265,7 +264,7 @@ public enum SerializationType {
    * @return the in-memory instances
    */
   public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
-      Bytes<?> in);
+      BytesIn<?> in);
 
   /**
    * Deserialize all page references.
@@ -273,7 +272,7 @@ public enum SerializationType {
    * @param in the input
    * @return the in-memory instances
    */
-  public abstract DeserializedReferencesPage4Tuple deserializeReferencesPage4(Bytes<?> in);
+  public abstract DeserializedReferencesPage4Tuple deserializeReferencesPage4(BytesIn<?> in);
 
   /**
    * Serialize all page references.
@@ -282,7 +281,7 @@ public enum SerializationType {
    * @param pageReferences the page references
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeFullReferencesPage(Bytes<ByteBuffer> out, PageReference[] pageReferences);
+  public abstract void serializeFullReferencesPage(BytesOut<?> out, PageReference[] pageReferences);
 
   /**
    * Deserialize all page references.
@@ -290,5 +289,5 @@ public enum SerializationType {
    * @param in the input
    * @return the in-memory instances
    */
-  public abstract PageReference[] deserializeFullReferencesPage(Bytes<?> in);
+  public abstract PageReference[] deserializeFullReferencesPage(BytesIn<?> in);
 }

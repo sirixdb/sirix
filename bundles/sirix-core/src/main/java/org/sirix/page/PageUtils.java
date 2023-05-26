@@ -1,6 +1,6 @@
 package org.sirix.page;
 
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
@@ -46,7 +46,7 @@ public final class PageUtils {
     return pageDelegate;
   }
 
-  public static Page createDelegate(Bytes<?> in, SerializationType type) {
+  public static Page createDelegate(BytesIn<?> in, SerializationType type) {
     final byte kind = in.readByte();
     return switch (kind) {
       case 0 -> new ReferencesPage4(in, type);
