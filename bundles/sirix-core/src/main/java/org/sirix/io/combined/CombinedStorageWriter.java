@@ -31,15 +31,7 @@ public class CombinedStorageWriter extends AbstractForwardingReader implements W
 	@Override
 	public Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes) {
 		Writer writer = localStorageWriter.write(pageReadOnlyTrx, pageReference, bufferedBytes);
-		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.write(pageReadOnlyTrx, pageReference, bufferedBytes));
-		if (writer == null) {
-			try {
-				writer = remoteWriterTask.get();
-			} catch (InterruptedException | ExecutionException e) {
-				LOGGER.error("Could not complete remote write operation, please check the error details");
-				e.printStackTrace();
-			}
-		}
+		CompletableFuture.supplyAsync(() -> remoteStorageWriter.write(pageReadOnlyTrx, pageReference, bufferedBytes));
 		return writer;
 	}
 
@@ -47,30 +39,14 @@ public class CombinedStorageWriter extends AbstractForwardingReader implements W
 	public Writer writeUberPageReference(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference,
 			Bytes<ByteBuffer> bufferedBytes) {
 		Writer writer = localStorageWriter.writeUberPageReference(pageReadOnlyTrx, pageReference, bufferedBytes);
-		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.writeUberPageReference(pageReadOnlyTrx, pageReference, bufferedBytes));
-		if (writer == null) {
-			try {
-				writer = remoteWriterTask.get();
-			} catch (InterruptedException | ExecutionException e) {
-				LOGGER.error("Could not complete remote write operation, please check the error details");
-				e.printStackTrace();
-			}
-		}
+		CompletableFuture.supplyAsync(() -> remoteStorageWriter.writeUberPageReference(pageReadOnlyTrx, pageReference, bufferedBytes));
 		return writer;
 	}
 
 	@Override
 	public Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision) {
 		Writer writer = localStorageWriter.truncateTo(pageReadOnlyTrx, revision);
-		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.truncateTo(pageReadOnlyTrx, revision));
-		if (writer == null) {
-			try {
-				writer = remoteWriterTask.get();
-			} catch (InterruptedException | ExecutionException e) {
-				LOGGER.error("Could not complete remote write operation, please check the error details");
-				e.printStackTrace();
-			}
-		}
+		CompletableFuture.supplyAsync(() -> remoteStorageWriter.truncateTo(pageReadOnlyTrx, revision));
 		return writer;
 	}
 
@@ -78,14 +54,6 @@ public class CombinedStorageWriter extends AbstractForwardingReader implements W
 	public Writer truncate() {
 		Writer writer = localStorageWriter.truncate();
 		CompletableFuture<Writer> remoteWriterTask = CompletableFuture.supplyAsync(() -> remoteStorageWriter.truncate());
-		if (writer == null) {
-			try {
-				writer = remoteWriterTask.get();
-			} catch (InterruptedException | ExecutionException e) {
-				LOGGER.error("Could not complete remote write operation, please check the error details");
-				e.printStackTrace();
-			}
-		}
 		return writer;
 	}
 
