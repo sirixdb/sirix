@@ -490,7 +490,8 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
-          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount", "awsStoreInfo" };
+          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount", "awsStoreInfo",
+          "awsProfile","awsRegion","bucketName","shouldCreateBucketIfNotExists"};
 
   /**
    * Serialize the configuration.
@@ -542,6 +543,15 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
+
+      jsonWriter.name(JSONNAMES[17]);
+      jsonWriter.beginObject();
+      jsonWriter.name(JSONNAMES[18]).value(config.awsStoreInfo.getAwsProfile());
+      jsonWriter.name(JSONNAMES[19]).value(config.awsStoreInfo.getAwsRegion());
+      jsonWriter.name(JSONNAMES[20]).value(config.awsStoreInfo.getBucketName());
+      jsonWriter.name(JSONNAMES[21]).value(config.awsStoreInfo.shouldCreateBucketIfNotExists());
+      jsonWriter.endObject();
+
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
