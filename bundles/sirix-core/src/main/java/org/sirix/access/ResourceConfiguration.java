@@ -31,6 +31,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+import java.io.EOFException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -44,7 +45,6 @@ import java.util.List;
 import java.util.Objects;
 
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.json.JSONObject;
 import org.sirix.BinaryEncodingVersion;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.exception.SirixIOException;
@@ -337,7 +337,7 @@ public final class ResourceConfiguration {
    * This could be improved in future to make it more sophisticated in terms setting the credentials 
    * for creating the cloud client connection
    * */
-  public final AWSStorageInformation awsStoreInfo;
+  public AWSStorageInformation awsStoreInfo;
   /**
    * Get a new builder instance.
    *
@@ -649,20 +649,25 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[17]);
-      /*Begin object to read the nested json properties required aws connection*/
-      jsonReader.beginObject();
       AWSStorageInformation awsStoreInfo=null;
-      if(jsonReader.hasNext()) {
-        final String awsProfile=jsonReader.nextString();
-        final String awsRegion=jsonReader.nextString();
-        final String bucketName=jsonReader.nextString();
-        final boolean shouldCreateBucketIfNotExists=jsonReader.nextBoolean();
-        awsStoreInfo = new AWSStorageInformation(awsProfile,
-            awsRegion, bucketName, shouldCreateBucketIfNotExists);
+      try {
+          assert name.equals(JSONNAMES[17]);
+          /*Since awsStore information is optional, it is important that we add a check on this instead 
+           * of test cases failing because of this change*/
+          /*Begin object to read the nested json properties required aws connection*/
+          jsonReader.beginObject();
+          if(jsonReader.hasNext()) {
+            final String awsProfile=jsonReader.nextString();
+            final String awsRegion=jsonReader.nextString();
+            final String bucketName=jsonReader.nextString();
+            final boolean shouldCreateBucketIfNotExists=jsonReader.nextBoolean();
+            awsStoreInfo = new AWSStorageInformation(awsProfile,awsRegion, bucketName, shouldCreateBucketIfNotExists);
+          }
+          jsonReader.endObject();
+          /*End object to end reading the nested json properties*/
+      }catch(SirixIOException | EOFException io) {
+          /*Ignore exception, as this information is optional*/
       }
-      jsonReader.endObject();
-      /*End object to end reading the nested json properties*/
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
