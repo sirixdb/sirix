@@ -543,13 +543,14 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
-
-      jsonWriter.name(JSONNAMES[17]).beginObject();
-      jsonWriter.name(JSONNAMES[18]).value(config.awsStoreInfo.getAwsProfile());
-      jsonWriter.name(JSONNAMES[19]).value(config.awsStoreInfo.getAwsRegion());
-      jsonWriter.name(JSONNAMES[20]).value(config.awsStoreInfo.getBucketName());
-      jsonWriter.name(JSONNAMES[21]).value(config.awsStoreInfo.shouldCreateBucketIfNotExists());
-      jsonWriter.name(JSONNAMES[17]).endObject();
+      if(config.awsStoreInfo != null) {
+          jsonWriter.name(JSONNAMES[17]).beginObject();
+          jsonWriter.name(JSONNAMES[18]).value(config.awsStoreInfo.getAwsProfile());
+          jsonWriter.name(JSONNAMES[19]).value(config.awsStoreInfo.getAwsRegion());
+          jsonWriter.name(JSONNAMES[20]).value(config.awsStoreInfo.getBucketName());
+          jsonWriter.name(JSONNAMES[21]).value(config.awsStoreInfo.shouldCreateBucketIfNotExists());
+          jsonWriter.name(JSONNAMES[17]).endObject();
+      }
 
       jsonWriter.endObject();
     } catch (final IOException e) {
