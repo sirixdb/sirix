@@ -167,4 +167,11 @@ public final class FileChannelReader extends AbstractReader {
   public void close() {
   }
 
+  public ByteHandler getByteHandler() {
+	  return this.byteHandler;
+  }
+
+  public HashFunction getHashFunction() {
+	  return this.hashFunction;
+  }
 }

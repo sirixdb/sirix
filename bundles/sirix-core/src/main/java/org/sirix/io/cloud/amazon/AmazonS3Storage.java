@@ -48,57 +48,49 @@ public final class AmazonS3Storage implements ICloudStorage {
 	 * Revisions file name.
 	 */
 	private static final String REVISIONS_FILENAME = "sirix.revisions";
-	
-    /**
-     * Instance to local storage.
-    */
-    private final Path file;
+
+	/**
+	 * Instance to local storage.
+	 */
+	private final Path file;
 
 	private S3Client s3Client;
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AmazonS3Storage.class));
-	
+
 	/**
 	 * Byte handler pipeline.
-	*/
-    private final ByteHandlerPipeline byteHandlerPipeline;
+	 */
+	private final ByteHandlerPipeline byteHandlerPipeline;
 
 	/**
 	 * Revision file data cache.
-	*/
-    private final AsyncCache<Integer, RevisionFileData> cache;
+	 */
+	private final AsyncCache<Integer, RevisionFileData> cache;
 
-    private ResourceConfiguration.AWSStorageInformation awsStorageInfo;
+	private ResourceConfiguration.AWSStorageInformation awsStorageInfo;
 
-    private final AmazonS3StorageReader reader;
-
+	private final AmazonS3StorageReader reader;
 
 	/**
 	 * Support AWS authentication only with .aws credentials file with the required
 	 * profile name from the creds file
 	 */
-	public AmazonS3Storage(final ResourceConfiguration resourceConfig,
-			AsyncCache<Integer, RevisionFileData> cache) {
+	public AmazonS3Storage(final ResourceConfiguration resourceConfig, AsyncCache<Integer, RevisionFileData> cache) {
 		this.awsStorageInfo = resourceConfig.awsStoreInfo;
 		this.cache = cache;
-		this.byteHandlerPipeline = resourceConfig.byteHandlePipeline; 
+		this.byteHandlerPipeline = resourceConfig.byteHandlePipeline;
 		this.file = resourceConfig.resourcePath;
-		this.s3Client = getS3Client(); //this client is needed for the below checks, so initialize it here only.
+		this.s3Client = getS3Client(); // this client is needed for the below checks, so initialize it here only.
 		String bucketName = awsStorageInfo.getBucketName();
 		boolean shouldCreateBucketIfNotExists = awsStorageInfo.shouldCreateBucketIfNotExists();
-		if(!isBucketExists(bucketName) && shouldCreateBucketIfNotExists) {
+		if (!isBucketExists(bucketName) && shouldCreateBucketIfNotExists) {
 			createBucket(bucketName);
 		}
-		this.reader = new AmazonS3StorageReader(bucketName,
-			    s3Client,
-			    getDataFilePath().toAbsolutePath().toString(),
-			    getRevisionFilePath().toAbsolutePath().toString(),
-			    new ByteHandlerPipeline(this.byteHandlerPipeline),
-                SerializationType.DATA,
-                new PagePersister(),
-                cache.synchronous(),
-                resourceConfig);
+		this.reader = new AmazonS3StorageReader(bucketName, s3Client, getDataFilePath().toAbsolutePath().toString(),
+				getRevisionFilePath().toAbsolutePath().toString(), new ByteHandlerPipeline(this.byteHandlerPipeline),
+				SerializationType.DATA, new PagePersister(), cache.synchronous(), resourceConfig);
 	}
 
 	void createBucket(String bucketName) {
@@ -121,38 +113,33 @@ public final class AmazonS3Storage implements ICloudStorage {
 	}
 
 	boolean isBucketExists(String bucketName) {
-        HeadBucketRequest headBucketRequest = HeadBucketRequest.builder().bucket(bucketName).build();
+		HeadBucketRequest headBucketRequest = HeadBucketRequest.builder().bucket(bucketName).build();
 
 		try {
 			s3Client.headBucket(headBucketRequest);
 			return true;
 		} catch (NoSuchBucketException e) {
 			return false;
-		} 
+		}
 	}
 
 	S3Client getS3Client() {
-		return this.s3Client==null ? S3Client.builder()
-	            .region(Region.of(awsStorageInfo.getAwsRegion()))
-	            .credentialsProvider(ProfileCredentialsProvider.create(awsStorageInfo.getAwsProfile()))
-	            .build() : this.s3Client;
+		return this.s3Client == null
+				? S3Client.builder().region(Region.of(awsStorageInfo.getAwsRegion()))
+						.credentialsProvider(ProfileCredentialsProvider.create(awsStorageInfo.getAwsProfile())).build()
+				: this.s3Client;
 	}
 
 	S3AsyncClient getAsyncS3Client() {
-		return S3AsyncClient.builder()
-                .region(Region.of(awsStorageInfo.getAwsRegion()))
-	            .credentialsProvider(ProfileCredentialsProvider.create(awsStorageInfo.getAwsProfile()))
-	            .build();
+		return S3AsyncClient.builder().region(Region.of(awsStorageInfo.getAwsRegion()))
+				.credentialsProvider(ProfileCredentialsProvider.create(awsStorageInfo.getAwsProfile())).build();
 	}
 
 	@Override
 	public Writer createWriter() {
-		return new AmazonS3StorageWriter (getDataFilePath().toAbsolutePath().toString(),
-				getRevisionFilePath().toAbsolutePath().toString(),
-				awsStorageInfo.getBucketName(),
-				SerializationType.DATA,new PagePersister(),
-			    cache,reader,
-			    this.getAsyncS3Client());
+		return new AmazonS3StorageWriter(getDataFilePath().toAbsolutePath().toString(),
+				getRevisionFilePath().toAbsolutePath().toString(), awsStorageInfo.getBucketName(),
+				SerializationType.DATA, new PagePersister(), cache, reader, this.getAsyncS3Client());
 	}
 
 	@Override
@@ -169,10 +156,10 @@ public final class AmazonS3Storage implements ICloudStorage {
 	public boolean exists() {
 		Path storage = this.reader.readObjectDataFromS3(getDataFilePath().toAbsolutePath().toString());
 		try {
-	      return Files.exists(storage) && Files.size(storage) > 0;
-	    } catch (final IOException e) {
-	      throw new UncheckedIOException(e);
-	    }
+			return Files.exists(storage) && Files.size(storage) > 0;
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
 	}
 
 	@Override
@@ -181,12 +168,12 @@ public final class AmazonS3Storage implements ICloudStorage {
 	}
 
 	/**
-	 * Getting path for data file.
-	 * This path would be used on the local storage
+	 * Getting path for data file. This path would be used on the local storage
+	 * 
 	 * @return the path for this data file
 	 */
 	private Path getDataFilePath() {
-	  return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+		return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
 	}
 
 	/**
@@ -195,6 +182,6 @@ public final class AmazonS3Storage implements ICloudStorage {
 	 * @return the concrete storage for this database
 	 */
 	private Path getRevisionFilePath() {
-	  return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
+		return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
 	}
 }
