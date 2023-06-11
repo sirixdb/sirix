@@ -59,6 +59,7 @@ import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Optional;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
@@ -371,7 +372,9 @@ public final class ResourceConfiguration {
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
-    awsStoreInfo = builder.awsStoreInfo;
+    if(builder.awsStoreInfo != null) {
+        awsStoreInfo = builder.awsStoreInfo;
+    }
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -648,13 +651,11 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
-      name = jsonReader.nextName();
+      //name = jsonReader.nextName();
       AWSStorageInformation awsStoreInfo=null;
       try {
+          name = jsonReader.nextName();
           assert name.equals(JSONNAMES[17]);
-          /*Since awsStore information is optional, it is important that we add a check on this instead 
-           * of test cases failing because of this change*/
-          /*Begin object to read the nested json properties required aws connection*/
           jsonReader.beginObject();
           if(jsonReader.hasNext()) {
             final String awsProfile=jsonReader.nextString();
@@ -664,9 +665,8 @@ public final class ResourceConfiguration {
             awsStoreInfo = new AWSStorageInformation(awsProfile,awsRegion, bucketName, shouldCreateBucketIfNotExists);
           }
           jsonReader.endObject();
-          /*End object to end reading the nested json properties*/
-      }catch(SirixIOException | EOFException io) {
-          /*Ignore exception, as this information is optional*/
+      }catch(SirixIOException | EOFException | IllegalStateException io) {
+
       }
       jsonReader.endObject();
       jsonReader.close();
