@@ -141,15 +141,29 @@ public final class Main {
           executeQuery(config, compileChain, ctx, query);
         } else if (config.isSet("-iq")) {
           while (true) {
-            System.out.println("Enter query string (terminate with END on the last line):");
+            System.out.println("Enter query string (terminate with Control-D):");
             query = readStringFromScannerWithEndMark();
-            executeQuery(config, compileChain, ctx, query);
+            if (query == null) {
+              break;
+            }
+            try {
+              executeQuery(config, compileChain, ctx, query);
+            } catch (final QueryException e) {
+              System.err.println("Error: " + e.getMessage());
+            }
           }
         } else if (config.isSet("-iqf")) {
           while (true) {
-            System.out.println("Enter query string (terminate with END on the last line):");
+            System.out.println("Enter query string (terminate with Control-D:");
             query = readFile(config.getValue("-iqf"));
-            executeQuery(config, compileChain, ctx, query);
+            if (query == null) {
+              break;
+            }
+            try {
+             executeQuery(config, compileChain, ctx, query);
+            } catch (final QueryException e) {
+              System.err.println("Error: " + e.getMessage());
+            }
           }
         } else {
           query = readString();
@@ -157,13 +171,13 @@ public final class Main {
         }
       }
     } catch (final QueryException e) {
-      System.out.println("Error: " + e.getMessage());
+      System.err.println("Error: " + e.getMessage());
       System.exit(-2);
     } catch (final IOException e) {
-      System.out.println("I/O Error: " + e.getMessage());
+      System.err.println("I/O Error: " + e.getMessage());
       System.exit(-3);
     } catch (final Throwable e) {
-      System.out.println("Error: " + e.getMessage());
+      System.err.println("Error: " + e.getMessage());
       System.exit(-4);
     }
   }
@@ -187,13 +201,13 @@ public final class Main {
     while (scanner.hasNextLine()) {
       final String line = scanner.nextLine();
 
-      if (line.trim().equals("END"))
+      if (line.isEmpty())
         break;
 
       strbuf.append(line);
     }
 
-    return strbuf.toString();
+    return strbuf.isEmpty() ? null : strbuf.toString();
   }
 
   private static String readString() throws IOException {
