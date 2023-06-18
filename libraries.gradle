@@ -67,5 +67,6 @@ testLibraries = [
         kotestAssertions         : 'io.kotest:kotest-assertions-core-jvm:4.0.5',
         commonsCollections4      : 'org.apache.commons:commons-collections4:4.3',
         commonsCollections4Tests : 'org.apache.commons:commons-collections4:4.3:tests',
-        assertjCore              : 'org.assertj:assertj-core:3.23.1'
+        assertjCore              : 'org.assertj:assertj-core:3.23.1',
+        s3Mock                   : 'io.findify:s3mock_2.13:0.2.6'
 ]

@@ -43,6 +43,7 @@ dependencies {
     testImplementation testLibraries.commonsCollections4
     testImplementation testLibraries.commonsCollections4Tests
     testImplementation testLibraries.assertjCore
+	testImplementation testLibraries.s3Mock
 }
 
 description = 'SirixDB is a hybrid on-disk and in-memory document oriented, versioned database system. It has a ' +
