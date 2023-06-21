@@ -278,7 +278,12 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       nodeReadOnlyTrx.moveTo(startNode.getParentKey());
       hashToAdd = startNode.computeHash(bytes);
     } else {
-      hashToAdd = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
+      if (startNode.getHash() == 0L) {
+        hashToAdd = startNode.computeHash(bytes);
+        ((Node) startNode).setHash(hashToAdd);
+      } else {
+        hashToAdd = startNode.getHash();
+      }
     }
 
     // go the path to the root
