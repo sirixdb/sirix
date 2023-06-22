@@ -1185,6 +1185,28 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testNonExistentPath1() throws IOException {
+    final String storeQuery =
+        "jn:store('json-path1','mydoc.jn','[{\"key\":0},{\"value\":[{\"key\":{\"boolean\":true}},{\"newkey\":\"yes\"}]},{\"key\":\"hey\",\"value\":false}]')";
+    final String indexQuery =
+        "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "jn:doc('json-path1','mydoc.jn')[].value[].key[$$.boolean].nonExistent";
+    test(storeQuery, indexQuery, openQuery, "");
+  }
+
+  @Test
+  public void testNonExistentPath2() throws IOException {
+    final String storeQuery =
+        "jn:store('json-path1','mydoc.jn','[{\"key\":0},{\"value\":[{\"key\":{\"boolean\":true}},{\"newkey\":\"yes\"}]},{\"key\":\"hey\",\"value\":false}]')";
+    final String indexQuery =
+        "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
+    final String openQuery =
+        "jn:doc('json-path1','mydoc.jn')[].value[].key.nonExistent";
+    test(storeQuery, indexQuery, openQuery, "");
+  }
+
+  @Test
   public void testCreateAndScanNameIndex() throws IOException {
     final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);

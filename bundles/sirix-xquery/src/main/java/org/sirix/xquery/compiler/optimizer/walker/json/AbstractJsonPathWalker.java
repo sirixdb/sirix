@@ -9,6 +9,7 @@ import org.brackit.xquery.function.json.JSONFun;
 import org.brackit.xquery.jdm.Type;
 import org.brackit.xquery.util.Cfg;
 import org.brackit.xquery.util.path.Path;
+import org.jetbrains.annotations.NotNull;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -96,11 +97,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       pathNodeKeys.removeIf(pathNodeKeysToRemove::contains);
 
       if (pathNodeKeys.isEmpty()) {
-        // no path node keys found: replace with empty sequence node
-        final var parentASTNode = astNode.getParent();
-        final var emptySequence = new AST(XQ.EmptySequenceType);
-        parentASTNode.replaceChild(astNode.getChildIndex(), emptySequence);
-        return emptySequence;
+        return replaceAstNodeWithEmptySequenceAstNode(astNode);
       }
 
       final var foundIndexDefsToPaths = new HashMap<IndexDef, List<Path<QNm>>>();
@@ -133,6 +130,15 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
 
     return null;
+  }
+
+  @NotNull
+  private static AST replaceAstNodeWithEmptySequenceAstNode(AST astNode) {
+    // no path node keys found: replace with empty sequence node
+    final var parentASTNode = astNode.getParent();
+    final var emptySequence = new AST(XQ.EmptySequenceType);
+    parentASTNode.replaceChild(astNode.getChildIndex(), emptySequence);
+    return emptySequence;
   }
 
   private void removeFirstPredicateSegmentNameIfPredicateLeafNodeIsContextItemAndParentOfCtxItemIsAnArrayAccessExpr(
@@ -211,11 +217,6 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       PathSummaryReader pathSummary, NodeKind nodeKind) {
     var pathNodeKeys = new ArrayList<Integer>();
     var pathNodeKeyBitmap = pathSummary.match(new QNm(pathSegmentNameToCheck), 0, nodeKind);
-
-    if (pathNodeKeyBitmap.isEmpty()) {
-      final var parentASTNode = astNode.getParent();
-      parentASTNode.replaceChild(astNode.getChildIndex(), new AST(XQ.SequenceExpr));
-    }
 
     for (int i = pathNodeKeyBitmap.nextSetBit(0); i >= 0; i = pathNodeKeyBitmap.nextSetBit(i + 1)) {
       // operate on index i here
