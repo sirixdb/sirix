@@ -361,7 +361,7 @@ To query for a string values with a certain name (`bar`) on all paths (empty seq
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
 let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
-for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', '==', ())
 order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
 ```
