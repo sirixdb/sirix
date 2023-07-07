@@ -34,7 +34,7 @@ services:
       - /opt/sirix/sirix-data:/opt/sirix/sirix-data
       - ./bundles/sirix-rest-api/src/main/resources/cert.pem:/opt/sirix/sirix-data/cert.pem
       - ./bundles/sirix-rest-api/src/main/resources/key.pem:/opt/sirix/sirix-data/key.pem
-      - ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json:/opt/sirix/sirix-conf.json
+      - ./bundles/sirix-rest-api/src/main/resources/sirix-docker-conf.json:/opt/sirix/sirix-docker-conf.json
       - ./bundles/sirix-rest-api/src/test/resources/logback-test.xml:/opt/sirix/logback-test.xml
     depends_on:
       keycloak:
