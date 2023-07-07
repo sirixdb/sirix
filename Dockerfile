@@ -26,7 +26,7 @@ COPY --from=builder /usr/app/bundles/sirix-rest-api/build/libs/$VERTICLE_FILE ./
 COPY bundles/sirix-rest-api/src/test/resources/logback-test.xml ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/cert.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/key.pem ./sirix-data/
-COPY bundles/sirix-rest-api/src/main/resources/sirix-conf.json ./
+COPY bundles/sirix-rest-api/src/main/resources/sirix-docker-conf.json ./
 
 # Replace localhost url with keycloack url in docker compose file
 # RUN sed -i 's/localhost/keycloak/g' sirix-conf.json
@@ -36,4 +36,4 @@ EXPOSE 9443
 
 # Launch the verticle
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Xms3g -Xmx8g --enable-preview --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
+CMD ["exec java -DLOGGER_HOME=/opt/sirix/sirix-data -Xms3g -Xmx8g --enable-preview --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-docker-conf.json -cp $VERTICLE_HOME/*"]
