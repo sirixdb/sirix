@@ -15,7 +15,7 @@
 
 [![Follow](https://img.shields.io/twitter/follow/sirixdb.svg?style=social)](https://twitter.com/sirixdb)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Discord](https://discord.gg/yC33wVpv7t) | [Community Forum](https://sirix.discourse.group/)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Discord](https://discord.gg/yC33wVpv7t) | [Community Forum](https://sirix.discourse.group/) | [Documentation](https://sirix.io/documentation.html)
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
@@ -361,7 +361,7 @@ To query for a string values with a certain name (`bar`) on all paths (empty seq
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
 let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
-for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', '==', ())
 order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
 ```
