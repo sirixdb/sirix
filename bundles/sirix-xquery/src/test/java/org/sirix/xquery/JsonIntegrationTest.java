@@ -1281,7 +1281,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String findAndScanPathIndexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
-        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', '==', ())
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """.strip();
@@ -1303,7 +1303,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String findAndScanPathIndexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//@context')
-        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'http://iiif.io/api/search/0/context.json', 0, ())
+        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'http://iiif.io/api/search/0/context.json', '==', ())
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """.strip();
