@@ -19,6 +19,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -76,11 +77,11 @@ public final class XQueryUsage {
    * Load a document and query it.
    */
   private static void loadDocumentAndQuery() throws QueryException, IOException, SirixException {
-    final Path doc = Paths.get("src", "main", "resources", "test.xml");
-
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+
+      final Path doc = Path.of(XQueryUsage.class.getClassLoader().getResource("test.xml").toURI());
 
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
@@ -101,23 +102,25 @@ public final class XQueryUsage {
       query.prettyPrint().serialize(ctx2, System.out);
 
       System.out.println();
+    } catch (URISyntaxException e) {
+      throw new RuntimeException(e);
     }
   }
 
   /**
    * Load a document and query it.
    */
-  private static void loadOrgaDocumentAndQuery() throws QueryException, IOException {
-    final Path doc = Paths.get("src", "main", "resources", "orga.xml");
-
+  private static void loadOrgaDocumentAndQuery() throws QueryException {
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
+      final Path doc = Path.of(XQueryUsage.class.getClassLoader().getResource("orga.xml").toURI());
+
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
       final URI docUri = doc.toUri();
-      final String xq1 = String.format("xml:load('mydoc.col', 'mydoc.xml', '%s')", docUri.toString());
+      final String xq1 = String.format("xml:load('mydoc.col', 'mydoc.xml', '%s')", docUri);
       System.out.println(xq1);
       new XQuery(xq1).evaluate(ctx);
 
@@ -134,6 +137,8 @@ public final class XQueryUsage {
       query.prettyPrint().serialize(ctx2, System.out);
 
       System.out.println();
+    } catch (URISyntaxException e) {
+      throw new RuntimeException(e);
     }
   }
 
@@ -151,7 +156,7 @@ public final class XQueryUsage {
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
       final URI docUri = doc.toUri();
-      final String xq1 = String.format("sdb:load('mycol.xml', 'mydoc.xml', '%s')", docUri.toString());
+      final String xq1 = String.format("sdb:load('mycol.xml', 'mydoc.xml', '%s')", docUri);
       System.out.println(xq1);
       new XQuery(xq1).evaluate(ctx);
 
@@ -364,7 +369,7 @@ public final class XQueryUsage {
       System.out.println("Find CAS index for all attribute values.");
       final QueryContext ctx3 = SirixQueryContext.createWithNodeStore(store);
       final String query =
-          "let $doc := xml:doc('mydocs.col', 'resource1') return xml:scan-cas-index($doc, sdb:find-cas-index($doc, 'xs:string', '//@*'), 'bar', true(), 0, ())";
+          "let $doc := xml:doc('mydocs.col', 'resource1') return xml:scan-cas-index($doc, sdb:find-cas-index($doc, 'xs:string', '//@*'), 'bar', true(), '==', ())";
       final Sequence seq = new XQuery(SirixCompileChain.createWithNodeStore(store), query).execute(ctx3);
       // final Iter iter = seq.iterate();
       // for (Item item = iter.next(); item != null; item = iter.next()) {

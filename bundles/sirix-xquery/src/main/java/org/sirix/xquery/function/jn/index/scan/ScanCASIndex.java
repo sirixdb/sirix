@@ -48,7 +48,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
                         SequenceType.NODE,
                         new SequenceType(AtomicType.INR, Cardinality.One),
                         new SequenceType(AtomicType.ANA, Cardinality.One),
-                        new SequenceType(AtomicType.INR, Cardinality.One),
+                        new SequenceType(AtomicType.STR, Cardinality.One),
                         new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
           true);
   }
@@ -94,15 +94,15 @@ public final class ScanCASIndex extends AbstractScanIndex {
 
     final Type keyType = indexDef.getContentType();
     final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
-    final int[] searchModes = new int[] { -2, -1, 0, 1, 2 };
-    final int searchMode = FunUtil.getInt(args, 3, "$search-mode", 0, searchModes, true);
+    final String[] searchModes = { "<", "<=", "==", ">", ">=" };
+    final String searchMode = FunUtil.getString(args, 3, "$search-mode", "==", searchModes, true);
 
     final SearchMode mode = switch (searchMode) {
-      case -2 -> SearchMode.LOWER;
-      case -1 -> SearchMode.LOWER_OR_EQUAL;
-      case 0 -> SearchMode.EQUAL;
-      case 1 -> SearchMode.GREATER;
-      case 2 -> SearchMode.GREATER_OR_EQUAL;
+      case "<" -> SearchMode.LOWER;
+      case "<=" -> SearchMode.LOWER_OR_EQUAL;
+      case "==" -> SearchMode.EQUAL;
+      case ">" -> SearchMode.GREATER;
+      case ">=" -> SearchMode.GREATER_OR_EQUAL;
       default ->
         // May never happen.
           SearchMode.EQUAL;
