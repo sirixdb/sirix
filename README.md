@@ -366,7 +366,7 @@ order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
 ```
 
-The argument 0 means check for equality of the string. Other values which might make more sense for integers, decimals... are -2 for `<`, -1 for `<=`, 1 for `>=` and 2 for `>`.
+The argument `==` means check for equality of the string. Other values which might make more sense for integers, decimals... are `<`, `<=`, `>=` and `>`.
 
 ## SirixDB Features
 SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
