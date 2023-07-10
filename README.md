@@ -595,8 +595,7 @@ For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test
       1. Verify that the Client Authenticatior is set to `Client Id and Secret`
       2. Click on Regenerate Secret to generate a new secret. Set the value of the field named `client.secret` of the [configuration file](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) to this secret.
       
-8. Set the value of the field named `keycloak.url` in the [configuration file](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) to `http://host.docker.internal:8080/auth/realms/sirixdb`. Stop the docker container running Keycloak, either from Docker UI or pressing `Ctrl + C`.
-10. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
+7. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
 
         docker compose up
 
