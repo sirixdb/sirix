@@ -366,7 +366,7 @@ order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
 ```
 
-The argument 0 means check for equality of the string. Other values which might make more sense for integers, decimals... are -2 for `<`, -1 for `<=`, 1 for `>=` and 2 for `>`.
+The argument `==` means check for equality of the string. Other values which might make more sense for integers, decimals... are `<`, `<=`, `>=` and `>`.
 
 ## SirixDB Features
 SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
@@ -595,8 +595,7 @@ For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test
       1. Verify that the Client Authenticatior is set to `Client Id and Secret`
       2. Click on Regenerate Secret to generate a new secret. Set the value of the field named `client.secret` of the [configuration file](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) to this secret.
       
-8. Set the value of the field named `keycloak.url` in the [configuration file](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) to `http://host.docker.internal:8080/auth/realms/sirixdb`. Stop the docker container running Keycloak, either from Docker UI or pressing `Ctrl + C`.
-10. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
+7. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
 
         docker compose up
 
