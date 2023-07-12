@@ -1,7 +1,11 @@
 package org.sirix.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -37,6 +41,11 @@ import java.util.Iterator;
  * @lucene.experimental
  */
 public class IntToObjectMap<T> implements Iterable<T> {
+/**
+ * Logger for this class.
+ */
+  private static final Logger LOGGER = LoggerFactory.getLogger(IntToObjectMap.class);
+
 
   /**
    * Implements an IntIterator which iterates over all the allocated indexes.
@@ -137,9 +146,13 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     @SuppressWarnings("unchecked")
     public T next() {
+      if (!iterator.hasNext()) {
+        throw new NoSuchElementException();
+      }
       return (T) values[iterator.next()];
     }
 
+    @Override
     public void remove() {
       iterator.remove();
     }
@@ -151,7 +164,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   private static int defaultCapacity = 16;
 
   /**
-   * Holds the base hash entries. if the capacity is 2^N, than the base hash
+   * Holds the base hash entries. if the capacity is 2^N, thn the base hash
    * holds 2^(N+1). It can hold
    */
   int[] baseHash;
@@ -301,7 +314,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
     // And setting all the <code>next[i]</code> to point at
     // <code>i+1</code>.
     for (int i = 1; i < this.capacity; ) {
-      next[i] = ++i;
+      next[i] = i + 1;
     }
 
     // Surly, the last one should point to the 'Ground'.
@@ -329,8 +342,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    *         false otherwise.
    */
   public boolean containsValue(Object o) {
-    for (Iterator<T> iterator = iterator(); iterator.hasNext(); ) {
-      T object = iterator.next();
+    for (T object : this) {
       if (object.equals(o)) {
         return true;
       }
@@ -353,7 +365,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // while the index does not point to the 'Ground'
     while (localIndex != 0) {
-      // returns the index found in case of of a matching key.
+      // returns the index found in case of a matching key.
       if (keys[localIndex] == key) {
         return localIndex;
       }
@@ -384,7 +396,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // while the index does not point to the 'Ground'
     while (index != 0) {
-      // returns the index found in case of of a matching key.
+      // returns the index found in case of a matching key.
       if (keys[index] == key) {
         return index;
       }
@@ -465,7 +477,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   @SuppressWarnings("unused")
   private void printBaseHash() {
     for (int i = 0; i < this.baseHash.length; i++) {
-      System.out.println(i + ".\t" + baseHash[i]);
+      LOGGER.info("{}.\t{}", i, baseHash[i]);
     }
   }
 
@@ -491,7 +503,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // Is there enough room for a new pair?
     if (size == capacity) {
-      // No? Than grow up!
+      // No? Then grow up!
       grow();
     }
 
@@ -580,7 +592,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
   @Override
   public String toString() {
-    StringBuffer sb = new StringBuffer();
+    StringBuilder sb = new StringBuilder();
     sb.append('{');
     IntIterator keyIterator = keyIterator();
     while (keyIterator.hasNext()) {
@@ -605,6 +617,9 @@ public class IntToObjectMap<T> implements Iterable<T> {
   @SuppressWarnings("unchecked")
   @Override
   public boolean equals(Object o) {
+    if (!(o instanceof IntToObjectMap)) {
+      return false;
+    }
     IntToObjectMap<T> that = (IntToObjectMap<T>) o;
     if (that.size() != this.size()) {
       return false;
@@ -619,7 +634,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
       T v1 = this.get(key);
       T v2 = that.get(key);
-      if ((v1 == null && v2 != null) || (v1 != null && v2 == null) || (!v1.equals(v2))) {
+      if ((v1 == null && v2 != null) || (v1 != null && v2 == null) || (v1!= null && !v1.equals(v2))) {
         return false;
       }
     }
