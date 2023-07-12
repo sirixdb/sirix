@@ -301,7 +301,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
     // And setting all the <code>next[i]</code> to point at
     // <code>i+1</code>.
     for (int i = 1; i < this.capacity; ) {
-      next[i] = ++i;
+      next[i] = i + 1;
     }
 
     // Surly, the last one should point to the 'Ground'.
