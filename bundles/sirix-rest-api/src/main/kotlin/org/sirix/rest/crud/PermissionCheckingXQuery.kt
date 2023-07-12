@@ -24,6 +24,7 @@ import java.io.PrintWriter
 /**
  * @author Johannes Lichtenberger
  */
+@Suppress("unused")
 class PermissionCheckingXQuery {
     private val module: Module
     private var isPrettyPrint: Boolean = false
