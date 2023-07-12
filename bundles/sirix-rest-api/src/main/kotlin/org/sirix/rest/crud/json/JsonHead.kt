@@ -49,7 +49,7 @@ class JsonHead(private val location: Path) {
                     rtx.use {
                         if (nodeId != null) {
                             if (!rtx.moveTo(nodeId.toLong())) {
-                                throw IllegalStateException("Node with ID ${nodeId} doesn't exist.")
+                                throw IllegalStateException("Node with ID $nodeId doesn't exist.")
                             }
                         } else if (rtx.isDocumentRoot) {
                             rtx.moveToFirstChild()
