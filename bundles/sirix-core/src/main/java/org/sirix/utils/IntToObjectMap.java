@@ -329,8 +329,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    *         false otherwise.
    */
   public boolean containsValue(Object o) {
-    for (Iterator<T> iterator = iterator(); iterator.hasNext(); ) {
-      T object = iterator.next();
+    for (T object : this) {
       if (object.equals(o)) {
         return true;
       }
