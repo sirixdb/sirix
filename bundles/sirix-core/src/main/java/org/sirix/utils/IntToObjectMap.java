@@ -1,7 +1,11 @@
 package org.sirix.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -23,7 +27,7 @@ import java.util.Iterator;
 /**
  * An Array-based hashtable which maps primitive int to Objects of generic type
  * T.<br>
- * The hashtable is constracted with a given capacity, or 16 as a default. In
+ * The hashtable is constructed with a given capacity, or 16 as a default. In
  * case there's not enough room for new pairs, the hashtable grows. <br>
  * Capacity is adjusted to a power of 2, and there are 2 * capacity entries for
  * the hash.
@@ -37,6 +41,11 @@ import java.util.Iterator;
  * @lucene.experimental
  */
 public class IntToObjectMap<T> implements Iterable<T> {
+/**
+ * Logger for this class.
+ */
+  private static final Logger LOGGER = LoggerFactory.getLogger(IntToObjectMap.class);
+
 
   /**
    * Implements an IntIterator which iterates over all the allocated indexes.
@@ -84,7 +93,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
       index = next[index];
 
       // if the next index points to the 'Ground' it means we're done with
-      // the current hash entry and we need to jump to the next one. This
+      // the current hash entry, and we need to jump to the next one. This
       // is done until all the hash entries had been visited.
       while (index == 0 && ++baseHashIndex < baseHash.length) {
         index = baseHash[baseHashIndex];
@@ -103,7 +112,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * Implements an IntIterator, used for iteration over the map's keys.
    */
   private final class KeyIterator implements IntIterator {
-    private IntIterator iterator = new IndexIterator();
+    private final IntIterator iterator = new IndexIterator();
 
     KeyIterator() {
     }
@@ -126,7 +135,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * map's values.
    */
   private final class ValueIterator implements Iterator<T> {
-    private IntIterator iterator = new IndexIterator();
+    private final IntIterator iterator = new IndexIterator();
 
     ValueIterator() {
     }
@@ -137,9 +146,13 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     @SuppressWarnings("unchecked")
     public T next() {
+      if (!iterator.hasNext()) {
+        throw new NoSuchElementException();
+      }
       return (T) values[iterator.next()];
     }
 
+    @Override
     public void remove() {
       iterator.remove();
     }
@@ -148,10 +161,10 @@ public class IntToObjectMap<T> implements Iterable<T> {
   /**
    * Default capacity - in case no capacity was specified in the constructor
    */
-  private static int defaultCapacity = 16;
+  private static final int DEFAULT_CAPACITY = 16;
 
   /**
-   * Holds the base hash entries. if the capacity is 2^N, than the base hash
+   * Holds the base hash entries. if the capacity is 2^N, thn the base hash
    * holds 2^(N+1). It can hold
    */
   int[] baseHash;
@@ -202,7 +215,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * Constructs a map with default capacity.
    */
   public IntToObjectMap() {
-    this(defaultCapacity);
+    this(DEFAULT_CAPACITY);
   }
 
   /**
@@ -214,7 +227,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    */
   public IntToObjectMap(int capacity) {
     this.capacity = 16;
-    // Minimum capacity is 16..
+    // Minimum capacity is 16.
     while (this.capacity < capacity) {
       // Multiply by 2 as long as we're still under the requested capacity
       this.capacity <<= 1;
@@ -254,7 +267,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * @param e
    *            element which is being mapped using the given key
    */
-  private void prvt_put(int key, T e) {
+  private void prvtPut(int key, T e) {
     // Hash entry to which the new pair would be inserted
     int hashIndex = calcBaseHashIndex(key);
 
@@ -301,7 +314,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
     // And setting all the <code>next[i]</code> to point at
     // <code>i+1</code>.
     for (int i = 1; i < this.capacity; ) {
-      next[i] = ++i;
+      next[i] = i + 1;
     }
 
     // Surly, the last one should point to the 'Ground'.
@@ -329,8 +342,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    *         false otherwise.
    */
   public boolean containsValue(Object o) {
-    for (Iterator<T> iterator = iterator(); iterator.hasNext(); ) {
-      T object = iterator.next();
+    for (T object : this) {
       if (object.equals(o)) {
         return true;
       }
@@ -353,7 +365,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // while the index does not point to the 'Ground'
     while (localIndex != 0) {
-      // returns the index found in case of of a matching key.
+      // returns the index found in case of a matching key.
       if (keys[localIndex] == key) {
         return localIndex;
       }
@@ -384,7 +396,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // while the index does not point to the 'Ground'
     while (index != 0) {
-      // returns the index found in case of of a matching key.
+      // returns the index found in case of a matching key.
       if (keys[index] == key) {
         return index;
       }
@@ -418,14 +430,14 @@ public class IntToObjectMap<T> implements Iterable<T> {
    */
   @SuppressWarnings("unchecked")
   protected void grow() {
-    IntToObjectMap<T> that = new IntToObjectMap<T>(this.capacity * 2);
+    IntToObjectMap<T> that = new IntToObjectMap<>(this.capacity * 2);
 
     // Iterates fast over the collection. Any valid pair is put into the new
     // map without checking for duplicates or if there's enough space for
     // it.
     for (IndexIterator iterator = new IndexIterator(); iterator.hasNext(); ) {
       int index = iterator.next();
-      that.prvt_put(this.keys[index], (T) this.values[index]);
+      that.prvtPut(this.keys[index], (T) this.values[index]);
     }
 
     // Copy that's data into this.
@@ -465,7 +477,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   @SuppressWarnings("unused")
   private void printBaseHash() {
     for (int i = 0; i < this.baseHash.length; i++) {
-      System.out.println(i + ".\t" + baseHash[i]);
+      LOGGER.info("{}.\t{}", i, baseHash[i]);
     }
   }
 
@@ -491,13 +503,13 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // Is there enough room for a new pair?
     if (size == capacity) {
-      // No? Than grow up!
+      // No? Then grow up!
       grow();
     }
 
     // Now that everything is set, the pair can be just put inside with no
     // worries.
-    prvt_put(key, e);
+    prvtPut(key, e);
 
     return null;
   }
@@ -547,8 +559,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
     Object[] array = new Object[size];
 
     // Iterates over the values, adding them to the array.
-    for (Iterator<T> iterator = iterator(); iterator.hasNext(); ) {
-      array[++j] = iterator.next();
+    for (T t : this) {
+      array[++j] = t;
     }
     return array;
   }
@@ -580,7 +592,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
   @Override
   public String toString() {
-    StringBuffer sb = new StringBuffer();
+    StringBuilder sb = new StringBuilder();
     sb.append('{');
     IntIterator keyIterator = keyIterator();
     while (keyIterator.hasNext()) {
@@ -605,6 +617,9 @@ public class IntToObjectMap<T> implements Iterable<T> {
   @SuppressWarnings("unchecked")
   @Override
   public boolean equals(Object o) {
+    if (!(o instanceof IntToObjectMap)) {
+      return false;
+    }
     IntToObjectMap<T> that = (IntToObjectMap<T>) o;
     if (that.size() != this.size()) {
       return false;
@@ -619,7 +634,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
       T v1 = this.get(key);
       T v2 = that.get(key);
-      if ((v1 == null && v2 != null) || (v1 != null && v2 == null) || (!v1.equals(v2))) {
+      if ((v1 == null && v2 != null) || (v1 != null && v2 == null) || (v1!= null && !v1.equals(v2))) {
         return false;
       }
     }
