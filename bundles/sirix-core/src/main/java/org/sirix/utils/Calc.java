@@ -232,8 +232,8 @@ public final class Calc {
 
   public static int compare(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
 
     int len1 = v1.length;
     int len2 = v2.length;
@@ -252,8 +252,8 @@ public final class Calc {
 
   public static int compare(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     int len = Math.min(len1, len2);
     int pos = -1;
     while (++pos < len) {
@@ -274,7 +274,7 @@ public final class Calc {
    * @param v2 the second value to be tested.
    * @return -1, if v2 is null but not v1, 1 for vice versa, 0 for both being null, and int max for when neither is null.
    */
-  private final static int comparsionOfNull(byte[] v1, byte[] v2){
+  private final static int comparisonOfNull(byte[] v1, byte[] v2){
     if(v1 == null && v2 == null)
       return 0;
     else if(v1 != null && v2 == null)
@@ -287,8 +287,8 @@ public final class Calc {
 
   public final static int compareAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
 
     int len1 = v1.length;
     int len2 = v2.length;
@@ -309,8 +309,8 @@ public final class Calc {
 
   public static int compareU(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     int len = Math.min(len1, len2);
     int pos = -1;
     while (++pos < len) {
@@ -325,8 +325,8 @@ public final class Calc {
 
   public final static int compareUAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != Integer.MAX_VALUE)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != Integer.MAX_VALUE)
+      return comparisonOfNull(v1, v2);
     int len1 = v1.length;
     int len2 = v2.length;
     int len = Math.min(len1, len2);
@@ -343,8 +343,8 @@ public final class Calc {
 
   public static int compareUIntVar(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     int i1 = toUIntVar(v1);
     int i2 = toUIntVar(v2);
     return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
@@ -357,8 +357,8 @@ public final class Calc {
 
   public static int compareInt(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     int i1 = toInt(v1, off1);
     int i2 = toInt(v2, off2);
     return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
@@ -371,8 +371,8 @@ public final class Calc {
 
   public static int compareLong(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     long i1 = toLong(v1, off1);
     long i2 = toLong(v2, off2);
     return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
@@ -380,8 +380,8 @@ public final class Calc {
 
   public static int compareDouble(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     double d1 = toDouble(v1);
     double d2 = toDouble(v2);
     return Double.compare(d1, d2);
@@ -389,8 +389,8 @@ public final class Calc {
 
   public static int compareFloat(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     float f1 = toFloat(v1);
     float f2 = toFloat(v2);
     return Float.compare(f1, f2);
@@ -398,8 +398,8 @@ public final class Calc {
 
   public static int compareBigInteger(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-   if(comparsionOfNull(v1, v2) != NONENULL)
-     return comparsionOfNull(v1, v2);
+   if(comparisonOfNull(v1, v2) != NONENULL)
+     return comparisonOfNull(v1, v2);
     BigInteger i1 = toBigInteger(v1);
     BigInteger i2 = toBigInteger(v2);
     return i1.compareTo(i2);
@@ -407,8 +407,8 @@ public final class Calc {
 
   public static int compareBigDecimal(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if (comparisonOfNull(v1, v2) != NONENULL)
+      return comparisonOfNull(v1, v2);
     BigDecimal i1 = toBigDecimal(v1);
     BigDecimal i2 = toBigDecimal(v2);
     return i1.compareTo(i2);
