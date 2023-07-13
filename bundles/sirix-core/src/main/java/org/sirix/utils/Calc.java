@@ -39,6 +39,9 @@ public final class Calc {
   }
 
   public static BigDecimal toBigDecimal(byte[] b) {
+    if (b == null) {
+      throw new IllegalArgumentException("Input byte array cannot be null");
+    }
     if ((b[0] & 0x80) == 0) {
       // bit 0 not set: 6 bits are sufficient
       // to encode scale unsigned
