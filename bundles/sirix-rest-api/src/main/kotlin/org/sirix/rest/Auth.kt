@@ -23,6 +23,12 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
     suspend fun handle(ctx: RoutingContext): Route {
         ctx.request().pause()
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
+
+        if (token == null) {
+            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            return ctx.currentRoute()
+        }
+
         val credentials = TokenCredentials(token.substring(7))
         val user = keycloak.authenticate(credentials).await()
         val database = ctx.pathParam("database")
@@ -38,7 +44,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
 
         if (!isAuthorized && !RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
-            ctx.response().end()
+            return ctx.currentRoute()
         }
 
         ctx.put("user", user)

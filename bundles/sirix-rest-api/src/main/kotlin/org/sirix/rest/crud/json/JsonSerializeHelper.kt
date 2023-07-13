@@ -44,10 +44,10 @@ class JsonSerializeHelper {
 
         rtx.use {
             val hash = if (nodeId == null) {
-                rtx.moveToFirstChild();
+                rtx.moveToFirstChild()
                 rtx.hash
             } else {
-                rtx.moveTo(nodeId);
+                rtx.moveTo(nodeId)
                 rtx.hash
             }
 
