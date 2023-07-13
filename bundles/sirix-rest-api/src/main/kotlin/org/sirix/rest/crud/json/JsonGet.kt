@@ -63,12 +63,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
             val manager = database.beginResourceSession(resource)
 
             manager.use {
-                body = if (query != null && query.isNotEmpty()) {
-                    queryResource(
-                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                        vertxContext, user, jsonBody
-                    )
-                } else {
+                body = if (query.isNullOrEmpty()) {
                     val revisions: IntArray =
                         Revisions.getRevisionsToSerialize(
                             startRevision, endRevision, startRevisionTimestamp,
@@ -76,6 +71,11 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
                         )
 
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
+                } else {
+                    queryResource(
+                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                        vertxContext, user, jsonBody
+                    )
                 }
             }
         }

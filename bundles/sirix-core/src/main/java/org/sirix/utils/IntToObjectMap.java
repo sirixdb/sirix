@@ -27,7 +27,7 @@ import java.util.NoSuchElementException;
 /**
  * An Array-based hashtable which maps primitive int to Objects of generic type
  * T.<br>
- * The hashtable is constructed with a given capacity, or 16 as a default. In
+ * The hashtable is constracted with a given capacity, or 16 as a default. In
  * case there's not enough room for new pairs, the hashtable grows. <br>
  * Capacity is adjusted to a power of 2, and there are 2 * capacity entries for
  * the hash.
@@ -93,7 +93,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
       index = next[index];
 
       // if the next index points to the 'Ground' it means we're done with
-      // the current hash entry, and we need to jump to the next one. This
+      // the current hash entry and we need to jump to the next one. This
       // is done until all the hash entries had been visited.
       while (index == 0 && ++baseHashIndex < baseHash.length) {
         index = baseHash[baseHashIndex];
@@ -112,7 +112,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * Implements an IntIterator, used for iteration over the map's keys.
    */
   private final class KeyIterator implements IntIterator {
-    private final IntIterator iterator = new IndexIterator();
+    private IntIterator iterator = new IndexIterator();
 
     KeyIterator() {
     }
@@ -135,7 +135,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * map's values.
    */
   private final class ValueIterator implements Iterator<T> {
-    private final IntIterator iterator = new IndexIterator();
+    private IntIterator iterator = new IndexIterator();
 
     ValueIterator() {
     }
@@ -161,7 +161,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   /**
    * Default capacity - in case no capacity was specified in the constructor
    */
-  private static final int DEFAULT_CAPACITY = 16;
+  private static int defaultCapacity = 16;
 
   /**
    * Holds the base hash entries. if the capacity is 2^N, thn the base hash
@@ -215,7 +215,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * Constructs a map with default capacity.
    */
   public IntToObjectMap() {
-    this(DEFAULT_CAPACITY);
+    this(defaultCapacity);
   }
 
   /**
@@ -227,7 +227,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    */
   public IntToObjectMap(int capacity) {
     this.capacity = 16;
-    // Minimum capacity is 16.
+    // Minimum capacity is 16..
     while (this.capacity < capacity) {
       // Multiply by 2 as long as we're still under the requested capacity
       this.capacity <<= 1;
@@ -313,7 +313,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
     // And setting all the <code>next[i]</code> to point at
     // <code>i+1</code>.
-    for (int i = 1; i < this.capacity; ) {
+    for (int i = 1; i < this.capacity; ++i) {
       next[i] = i + 1;
     }
 
