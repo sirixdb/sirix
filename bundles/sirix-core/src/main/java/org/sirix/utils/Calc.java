@@ -324,7 +324,7 @@ public final class Calc {
     return len1 - len2;
   }
 
-  public final static int compareUAsPrefix(byte[] v1, byte[] v2) {
+  public static int compareUAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
     if(comparisonOfNull(v1, v2) != Integer.MAX_VALUE)
       return comparisonOfNull(v1, v2);
