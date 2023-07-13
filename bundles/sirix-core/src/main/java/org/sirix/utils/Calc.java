@@ -156,6 +156,9 @@ public final class Calc {
   }
 
   public static int toInt(byte[] b, int off) {
+    if (b == null) {
+      throw new IllegalArgumentException("Input byte array cannot be null");
+    }
     return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8)
         | (b[off++] & 0xFF);
   }
@@ -179,6 +182,9 @@ public final class Calc {
   }
 
   public static long toLong(byte[] b, int off) {
+    if (b == null) {
+      throw new IllegalArgumentException("Input byte array cannot be null");
+    }
     return ((((long) b[off++] & 0xFF) << 56) | (((long) b[off++] & 0xFF) << 48)
         | (((long) b[off++] & 0xFF) << 40) | (((long) b[off++] & 0xFF) << 32)
         | (((long) b[off++] & 0xFF) << 24) | (((long) b[off++] & 0xFF) << 16)
@@ -283,7 +289,7 @@ public final class Calc {
       return 0;
     else if(v1 != null && v2 == null)
       return -1;
-    else if(v1 == null && v2!= null)
+    else if(v1 == null)
       return 1;
     else
       return NONENULL;
