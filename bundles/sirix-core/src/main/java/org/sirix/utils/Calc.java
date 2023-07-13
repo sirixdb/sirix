@@ -14,9 +14,11 @@ import java.util.Arrays;
  * 
  */
 public final class Calc {
+  private Calc() {}
 
+  private static final String ERROR_MSG = "Input byte array cannot be null";
   private static final Charset UTF8 = StandardCharsets.UTF_8;
-  private static final int NONENULL = Integer.MAX_VALUE;
+  private static final int MAX_INT = Integer.MAX_VALUE;
   public static byte[] fromBigDecimal(BigDecimal i) {
     BigInteger bi = i.unscaledValue();
     byte[] tmp = bi.toByteArray();
@@ -40,7 +42,7 @@ public final class Calc {
 
   public static BigDecimal toBigDecimal(byte[] b) {
     if (b == null) {
-      throw new IllegalArgumentException("Input byte array cannot be null");
+      throw new IllegalArgumentException(ERROR_MSG);
     }
     if ((b[0] & 0x80) == 0) {
       // bit 0 not set: 6 bits are sufficient
@@ -108,7 +110,7 @@ public final class Calc {
 
   public static int toUIntVar(byte[] b) {
     if (b == null) {
-      throw new IllegalArgumentException("Input byte array cannot be null");
+      throw new IllegalArgumentException(ERROR_MSG);
     }
     int len = b.length;
     if (len == 1) {
@@ -160,7 +162,7 @@ public final class Calc {
 
   public static int toInt(byte[] b, int off) {
     if (b == null) {
-      throw new IllegalArgumentException("Input byte array cannot be null");
+      throw new IllegalArgumentException(ERROR_MSG);
     }
     return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8)
         | (b[off++] & 0xFF);
@@ -186,7 +188,7 @@ public final class Calc {
 
   public static long toLong(byte[] b, int off) {
     if (b == null) {
-      throw new IllegalArgumentException("Input byte array cannot be null");
+      throw new IllegalArgumentException(ERROR_MSG);
     }
     return ((((long) b[off++] & 0xFF) << 56) | (((long) b[off++] & 0xFF) << 48)
         | (((long) b[off++] & 0xFF) << 40) | (((long) b[off++] & 0xFF) << 32)
@@ -245,7 +247,7 @@ public final class Calc {
 
   public static int compare(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
 
     int len1 = v1.length;
@@ -265,7 +267,7 @@ public final class Calc {
 
   public static int compare(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     int len = Math.min(len1, len2);
     int pos = -1;
@@ -295,12 +297,12 @@ public final class Calc {
     else if(v1 == null)
       return 1;
     else
-      return NONENULL;
+      return MAX_INT;
   }
 
   public static int compareAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
 
     int len1 = v1.length;
@@ -322,7 +324,7 @@ public final class Calc {
 
   public static int compareU(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     int len = Math.min(len1, len2);
     int pos = -1;
@@ -356,7 +358,7 @@ public final class Calc {
 
   public static int compareUIntVar(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     int i1 = toUIntVar(v1);
     int i2 = toUIntVar(v2);
@@ -370,7 +372,7 @@ public final class Calc {
 
   public static int compareInt(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     int i1 = toInt(v1, off1);
     int i2 = toInt(v2, off2);
@@ -384,7 +386,7 @@ public final class Calc {
 
   public static int compareLong(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     long i1 = toLong(v1, off1);
     long i2 = toLong(v2, off2);
@@ -393,7 +395,7 @@ public final class Calc {
 
   public static int compareDouble(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     double d1 = toDouble(v1);
     double d2 = toDouble(v2);
@@ -402,7 +404,7 @@ public final class Calc {
 
   public static int compareFloat(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparisonOfNull(v1, v2) != NONENULL)
+    if(comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     float f1 = toFloat(v1);
     float f2 = toFloat(v2);
@@ -411,7 +413,7 @@ public final class Calc {
 
   public static int compareBigInteger(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-   if(comparisonOfNull(v1, v2) != NONENULL)
+   if(comparisonOfNull(v1, v2) != MAX_INT)
      return comparisonOfNull(v1, v2);
     BigInteger i1 = toBigInteger(v1);
     BigInteger i2 = toBigInteger(v2);
@@ -420,7 +422,7 @@ public final class Calc {
 
   public static int compareBigDecimal(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (comparisonOfNull(v1, v2) != NONENULL)
+    if (comparisonOfNull(v1, v2) != MAX_INT)
       return comparisonOfNull(v1, v2);
     BigDecimal i1 = toBigDecimal(v1);
     BigDecimal i2 = toBigDecimal(v2);
