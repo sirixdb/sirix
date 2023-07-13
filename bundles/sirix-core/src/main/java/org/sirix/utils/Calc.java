@@ -275,7 +275,7 @@ public final class Calc {
    * @param v2 the second value to be tested.
    * @return -1, if v2 is null but not v1, 1 for vice versa, 0 for both being null, and int max for when neither is null.
    */
-  private static final int comparisonOfNull(byte[] v1, byte[] v2){
+  private static int comparisonOfNull(byte[] v1, byte[] v2){
     if(v1 == null && v2 == null)
       return 0;
     else if(v1 != null && v2 == null)
