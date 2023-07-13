@@ -286,7 +286,7 @@ public final class Calc {
       return NONENULL;
   }
 
-  public final static int compareAsPrefix(byte[] v1, byte[] v2) {
+  public static int compareAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
     if(comparisonOfNull(v1, v2) != NONENULL)
       return comparisonOfNull(v1, v2);
