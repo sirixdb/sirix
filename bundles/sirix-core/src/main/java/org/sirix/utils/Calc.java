@@ -280,7 +280,7 @@ public final class Calc {
       return 0;
     else if(v1 != null && v2 == null)
       return -1;
-    else if(v1 == null)
+    else if(v1 == null && v2!= null)
       return 1;
     else
       return NONENULL;
@@ -348,7 +348,7 @@ public final class Calc {
       return comparisonOfNull(v1, v2);
     int i1 = toUIntVar(v1);
     int i2 = toUIntVar(v2);
-    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
+    return Integer.compare(i1, i2);
   }
 
   public static int compareInt(byte[] v1, byte[] v2) {
@@ -362,7 +362,7 @@ public final class Calc {
       return comparisonOfNull(v1, v2);
     int i1 = toInt(v1, off1);
     int i2 = toInt(v2, off2);
-    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
+    return Integer.compare(i1, i2);
   }
 
   public static int compareLong(byte[] v1, byte[] v2) {
@@ -376,7 +376,7 @@ public final class Calc {
       return comparisonOfNull(v1, v2);
     long i1 = toLong(v1, off1);
     long i2 = toLong(v2, off2);
-    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
+    return Long.compare(i1, i2);
   }
 
   public static int compareDouble(byte[] v1, byte[] v2) {
