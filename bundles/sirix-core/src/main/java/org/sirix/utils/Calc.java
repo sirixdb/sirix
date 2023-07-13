@@ -280,7 +280,7 @@ public final class Calc {
       return 0;
     else if(v1 != null && v2 == null)
       return -1;
-    else if(v1 == null && v2 != null)
+    else if(v1 == null)
       return 1;
     else
       return NONENULL;
