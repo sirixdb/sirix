@@ -107,6 +107,9 @@ public final class Calc {
   }
 
   public static int toUIntVar(byte[] b) {
+    if (b == null) {
+      throw new IllegalArgumentException("Input byte array cannot be null");
+    }
     int len = b.length;
     if (len == 1) {
       return b[0] & 0xFF;
