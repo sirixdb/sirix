@@ -4,6 +4,7 @@ package org.sirix.utils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -14,7 +15,7 @@ import java.util.Arrays;
  */
 public final class Calc {
 
-  private static final Charset UTF8 = Charset.forName("UTF-8");
+  private static final Charset UTF8 = StandardCharsets.UTF_8;
   private static final int NONENULL = Integer.MAX_VALUE;
   public static byte[] fromBigDecimal(BigDecimal i) {
     BigInteger bi = i.unscaledValue();
