@@ -21,15 +21,15 @@ import java.util.Set;
 
 public final class CASIndexListener {
 
-  private final RBTreeWriter<CASValue, NodeReferences> redBlackTreeWriter;
+  private final RBTreeWriter<CASValue, NodeReferences> indexWriter;
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
   private final Type type;
 
   public CASIndexListener(final PathSummaryReader pathSummaryReader,
-      final RBTreeWriter<CASValue, NodeReferences> redBlackTreeWriter, final Set<Path<QNm>> paths, final Type type) {
+      final RBTreeWriter<CASValue, NodeReferences> indexWriter, final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
-    this.redBlackTreeWriter = redBlackTreeWriter;
+    this.indexWriter = indexWriter;
     this.paths = paths;
     this.type = type;
   }
@@ -45,7 +45,7 @@ public final class CASIndexListener {
       }
       case DELETE -> {
         if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
-          redBlackTreeWriter.remove(new CASValue(value, this.type, pathNodeKey), node.getNodeKey());
+          indexWriter.remove(new CASValue(value, this.type, pathNodeKey), node.getNodeKey());
         }
       }
       default -> {
@@ -63,7 +63,7 @@ public final class CASIndexListener {
 
     if (isOfType) {
       final CASValue indexValue = new CASValue(value, type, pathNodeKey);
-      final Optional<NodeReferences> textReferences = redBlackTreeWriter.get(indexValue, SearchMode.EQUAL);
+      final Optional<NodeReferences> textReferences = indexWriter.get(indexValue, SearchMode.EQUAL);
       if (textReferences.isPresent()) {
         setNodeReferences(node, new NodeReferences(textReferences.get().getNodeKeys()), indexValue);
       } else {
@@ -73,6 +73,6 @@ public final class CASIndexListener {
   }
 
   private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final CASValue indexValue) {
-    redBlackTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    indexWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 }

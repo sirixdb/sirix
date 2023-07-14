@@ -1,31 +1,30 @@
 package org.sirix.index.path;
 
-import java.util.Collections;
-import java.util.Set;
+import it.unimi.dsi.fastutil.longs.LongSet;
 
 public class PCRValue {
-  private final long mMaxPCR;
+  private final long maxPCR;
 
-  private final Set<Long> mPCRs;
+  private final LongSet pcrs;
 
-  private PCRValue(final long maxPCR, final Set<Long> pcrs) {
-    mMaxPCR = maxPCR;
-    mPCRs = pcrs;
+  private PCRValue(final long maxPCR, final LongSet pcrs) {
+    this.maxPCR = maxPCR;
+    this.pcrs = pcrs;
   }
 
-  public static final PCRValue getInstance(final long maxPCR, final Set<Long> pcrs) {
+  public static PCRValue getInstance(final long maxPCR, final LongSet pcrs) {
     return new PCRValue(maxPCR, pcrs);
   }
 
-  public static final PCRValue getEmptyInstance() {
-    return new PCRValue(0, Collections.emptySet());
+  public static PCRValue getEmptyInstance() {
+    return new PCRValue(0, LongSet.of());
   }
 
   public long getMaxPCR() {
-    return mMaxPCR;
+    return maxPCR;
   }
 
-  public Set<Long> getPCRs() {
-    return mPCRs;
+  public LongSet getPCRs() {
+    return pcrs;
   }
 }
