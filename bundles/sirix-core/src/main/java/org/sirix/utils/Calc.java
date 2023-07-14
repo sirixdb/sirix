@@ -4,6 +4,7 @@ package org.sirix.utils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -13,9 +14,11 @@ import java.util.Arrays;
  * 
  */
 public final class Calc {
+  private Calc() {}
 
-  private static final Charset UTF8 = Charset.forName("UTF-8");
-  private static final int NONENULL = Integer.MAX_VALUE;
+  private static final String ERROR_MSG = "Input byte array cannot be null";
+  private static final Charset UTF8 = StandardCharsets.UTF_8;
+  private static final int MAX_INT = Integer.MAX_VALUE;
   public static byte[] fromBigDecimal(BigDecimal i) {
     BigInteger bi = i.unscaledValue();
     byte[] tmp = bi.toByteArray();
@@ -38,6 +41,9 @@ public final class Calc {
   }
 
   public static BigDecimal toBigDecimal(byte[] b) {
+    if (b == null) {
+      throw new IllegalArgumentException(ERROR_MSG);
+    }
     if ((b[0] & 0x80) == 0) {
       // bit 0 not set: 6 bits are sufficient
       // to encode scale unsigned
@@ -103,6 +109,9 @@ public final class Calc {
   }
 
   public static int toUIntVar(byte[] b) {
+    if (b == null) {
+      throw new IllegalArgumentException(ERROR_MSG);
+    }
     int len = b.length;
     if (len == 1) {
       return b[0] & 0xFF;
@@ -152,6 +161,9 @@ public final class Calc {
   }
 
   public static int toInt(byte[] b, int off) {
+    if (b == null) {
+      throw new IllegalArgumentException(ERROR_MSG);
+    }
     return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8)
         | (b[off++] & 0xFF);
   }
@@ -175,6 +187,9 @@ public final class Calc {
   }
 
   public static long toLong(byte[] b, int off) {
+    if (b == null) {
+      throw new IllegalArgumentException(ERROR_MSG);
+    }
     return ((((long) b[off++] & 0xFF) << 56) | (((long) b[off++] & 0xFF) << 48)
         | (((long) b[off++] & 0xFF) << 40) | (((long) b[off++] & 0xFF) << 32)
         | (((long) b[off++] & 0xFF) << 24) | (((long) b[off++] & 0xFF) << 16)
@@ -232,8 +247,8 @@ public final class Calc {
 
   public static int compare(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
 
     int len1 = v1.length;
     int len2 = v2.length;
@@ -252,8 +267,8 @@ public final class Calc {
 
   public static int compare(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     int len = Math.min(len1, len2);
     int pos = -1;
     while (++pos < len) {
@@ -274,21 +289,21 @@ public final class Calc {
    * @param v2 the second value to be tested.
    * @return -1, if v2 is null but not v1, 1 for vice versa, 0 for both being null, and int max for when neither is null.
    */
-  private final static int comparsionOfNull(byte[] v1, byte[] v2){
+  private static int comparisonOfNull(byte[] v1, byte[] v2){
     if(v1 == null && v2 == null)
       return 0;
     else if(v1 != null && v2 == null)
       return -1;
-    else if(v1 == null && v2 != null)
+    else if(v1 == null)
       return 1;
     else
-      return NONENULL;
+      return MAX_INT;
   }
 
-  public final static int compareAsPrefix(byte[] v1, byte[] v2) {
+  public static int compareAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
 
     int len1 = v1.length;
     int len2 = v2.length;
@@ -309,8 +324,8 @@ public final class Calc {
 
   public static int compareU(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     int len = Math.min(len1, len2);
     int pos = -1;
     while (++pos < len) {
@@ -323,10 +338,10 @@ public final class Calc {
     return len1 - len2;
   }
 
-  public final static int compareUAsPrefix(byte[] v1, byte[] v2) {
+  public static int compareUAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != Integer.MAX_VALUE)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != Integer.MAX_VALUE)
+      return comparisonOfNull(v1, v2);
     int len1 = v1.length;
     int len2 = v2.length;
     int len = Math.min(len1, len2);
@@ -343,11 +358,11 @@ public final class Calc {
 
   public static int compareUIntVar(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     int i1 = toUIntVar(v1);
     int i2 = toUIntVar(v2);
-    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
+    return Integer.compare(i1, i2);
   }
 
   public static int compareInt(byte[] v1, byte[] v2) {
@@ -357,11 +372,11 @@ public final class Calc {
 
   public static int compareInt(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     int i1 = toInt(v1, off1);
     int i2 = toInt(v2, off2);
-    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
+    return Integer.compare(i1, i2);
   }
 
   public static int compareLong(byte[] v1, byte[] v2) {
@@ -371,17 +386,17 @@ public final class Calc {
 
   public static int compareLong(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     long i1 = toLong(v1, off1);
     long i2 = toLong(v2, off2);
-    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
+    return Long.compare(i1, i2);
   }
 
   public static int compareDouble(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     double d1 = toDouble(v1);
     double d2 = toDouble(v2);
     return Double.compare(d1, d2);
@@ -389,8 +404,8 @@ public final class Calc {
 
   public static int compareFloat(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if(comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     float f1 = toFloat(v1);
     float f2 = toFloat(v2);
     return Float.compare(f1, f2);
@@ -398,8 +413,8 @@ public final class Calc {
 
   public static int compareBigInteger(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-   if(comparsionOfNull(v1, v2) != NONENULL)
-     return comparsionOfNull(v1, v2);
+   if(comparisonOfNull(v1, v2) != MAX_INT)
+     return comparisonOfNull(v1, v2);
     BigInteger i1 = toBigInteger(v1);
     BigInteger i2 = toBigInteger(v2);
     return i1.compareTo(i2);
@@ -407,8 +422,8 @@ public final class Calc {
 
   public static int compareBigDecimal(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (comparsionOfNull(v1, v2) != NONENULL)
-      return comparsionOfNull(v1, v2);
+    if (comparisonOfNull(v1, v2) != MAX_INT)
+      return comparisonOfNull(v1, v2);
     BigDecimal i1 = toBigDecimal(v1);
     BigDecimal i2 = toBigDecimal(v2);
     return i1.compareTo(i2);
