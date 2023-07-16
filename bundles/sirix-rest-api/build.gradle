@@ -80,6 +80,7 @@ task copyCertificates(type: Copy) {
     include '*.pem'
     into file("$buildDir/sirix-data")
 }
+copyCertificates.dependsOn(processResources)
 
 /*
 task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
