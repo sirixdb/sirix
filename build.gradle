@@ -264,7 +264,7 @@ subprojects {
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
-        maxHeapSize = '5g'
+        maxHeapSize = '8g'
     }
 }
 
