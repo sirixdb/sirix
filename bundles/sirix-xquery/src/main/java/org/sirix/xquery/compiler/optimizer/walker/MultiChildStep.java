@@ -33,7 +33,17 @@ import org.sirix.xquery.compiler.XQExt;
 
 /**
  * @author Sebastian Baechle
- * 
+ * -----------------------------------------------------------------------------------------------
+ * The purpose of this class is to optimize XQuery expressions
+ * by combining consecutive child steps into a single multistep expression.
+ * The class is a part of the Sirix XQuery compiler optimizer
+ * and is responsible for merging multiple consecutive child steps in an XQuery path expression
+ * into a more efficient multistep expression.
+ * ---------------------------------------------------------------------------------------------------
+ * In XQuery, path expressions are used to navigate XML data,
+ * and they consist of a sequence of steps separated by slashes.
+ * In some cases, consecutive child steps can be combined
+ * to reduce the number of individual steps in the path, leading to improved query performance.
  */
 public class MultiChildStep extends Walker {
 
@@ -43,6 +53,7 @@ public class MultiChildStep extends Walker {
   public MultiChildStep(StaticContext sctx) {
     super(sctx);
   }
+
 
   @Override
   protected AST visit(AST node) {
