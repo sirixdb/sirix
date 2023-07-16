@@ -38,12 +38,15 @@ dependencies {
     testImplementation testLibraries.junit
     testImplementation testLibraries.vertxJunit5
     testImplementation testLibraries.jsonassert
+
 }
+
+
 
 description = 'Non-blocking REST-API for SirixDB.'
 
 shadowJar {
-    classifier = 'fat'
+    archiveClassifier = 'fat'
     manifest {
         inheritFrom project.tasks.jar.manifest
     }
