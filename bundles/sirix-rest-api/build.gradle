@@ -38,12 +38,15 @@ dependencies {
     testImplementation testLibraries.junit
     testImplementation testLibraries.vertxJunit5
     testImplementation testLibraries.jsonassert
+
 }
+
+
 
 description = 'Non-blocking REST-API for SirixDB.'
 
 shadowJar {
-    classifier = 'fat'
+    archiveClassifier = 'fat'
     manifest {
         inheritFrom project.tasks.jar.manifest
     }
@@ -60,12 +63,12 @@ jar {
 
 compileKotlin {
     // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-    kotlinOptions.jvmTarget = '16'
+    kotlinOptions.jvmTarget = '19'
 }
 
 compileTestKotlin {
     // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-    kotlinOptions.jvmTarget = '16'
+    kotlinOptions.jvmTarget = '19'
 }
 
 test {
@@ -77,6 +80,7 @@ task copyCertificates(type: Copy) {
     include '*.pem'
     into file("$buildDir/sirix-data")
 }
+copyCertificates.dependsOn(processResources)
 
 /*
 task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {

@@ -18,6 +18,7 @@ import java.util.Comparator;
  * Function for sorting a sequence. This function returns the given sequence in sorted order
  * regarding the document order.
  * </p>
+ * <p>
  * The signature is:
  * </p>
  * <ul>
