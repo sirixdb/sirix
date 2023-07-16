@@ -15,7 +15,7 @@
 
 [![Follow](https://img.shields.io/twitter/follow/sirixdb.svg?style=social)](https://twitter.com/sirixdb)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Discord](https://discord.gg/yC33wVpv7t) | [Community Forum](https://sirix.discourse.group/) | [Documentation](https://sirix.io/docs/documentation.html)
+**[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip)** | **[Join us on Discord](https://discord.gg/yC33wVpv7t)** | **[Community Forum](https://sirix.discourse.group/)** | **[Documentation](https://sirix.io/docs/documentation.html)**
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
