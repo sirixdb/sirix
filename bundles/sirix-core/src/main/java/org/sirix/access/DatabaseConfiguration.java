@@ -61,11 +61,11 @@ public final class DatabaseConfiguration {
     /**
      * File to store db settings.
      */
-    CONFIGBINARY(Paths.get("dbsetting.obj"), false),
+    CONFIG_BINARY(Paths.get("dbsetting.obj"), false),
     /**
      * File to store encryption db settings.
      */
-    KEYSELECTOR(Paths.get("keyselector"), true),
+    KEY_SELECTOR(Paths.get("keyselector"), true),
     /**
      * File to store the data.
      */
@@ -233,7 +233,7 @@ public final class DatabaseConfiguration {
    * @return configuration file
    */
   public Path getConfigFile() {
-    return file.resolve(DatabasePaths.CONFIGBINARY.getFile());
+    return file.resolve(DatabasePaths.CONFIG_BINARY.getFile());
   }
 
   /**
@@ -274,7 +274,7 @@ public final class DatabaseConfiguration {
    */
   public static DatabaseConfiguration deserialize(final Path file) {
     try (final FileReader fileReader = new FileReader(
-        file.toAbsolutePath().resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
+        file.toAbsolutePath().resolve(DatabasePaths.CONFIG_BINARY.getFile()).toFile());
          final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
