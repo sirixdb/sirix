@@ -25,6 +25,7 @@ import java.util.Optional;
  * Function for finding a name index. If successful, this function returns the name-index number.
  * Otherwise it returns -1.
  * </p>
+ * <p>
  * Supported signatures are:
  * </p>
  * <ul>
