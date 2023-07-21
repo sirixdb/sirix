@@ -356,7 +356,7 @@ let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
 return {"revision": sdb:commit($doc)}
 ```
 
-To query for a string values with a certain name (`bar`) on all paths (empty sequence `()`):
+To query for string values with a certain name (`bar`) on all paths (empty sequence `()`):
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
@@ -369,7 +369,7 @@ return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:selec
 The argument `==` means check for equality of the string. Other values which might make more sense for integers, decimals... are `<`, `<=`, `>=` and `>`.
 
 ## SirixDB Features
-SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
+SirixDB is a log-structured, temporal JSON and XML database system, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
 
 ### Design Goals
 Some of the most important core principles and design goals are:
