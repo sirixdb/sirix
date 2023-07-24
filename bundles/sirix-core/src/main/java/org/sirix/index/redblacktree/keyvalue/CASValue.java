@@ -13,6 +13,8 @@ import org.sirix.index.AtomicUtil;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Value representing a text value, attribute value, element QName or any other byte encoded value.
  *
@@ -41,8 +43,8 @@ public final class CASValue implements Comparable<CASValue> {
    * @param pathNodeKey the path node-key
    */
   public CASValue(final Atomic value, final Type type, final @NonNegative long pathNodeKey) {
-    this.value = value;
-    this.type = type;
+    this.value = requireNonNull(value);
+    this.type = requireNonNull(type);
     this.pathNodeKey = pathNodeKey;
   }
 
@@ -78,13 +80,15 @@ public final class CASValue implements Comparable<CASValue> {
 
   @Override
   public int compareTo(final @Nullable CASValue other) {
-    final CASValue otherValue = other;
-    Atomic thisAtomic = value != null && type != null ? value.asType(type) : null;
-    Atomic otherAtomic =
-        otherValue.value != null && otherValue.type != null ? otherValue.value.asType(otherValue.type) : null;
+    if (other == null) {
+      return 1;
+    }
+
+    Atomic thisAtomic = value.asType(type);
+    Atomic otherAtomic = other.value.asType(other.type);
 
     return ComparisonChain.start()
-                          .compare(pathNodeKey, otherValue.pathNodeKey)
+                          .compare(pathNodeKey, other.pathNodeKey)
                           .compare(thisAtomic, otherAtomic)
                           .result();
   }

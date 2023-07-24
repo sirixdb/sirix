@@ -7,7 +7,6 @@ import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.io.DirectIOUtils;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;

@@ -24,7 +24,6 @@ package org.sirix;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
@@ -49,17 +48,22 @@ import static org.junit.Assert.fail;
  * This includes instantiation of databases plus resources.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class JsonTestHelper {
 
-  /** Temporary directory path. */
+  /**
+   * Temporary directory path.
+   */
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
 
-  /** Common resource name. */
+  /**
+   * Common resource name.
+   */
   public static final String RESOURCE = "shredded";
 
-  /** Paths where the data is stored to. */
+  /**
+   * Paths where the data is stored to.
+   */
   public enum PATHS {
     // PATH1 (Sirix)
     PATH1(Paths.get(TMPDIR, "sirix", "json-path1")),
@@ -72,27 +76,23 @@ public final class JsonTestHelper {
 
     final Path file;
 
-    final DatabaseConfiguration config;
-
     PATHS(final Path file) {
       this.file = file;
-      config = new DatabaseConfiguration(file).setDatabaseType(DatabaseType.JSON);
     }
 
     public Path getFile() {
       return file;
     }
-
-    public DatabaseConfiguration getConfig() {
-      return config;
-    }
-
   }
 
-  /** Common random instance for generating common tag names. */
+  /**
+   * Common random instance for generating common tag names.
+   */
   public final static Random random = new Random();
 
-  /** Path <=> Database instances. */
+  /**
+   * Path <=> Database instances.
+   */
   private final static Map<Path, Database<JsonResourceSession>> INSTANCES = new HashMap<>();
 
   @Test
@@ -112,19 +112,14 @@ public final class JsonTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
       }
+      final var database = Databases.openJsonDatabase(file);
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 

@@ -4,26 +4,30 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.RBNodeKey;
+import org.sirix.node.interfaces.Node;
 
 import java.util.Map;
 
-public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, ?>> {
+public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, Node> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<RBIndexKey, RBNode<?, ?>> cache;
+  private final com.github.benmanes.caffeine.cache.Cache<RBIndexKey, Node> cache;
 
   public RedBlackTreeNodeCache(final int maxSize) {
-    final RemovalListener<RBIndexKey, RBNode<?, ?>> removalListener =
-        (RBIndexKey key, RBNode<?, ?> value, RemovalCause cause) -> {
+    final RemovalListener<RBIndexKey, Node> removalListener =
+        (RBIndexKey key, Node value, RemovalCause cause) -> {
           assert key != null;
           assert value != null;
-          final RBNode<?, ?> parent = value.getParent();
 
-          if (parent != null) {
-            if (value.equals(parent.getLeftChild())) {
-              parent.setLeftChild(null);
-            } else if (value.equals(parent.getRightChild())) {
-              parent.setRightChild(null);
+          if (value instanceof RBNodeKey<?> rbNodeKey) {
+            final RBNodeKey<?> parent = rbNodeKey.getParent();
+
+            if (parent != null) {
+              if (value.equals(parent.getLeftChild())) {
+                parent.setLeftChild(null);
+              } else if (value.equals(parent.getRightChild())) {
+                parent.setRightChild(null);
+              }
             }
           }
         };
@@ -37,17 +41,17 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, 
   }
 
   @Override
-  public RBNode<?, ?> get(RBIndexKey key) {
+  public Node get(RBIndexKey key) {
     return cache.getIfPresent(key);
   }
 
   @Override
-  public void put(RBIndexKey key, @NonNull RBNode<?, ?> value) {
+  public void put(RBIndexKey key, @NonNull Node value) {
     cache.put(key, value);
   }
 
   @Override
-  public void putAll(Map<? extends RBIndexKey, ? extends RBNode<?, ?>> map) {
+  public void putAll(Map<? extends RBIndexKey, ? extends Node> map) {
     cache.putAll(map);
   }
 
@@ -57,7 +61,7 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, RBNode<?, 
   }
 
   @Override
-  public Map<RBIndexKey, RBNode<?, ?>> getAll(Iterable<? extends RBIndexKey> keys) {
+  public Map<RBIndexKey, Node> getAll(Iterable<? extends RBIndexKey> keys) {
     return cache.getAllPresent(keys);
   }
 

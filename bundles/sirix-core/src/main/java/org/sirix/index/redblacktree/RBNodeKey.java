@@ -5,7 +5,7 @@ import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
-import org.sirix.index.redblacktree.interfaces.MutableRBNode;
+import org.sirix.index.redblacktree.interfaces.MutableRBNodeKey;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
@@ -20,13 +20,13 @@ import static java.util.Objects.requireNonNull;
  *
  * @author Johannes Lichtenberger
  */
-public final class RBNode<K extends Comparable<? super K>, V> extends AbstractForwardingNode
-    implements MutableRBNode<K, V> {
+public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractForwardingNode
+    implements MutableRBNodeKey<K> {
   /** Key token. */
   private K key;
 
   /** Value. */
-  private V value;
+  private long valueNodeKey;
 
   /** Reference to the left node. */
   private long left = Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -38,24 +38,24 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   private boolean isChanged;
 
   /** {@link NodeDelegate} reference. */
-  private NodeDelegate nodeDelegate;
+  private final NodeDelegate nodeDelegate;
 
-  private RBNode<K,V> parent;
+  private RBNodeKey<K> parent;
 
-  private RBNode<K,V> leftChild;
+  private RBNodeKey<K> leftChild;
 
-  private RBNode<K,V> rightChild;
+  private RBNodeKey<K> rightChild;
 
   /**
    * Constructor.
    *
    * @param key the key
-   * @param value the value
+   * @param valueNodeKey the node key of the value node
    * @param nodeDelegate the used node delegate
    */
-  public RBNode(final K key, final V value, final NodeDelegate nodeDelegate) {
+  public RBNodeKey(final K key, final long valueNodeKey, final NodeDelegate nodeDelegate) {
     this.key = requireNonNull(key);
-    this.value = requireNonNull(value);
+    this.valueNodeKey = valueNodeKey;
     this.nodeDelegate = requireNonNull(nodeDelegate);
   }
 
@@ -84,8 +84,8 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
   }
 
   @Override
-  public V getValue() {
-    return value;
+  public long getValueNodeKey() {
+    return valueNodeKey;
   }
 
   /**
@@ -123,27 +123,27 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
     return right;
   }
 
-  public RBNode<K, V> getParent() {
+  public RBNodeKey<K> getParent() {
     return parent;
   }
 
-  public RBNode<K, V> getLeftChild() {
+  public RBNodeKey<K> getLeftChild() {
     return leftChild;
   }
 
-  public RBNode<K, V> getRightChild() {
+  public RBNodeKey<K> getRightChild() {
     return rightChild;
   }
 
-  public void setLeftChild(RBNode<K, V> leftChild) {
+  public void setLeftChild(RBNodeKey<K> leftChild) {
     this.leftChild = leftChild;
   }
 
-  public void setRightChild(RBNode<K, V> rightChild) {
+  public void setRightChild(RBNodeKey<K> rightChild) {
     this.rightChild = rightChild;
   }
 
-  public void setParent(RBNode<K, V> parent) {
+  public void setParent(RBNodeKey<K> parent) {
     this.parent = parent;
   }
 
@@ -164,9 +164,9 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof RBNode) {
+    if (obj instanceof RBNodeKey) {
       @SuppressWarnings("unchecked")
-      final RBNode<K, V> other = (RBNode<K, V>) obj;
+      final RBNodeKey<K> other = (RBNodeKey<K>) obj;
       return this.nodeDelegate.getNodeKey() == other.nodeDelegate.getNodeKey();
     }
     return false;
@@ -180,18 +180,13 @@ public final class RBNode<K extends Comparable<? super K>, V> extends AbstractFo
                       .add("right child", right)
                       .add("changed", isChanged)
                       .add("key", key)
-                      .add("value", value)
+                      .add("valueNodeKey", valueNodeKey)
                       .toString();
   }
 
   @Override
   public void setKey(final K key) {
     this.key = requireNonNull(key);
-  }
-
-  @Override
-  public void setValue(final V value) {
-    this.value = requireNonNull(value);
   }
 
   @Override

@@ -3,10 +3,9 @@ package org.sirix.index.path;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.index.Filter;
-import org.sirix.index.redblacktree.RBNode;
-import org.sirix.index.redblacktree.keyvalue.CASValue;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.index.redblacktree.RBNodeKey;
+import org.sirix.index.redblacktree.keyvalue.CASValue;
 
 import java.util.Collections;
 import java.util.Set;
@@ -67,7 +66,7 @@ public final class PathFilter implements Filter {
    * @return {@code true} if the node has been filtered, {@code false} otherwise
    */
   @Override
-  public <K extends Comparable<? super K>> boolean filter(final RBNode<K, NodeReferences> node) {
+  public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
     if (genericPath) {
       return true;
     }

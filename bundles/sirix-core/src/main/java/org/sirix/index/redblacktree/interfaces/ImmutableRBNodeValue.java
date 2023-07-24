@@ -5,28 +5,14 @@ import org.sirix.node.interfaces.Node;
 /**
  * Immutable RBNode.
  */
-public interface ImmutableRBNode<K extends Comparable<? super K>, V> extends Node {
+public interface ImmutableRBNodeValue<V> extends Node {
 
   /**
-   * Key to be indexed.
+   * Node value.
    * 
-   * @return key reference
-   */
-  K getKey();
-
-  /**
-   * Value to be indexed.
-   * 
-   * @return key reference
+   * @return the node value
    */
   V getValue();
-
-  /**
-   * Flag which determines if node is changed.
-   * 
-   * @return {@code true} if it has been changed in memory, {@code false} otherwise
-   */
-  boolean isChanged();
 
   /**
    * Determines node has a left child.

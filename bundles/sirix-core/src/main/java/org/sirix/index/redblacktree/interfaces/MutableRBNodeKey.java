@@ -6,20 +6,13 @@ package org.sirix.index.redblacktree.interfaces;
  * @author Johannes Lichtenberger
  * 
  */
-public interface MutableRBNode<K extends Comparable<? super K>, V> extends ImmutableRBNode<K, V> {
+public interface MutableRBNodeKey<K extends Comparable<? super K>> extends ImmutableRBNodeKey<K> {
   /**
    * Set the key.
    * 
    * @param key key to set
    */
   void setKey(K key);
-
-  /**
-   * Set the value.
-   * 
-   * @param value value to set
-   */
-  void setValue(V value);
 
   /**
    * Set left child.
@@ -40,5 +33,5 @@ public interface MutableRBNode<K extends Comparable<? super K>, V> extends Immut
    * 
    * @param changed flag which indicates if node is changed or not
    */
-  public void setChanged(boolean changed);
+  void setChanged(boolean changed);
 }

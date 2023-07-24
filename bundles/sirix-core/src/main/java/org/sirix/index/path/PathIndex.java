@@ -6,7 +6,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.index.*;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.RBNodeKey;
 import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.settings.Fixed;
@@ -33,11 +33,11 @@ public interface PathIndex<B, L extends ChangeListener> {
           reader.get(filter.getPCRs().iterator().next(), SearchMode.EQUAL);
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
     } else {
-      final Iterator<RBNode<Long, NodeReferences>> iter =
+      final Iterator<RBNodeKey<Long>> iter =
           reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
 
-      return new IndexFilterAxis<>(iter, setFilter);
+      return new IndexFilterAxis<>(reader, iter, setFilter);
     }
   }
 }

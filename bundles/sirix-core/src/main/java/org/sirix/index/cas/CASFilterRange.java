@@ -5,9 +5,8 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.Filter;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.RBNodeKey;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 
@@ -23,23 +22,20 @@ import static java.util.Objects.requireNonNull;
  */
 public final class CASFilterRange implements Filter {
 
-  /** The paths to filter. */
-  private final Set<Path<QNm>> mPaths;
-
   /** {@link PathFilter} instance to filter specific paths. */
-  private final PathFilter mPathFilter;
+  private final PathFilter pathFilter;
 
   /** The minimum value. */
-  private final Atomic mMin;
+  private final Atomic min;
 
   /** The maximum value. */
-  private final Atomic mMax;
+  private final Atomic max;
 
   /** {@code true} if the minimum should be included, {@code false} otherwise */
-  private final boolean mIncMin;
+  private final boolean incMin;
 
   /** {@code true} if the maximum should be included, {@code false} otherwise */
-  private final boolean mIncMax;
+  private final boolean incMax;
 
   /**
    * Constructor. Initializes the internal state.
@@ -53,20 +49,18 @@ public final class CASFilterRange implements Filter {
    */
   public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min, final Atomic max,
       final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) {
-    mPaths = requireNonNull(paths);
-    mPathFilter = new PathFilter(mPaths, pcrCollector);
-    mMin = requireNonNull(min);
-    mMax = requireNonNull(max);
-    mIncMin = incMin;
-    mIncMax = incMax;
+    this.pathFilter = new PathFilter(requireNonNull(paths), pcrCollector);
+    this.min = requireNonNull(min);
+    this.max = requireNonNull(max);
+    this.incMin = incMin;
+    this.incMax = incMax;
   }
 
   @Override
-  public <K extends Comparable<? super K>> boolean filter(final RBNode<K, NodeReferences> node) {
+  public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
     final K key = node.getKey();
-    if (key instanceof CASValue) {
-      final CASValue casValue = (CASValue) key;
-      final boolean filtered = mPathFilter.filter(node);
+    if (key instanceof CASValue casValue) {
+      final boolean filtered = pathFilter.filter(node);
 
       if (filtered) {
         return inRange(AtomicUtil.toType(casValue.getAtomicValue(), casValue.getType()));
@@ -75,12 +69,12 @@ public final class CASFilterRange implements Filter {
     return false;
   }
 
-  private <K extends Comparable<? super K>> boolean inRange(Atomic key) {
-    final int minKeyCompare = (mMin != null) ? mMin.compareTo(key) : -1;
-    final int maxKeyCompare = (mMax != null) ? mMax.compareTo(key) : 1;
+  private boolean inRange(Atomic key) {
+    final int minKeyCompare = (min != null) ? min.compareTo(key) : -1;
+    final int maxKeyCompare = (max != null) ? max.compareTo(key) : 1;
 
-    final boolean lowerBoundValid = ((minKeyCompare == 0) && (mIncMin)) || (minKeyCompare < 0);
-    final boolean upperBoundValid = ((maxKeyCompare == 0) && (mIncMax)) || (maxKeyCompare > 0);
+    final boolean lowerBoundValid = ((minKeyCompare == 0) && (incMin)) || (minKeyCompare < 0);
+    final boolean upperBoundValid = ((maxKeyCompare == 0) && (incMax)) || (maxKeyCompare > 0);
 
     return upperBoundValid && lowerBoundValid;
   }
