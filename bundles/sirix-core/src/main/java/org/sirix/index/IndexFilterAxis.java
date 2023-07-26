@@ -2,7 +2,8 @@ package org.sirix.index;
 
 import java.util.Iterator;
 import java.util.Set;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.RBNodeKey;
+import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import com.google.common.collect.AbstractIterator;
 
@@ -11,12 +12,16 @@ import static java.util.Objects.requireNonNull;
 public final class IndexFilterAxis<K extends Comparable<? super K>>
     extends AbstractIterator<NodeReferences> {
 
-  private final Iterator<RBNode<K, NodeReferences>> iter;
+  private final RBTreeReader<K, NodeReferences> treeReader;
+
+  private final Iterator<RBNodeKey<K>> iter;
 
   private final Set<? extends Filter> filter;
 
-  public IndexFilterAxis(final Iterator<RBNode<K, NodeReferences>> iter,
+
+  public IndexFilterAxis(final RBTreeReader<K, NodeReferences> treeReader, final Iterator<RBNodeKey<K>> iter,
       final Set<? extends Filter> filter) {
+    this.treeReader = requireNonNull(treeReader);
     this.iter = requireNonNull(iter);
     this.filter = requireNonNull(filter);
   }
@@ -24,16 +29,18 @@ public final class IndexFilterAxis<K extends Comparable<? super K>>
   @Override
   protected NodeReferences computeNext() {
     while (iter.hasNext()) {
-      final RBNode<K, NodeReferences> node = iter.next();
+      final RBNodeKey<K> node = iter.next();
       boolean filterResult = true;
       for (final Filter filter : filter) {
-        filterResult = filterResult && filter.filter(node);
+        filterResult = filter.filter(node);
         if (!filterResult) {
           break;
         }
       }
       if (filterResult) {
-        return node.getValue();
+        treeReader.moveTo(node.getValueNodeKey());
+        assert treeReader.getCurrentNodeAsRBNodeValue() != null;
+        return treeReader.getCurrentNodeAsRBNodeValue().getValue();
       }
     }
     return endOfData();

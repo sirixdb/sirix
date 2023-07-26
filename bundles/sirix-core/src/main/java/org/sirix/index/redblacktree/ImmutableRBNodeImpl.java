@@ -1,7 +1,7 @@
 package org.sirix.index.redblacktree;
 
 import org.jetbrains.annotations.NotNull;
-import org.sirix.index.redblacktree.interfaces.ImmutableRBNode;
+import org.sirix.index.redblacktree.interfaces.ImmutableRBNodeKey;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
@@ -12,20 +12,19 @@ import org.sirix.node.delegates.NodeDelegate;
  * @author Johannes Lichtenberger
  *
  * @param <K> key which has to be comparable (implement Comparable interface)
- * @param <V> value
  */
-public final class ImmutableRBNodeImpl<K extends Comparable<? super K>, V> extends AbstractForwardingNode
-    implements ImmutableRBNode<K, V> {
+public final class ImmutableRBNodeImpl<K extends Comparable<? super K>> extends AbstractForwardingNode
+    implements ImmutableRBNodeKey<K> {
 
-  /** {@link RBNode} to wrap. */
-  private final RBNode<K, V> node;
+  /** {@link RBNodeKey} to wrap. */
+  private final RBNodeKey<K> node;
 
   /**
    * Constructor.
    *
-   * @param node {@link RBNode} to wrap.
+   * @param node {@link RBNodeKey} to wrap.
    */
-  public ImmutableRBNodeImpl(final RBNode<K, V> node) {
+  public ImmutableRBNodeImpl(final RBNodeKey<K> node) {
     assert node != null;
     this.node = node;
   }
@@ -41,8 +40,8 @@ public final class ImmutableRBNodeImpl<K extends Comparable<? super K>, V> exten
   }
 
   @Override
-  public V getValue() {
-    return node.getValue();
+  public long getValueNodeKey() {
+    return node.getValueNodeKey();
   }
 
   @Override

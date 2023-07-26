@@ -6,7 +6,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.index.*;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.RBNodeKey;
 import org.sirix.index.redblacktree.RBTreeReader;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.settings.Fixed;
@@ -32,11 +32,11 @@ public interface NameIndex<B, L extends ChangeListener> {
           reader.get(filter.getIncludes().iterator().next(), SearchMode.EQUAL);
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
     } else {
-      final Iterator<RBNode<QNm, NodeReferences>> iter =
+      final Iterator<RBNodeKey<QNm>> iter =
           reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
+      final Set<Filter> setFilter = ImmutableSet.of(filter);
 
-      return new IndexFilterAxis<>(iter, setFilter);
+      return new IndexFilterAxis<>(reader, iter, setFilter);
     }
   }
 }

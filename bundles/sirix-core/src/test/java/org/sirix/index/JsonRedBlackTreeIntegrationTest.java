@@ -86,9 +86,9 @@ public final class JsonRedBlackTreeIntegrationTest {
   public void testCreateNameIndexWhileListeningAndNameIndexOnDemand() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var trx = session.beginNodeTrx()) {
+      var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
       final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
 
@@ -133,12 +133,12 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertFalse(allTwitterAccounts.hasNext());
 
       final var allStreetAddresses =
-          IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("streetaddress")), 1, IndexDef.DbType.JSON);
+          IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("streetaddress")), 2, IndexDef.DbType.JSON);
 
       indexController.createIndexes(Set.of(allStreetAddresses), trx);
 
       final var allStreetAddressesIndex = indexController.openNameIndex(trx.getPageTrx(),
-                                                                        allObjectKeyNamesExceptStreetAddress,
+                                                                        allStreetAddresses,
                                                                         indexController.createNameFilter(Set.of(
                                                                             "streetaddress")));
 
@@ -148,7 +148,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertFalse(allStreetAddressesIndex.hasNext());
 
-      final var allStreetAddressesIndexReader = RBTreeReader.getInstance(manager.getIndexCache(),
+      final var allStreetAddressesIndexReader = RBTreeReader.getInstance(session.getIndexCache(),
                                                                          trx.getPageTrx(),
                                                                          allStreetAddresses.getType(),
                                                                          allStreetAddresses.getID());
@@ -158,49 +158,49 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var lastChildKey = allStreetAddressesIndexReader.getLastChildKey();
       final var lastChildKind = allStreetAddressesIndexReader.getLastChildKind();
 
-      assertEquals(3, firstChildKey);
+      assertEquals(1, firstChildKey);
       assertEquals(NodeKind.NAMERB, firstChildKind);
       assertEquals(-1, lastChildKey);
       assertEquals(NodeKind.UNKNOWN, lastChildKind);
 
       final RBTreeReader<QNm, NodeReferences> allObjectKeyNamesIndexReader =
-          RBTreeReader.getInstance(manager.getIndexCache(),
+          RBTreeReader.getInstance(session.getIndexCache(),
                                    trx.getPageTrx(),
                                    allObjectKeyNames.getType(),
                                    allObjectKeyNames.getID());
 
-      final var avlNodeIterator = allObjectKeyNamesIndexReader.new RBNodeIterator(0);
+      final var iterator = allObjectKeyNamesIndexReader.new RBNodeIterator(0);
 
-      avlNodeIterator.forEachRemaining(avlNode -> {
-        System.out.println(avlNode);
-        System.out.println(avlNode.getKey());
+      iterator.forEachRemaining(node -> {
+        System.out.println(node);
+        System.out.println(node.getKey());
       });
 
       final var name = new QNm("streetaddress");
 
-      final var nodeGreater = allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.GREATER);
+      final var nodeGreater = allObjectKeyNamesIndexReader.getCurrentNodeAsRBNodeKey(name, SearchMode.GREATER);
 
       assertTrue(nodeGreater.isPresent());
       assertEquals("twitteraccount", nodeGreater.get().getKey().getLocalName());
 
       final var nodeGreaterNotPresent =
-          allObjectKeyNamesIndexReader.getCurrentNode(new QNm("type"), SearchMode.GREATER);
+          allObjectKeyNamesIndexReader.getCurrentNodeAsRBNodeKey(new QNm("type"), SearchMode.GREATER);
 
       assertFalse(nodeGreaterNotPresent.isPresent());
 
-      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.GREATER_OR_EQUAL);
+      final var nodeGreaterOrEqual = allObjectKeyNamesIndexReader.getCurrentNodeAsRBNodeKey(name, SearchMode.GREATER_OR_EQUAL);
 
       assertTrue(nodeGreaterOrEqual.isPresent());
       assertEquals("streetaddress", nodeGreaterOrEqual.get().getKey().getLocalName());
 
-      final var nodeLess = allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.LOWER);
+      final var nodeLess = allObjectKeyNamesIndexReader.getCurrentNodeAsRBNodeKey(name, SearchMode.LOWER);
 
       assertTrue(nodeLess.isPresent());
       assertEquals("id", nodeLess.get().getKey().getLocalName());
 
-      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getCurrentNode(nodeGreaterOrEqual.get().getNodeKey(),
-                                                                              name,
-                                                                              SearchMode.LOWER_OR_EQUAL);
+      final var nodeLessOrEqual = allObjectKeyNamesIndexReader.getCurrentNodeAsRBNodeKey(nodeGreaterOrEqual.get().getNodeKey(),
+                                                                                         name,
+                                                                                         SearchMode.LOWER_OR_EQUAL);
 
       assertTrue(nodeLessOrEqual.isPresent());
       assertEquals("streetaddress", nodeLessOrEqual.get().getKey().getLocalName());
@@ -213,7 +213,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertEquals(18, stream.count());
 
       final var nodeGreaterWithComp =
-          allObjectKeyNamesIndexReader.getCurrentNode(name, SearchMode.GREATER, Comparator.naturalOrder());
+          allObjectKeyNamesIndexReader.getCurrentNodeAsRBNodeKey(name, SearchMode.GREATER, Comparator.naturalOrder());
 
       assertEquals("twitteraccount", nodeGreaterWithComp.get().getKey().getLocalName());
 

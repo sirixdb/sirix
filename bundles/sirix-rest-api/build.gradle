@@ -20,7 +20,7 @@ apply plugin: 'docker-compose'
 
 dependencies {
     implementation project(':sirix-core')
-    implementation project(':sirix-xquery')
+    implementation project(':sirix-query')
     testImplementation project(':sirix-core').sourceSets.test.output
 
     implementation implLibraries.kotlinStdlib

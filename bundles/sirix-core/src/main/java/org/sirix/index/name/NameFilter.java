@@ -2,8 +2,7 @@ package org.sirix.index.name;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.index.Filter;
-import org.sirix.index.redblacktree.RBNode;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBNodeKey;
 
 import java.util.Collections;
 import java.util.Set;
@@ -30,7 +29,7 @@ public final class NameFilter implements Filter {
   }
 
   @Override
-  public <K extends Comparable<? super K>> boolean filter(final RBNode<K, NodeReferences> node) {
+  public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
     if (!(node.getKey() instanceof final QNm name))
       throw new IllegalStateException("Key is not of type QNm!");
 

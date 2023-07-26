@@ -49,7 +49,7 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 /**
- * The name page holds all names and their keys for a revision. Furthermore it has references to name indexes.
+ * The name page holds all names and their keys for a revision. Furthermore, it has references to name indexes.
  */
 public final class NamePage extends AbstractForwardingPage {
 

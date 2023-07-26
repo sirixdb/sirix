@@ -17,7 +17,7 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
 
 dependencies {
     implementation project(':sirix-core')
-    implementation project(':sirix-xquery')
+    implementation project(':sirix-query')
 
     implementation implLibraries.kotlinStdlib
     implementation implLibraries.kotlinStdlibJdk8

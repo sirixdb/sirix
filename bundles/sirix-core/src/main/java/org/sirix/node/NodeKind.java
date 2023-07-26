@@ -46,7 +46,8 @@ import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.path.summary.PathNode;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.index.redblacktree.RBNodeKey;
+import org.sirix.index.redblacktree.RBNodeValue;
 import org.sirix.index.redblacktree.keyvalue.CASValue;
 import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -83,7 +84,7 @@ import static org.sirix.node.Utils.putVarLong;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@SuppressWarnings({ "DuplicatedCode" })
+@SuppressWarnings({ "DuplicatedCode", "unchecked" })
 public enum NodeKind implements DeweyIdSerializer {
 
   /**
@@ -558,7 +559,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a CAS-RB node.
    */
-  CASRB((byte) 17, RBNode.class) {
+  CASRB((byte) 17, RBNodeKey.class) {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -569,8 +570,6 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] type = new byte[typeSize];
       source.read(type, 0, typeSize);
 
-      final Roaring64Bitmap nodeKeys = deserializeNodeReferences(source);
-
       final Type atomicType = resolveType(new String(type, Constants.DEFAULT_ENCODING));
 
       // Node delegate.
@@ -579,10 +578,10 @@ public enum NodeKind implements DeweyIdSerializer {
       final long rightChild = getVarLong(source);
       final long pathNodeKey = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-
+      final long valueNodeKey = source.readLong();
       final Atomic atomic = AtomicUtil.fromBytes(value, atomicType);
       final var node =
-          new RBNode<>(new CASValue(atomic, atomicType, pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
+          new RBNodeKey<>(new CASValue(atomic, atomicType, pathNodeKey), valueNodeKey, nodeDel);
 
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
@@ -592,7 +591,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
-      final RBNode<CASValue, NodeReferences> node = (RBNode<CASValue, NodeReferences>) record;
+      final RBNodeKey<CASValue> node = (RBNodeKey<CASValue>) record;
       final CASValue key = node.getKey();
       final byte[] textValue = key.getValue();
       assert textValue != null;
@@ -601,15 +600,13 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] type = key.getType().toString().getBytes(Constants.DEFAULT_ENCODING);
       sink.writeInt(type.length);
       sink.write(type);
-      final NodeReferences value = node.getValue();
-      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
-      serializeNodeReferences(sink, nodeKeys);
 
       serializeDelegate(node.getNodeDelegate(), sink);
       putVarLong(sink, node.getLeftChildKey());
       putVarLong(sink, node.getRightChildKey());
       putVarLong(sink, key.getPathNodeKey());
       sink.writeBoolean(node.isChanged());
+      sink.writeLong(node.getValueNodeKey());
     }
 
     @Override
@@ -638,18 +635,18 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a PATH-RB node.
    */
-  PATHRB((byte) 18, RBNode.class) {
+  PATHRB((byte) 18, RBNodeKey.class) {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
       final long key = getVarLong(source);
-      final var nodeKeys = deserializeNodeReferences(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
       final long leftChild = getVarLong(source);
       final long rightChild = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-      final RBNode<Long, NodeReferences> node = new RBNode<>(key, new NodeReferences(nodeKeys), nodeDel);
+      final long valueNodeKey = source.readLong();
+      final RBNodeKey<Long> node = new RBNodeKey<>(key, valueNodeKey, nodeDel);
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
       node.setChanged(isChanged);
@@ -658,15 +655,13 @@ public enum NodeKind implements DeweyIdSerializer {
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
-      final RBNode<Long, NodeReferences> node = (RBNode<Long, NodeReferences>) record;
+      final RBNodeKey<Long> node = (RBNodeKey<Long>) record;
       putVarLong(sink, node.getKey());
-      final NodeReferences value = node.getValue();
-      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
-      serializeNodeReferences(sink, nodeKeys);
       serializeDelegate(node.getNodeDelegate(), sink);
       putVarLong(sink, node.getLeftChildKey());
       putVarLong(sink, node.getRightChildKey());
       sink.writeBoolean(node.isChanged());
+      sink.writeLong(node.getValueNodeKey());
     }
 
     @Override
@@ -684,7 +679,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a PATH-RB node.
    */
-  NAMERB((byte) 19, RBNode.class) {
+  NAMERB((byte) 19, RBNodeKey.class) {
     @Override
     public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -697,13 +692,13 @@ public enum NodeKind implements DeweyIdSerializer {
       final QNm name = new QNm(new String(nspBytes, Constants.DEFAULT_ENCODING),
                                new String(prefixBytes, Constants.DEFAULT_ENCODING),
                                new String(localNameBytes, Constants.DEFAULT_ENCODING));
-      final var nodeKeys = deserializeNodeReferences(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
       final long leftChild = getVarLong(source);
       final long rightChild = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-      final RBNode<QNm, NodeReferences> node = new RBNode<>(name, new NodeReferences(nodeKeys), nodeDel);
+      final long valueNodeKey = source.readLong();
+      final RBNodeKey<QNm> node = new RBNodeKey<>(name, valueNodeKey, nodeDel);
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
       node.setChanged(isChanged);
@@ -712,7 +707,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
     @Override
     public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
-      final RBNode<QNm, NodeReferences> node = (RBNode<QNm, NodeReferences>) record;
+      final RBNodeKey<QNm> node = (RBNodeKey<QNm>) record;
       final byte[] nspBytes = node.getKey().getNamespaceURI().getBytes();
       sink.writeInt(nspBytes.length);
       sink.write(nspBytes);
@@ -722,13 +717,45 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] localNameBytes = node.getKey().getLocalName().getBytes();
       sink.writeInt(localNameBytes.length);
       sink.write(localNameBytes);
-      final NodeReferences value = node.getValue();
-      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
-      serializeNodeReferences(sink, nodeKeys);
       serializeDelegate(node.getNodeDelegate(), sink);
       putVarLong(sink, node.getLeftChildKey());
       putVarLong(sink, node.getRightChildKey());
       sink.writeBoolean(node.isChanged());
+      sink.writeLong(node.getValueNodeKey());
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * Node kind is a value red black tree node.
+   */
+  RB_NODE_VALUE((byte) 55, RBNodeValue.class) {
+    @Override
+    public @NotNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
+        final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
+      final var nodeKeys = deserializeNodeReferences(source);
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
+      return new RBNodeValue<>(new NodeReferences(nodeKeys), nodeDel);
+    }
+
+    @Override
+    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+      final RBNodeValue<NodeReferences> node = (RBNodeValue<NodeReferences>) record;
+      final NodeReferences value = node.getValue();
+      final Roaring64Bitmap nodeKeys = value.getNodeKeys();
+      serializeNodeReferences(sink, nodeKeys);
+      serializeDelegate(node.getNodeDelegate(), sink);
     }
 
     @Override
@@ -872,7 +899,6 @@ public enum NodeKind implements DeweyIdSerializer {
       var rightSibling = currKey - getVarLong(source);
       var leftSibling = currKey - getVarLong(source);
       var firstChild = currKey - getVarLong(source);
-      @SuppressWarnings("UnnecessaryLocalVariable") var lastChild = firstChild;
 
       var config = pageReadTrx.getResourceSession().getResourceConfig();
 
@@ -1068,19 +1094,19 @@ public enum NodeKind implements DeweyIdSerializer {
       final Number number = node.getValue();
 
       switch (number) {
-        case Double aDouble -> {
+        case Double ignored -> {
           sink.writeByte((byte) 0);
           sink.writeDouble(number.doubleValue());
         }
-        case Float aFloat -> {
+        case Float ignored -> {
           sink.writeByte((byte) 1);
           sink.writeFloat(number.floatValue());
         }
-        case Integer integer -> {
+        case Integer ignored -> {
           sink.writeByte((byte) 2);
           sink.writeInt(number.intValue());
         }
-        case Long aLong -> {
+        case Long ignored -> {
           sink.writeByte((byte) 3);
           sink.writeLong(number.longValue());
         }

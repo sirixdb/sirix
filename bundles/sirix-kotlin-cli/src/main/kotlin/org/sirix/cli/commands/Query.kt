@@ -10,14 +10,14 @@ import org.sirix.api.xml.XmlResourceSession
 import org.sirix.cli.CliOptions
 import org.sirix.cli.commands.RevisionsHelper.Companion.getRevisionsToSerialize
 import org.sirix.exception.SirixException
-import org.sirix.xquery.JsonDBSerializer
-import org.sirix.xquery.SirixCompileChain
-import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.XmlDBSerializer
-import org.sirix.xquery.json.*
-import org.sirix.xquery.node.BasicXmlDBStore
-import org.sirix.xquery.node.XmlDBCollection
-import org.sirix.xquery.node.XmlDBNode
+import org.sirix.query.JsonDBSerializer
+import org.sirix.query.SirixCompileChain
+import org.sirix.query.SirixQueryContext
+import org.sirix.query.XmlDBSerializer
+import org.sirix.query.json.*
+import org.sirix.query.node.BasicXmlDBStore
+import org.sirix.query.node.XmlDBCollection
+import org.sirix.query.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 

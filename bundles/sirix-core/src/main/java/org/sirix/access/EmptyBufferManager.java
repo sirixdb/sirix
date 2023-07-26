@@ -2,7 +2,7 @@ package org.sirix.access;
 
 import org.sirix.cache.*;
 import org.sirix.index.name.Names;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
@@ -15,7 +15,7 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
 
   private static final EmptyCache<Integer, RevisionRootPage> REVISION_ROOT_PAGE_CACHE = new EmptyCache<>();
 
-  private static final EmptyCache<RBIndexKey, RBNode<?, ?>> AVL_NODE_CACHE = new EmptyCache<>();
+  private static final EmptyCache<RBIndexKey, Node> INDEX_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<NamesCacheKey, Names> NAMES_CACHE = new EmptyCache<>();
 
@@ -40,8 +40,8 @@ public final class EmptyBufferManager implements org.sirix.cache.BufferManager {
   }
 
   @Override
-  public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
-    return AVL_NODE_CACHE;
+  public Cache<RBIndexKey, Node> getIndexCache() {
+    return INDEX_CACHE;
   }
 
   @Override

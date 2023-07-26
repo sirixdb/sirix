@@ -21,6 +21,8 @@
 
 package org.sirix.api;
 
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.AfterCommitState;
@@ -34,10 +36,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.node.interfaces.Node;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -376,5 +376,5 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @return the cache
    */
-  Cache<RBIndexKey, RBNode<?, ?>> getIndexCache();
+  Cache<RBIndexKey, Node> getIndexCache();
 }

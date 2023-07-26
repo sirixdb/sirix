@@ -60,6 +60,7 @@ import static java.util.Objects.requireNonNull;
  * @param <V> the value
  * @author Johannes Lichtenberger, University of Konstanz
  */
+@SuppressWarnings("ConstantValue")
 public final class RBTreeWriter<K extends Comparable<? super K>, V extends References>
     extends AbstractForwardingNodeCursor {
   /**
@@ -151,20 +152,24 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       moveToDocumentRoot();
     }
     final RevisionRootPage root = pageTrx.getActualRevisionRootPage();
-    if (rbTreeReader.getCurrentNode() == null
+    if (rbTreeReader.getCurrentNodeAsRBNodeKey() == null
         && ((StructNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      // Index is empty.. create root node.
+      // Index is empty... create root node.
       final long nodeKey = getNewNodeKey(root);
-      final RBNode<K, V> treeRoot = pageTrx.createRecord(new RBNode<>(key,
-                                                                      value,
-                                                                      new NodeDelegate(nodeKey,
-                                                                                       Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                                                       null,
-                                                                                       0,
-                                                                                       0,
-                                                                                       (SirixDeweyID) null)),
+      final RBNodeKey<K> treeRoot = pageTrx.createRecord(new RBNodeKey<>(key,
+                                                                         nodeKey + 1,
+                                                                         new NodeDelegate(nodeKey,
+                                                                                          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+                                                                                          null,
+                                                                                          0,
+                                                                                          0,
+                                                                                          (SirixDeweyID) null)),
                                                          rbTreeReader.indexType,
                                                          rbTreeReader.index);
+      pageTrx.createRecord(new RBNodeValue<>(value,
+                                             new NodeDelegate(nodeKey + 1, nodeKey, null, 0, 0, (SirixDeweyID) null)),
+                           rbTreeReader.indexType,
+                           rbTreeReader.index);
       final StructNode document = pageTrx.prepareRecordForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
                                                                        rbTreeReader.indexType,
                                                                        rbTreeReader.index);
@@ -174,39 +179,50 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       return value;
     }
 
-    if (move == MoveCursor.TO_DOCUMENT_ROOT || rbTreeReader.getCurrentNode() == null) {
+    if (move == MoveCursor.TO_DOCUMENT_ROOT || rbTreeReader.getCurrentNodeAsRBNodeKey() == null) {
       moveToDocumentRoot();
       moveToFirstChild();
     }
-    RBNode<K, V> node = rbTreeReader.getCurrentNode();
+    RBNodeKey<K> node = rbTreeReader.getCurrentNodeAsRBNodeKey();
     while (true) {
       final int c = key.compareTo(node.getKey());
       if (c == 0) {
-        if (!value.equals(node.getValue())) {
-          final RBNode<K, V> RBNode =
-              pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
-          RBNode.setValue(value);
-        }
-        return node.getValue();
+        rbTreeReader.moveTo(node.getValueNodeKey());
+        RBNodeValue<V> rbNodeValue = rbTreeReader.getCurrentNodeAsRBNodeValue();
+        assert rbNodeValue != null;
+        final V rbValueNodeValue = rbNodeValue.getValue();
+        //if (!value.equals(rbValueNodeValue)) {
+          rbNodeValue =
+              pageTrx.prepareRecordForModification(node.getValueNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
+          rbNodeValue.setValue(value);
+        //}
+        rbTreeReader.setCurrentNode(node);
+        return rbNodeValue.getValue();
       }
 
       final boolean moved = c < 0 ? moveToFirstChild() : moveToLastChild();
       if (moved) {
-        node = rbTreeReader.getCurrentNode();
+        node = rbTreeReader.getCurrentNodeAsRBNodeKey();
         continue;
       }
 
       final long nodeKey = getNewNodeKey(root);
-      final RBNode<K, V> child = pageTrx.createRecord(new RBNode<>(key,
-                                                                   value,
-                                                                   new NodeDelegate(nodeKey,
-                                                                                    node.getNodeKey(),
-                                                                                    null,
-                                                                                    0,
-                                                                                    0,
-                                                                                    (SirixDeweyID) null)),
+      final long valueNodeKey = nodeKey + 1;
+      final RBNodeKey<K> child = pageTrx.createRecord(new RBNodeKey<>(key,
+                                                                      nodeKey + 1,
+                                                                      new NodeDelegate(nodeKey,
+                                                                                       node.getNodeKey(),
+                                                                                       null,
+                                                                                       0,
+                                                                                       0,
+                                                                                       (SirixDeweyID) null)),
                                                       rbTreeReader.indexType,
                                                       rbTreeReader.index);
+      pageTrx.createRecord(new RBNodeValue<>(value,
+                                             new NodeDelegate(valueNodeKey, nodeKey, null, 0, 0, (SirixDeweyID) null)),
+                           rbTreeReader.indexType,
+                           rbTreeReader.index);
+
       node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
       if (c < 0) {
         node.setLeftChildKey(child.getNodeKey());
@@ -257,8 +273,10 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       removed = value.removeNodeKey(nodeKey);
 
       if (removed) {
-        final RBNode<K, V> node =
-            pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
+        @SuppressWarnings("DataFlowIssue") final RBNodeValue<V> node =
+            pageTrx.prepareRecordForModification(rbTreeReader.getCurrentNodeAsRBNodeKey().getValueNodeKey(),
+                                                 rbTreeReader.indexType,
+                                                 rbTreeReader.index);
         node.getValue().removeNodeKey(nodeKey);
       }
     }
@@ -271,13 +289,13 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param node node to be adjusted
    * @throws SirixIOException if an I/O error occurs
    */
-  private void adjust(RBNode<K, V> node) {
+  private void adjust(RBNodeKey<K> node) {
     setChanged(node, true);
 
     while (node != null && node.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty() && parent(node) != null
         && parent(node).isChanged()) {
       if (parent(node).equals(left(parent(parent(node))))) {
-        final RBNode<K, V> y = right(parent(parent(node)));
+        final RBNodeKey<K> y = right(parent(parent(node)));
         if (y != null && y.isChanged()) {
           setChanged(parent(node), false);
           y.setChanged(false);
@@ -294,7 +312,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
             rotateRight(parent(parent(node)));
         }
       } else if (parent(node).equals(right(parent(parent(node))))) {
-        final RBNode<K, V> y = left(parent(parent(node)));
+        final RBNodeKey<K> y = left(parent(parent(node)));
         if (y != null && y.isChanged()) {
           setChanged(parent(node), false);
           setChanged(y, false);
@@ -320,7 +338,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     if (((StructNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
       //noinspection ConstantConditions
-      setChanged(rbTreeReader.getCurrentNode(), false);
+      setChanged(rbTreeReader.getCurrentNodeAsRBNodeKey(), false);
     }
     moveTo(nodeKey);
   }
@@ -332,8 +350,8 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param changed      changed value
    * @throws SirixIOException if an I/O error occurs
    */
-  private void setChanged(final RBNode<K, V> nodeToChange, final boolean changed) {
-    final RBNode<K, V> node =
+  private void setChanged(final RBNodeKey<K> nodeToChange, final boolean changed) {
+    final RBNodeKey<K> node =
         pageTrx.prepareRecordForModification(nodeToChange.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
     node.setChanged(changed);
   }
@@ -344,7 +362,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param node node from which to move to and return the left sibling
    * @return left child node or {@code null}
    */
-  private RBNode<K, V> left(@Nullable final RBNode<K, V> node) {
+  private RBNodeKey<K> left(@Nullable final RBNodeKey<K> node) {
     if (node == null || node.getLeftChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
@@ -354,7 +372,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       assert node.getLeftChildKey() == leftChild.getNodeKey();
       return leftChild;
     }
-    return moveTo(node.getLeftChildKey()) ? rbTreeReader.getCurrentNode() : null;
+    return moveTo(node.getLeftChildKey()) ? rbTreeReader.getCurrentNodeAsRBNodeKey() : null;
   }
 
   /**
@@ -363,7 +381,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param node node from which to move to and return the right sibling
    * @return right child node or {@code null}
    */
-  private RBNode<K, V> right(@Nullable final RBNode<K, V> node) {
+  private RBNodeKey<K> right(@Nullable final RBNodeKey<K> node) {
     if (node == null || node.getRightChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
@@ -373,7 +391,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       assert node.getRightChildKey() == rightChild.getNodeKey();
       return rightChild;
     }
-    return moveTo(node.getRightChildKey()) ? rbTreeReader.getCurrentNode() : null;
+    return moveTo(node.getRightChildKey()) ? rbTreeReader.getCurrentNodeAsRBNodeKey() : null;
   }
 
   /**
@@ -382,7 +400,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param node node from which to move to and return the parent node
    * @return parent node or {@code null}
    */
-  private RBNode<K, V> parent(@Nullable final RBNode<K, V> node) {
+  private RBNodeKey<K> parent(@Nullable final RBNodeKey<K> node) {
     if (node == null || node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
@@ -392,7 +410,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
       assert node.getParentKey() == parent.getNodeKey();
       return parent;
     }
-    return moveTo(node.getParentKey()) ? rbTreeReader.getCurrentNode() : null;
+    return moveTo(node.getParentKey()) ? rbTreeReader.getCurrentNodeAsRBNodeKey() : null;
   }
 
   /**
@@ -401,11 +419,11 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param node node to be rotated
    * @throws SirixIOException if an I/O error occurs
    */
-  private void rotateLeft(RBNode<K, V> node) {
+  private void rotateLeft(RBNodeKey<K> node) {
     moveTo(node.getNodeKey());
 
     moveToLastChild();
-    @SuppressWarnings("unchecked") RBNode<K, V> right = (RBNode<K, V>) getNode();
+    @SuppressWarnings("unchecked") RBNodeKey<K> right = (RBNodeKey<K>) getNode();
 
     node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
     assert right != null;
@@ -413,7 +431,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     node.setRightChild(right.getLeftChild());
 
     if (right.hasLeftChild()) {
-      final RBNode<K, V> rightLeftChild =
+      final RBNodeKey<K> rightLeftChild =
           pageTrx.prepareRecordForModification(right.getLeftChildKey(), rbTreeReader.indexType, rbTreeReader.index);
       rightLeftChild.setParentKey(node.getNodeKey());
       rightLeftChild.setParent(node);
@@ -429,13 +447,14 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                                      rbTreeReader.index);
       parent.setFirstChildKey(right.getNodeKey());
     } else //noinspection ConstantConditions
-      if (moveTo(node.getParentKey()) && rbTreeReader.getCurrentNode().getLeftChildKey() == node.getNodeKey()) {
-        final RBNode<K, V> parent =
+      if (moveTo(node.getParentKey())
+          && rbTreeReader.getCurrentNodeAsRBNodeKey().getLeftChildKey() == node.getNodeKey()) {
+        final RBNodeKey<K> parent =
             pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setLeftChildKey(right.getNodeKey());
         parent.setLeftChild(right);
       } else {
-        final RBNode<K, V> parent =
+        final RBNodeKey<K> parent =
             pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setRightChildKey(right.getNodeKey());
         parent.setRightChild(right);
@@ -456,18 +475,18 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * @param node node to be rotated
    * @throws SirixIOException if an I/O error occurs
    */
-  private void rotateRight(RBNode<K, V> node) {
+  private void rotateRight(RBNodeKey<K> node) {
     moveTo(node.getNodeKey());
 
     moveToFirstChild();
-    @SuppressWarnings("unchecked") RBNode<K, V> leftChild = (RBNode<K, V>) getNode();
+    @SuppressWarnings("unchecked") RBNodeKey<K> leftChild = (RBNodeKey<K>) getNode();
     node = pageTrx.prepareRecordForModification(node.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
     assert leftChild != null;
     node.setLeftChildKey(leftChild.getRightChildKey());
     node.setLeftChild(leftChild.getRightChild());
 
     if (leftChild.hasRightChild()) {
-      final RBNode<K, V> leftRightChild = pageTrx.prepareRecordForModification(leftChild.getRightChildKey(),
+      final RBNodeKey<K> leftRightChild = pageTrx.prepareRecordForModification(leftChild.getRightChildKey(),
                                                                                rbTreeReader.indexType,
                                                                                rbTreeReader.index);
       leftRightChild.setParentKey(node.getNodeKey());
@@ -485,13 +504,14 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
                                                                      rbTreeReader.index);
       parent.setFirstChildKey(leftChild.getNodeKey());
     } else //noinspection ConstantConditions
-      if (moveTo(node.getParentKey()) && rbTreeReader.getCurrentNode().getRightChildKey() == node.getNodeKey()) {
-        final RBNode<K, V> parent =
+      if (moveTo(node.getParentKey())
+          && rbTreeReader.getCurrentNodeAsRBNodeKey().getRightChildKey() == node.getNodeKey()) {
+        final RBNodeKey<K> parent =
             pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setRightChildKey(leftChild.getNodeKey());
         parent.setRightChild(leftChild);
       } else {
-        final RBNode<K, V> parent =
+        final RBNodeKey<K> parent =
             pageTrx.prepareRecordForModification(rbTreeReader.getNodeKey(), rbTreeReader.indexType, rbTreeReader.index);
         parent.setLeftChildKey(leftChild.getNodeKey());
         parent.setLeftChild(leftChild);

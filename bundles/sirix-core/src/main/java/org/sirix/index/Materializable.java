@@ -14,15 +14,15 @@ public interface Materializable {
    * Materialize the object as a {@link Node} tree
    * 
    * @return the root of the materialized tree
-   * @throws DocumentException
+   * @throws DocumentException if materialization fails
    */
-  public Node<?> materialize() throws DocumentException;
+  Node<?> materialize();
 
   /**
    * Initializes the materialized locator facet
    * 
    * @param root root of the materialized facet subtree
-   * @throws DocumentException
+   * @throws DocumentException if initialization fails
    */
-  public void init(Node<?> root) throws DocumentException;
+  void init(Node<?> root);
 }
