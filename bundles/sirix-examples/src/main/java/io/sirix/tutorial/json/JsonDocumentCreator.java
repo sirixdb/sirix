@@ -21,12 +21,12 @@ package io.sirix.tutorial.json;
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import org.sirix.access.trx.node.json.objectvalue.ArrayValue;
-import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
-import org.sirix.access.trx.node.json.objectvalue.ObjectValue;
-import org.sirix.access.trx.node.json.objectvalue.StringValue;
-import org.sirix.api.json.JsonNodeTrx;
-import org.sirix.exception.SirixException;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.exception.SirixException;
 
 /**
  *

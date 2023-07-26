@@ -7,10 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.service.xml.shredder.XmlShredder;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.service.xml.shredder.XmlShredder;
 
 import io.sirix.tutorial.Constants;
 

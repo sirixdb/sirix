@@ -1,16 +1,16 @@
 package io.sirix.tutorial.xml;
 
-import org.sirix.access.Databases;
-import org.sirix.api.ResourceSession;
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.axis.temporal.PastAxis;
-import org.sirix.axis.visitor.VisitorDescendantAxis;
-import org.sirix.node.immutable.xml.ImmutableElement;
-import org.sirix.node.immutable.xml.ImmutableText;
+import io.sirix.access.Databases;
+import io.sirix.api.ResourceSession;
+import io.sirix.api.visitor.VisitResult;
+import io.sirix.api.visitor.VisitResultType;
+import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.axis.temporal.PastAxis;
+import io.sirix.axis.visitor.VisitorDescendantAxis;
+import io.sirix.node.immutable.xml.ImmutableElement;
+import io.sirix.node.immutable.xml.ImmutableText;
 
 import io.sirix.tutorial.Constants;
 
