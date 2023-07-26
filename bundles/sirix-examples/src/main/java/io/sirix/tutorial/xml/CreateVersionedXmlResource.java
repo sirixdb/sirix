@@ -2,9 +2,9 @@ package io.sirix.tutorial.xml;
 
 import java.nio.file.Files;
 
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
 
 import io.sirix.tutorial.Constants;
 

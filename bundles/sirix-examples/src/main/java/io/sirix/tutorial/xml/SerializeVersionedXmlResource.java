@@ -2,9 +2,9 @@ package io.sirix.tutorial.xml;
 
 import java.io.ByteArrayOutputStream;
 
-import org.sirix.access.Databases;
-import org.sirix.api.xml.XmlResourceSession;
-import org.sirix.service.xml.serialize.XmlSerializer;
+import io.sirix.access.Databases;
+import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.service.xml.serialize.XmlSerializer;
 
 import io.sirix.tutorial.Constants;
 
