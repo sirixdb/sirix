@@ -5,8 +5,8 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import org.brackit.xquery.jdm.Item
 import org.brackit.xquery.util.serialize.Serializer
-import org.sirix.xquery.SirixCompileChain
-import org.sirix.xquery.SirixQueryContext
+import org.sirix.query.SirixCompileChain
+import org.sirix.query.SirixQueryContext
 
 class QuerySerializer {
     companion object {

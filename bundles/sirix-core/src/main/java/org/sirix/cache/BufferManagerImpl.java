@@ -1,6 +1,6 @@
 package org.sirix.cache;
 
-import org.sirix.index.redblacktree.RBNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
@@ -44,7 +44,7 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
+  public Cache<RBIndexKey, Node> getIndexCache() {
     return redBlackTreeNodeCache;
   }
 

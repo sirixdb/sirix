@@ -12,7 +12,7 @@ import org.sirix.api.Database
 import org.sirix.api.ResourceSession
 import org.sirix.api.json.JsonResourceSession
 import org.sirix.rest.crud.AbstractDeleteHandler
-import org.sirix.xquery.json.BasicJsonDBStore
+import org.sirix.query.json.BasicJsonDBStore
 import java.nio.file.Path
 
 class JsonDelete(location: Path, private val authz: AuthorizationProvider) : AbstractDeleteHandler(location) {

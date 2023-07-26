@@ -8,8 +8,8 @@ import org.brackit.xquery.jdm.Stream
 import org.brackit.xquery.node.parser.NodeSubtreeParser
 import org.sirix.rest.Auth
 import org.sirix.rest.AuthRole
-import org.sirix.xquery.node.XmlDBCollection
-import org.sirix.xquery.node.XmlDBStore
+import org.sirix.query.node.XmlDBCollection
+import org.sirix.query.node.XmlDBStore
 import java.time.Instant
 
 class XmlSessionDBStore(

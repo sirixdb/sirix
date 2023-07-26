@@ -19,11 +19,11 @@ import org.sirix.rest.crud.Revisions
 import org.sirix.rest.crud.xml.XmlSessionDBStore
 import org.sirix.service.json.serialize.JsonRecordSerializer
 import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.xquery.JsonDBSerializer
-import org.sirix.xquery.SirixCompileChain
-import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.json.*
-import org.sirix.xquery.node.BasicXmlDBStore
+import org.sirix.query.JsonDBSerializer
+import org.sirix.query.SirixCompileChain
+import org.sirix.query.SirixQueryContext
+import org.sirix.query.json.*
+import org.sirix.query.node.BasicXmlDBStore
 import java.io.StringWriter
 import java.nio.file.Path
 

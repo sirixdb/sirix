@@ -1,9 +1,8 @@
 package org.sirix.index;
 
-import org.sirix.index.redblacktree.RBNode;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
+import org.sirix.index.redblacktree.RBNodeKey;
 
 public interface Filter {
 
-  <K extends Comparable<? super K>> boolean filter(RBNode<K, NodeReferences> node);
+  <K extends Comparable<? super K>> boolean filter(RBNodeKey<K> node);
 }

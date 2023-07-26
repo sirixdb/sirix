@@ -5,11 +5,10 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.index.Filter;
 import org.sirix.index.SearchMode;
-import org.sirix.index.redblacktree.RBNode;
-import org.sirix.index.redblacktree.keyvalue.CASValue;
-import org.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
+import org.sirix.index.redblacktree.RBNodeKey;
+import org.sirix.index.redblacktree.keyvalue.CASValue;
 
 import java.util.Set;
 
@@ -22,9 +21,6 @@ import static java.util.Objects.requireNonNull;
  *
  */
 public final class CASFilter implements Filter {
-
-  /** The paths to filter. */
-  private final Set<Path<QNm>> paths;
 
   /** {@link PathFilter} instance to filter specific paths. */
   private final PathFilter pathFilter;
@@ -45,8 +41,7 @@ public final class CASFilter implements Filter {
    */
   public CASFilter(final Set<Path<QNm>> paths, final Atomic key, final SearchMode mode,
       final PCRCollector pcrCollector) {
-    this.paths = requireNonNull(paths);
-    pathFilter = new PathFilter(this.paths, pcrCollector);
+    this.pathFilter = new PathFilter(requireNonNull(paths), pcrCollector);
     this.key = key;
     this.mode = requireNonNull(mode);
   }
@@ -74,7 +69,7 @@ public final class CASFilter implements Filter {
    * @return {@code true} if the node has been filtered, {@code false} otherwise
    */
   @Override
-  public <K extends Comparable<? super K>> boolean filter(final RBNode<K, NodeReferences> node) {
+  public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
     final K key = node.getKey();
     if (key instanceof final CASValue casValue) {
       return pathFilter.filter(node) && (this.key == null || mode.compare(this.key, casValue.getAtomicValue()) == 0);

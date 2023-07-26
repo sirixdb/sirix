@@ -26,7 +26,6 @@ import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.index.redblacktree.RBNode;
 import org.sirix.io.IOStorage;
 import org.sirix.io.Reader;
 import org.sirix.io.Writer;
@@ -211,7 +210,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Cache<RBIndexKey, RBNode<?, ?>> getIndexCache() {
+  public Cache<RBIndexKey, Node> getIndexCache() {
     return bufferManager.getIndexCache();
   }
 

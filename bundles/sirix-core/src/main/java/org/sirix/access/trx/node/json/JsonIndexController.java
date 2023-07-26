@@ -64,20 +64,14 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     final var indexBuilders = new HashSet<JsonNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
       switch (indexDef.getType()) {
-        case PATH:
-          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-          break;
-        case CAS:
-          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
-                                                  nodeWriteTrx.getPageWtx(),
-                                                  nodeWriteTrx.getPathSummary(),
-                                                  indexDef));
-          break;
-        case NAME:
-          indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
-          break;
-        default:
-          break;
+        case PATH -> indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(),
+                                                              nodeWriteTrx.getPathSummary(),
+                                                              indexDef));
+        case CAS -> indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
+                                                            nodeWriteTrx.getPageWtx(),
+                                                            nodeWriteTrx.getPathSummary(),
+                                                            indexDef));
+        case NAME -> indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
       }
     }
     return indexBuilders;

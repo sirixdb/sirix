@@ -9,11 +9,11 @@ import org.brackit.xquery.jdm.node.Node;
 import org.brackit.xquery.sequence.SortedNodeSequence;
 import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
-import org.sirix.xquery.SirixCompileChain;
-import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.SirixQueryContext.CommitStrategy;
-import org.sirix.xquery.node.BasicXmlDBStore;
-import org.sirix.xquery.node.XmlDBNode;
+import org.sirix.query.SirixCompileChain;
+import org.sirix.query.SirixQueryContext;
+import org.sirix.query.SirixQueryContext.CommitStrategy;
+import org.sirix.query.node.BasicXmlDBStore;
+import org.sirix.query.node.XmlDBNode;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
