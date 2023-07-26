@@ -44,7 +44,9 @@ implLibraries = [
         iouring                     : 'one.jasyncfio:jasyncfio:0.0.7:linux-amd64',
         roaringbitmap               : 'org.roaringbitmap:RoaringBitmap:0.9.36',
         fastObjectPool              : 'cn.danielw:fast-object-pool:2.2.1',
-        zeroAllocationHashing       : 'net.openhft:zero-allocation-hashing:0.16'
+        zeroAllocationHashing       : 'net.openhft:zero-allocation-hashing:0.16',
+        amazonS3                    : 'software.amazon.awssdk:s3:2.20.62'
+
 ]
 
 testLibraries = [
@@ -65,5 +67,6 @@ testLibraries = [
         kotestAssertions         : 'io.kotest:kotest-assertions-core-jvm:4.0.5',
         commonsCollections4      : 'org.apache.commons:commons-collections4:4.3',
         commonsCollections4Tests : 'org.apache.commons:commons-collections4:4.3:tests',
-        assertjCore              : 'org.assertj:assertj-core:3.23.1'
+        assertjCore              : 'org.assertj:assertj-core:3.23.1',
+        s3Mock                   : 'io.findify:s3mock_2.13:0.2.6'
 ]

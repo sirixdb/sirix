@@ -28,10 +28,22 @@
 
 package org.sirix.access;
 
-import com.google.common.base.MoreObjects;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
-import net.openhft.hashing.LongHashFunction;
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
+
+import java.io.EOFException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.BinaryEncodingVersion;
 import org.sirix.access.trx.node.HashType;
@@ -46,20 +58,12 @@ import org.sirix.node.interfaces.RecordSerializer;
 import org.sirix.settings.VersioningType;
 import org.sirix.utils.OS;
 
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Optional;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static java.util.Objects.requireNonNull;
+import net.openhft.hashing.LongHashFunction;
 
 /**
  * Holds the settings for a resource which acts as a base for session that can not change. This
@@ -165,6 +169,36 @@ public final class ResourceConfiguration {
     }
   }
 
+  public static final class AWSStorageInformation {
+	  private final String awsProfile;
+	  private final String awsRegion;
+	  private final String bucketName; //this should be same as the database name
+	  private final boolean shouldCreateBucketIfNotExists;
+
+	  public AWSStorageInformation(String awsProfile, String awsRegion, String bucketName, 
+			  boolean shouldCreateBucketIfNotExists) {
+		  this.awsProfile = awsProfile;
+		  this.awsRegion = awsRegion;
+		  this.bucketName = bucketName;
+		  this.shouldCreateBucketIfNotExists = shouldCreateBucketIfNotExists;
+	  }
+
+	  public String getAwsProfile() {
+		  return awsProfile;
+	  }
+
+	  public String getAwsRegion() {
+		  return awsRegion;
+	  }
+
+	  public String getBucketName() {
+		  return bucketName;
+	  }
+
+	  public boolean shouldCreateBucketIfNotExists() {
+		  return shouldCreateBucketIfNotExists;
+	  }
+  }
   // FIXED STANDARD FIELDS
   /**
    * Standard storage.
@@ -297,6 +331,14 @@ public final class ResourceConfiguration {
 
   // END MEMBERS FOR FIXED FIELDS
 
+  /*
+   * Optional AWS Credentials
+   * */
+  /*
+   * This could be improved in future to make it more sophisticated in terms setting the credentials 
+   * for creating the cloud client connection
+   * */
+  public AWSStorageInformation awsStoreInfo;
   /**
    * Get a new builder instance.
    *
@@ -330,6 +372,9 @@ public final class ResourceConfiguration {
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
+    if(builder.awsStoreInfo != null) {
+        awsStoreInfo = builder.awsStoreInfo;
+    }
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -448,7 +493,8 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
-          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
+          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount", "awsStoreInfo",
+          "awsProfile","awsRegion","bucketName","shouldCreateBucketIfNotExists"};
 
   /**
    * Serialize the configuration.
@@ -500,6 +546,15 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
+      if(config.awsStoreInfo != null) {
+          jsonWriter.name(JSONNAMES[17]).beginObject();
+          jsonWriter.name(JSONNAMES[18]).value(config.awsStoreInfo.getAwsProfile());
+          jsonWriter.name(JSONNAMES[19]).value(config.awsStoreInfo.getAwsRegion());
+          jsonWriter.name(JSONNAMES[20]).value(config.awsStoreInfo.getBucketName());
+          jsonWriter.name(JSONNAMES[21]).value(config.awsStoreInfo.shouldCreateBucketIfNotExists());
+          jsonWriter.name(JSONNAMES[17]).endObject();
+      }
+
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -596,7 +651,23 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
+      //name = jsonReader.nextName();
+      AWSStorageInformation awsStoreInfo=null;
+      try {
+          name = jsonReader.nextName();
+          assert name.equals(JSONNAMES[17]);
+          jsonReader.beginObject();
+          if(jsonReader.hasNext()) {
+            final String awsProfile=jsonReader.nextString();
+            final String awsRegion=jsonReader.nextString();
+            final String bucketName=jsonReader.nextString();
+            final boolean shouldCreateBucketIfNotExists=jsonReader.nextBoolean();
+            awsStoreInfo = new AWSStorageInformation(awsProfile,awsRegion, bucketName, shouldCreateBucketIfNotExists);
+          }
+          jsonReader.endObject();
+      }catch(SirixIOException | EOFException | IllegalStateException io) {
 
+      }
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -619,7 +690,8 @@ public final class ResourceConfiguration {
              .storeDiffs(storeDiffs)
              .storeChildCount(storeChildCount)
              .customCommitTimestamps(customCommitTimestamps)
-             .storeNodeHistory(storeNodeHistory);
+             .storeNodeHistory(storeNodeHistory)
+             .awsStoreInfo(awsStoreInfo);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -712,6 +784,8 @@ public final class ResourceConfiguration {
     private boolean storeNodeHistory;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
+
+    private AWSStorageInformation awsStoreInfo;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -878,6 +952,12 @@ public final class ResourceConfiguration {
     public Builder binaryEncodingVersion(BinaryEncodingVersion binaryEncodingVersion) {
       this.binaryEncodingVersion = requireNonNull(binaryEncodingVersion);
       return this;
+    }
+
+    /*Since this is an optional config parameter, null check is not needed*/
+    public Builder awsStoreInfo(final AWSStorageInformation awsStoreInfo) {
+        this.awsStoreInfo = awsStoreInfo;
+        return this;
     }
 
     @Override
