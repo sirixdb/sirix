@@ -42,7 +42,7 @@ class SirixVerticleXmlTest {
                 .put("client.secret", "78a294c4-0492-4e44-a35f-7eb9cab0d831")
                 .put("keycloak.url", "http://localhost:8080/auth/realms/sirixdb")
         )
-        vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.succeedingThenComplete())
+        vertx.deployVerticle("io.sirix.rest.SirixVerticle", options, testContext.succeedingThenComplete())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
     }
