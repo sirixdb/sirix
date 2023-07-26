@@ -12,7 +12,7 @@ import org.sirix.api.Database
 import org.sirix.api.ResourceSession
 import org.sirix.api.xml.XmlResourceSession
 import org.sirix.rest.crud.AbstractDeleteHandler
-import org.sirix.xquery.node.BasicXmlDBStore
+import org.sirix.query.node.BasicXmlDBStore
 import java.nio.file.Path
 
 class XmlDelete(location: Path, private val authz: AuthorizationProvider) : AbstractDeleteHandler(location) {

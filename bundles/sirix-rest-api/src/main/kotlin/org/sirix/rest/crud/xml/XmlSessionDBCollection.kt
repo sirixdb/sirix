@@ -4,7 +4,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
 import org.brackit.xquery.jdm.node.AbstractTemporalNode
 import org.brackit.xquery.jdm.node.TemporalNodeCollection
-import org.sirix.xquery.node.XmlDBNode
+import org.sirix.query.node.XmlDBNode
 
 class XmlSessionDBCollection<T>(
     private val ctx: RoutingContext,

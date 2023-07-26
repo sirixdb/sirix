@@ -3,7 +3,7 @@ package org.sirix.rest.crud.xml
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.RoutingContext
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
-import org.sirix.xquery.StructuredDBItem
+import org.sirix.query.StructuredDBItem
 
 class XmlSessionDBNode<T>(
     private val ctx: RoutingContext,
