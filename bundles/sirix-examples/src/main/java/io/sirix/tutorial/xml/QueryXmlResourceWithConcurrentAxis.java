@@ -1,19 +1,19 @@
 package io.sirix.tutorial.xml;
 
 import io.sirix.tutorial.Constants;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.Axis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.NestedAxis;
-import org.sirix.axis.concurrent.ConcurrentAxis;
-import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xml.XmlNameFilter;
-import org.sirix.service.xml.serialize.XmlSerializer;
-import org.sirix.service.xml.shredder.XmlShredder;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.Axis;
+import io.sirix.axis.ChildAxis;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
+import io.sirix.axis.NestedAxis;
+import io.sirix.axis.concurrent.ConcurrentAxis;
+import io.sirix.axis.filter.FilterAxis;
+import io.sirix.axis.filter.xml.XmlNameFilter;
+import io.sirix.service.xml.serialize.XmlSerializer;
+import io.sirix.service.xml.shredder.XmlShredder;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;

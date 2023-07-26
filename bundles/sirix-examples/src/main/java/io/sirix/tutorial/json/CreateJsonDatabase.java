@@ -1,10 +1,10 @@
 package io.sirix.tutorial.json;
 
 import io.sirix.tutorial.Constants;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.service.json.shredder.JsonShredder;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.service.json.shredder.JsonShredder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

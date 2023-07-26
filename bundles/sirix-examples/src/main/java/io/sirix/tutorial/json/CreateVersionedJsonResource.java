@@ -1,10 +1,10 @@
 package io.sirix.tutorial.json;
 
 import io.sirix.tutorial.Constants;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 
 import java.nio.file.Files;
 
