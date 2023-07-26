@@ -3,7 +3,7 @@ package io.sirix.cache;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.utils.IntToObjectMap;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import java.util.Map;
 import java.util.Set;

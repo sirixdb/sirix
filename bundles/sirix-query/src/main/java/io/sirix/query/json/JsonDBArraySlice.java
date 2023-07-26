@@ -1,13 +1,13 @@
 package io.sirix.query.json;
 
 import io.sirix.query.stream.json.TemporalSirixJsonArraySliceStream;
-import org.brackit.xquery.ErrorCode;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.json.Array;
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.json.Array;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;

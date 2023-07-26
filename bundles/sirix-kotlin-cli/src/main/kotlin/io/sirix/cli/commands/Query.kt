@@ -15,8 +15,8 @@ import io.sirix.query.json.*
 import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBNode
-import org.brackit.xquery.XQuery
-import org.brackit.xquery.util.serialize.Serializer
+import io.brackit.query.XQuery
+import io.brackit.query.util.serialize.Serializer
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 

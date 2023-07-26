@@ -5,7 +5,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.brackit.xquery.atomic.Str;
+import io.brackit.query.atomic.Str;
 import io.sirix.index.cas.CASIndexListener;
 
 public final class XmlCASIndexListener implements ChangeListener {

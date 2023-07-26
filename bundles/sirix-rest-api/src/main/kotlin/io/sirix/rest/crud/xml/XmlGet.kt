@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.xml.XmlResourceSession
-import io.sirix.rest.crud.PermissionCheckingXQuery
+import io.sirix.rest.crud.PermissionCheckingQuery
 import io.sirix.rest.crud.QuerySerializer
 import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.json.JsonSessionDBStore
@@ -247,7 +247,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         PrintStream(out).use { printStream ->
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
-                    PermissionCheckingXQuery(
+                    PermissionCheckingQuery(
                         sirixCompileChain,
                         query,
                         keycloak,

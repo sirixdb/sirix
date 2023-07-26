@@ -1,8 +1,8 @@
 package io.sirix.query;
 
+import io.brackit.query.Query;
 import io.sirix.JsonTestHelper;
 import io.sirix.query.json.BasicJsonDBStore;
-import org.brackit.xquery.XQuery;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,8 +10,6 @@ import org.junit.jupiter.api.BeforeEach;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
-
-import static org.junit.Assert.assertEquals;
 
 public abstract class AbstractJsonTest {
 
@@ -33,12 +31,12 @@ public abstract class AbstractJsonTest {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use XQuery to store a JSON string into the store.
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      // Use Query to store a JSON string into the store.
+      new Query(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, query).serialize(ctx, printWriter);
+        new Query(chain, query).serialize(ctx, printWriter);
         Assertions.assertEquals(assertion, out.toString());
       }
     }
@@ -54,7 +52,7 @@ public abstract class AbstractJsonTest {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, query).serialize(ctx, printWriter);
+        new Query(chain, query).serialize(ctx, printWriter);
         Assertions.assertEquals(assertion, out.toString());
       }
     }
@@ -72,7 +70,7 @@ public abstract class AbstractJsonTest {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, query).serialize(ctx, printWriter);
+        new Query(chain, query).serialize(ctx, printWriter);
         Assertions.assertEquals(assertion, out.toString());
       }
     }
@@ -84,8 +82,9 @@ public abstract class AbstractJsonTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
-         final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-      new XQuery(chain, query).serialize(ctx, printWriter);
+         final var out = new ByteArrayOutputStream();
+         final var printWriter = new PrintWriter(out)) {
+      new Query(chain, query).serialize(ctx, printWriter);
       Assertions.assertEquals(assertionString, out.toString());
     }
   }
@@ -96,7 +95,7 @@ public abstract class AbstractJsonTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      new XQuery(chain, query).evaluate(ctx);
+      new Query(chain, query).evaluate(ctx);
     }
   }
 }

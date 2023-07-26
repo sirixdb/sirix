@@ -31,15 +31,15 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.node.BasicXmlDBStore;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.compiler.CompileChain;
-import org.brackit.xquery.jdm.node.Node;
-import org.brackit.xquery.jdm.node.TemporalNodeCollection;
-import org.brackit.xquery.node.parser.DocumentParser;
-import org.brackit.xquery.node.parser.NodeSubtreeParser;
-import org.brackit.xquery.util.io.URIHandler;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Query;
+import io.brackit.query.compiler.CompileChain;
+import io.brackit.query.jdm.node.Node;
+import io.brackit.query.jdm.node.TemporalNodeCollection;
+import io.brackit.query.node.parser.DocumentParser;
+import io.brackit.query.node.parser.NodeSubtreeParser;
+import io.brackit.query.util.io.URIHandler;
 import io.sirix.service.json.shredder.JsonShredder;
 
 import java.io.ByteArrayOutputStream;
@@ -183,7 +183,7 @@ public final class Main {
   }
 
   private static void executeQuery(Config config, CompileChain compileChain, QueryContext ctx, String query) {
-    XQuery xq = new XQuery(compileChain, query);
+    Query xq = new Query(compileChain, query);
     if (config.isSet("-p")) {
       xq.prettyPrint();
     }

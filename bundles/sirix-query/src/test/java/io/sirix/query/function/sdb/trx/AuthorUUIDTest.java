@@ -8,7 +8,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -76,7 +76,7 @@ public class AuthorUUIDTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       query(ctx, chain, "sdb:author-id(jn:doc('json-path1','mydoc.jn', 2))", johannesUUID.toString());
       query(ctx, chain, "sdb:author-id(jn:doc('json-path1','mydoc.jn', 3))", mosheUUID.toString());
       query(ctx, chain, "sdb:author-id(jn:doc('json-path1','mydoc.jn', 4))", carolinUUID.toString());
@@ -86,7 +86,7 @@ public class AuthorUUIDTest {
   private void query(SirixQueryContext ctx, SirixCompileChain chain, String openQueryRevisionOne, String author)
       throws IOException {
     try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-      new XQuery(chain, openQueryRevisionOne).serialize(ctx, printWriter);
+      new Query(chain, openQueryRevisionOne).serialize(ctx, printWriter);
       Assert.assertEquals(author, out.toString());
     }
   }

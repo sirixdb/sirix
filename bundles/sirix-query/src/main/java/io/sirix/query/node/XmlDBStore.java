@@ -27,9 +27,9 @@
  */
 package io.sirix.query.node;
 
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.node.NodeStore;
-import org.brackit.xquery.node.parser.NodeSubtreeParser;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.node.NodeStore;
+import io.brackit.query.node.parser.NodeSubtreeParser;
 
 import java.time.Instant;
 

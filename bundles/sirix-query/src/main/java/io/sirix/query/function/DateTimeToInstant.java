@@ -1,6 +1,6 @@
 package io.sirix.query.function;
 
-import org.brackit.xquery.atomic.DateTime;
+import io.brackit.query.atomic.DateTime;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;

@@ -1,7 +1,7 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.atomic.*;
-import org.brackit.xquery.jdm.json.JsonItem;
+import io.brackit.query.atomic.*;
+import io.brackit.query.jdm.json.JsonItem;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 
 import java.math.BigDecimal;

@@ -3,7 +3,7 @@ package io.sirix.index.name.xml;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.index.ChangeListener;
 import io.sirix.node.interfaces.NameNode;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.index.name.NameIndexListener;
 import io.sirix.node.interfaces.immutable.ImmutableNode;

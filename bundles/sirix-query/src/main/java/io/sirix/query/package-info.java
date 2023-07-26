@@ -1,5 +1,5 @@
 /**
- * Base package for XQuery bundle.
+ * Base package for Query bundle.
  * 
  * @author Johannes Lichtenberger
  *

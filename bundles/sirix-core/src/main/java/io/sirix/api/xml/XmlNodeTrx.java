@@ -23,7 +23,7 @@ package io.sirix.api.xml;
 
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.Movement;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.PostCommitHook;

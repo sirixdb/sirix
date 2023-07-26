@@ -7,7 +7,7 @@ import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.utils.LogWrapper;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import org.slf4j.LoggerFactory;
 

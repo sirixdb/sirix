@@ -3,8 +3,8 @@ package io.sirix.query.function.xml.diff;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.QueryContext;
+import io.brackit.query.Query;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -143,7 +143,7 @@ public final class ExcelDiffTest {
 
       final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
@@ -152,15 +152,15 @@ public final class ExcelDiffTest {
 
         System.out.println(content);
 
-        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
+        new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "xml:doc('" + dbName + "','" + resName + "',2)";
-        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
+        new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = out.toString(StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "xml:doc('" + dbName + "','" + resName + "',3)";
-        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
+        new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = out.toString(StandardCharsets.UTF_8);
 
         Assert.assertEquals(contentNewRev, contentOldRev);

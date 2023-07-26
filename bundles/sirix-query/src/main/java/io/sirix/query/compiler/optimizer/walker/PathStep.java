@@ -1,9 +1,9 @@
 package io.sirix.query.compiler.optimizer.walker;
 
-import org.brackit.xquery.compiler.AST;
-import org.brackit.xquery.compiler.XQ;
-import org.brackit.xquery.compiler.optimizer.walker.Walker;
-import org.brackit.xquery.module.StaticContext;
+import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.optimizer.walker.Walker;
+import io.brackit.query.module.StaticContext;
 
 public final class PathStep extends Walker {
   public PathStep(StaticContext sctx) {

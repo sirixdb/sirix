@@ -1,6 +1,6 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.jdm.json.JsonItem;
+import io.brackit.query.jdm.json.JsonItem;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 

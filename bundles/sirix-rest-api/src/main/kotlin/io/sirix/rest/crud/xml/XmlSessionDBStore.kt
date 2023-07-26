@@ -7,8 +7,8 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
-import org.brackit.xquery.jdm.Stream
-import org.brackit.xquery.node.parser.NodeSubtreeParser
+import io.brackit.query.jdm.Stream
+import io.brackit.query.node.parser.NodeSubtreeParser
 import java.time.Instant
 
 class XmlSessionDBStore(

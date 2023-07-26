@@ -11,13 +11,13 @@ import io.sirix.service.json.JsonNumber;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongStack;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Numeric;
-import org.brackit.xquery.jdm.Item;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.Type;
-import org.brackit.xquery.jdm.json.Array;
-import org.brackit.xquery.jdm.json.Object;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Numeric;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.json.Array;
+import io.brackit.query.jdm.json.Object;
 
 import java.util.concurrent.Callable;
 

@@ -2,11 +2,11 @@ package io.sirix.query.function.jn.index.scan;
 
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.stream.json.SirixJsonItemKeyStream;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.jdm.*;
-import org.brackit.xquery.sequence.BaseIter;
-import org.brackit.xquery.sequence.LazySequence;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.jdm.*;
+import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.LazySequence;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 
 import java.util.Iterator;

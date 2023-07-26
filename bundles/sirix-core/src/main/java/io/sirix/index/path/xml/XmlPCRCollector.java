@@ -1,7 +1,7 @@
 package io.sirix.index.path.xml;
 
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;

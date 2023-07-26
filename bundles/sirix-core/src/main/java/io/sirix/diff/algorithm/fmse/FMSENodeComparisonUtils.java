@@ -4,7 +4,7 @@ import javax.xml.namespace.QName;
 
 import io.sirix.access.Utils;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.xml.TextNode;
 
 import java.util.Objects;

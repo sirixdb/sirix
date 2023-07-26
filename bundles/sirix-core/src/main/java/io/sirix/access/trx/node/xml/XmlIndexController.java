@@ -14,9 +14,9 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.xml.XmlPCRCollector;
 import io.sirix.index.path.xml.XmlPathIndexImpl;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathParser;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathParser;
 
 import java.util.HashSet;
 import java.util.Set;

@@ -1,7 +1,7 @@
 package io.sirix.query.node;
 
-import org.brackit.xquery.jdm.node.NodeStore;
-import org.brackit.xquery.node.AxisTest;
+import io.brackit.query.jdm.node.NodeStore;
+import io.brackit.query.node.AxisTest;
 import org.junit.After;
 
 /**

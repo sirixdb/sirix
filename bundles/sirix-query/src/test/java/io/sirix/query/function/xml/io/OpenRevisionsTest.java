@@ -35,11 +35,11 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.utils.XmlDocumentCreator;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.jdm.Iter;
-import org.brackit.xquery.jdm.Sequence;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Query;
+import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Sequence;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -99,7 +99,7 @@ public final class OpenRevisionsTest {
           + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
           + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
       final Sequence nodes = query.evaluate(ctx);
 
       try (final Iter iter = nodes.iterate()) {

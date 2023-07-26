@@ -34,7 +34,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.service.AbstractSerializer;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.slf4j.LoggerFactory;

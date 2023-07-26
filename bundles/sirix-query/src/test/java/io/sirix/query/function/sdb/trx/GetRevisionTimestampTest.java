@@ -30,9 +30,9 @@ package io.sirix.query.function.sdb.trx;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Query;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -81,7 +81,7 @@ public final class GetRevisionTimestampTest {
 
       final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
       Assert.assertNotNull(query.evaluate(ctx));
     }
   }

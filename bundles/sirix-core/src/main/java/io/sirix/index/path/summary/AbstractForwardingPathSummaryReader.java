@@ -7,7 +7,7 @@ import io.sirix.api.*;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import java.time.Instant;
 import java.util.Optional;

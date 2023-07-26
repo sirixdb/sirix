@@ -2,12 +2,12 @@ package io.sirix.access.trx.node;
 
 import io.sirix.api.*;
 import io.sirix.index.*;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
-import org.brackit.xquery.util.serialize.SubtreePrinter;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathException;
+import io.brackit.query.util.serialize.SubtreePrinter;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.cas.CASFilter;

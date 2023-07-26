@@ -2,7 +2,7 @@ package io.sirix.access.trx.node;
 
 import cn.danielw.fop.*;
 import io.sirix.api.*;
-import org.brackit.xquery.jdm.DocumentException;
+import io.brackit.query.jdm.DocumentException;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;

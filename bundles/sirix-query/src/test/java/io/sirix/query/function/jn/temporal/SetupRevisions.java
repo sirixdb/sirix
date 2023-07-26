@@ -3,7 +3,7 @@ package io.sirix.query.function.jn.temporal;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.JsonDBObject;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.JsonDocumentCreator;
 
@@ -14,10 +14,10 @@ public final class SetupRevisions {
 
   public static void setupRevisions(final SirixQueryContext ctx, final SirixCompileChain chain) throws IOException {
     final var storeQuery = "jn:store('json-path1','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
-    new XQuery(chain, storeQuery).evaluate(ctx);
+    new Query(chain, storeQuery).evaluate(ctx);
 
     final var openDocQuery = "jn:doc('json-path1','mydoc.jn')";
-    final var object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
+    final var object = (JsonDBObject) new Query(chain, openDocQuery).evaluate(ctx);
 
     try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
       wtx.moveTo(3);

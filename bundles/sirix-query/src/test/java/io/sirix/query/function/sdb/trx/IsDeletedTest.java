@@ -7,7 +7,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,10 +45,10 @@ public final class IsDeletedTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:is-deleted(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
-      final var sequence = new XQuery(chain, openQuery).execute(ctx);
+      final var sequence = new Query(chain, openQuery).execute(ctx);
       assertTrue(sequence.booleanValue());
     }
   }
@@ -71,10 +71,10 @@ public final class IsDeletedTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:is-deleted(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
-      final var sequence = new XQuery(chain, openQuery).execute(ctx);
+      final var sequence = new Query(chain, openQuery).execute(ctx);
       assertFalse(sequence.booleanValue());
     }
   }

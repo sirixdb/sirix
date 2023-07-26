@@ -36,7 +36,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.Node;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.Pair;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;

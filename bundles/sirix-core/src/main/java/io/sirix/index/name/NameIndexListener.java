@@ -5,7 +5,7 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 

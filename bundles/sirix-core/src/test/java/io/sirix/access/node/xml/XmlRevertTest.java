@@ -24,7 +24,7 @@ package io.sirix.access.node.xml;
 import static org.junit.Assert.assertEquals;
 
 import io.sirix.api.xml.XmlNodeTrx;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

@@ -1,9 +1,9 @@
 package io.sirix.query.json;
 
 import io.sirix.query.stream.json.TemporalSirixJsonArrayStream;
-import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.json.Array;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.json.Array;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.temporal.AllTimeAxis;

@@ -2,8 +2,8 @@ package io.sirix.service.json.shredder;
 
 import com.google.common.collect.AbstractIterator;
 import io.sirix.axis.IncludeSelf;
-import org.brackit.xquery.jdm.Item;
-import org.brackit.xquery.jdm.Iter;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

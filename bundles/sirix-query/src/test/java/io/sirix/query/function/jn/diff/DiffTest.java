@@ -7,7 +7,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -74,7 +74,7 @@ public final class DiffTest {
                                            .build();
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use XQuery to store a JSON string into the store.
+      // Use Query to store a JSON string into the store.
       final var databaseName = PATHS.PATH1.getFile().getName(PATHS.PATH1.getFile().getNameCount() - 1).toString();
       final var resourceName = JsonTestHelper.RESOURCE;
 
@@ -86,7 +86,7 @@ public final class DiffTest {
       queryBuilder.append("',1,3)");
 
       try (final var out = new ByteArrayOutputStream()) {
-        new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
+        new Query(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
         assertEquals(Files.readString(JSON.resolve("diff.json"), StandardCharsets.UTF_8), content);
       }
@@ -99,7 +99,7 @@ public final class DiffTest {
       queryBuilder.append("',1,3,3,0)");
 
       try (final var out = new ByteArrayOutputStream()) {
-        new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
+        new Query(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
         assertEquals(Files.readString(JSON.resolve("diff-with-startnodekey.json"), StandardCharsets.UTF_8), content);
       }
@@ -112,7 +112,7 @@ public final class DiffTest {
       queryBuilder.append("',1,3,0,2)");
 
       try (final var out = new ByteArrayOutputStream()) {
-        new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
+        new Query(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
         assertEquals(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8), content);
       }

@@ -4,7 +4,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import org.brackit.xquery.jdm.StructuredItemStore
+import io.brackit.query.jdm.StructuredItemStore
 import io.sirix.access.DatabaseType
 import io.sirix.access.Databases
 import io.sirix.access.trx.node.HashType

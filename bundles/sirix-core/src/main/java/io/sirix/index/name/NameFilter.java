@@ -2,7 +2,7 @@ package io.sirix.index.name;
 
 import io.sirix.index.Filter;
 import io.sirix.index.redblacktree.RBNodeKey;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import java.util.Collections;
 import java.util.Set;

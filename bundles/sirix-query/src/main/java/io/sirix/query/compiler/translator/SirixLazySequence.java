@@ -1,10 +1,10 @@
 package io.sirix.query.compiler.translator;
 
 import io.sirix.api.Axis;
-import org.brackit.xquery.jdm.Item;
-import org.brackit.xquery.jdm.Iter;
-import org.brackit.xquery.sequence.BaseIter;
-import org.brackit.xquery.sequence.LazySequence;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
+import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.LazySequence;
 import io.sirix.query.stream.json.SirixJsonStream;
 
 class SirixJsonLazySequence extends LazySequence {

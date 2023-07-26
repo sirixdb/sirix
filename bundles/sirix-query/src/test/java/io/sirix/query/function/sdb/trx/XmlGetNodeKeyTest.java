@@ -35,10 +35,10 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.utils.XmlDocumentCreator;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.atomic.Int64;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Query;
+import io.brackit.query.atomic.Int64;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -83,7 +83,7 @@ public final class XmlGetNodeKeyTest {
 
       final String xq1 = "declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xml:doc('" + dbName + "','" + resName + "')/p:a/b[1])";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
       Assert.assertEquals(new Int64(5), query.execute(ctx));
     }
   }

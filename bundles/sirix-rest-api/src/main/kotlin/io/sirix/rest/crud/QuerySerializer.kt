@@ -3,8 +3,8 @@ package io.sirix.rest.crud
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import org.brackit.xquery.jdm.Item
-import org.brackit.xquery.util.serialize.Serializer
+import io.brackit.query.jdm.Item
+import io.brackit.query.util.serialize.Serializer
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 
@@ -24,7 +24,7 @@ class QuerySerializer {
         ) {
             serializer.use {
                 val sequence =
-                    PermissionCheckingXQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
+                    PermissionCheckingQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
 
                 if (sequence != null) {
                     val itemIterator = sequence.iterate()

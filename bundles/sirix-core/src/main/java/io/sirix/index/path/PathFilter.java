@@ -2,8 +2,8 @@ package io.sirix.index.path;
 
 import io.sirix.index.Filter;
 import io.sirix.index.redblacktree.RBNodeKey;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 

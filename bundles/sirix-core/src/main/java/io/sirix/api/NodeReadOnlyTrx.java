@@ -6,7 +6,7 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.exception.SirixException;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import java.time.Instant;
 import java.util.Optional;

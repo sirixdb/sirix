@@ -36,9 +36,9 @@ import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.utils.XmlDocumentCreator;
 import junit.framework.TestCase;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Query;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,7 +85,7 @@ public final class DocByPointInTimeTest extends TestCase {
       // "(xs:dateTime(\"2019-05-01T00:00:00-00:00\") - xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div
       // xs:dayTimeDuration('PT0.001S')";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
       final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());

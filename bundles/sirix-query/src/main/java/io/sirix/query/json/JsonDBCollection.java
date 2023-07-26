@@ -2,11 +2,11 @@ package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
 import io.sirix.query.node.XmlDBCollection;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.json.TemporalJsonCollection;
-import org.brackit.xquery.jsonitem.AbstractJsonItemCollection;
-import org.brackit.xquery.node.stream.ArrayStream;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.json.TemporalJsonCollection;
+import io.brackit.query.jsonitem.AbstractJsonItemCollection;
+import io.brackit.query.node.stream.ArrayStream;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;

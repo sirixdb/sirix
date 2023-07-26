@@ -16,8 +16,8 @@ import java.util.function.Predicate;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.QueryContext;
+import io.brackit.query.Query;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -146,7 +146,7 @@ public final class ExcelDiffEmptyTest extends TestCase {
 
       final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));

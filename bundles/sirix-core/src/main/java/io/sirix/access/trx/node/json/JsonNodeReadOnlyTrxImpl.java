@@ -25,7 +25,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.*;
 import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.IOException;

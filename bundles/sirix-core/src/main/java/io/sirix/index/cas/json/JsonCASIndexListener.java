@@ -5,7 +5,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.brackit.xquery.atomic.Str;
+import io.brackit.query.atomic.Str;
 import io.sirix.index.cas.CASIndexListener;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NumberNode;
