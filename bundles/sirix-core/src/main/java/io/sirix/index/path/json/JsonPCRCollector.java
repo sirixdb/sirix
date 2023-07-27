@@ -1,7 +1,7 @@
 package io.sirix.index.path.json;
 
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.index.path.AbstractPCRCollector;

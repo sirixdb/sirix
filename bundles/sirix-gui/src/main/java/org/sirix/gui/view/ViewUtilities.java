@@ -37,7 +37,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import javax.xml.namespace.QName;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.ReadDB;

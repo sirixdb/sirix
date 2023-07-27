@@ -40,7 +40,7 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jetbrains.annotations.NotNull;
 import io.sirix.node.xml.AbstractStructForwardingNode;

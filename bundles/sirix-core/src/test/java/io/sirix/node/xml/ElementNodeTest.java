@@ -27,7 +27,7 @@ import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

@@ -23,7 +23,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.settings.Fixed;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import javax.xml.namespace.QName;

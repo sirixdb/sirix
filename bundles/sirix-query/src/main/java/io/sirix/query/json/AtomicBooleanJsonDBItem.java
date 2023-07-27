@@ -1,6 +1,6 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.atomic.Bool;
+import io.brackit.query.atomic.Bool;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.StructuredDBItem;

@@ -15,8 +15,8 @@ import io.sirix.query.json.*
 import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBNode
-import org.brackit.xquery.XQuery
-import org.brackit.xquery.util.serialize.Serializer
+import io.brackit.query.Query
+import io.brackit.query.util.serialize.Serializer
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 
@@ -26,7 +26,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
         val startMillis: Long = System.currentTimeMillis()
         cliPrinter.prnLnV("Execute Query. Result is:")
         val result = if (queryOptions.hasQueryStr()) {
-            xQuery()
+            query()
         } else {
             serializeResource()
         }
@@ -34,16 +34,16 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
         cliPrinter.prnLnV("Query executed (${System.currentTimeMillis() - startMillis}ms)")
     }
 
-    private fun xQuery(): String {
+    private fun query(): String {
         return when (databaseType()) {
-            DatabaseType.XML -> xQueryXml()
-            DatabaseType.JSON -> xQueryJson()
+            DatabaseType.XML -> queryXml()
+            DatabaseType.JSON -> queryJson()
             else -> throw IllegalArgumentException("Unknown Database Type!")
         }
 
     }
 
-    private fun xQueryXml(): String {
+    private fun queryXml(): String {
         val database = openXmlDatabase(queryOptions.user)
         database.use {
             val manager = database.beginResourceSession(queryOptions.resource)
@@ -78,7 +78,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                             PrintStream(out).use { printStream ->
                                 SirixCompileChain.createWithNodeStore(dbStore).use { sirixCompileChain ->
                                     if (queryOptions.startResultSeqIndex == null) {
-                                        XQuery(sirixCompileChain, queryOptions.queryStr).prettyPrint().serialize(
+                                        Query(sirixCompileChain, queryOptions.queryStr).prettyPrint().serialize(
                                             queryCtx,
                                             XmlDBSerializer(printStream, false, true)
                                         )
@@ -99,7 +99,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
         }
     }
 
-    private fun xQueryJson(): String {
+    private fun queryJson(): String {
         val database = openJsonDatabase(queryOptions.user)
         database.use {
             val manager = database.beginResourceSession(queryOptions.resource)
@@ -142,6 +142,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                                             jsonItem.collection.database
                                         )
                                     }
+
                                     is JsonDBObject -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
                                         jsonDBStore.addDatabase(
@@ -149,6 +150,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                                             jsonItem.collection.database
                                         )
                                     }
+
                                     is AtomicBooleanJsonDBItem -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
                                         jsonDBStore.addDatabase(
@@ -156,6 +158,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                                             jsonItem.collection.database
                                         )
                                     }
+
                                     is AtomicStrJsonDBItem -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
                                         jsonDBStore.addDatabase(
@@ -163,6 +166,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                                             jsonItem.collection.database
                                         )
                                     }
+
                                     is AtomicNullJsonDBItem -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
                                         jsonDBStore.addDatabase(
@@ -170,6 +174,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                                             jsonItem.collection.database
                                         )
                                     }
+
                                     is NumericJsonDBItem -> {
                                         jsonItem.collection.setJsonDBStore(jsonDBStore)
                                         jsonDBStore.addDatabase(
@@ -177,6 +182,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                                             jsonItem.collection.database
                                         )
                                     }
+
                                     else -> throw IllegalStateException("Node type not known.")
                                 }
                             }
@@ -185,7 +191,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore)
                                 .use { sirixCompileChain ->
                                     if (queryOptions.startResultSeqIndex == null) {
-                                        XQuery(sirixCompileChain, queryOptions.queryStr).prettyPrint()
+                                        Query(sirixCompileChain, queryOptions.queryStr).prettyPrint()
                                             .serialize(
                                                 queryCtx,
                                                 JsonDBSerializer(
@@ -219,7 +225,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
         }
 
         serializer.use {
-            val sequence = XQuery(sirixCompileChain, queryOptions.queryStr).execute(queryCtx)
+            val sequence = Query(sirixCompileChain, queryOptions.queryStr).execute(queryCtx)
 
             if (sequence != null) {
                 val itemIterator = sequence.iterate()
@@ -282,6 +288,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                 queryOptions.revision,
                 queryOptions.revisionTimestamp
             )
+
             is XmlResourceSession -> getRevisionsToSerialize(
                 queryOptions.startRevision,
                 queryOptions.endRevision,
@@ -291,6 +298,7 @@ class Query(options: io.sirix.cli.CliOptions, private val queryOptions: QueryOpt
                 queryOptions.revision,
                 queryOptions.revisionTimestamp
             )
+
             else -> throw IllegalStateException("Unknown ResourceManager Type!")
         }
 

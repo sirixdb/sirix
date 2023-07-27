@@ -30,9 +30,9 @@ package io.sirix.query.function.xml.diff;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Query;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -103,22 +103,22 @@ public final class DiffTest {
 
       final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
+        new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "xml:doc('" + dbName + "','" + resName + "',3)";
-        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
+        new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "xml:doc('" + dbName + "','" + resName + "',2)";
-        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
+        new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         Assert.assertEquals(contentNewRev, contentOldRev);
@@ -141,22 +141,22 @@ public final class DiffTest {
 
       final String xq1 = "xml:diff('" + dbName + "', '" + resName + "',1,5)";
 
-      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
+      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
+        new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "xml:doc('" + dbName + "','" + resName + "',6)";
-        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
+        new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "xml:doc('" + dbName + "','" + resName + "',5)";
-        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
+        new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         Assert.assertEquals(contentNewRev, contentOldRev);

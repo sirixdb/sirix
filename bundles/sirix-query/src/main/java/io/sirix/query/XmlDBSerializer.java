@@ -28,15 +28,15 @@
 package io.sirix.query;
 
 import io.sirix.query.node.XmlDBNode;
-import org.brackit.xquery.ErrorCode;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.jdm.Item;
-import org.brackit.xquery.jdm.Iter;
-import org.brackit.xquery.jdm.Kind;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.util.serialize.Serializer;
-import org.brackit.xquery.util.serialize.StringSerializer;
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Kind;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.util.serialize.Serializer;
+import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.service.xml.serialize.XmlSerializer;
 

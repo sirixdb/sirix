@@ -1,7 +1,7 @@
 package io.sirix.api.json;
 
 import com.google.gson.stream.JsonReader;
-import org.brackit.xquery.jdm.Item;
+import io.brackit.query.jdm.Item;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.NodeTrx;
 

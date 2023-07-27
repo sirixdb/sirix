@@ -38,7 +38,7 @@ import javax.swing.JTree;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.xml.XMLConstants;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;

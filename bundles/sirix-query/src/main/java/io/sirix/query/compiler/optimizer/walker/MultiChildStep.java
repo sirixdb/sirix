@@ -22,22 +22,22 @@ package io.sirix.query.compiler.optimizer.walker;
  * WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.compiler.AST;
-import org.brackit.xquery.compiler.CompileChain;
-import org.brackit.xquery.compiler.XQ;
-import org.brackit.xquery.compiler.optimizer.walker.Walker;
-import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.util.Cfg;
+import io.brackit.query.Query;
+import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.CompileChain;
+import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.optimizer.walker.Walker;
+import io.brackit.query.module.StaticContext;
+import io.brackit.query.util.Cfg;
 import io.sirix.query.compiler.XQExt;
 
 /**
  * @author Sebastian Baechle
  * -----------------------------------------------------------------------------------------------
- * The purpose of this class is to optimize XQuery expressions
+ * The purpose of this class is to optimize Query expressions
  * by combining consecutive child steps into a single multistep expression.
- * The class is a part of the Sirix XQuery compiler optimizer
- * and is responsible for merging multiple consecutive child steps in an XQuery path expression
+ * The class is a part of the Sirix Query compiler optimizer
+ * and is responsible for merging multiple consecutive child steps in an Query path expression
  * into a more efficient multistep expression.
  * ---------------------------------------------------------------------------------------------------
  * In XQuery, path expressions are used to navigate XML data,
@@ -117,9 +117,9 @@ public class MultiChildStep extends Walker {
   }
 
   public static void main(String[] args) {
-     new XQuery(new CompileChain(null, null),
+     new Query(new CompileChain(null, null),
                 "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
-    // new XQuery(new DBCompileChain(null, null),
+    // new Query(new DBCompileChain(null, null),
     // "let $a := <x/> return $a/b/@aha");
   }
 

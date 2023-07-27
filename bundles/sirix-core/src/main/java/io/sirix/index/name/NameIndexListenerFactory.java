@@ -8,7 +8,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 public final class NameIndexListenerFactory {
 

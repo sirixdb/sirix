@@ -6,9 +6,9 @@ import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
 
 import java.util.Set;
 

@@ -4,7 +4,7 @@ import io.sirix.JsonTestHelper;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,15 +36,15 @@ public class SelectParentTest {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use XQuery to store a JSON string into the store.
+      // Use Query to store a JSON string into the store.
       final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      new Query(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:select-parent(jn:doc('json-path1','mydoc.jn')[[1]])";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, openQuery).serialize(ctx, printWriter);
+        new Query(chain, openQuery).serialize(ctx, printWriter);
         assertEquals("[\"bla\",\"blubb\"]", out.toString());
       }
     }

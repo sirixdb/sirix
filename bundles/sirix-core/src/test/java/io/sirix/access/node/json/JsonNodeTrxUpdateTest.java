@@ -4,7 +4,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.axis.DescendantAxis;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

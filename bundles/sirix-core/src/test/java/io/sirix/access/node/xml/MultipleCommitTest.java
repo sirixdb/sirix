@@ -29,7 +29,7 @@ import io.sirix.axis.AbstractAxis;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.node.NodeKind;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

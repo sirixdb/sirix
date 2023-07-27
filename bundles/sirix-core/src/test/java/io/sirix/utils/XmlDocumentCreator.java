@@ -25,7 +25,7 @@ import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.service.InsertPosition;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixException;
 import io.sirix.service.xml.serialize.XmlSerializer;

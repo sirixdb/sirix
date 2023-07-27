@@ -3,7 +3,7 @@ package io.sirix.service.json.serialize;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
-import org.brackit.xquery.util.serialize.Serializer;
+import io.brackit.query.util.serialize.Serializer;
 import io.sirix.service.xml.serialize.XmlSerializerProperties;
 
 import org.checkerframework.checker.index.qual.NonNegative;

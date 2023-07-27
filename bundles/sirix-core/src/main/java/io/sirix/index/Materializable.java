@@ -1,7 +1,7 @@
 package io.sirix.index;
 
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.node.Node;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.node.Node;
 
 /**
  * Materializable structure.

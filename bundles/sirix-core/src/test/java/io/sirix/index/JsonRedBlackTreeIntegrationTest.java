@@ -7,11 +7,11 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.NodeKind;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.brackit.xquery.atomic.Dbl;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.jdm.Type;
-import org.brackit.xquery.util.path.PathParser;
+import io.brackit.query.atomic.Dbl;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.PathParser;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -23,7 +23,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.StreamSupport;
 
-import static org.brackit.xquery.util.path.Path.parse;
+import static io.brackit.query.util.path.Path.parse;
 import static org.junit.Assert.*;
 
 public final class JsonRedBlackTreeIntegrationTest {

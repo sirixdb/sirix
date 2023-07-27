@@ -1,12 +1,12 @@
 package io.sirix.query.node;
 
 import io.sirix.query.SirixCompileChain;
-import org.brackit.xquery.XMarkTest;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.node.NodeCollection;
-import org.brackit.xquery.jdm.node.NodeStore;
-import org.brackit.xquery.node.parser.DocumentParser;
+import io.brackit.query.XMarkTest;
+import io.brackit.query.Query;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.node.NodeCollection;
+import io.brackit.query.jdm.node.NodeStore;
+import io.brackit.query.node.parser.DocumentParser;
 import org.junit.After;
 
 /**
@@ -27,8 +27,8 @@ public final class SirixXMarkTest extends XMarkTest {
   }
 
   @Override
-  protected XQuery xquery(final String query) {
-    return new XQuery(SirixCompileChain.createWithNodeStore(xmlStore), query);
+  protected Query xquery(final String query) {
+    return new Query(SirixCompileChain.createWithNodeStore(xmlStore), query);
   }
 
   @Override

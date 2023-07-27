@@ -3,9 +3,9 @@ package io.sirix.query.function.jn.temporal;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.util.io.IOUtils;
-import org.brackit.xquery.util.serialize.StringSerializer;
+import io.brackit.query.Query;
+import io.brackit.query.util.io.IOUtils;
+import io.brackit.query.util.serialize.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +39,7 @@ public final class FirstExistingTest {
       SetupRevisions.setupRevisions(ctx, chain);
 
       final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), 26)))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -59,7 +59,7 @@ public final class FirstExistingTest {
       SetupRevisions.setupRevisions(ctx, chain);
 
       final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn',2), 11)))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {

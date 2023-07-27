@@ -27,7 +27,7 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.node.NodeKind;
 import io.sirix.utils.XMLToken;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.TextFilter;
 

@@ -1,9 +1,9 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.atomic.*;
-import org.brackit.xquery.jdm.Item;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.util.ExprUtil;
+import io.brackit.query.atomic.*;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.util.ExprUtil;
 import io.sirix.api.json.JsonNodeTrx;
 
 final class JsonItemSequence {

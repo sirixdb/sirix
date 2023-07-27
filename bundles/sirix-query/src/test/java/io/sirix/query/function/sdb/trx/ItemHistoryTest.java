@@ -6,7 +6,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,11 +49,11 @@ public final class ItemHistoryTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:item-history(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, openQuery).serialize(ctx, printWriter);
+        new Query(chain, openQuery).serialize(ctx, printWriter);
         Assertions.assertEquals("\"bla\" \"blabla\" \"blablabla\"", out.toString());
       }
     }
@@ -82,11 +82,11 @@ public final class ItemHistoryTest {
                                                         .build();
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use XQuery to load a JSON database/resource.
+      // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:item-history(sdb:select-item(jn:doc('json-path1','mydoc2.jn'), 12))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, openQuery).serialize(ctx, printWriter);
+        new Query(chain, openQuery).serialize(ctx, printWriter);
         Assertions.assertEquals("\"generic\" \"generic1\"", out.toString());
       }
     }

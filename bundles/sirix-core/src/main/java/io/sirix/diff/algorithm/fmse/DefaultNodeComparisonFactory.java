@@ -3,7 +3,7 @@ package io.sirix.diff.algorithm.fmse;
 import java.util.Map;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 public final class DefaultNodeComparisonFactory implements NodeComparisonFactory {

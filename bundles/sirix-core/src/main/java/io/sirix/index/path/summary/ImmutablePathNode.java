@@ -7,7 +7,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import net.openhft.chronicle.bytes.Bytes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;

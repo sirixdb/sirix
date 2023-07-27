@@ -46,6 +46,6 @@ jar {
 
 test {
     useJUnitPlatform()
-    systemProperty "org.brackit.xquery.debug", System.getProperty("org.brackit.xquery.debug")
-    systemProperty "org.brackit.xquery.debugDir", System.getProperty("org.brackit.xquery.debugDir")
+    systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
+    systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
 }

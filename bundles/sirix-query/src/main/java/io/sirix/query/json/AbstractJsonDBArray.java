@@ -1,16 +1,16 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.ErrorCode;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Int64;
-import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.json.Array;
-import org.brackit.xquery.jdm.type.ArrayType;
-import org.brackit.xquery.jdm.type.ItemType;
-import org.brackit.xquery.jsonitem.array.AbstractArray;
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Int64;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Array;
+import io.brackit.query.jdm.type.ArrayType;
+import io.brackit.query.jdm.type.ItemType;
+import io.brackit.query.jsonitem.array.AbstractArray;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;

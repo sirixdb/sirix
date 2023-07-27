@@ -1,7 +1,7 @@
 package io.sirix.access.trx.node;
 
 import javax.xml.namespace.QName;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.NodeKind;

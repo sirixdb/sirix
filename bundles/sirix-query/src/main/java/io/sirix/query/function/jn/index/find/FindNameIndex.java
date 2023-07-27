@@ -1,16 +1,16 @@
 package io.sirix.query.function.jn.index.find;
 
 import io.sirix.query.json.JsonDBItem;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.function.json.JSONFun;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.Signature;
-import org.brackit.xquery.module.StaticContext;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.function.json.JSONFun;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Signature;
+import io.brackit.query.module.StaticContext;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;

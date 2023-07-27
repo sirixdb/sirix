@@ -6,7 +6,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import net.openhft.chronicle.bytes.Bytes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.node.json.ObjectNode;
 

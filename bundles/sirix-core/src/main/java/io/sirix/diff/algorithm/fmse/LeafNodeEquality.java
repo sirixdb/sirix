@@ -2,7 +2,7 @@ package io.sirix.diff.algorithm.fmse;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 /**

@@ -10,10 +10,10 @@ import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.jdm.Type;
-import org.brackit.xquery.util.path.Path;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.Path;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.util.Optional;

@@ -1,16 +1,16 @@
 package io.sirix.query.function.jn.index.create;
 
 import io.sirix.query.json.JsonDBItem;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.function.json.JSONFun;
-import org.brackit.xquery.jdm.*;
-import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.util.path.Path;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.function.json.JSONFun;
+import io.brackit.query.jdm.*;
+import io.brackit.query.module.Namespaces;
+import io.brackit.query.module.StaticContext;
+import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -88,7 +88,7 @@ public final class CreateCASIndex extends AbstractFunction {
       final Iter it = args[2].iterate();
       Item next = it.next();
       while (next != null) {
-        paths.add(Path.parse(((Str) next).stringValue(), org.brackit.xquery.util.path.PathParser.Type.JSON));
+        paths.add(Path.parse(((Str) next).stringValue(), io.brackit.query.util.path.PathParser.Type.JSON));
         next = it.next();
       }
     }

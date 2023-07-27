@@ -39,7 +39,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;

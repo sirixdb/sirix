@@ -9,7 +9,7 @@ import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.settings.Fixed;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import java.util.Iterator;
 import java.util.Optional;

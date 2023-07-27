@@ -1,8 +1,8 @@
 package io.sirix.query.node;
 
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.node.parser.NodeSubtreeParser;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;

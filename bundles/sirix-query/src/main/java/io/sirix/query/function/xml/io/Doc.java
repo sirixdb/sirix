@@ -1,13 +1,13 @@
 package io.sirix.query.function.xml.io;
 
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.Signature;
-import org.brackit.xquery.module.StaticContext;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Signature;
+import io.brackit.query.module.StaticContext;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBCollection;

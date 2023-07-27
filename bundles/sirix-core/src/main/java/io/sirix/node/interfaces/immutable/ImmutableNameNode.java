@@ -1,6 +1,6 @@
 package io.sirix.node.interfaces.immutable;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 /**
  * Immutable node with a name (element, attribute, namespace, PI...).

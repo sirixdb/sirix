@@ -32,7 +32,7 @@ import java.util.Iterator;
 import java.util.List;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.brackit.xquery.update.Insert;
+import io.brackit.query.update.Insert;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.sunburst.SunburstItem;

@@ -23,7 +23,7 @@ package io.sirix.axis.filter.xml;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.filter.PathNameFilter;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.axis.filter.AbstractFilter;
 
 /**

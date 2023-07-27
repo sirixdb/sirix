@@ -1,6 +1,6 @@
 package io.sirix.query.compiler.optimizer.walker.json;
 
-import org.brackit.xquery.compiler.AST;
+import io.brackit.query.compiler.AST;
 
 import java.util.Deque;
 

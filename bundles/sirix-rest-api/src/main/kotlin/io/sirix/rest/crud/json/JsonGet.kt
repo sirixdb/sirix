@@ -13,7 +13,7 @@ import io.vertx.kotlin.coroutines.await
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.json.JsonResourceSession
-import io.sirix.rest.crud.PermissionCheckingXQuery
+import io.sirix.rest.crud.PermissionCheckingQuery
 import io.sirix.rest.crud.QuerySerializer
 import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.xml.XmlSessionDBStore
@@ -280,7 +280,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
                 val serializer = JsonDBSerializer(out, false)
-                PermissionCheckingXQuery(
+                PermissionCheckingQuery(
                     sirixCompileChain,
                     query,
                     keycloak,

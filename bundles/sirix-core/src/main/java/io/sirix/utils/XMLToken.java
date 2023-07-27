@@ -1,6 +1,6 @@
 package io.sirix.utils;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import javax.xml.namespace.QName;
 import java.net.MalformedURLException;
