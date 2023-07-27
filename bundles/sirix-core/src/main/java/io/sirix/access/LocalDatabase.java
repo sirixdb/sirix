@@ -8,6 +8,7 @@ import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.*;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
@@ -244,7 +245,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private boolean bootstrapResource(ResourceConfiguration resConfig) {
     try (final T resourceTrxManager = beginResourceSession(resConfig.getResource().getFileName().toString());
-         final W wtx = resourceTrxManager.beginNodeTrx()) {
+         final W wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
         wtx.commit(null, Instant.ofEpochMilli(0));

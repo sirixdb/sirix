@@ -349,7 +349,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
-    pageTrx = resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true);
+    pageTrx =
+        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
@@ -409,7 +410,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     nodeReadOnlyTrx.setPageReadTransaction(null);
     removeCommitFile();
 
-    pageTrx = resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
+    pageTrx =
+        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
 
@@ -448,7 +450,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Reset internal transaction state to new uber page.
       resourceSession.closeNodePageWriteTransaction(getId());
-      pageTrx = resourceSession.createPageTransaction(trxID, revision, revNumber - 1, InternalResourceSession.Abort.NO, true);
+      pageTrx =
+          resourceSession.createPageTransaction(trxID, revision, revNumber - 1, InternalResourceSession.Abort.NO, true);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
       resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
