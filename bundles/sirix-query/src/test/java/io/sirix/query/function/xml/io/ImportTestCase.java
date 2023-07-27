@@ -68,23 +68,23 @@ public final class ImportTestCase extends TestCase {
   // final CompileChain cc = new SirixCompileChain(store);
   // final QueryContext ctx = new SirixQueryContext(store);
   //
-  // // Use XQuery to load sample document into store.
+  // // Use Query to load sample document into store.
   // final String xq1 = String.format(
   // "sdb:load('mydoc.col', 'mydoc.xml', '%s')", doc.resolve("1.xml").toString());
-  // new XQuery(cc, xq1).evaluate(ctx);
+  // new Query(cc, xq1).evaluate(ctx);
   //
   // // final String xq = "sdb:doc('mydoc.col', 'mydoc.xml')";
-  // // final DBNode node = (DBNode) new XQuery(cc, xq).evaluate(ctx);
+  // // final DBNode node = (DBNode) new Query(cc, xq).evaluate(ctx);
   // // final OutputStream out = new ByteArrayOutputStream();
   // // final XMLSerializer serializer =
   // // new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).prettyPrint().build();
   // // serializer.call();
   // // System.out.println(out.toString());
   //
-  // // Use XQuery to import the differences.
+  // // Use Query to import the differences.
   // final String xq2 = String.format(
   // "sdb:import('mydoc.col', 'mydoc.xml', '%s')", doc.resolve("2.xml").toString());
-  // final DBNode node = (DBNode) new XQuery(cc, xq2).evaluate(ctx);
+  // final DBNode node = (DBNode) new Query(cc, xq2).evaluate(ctx);
   //
   // final OutputStream out = new ByteArrayOutputStream();
   // final XMLSerializer serializer =

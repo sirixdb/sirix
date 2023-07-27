@@ -29,7 +29,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.service.xml.xpath.AtomicValue;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;

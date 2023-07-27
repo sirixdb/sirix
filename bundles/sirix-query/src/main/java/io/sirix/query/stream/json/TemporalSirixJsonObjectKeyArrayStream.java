@@ -1,7 +1,7 @@
 package io.sirix.query.stream.json;
 
 import com.google.common.base.MoreObjects;
-import org.brackit.xquery.jdm.Stream;
+import io.brackit.query.jdm.Stream;
 import io.sirix.api.Axis;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;

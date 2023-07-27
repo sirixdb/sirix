@@ -4,7 +4,7 @@ import io.sirix.api.Axis;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.pathsummary.LevelOrderSettingInMemoryInstancesAxis;
 import io.sirix.node.NodeKind;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

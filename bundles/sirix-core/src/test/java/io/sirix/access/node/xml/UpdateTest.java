@@ -35,7 +35,7 @@ import io.sirix.axis.NonStructuralWrapperAxis;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

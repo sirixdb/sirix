@@ -1,9 +1,9 @@
 package io.sirix.index;
 
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.*;
-import org.brackit.xquery.expr.Cast;
-import org.brackit.xquery.jdm.Type;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.*;
+import io.brackit.query.expr.Cast;
+import io.brackit.query.jdm.Type;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.utils.Calc;

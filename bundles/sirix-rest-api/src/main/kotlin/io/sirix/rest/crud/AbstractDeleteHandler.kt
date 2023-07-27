@@ -10,7 +10,7 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.brackit.xquery.jdm.StructuredItemStore
+import io.brackit.query.jdm.StructuredItemStore
 import io.sirix.access.DatabaseType
 import io.sirix.access.Databases
 import io.sirix.access.User

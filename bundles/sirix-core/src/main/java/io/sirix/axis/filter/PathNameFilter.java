@@ -22,7 +22,7 @@
 package io.sirix.axis.filter;
 
 import io.sirix.index.path.summary.PathSummaryReader;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 /**
  * <p>

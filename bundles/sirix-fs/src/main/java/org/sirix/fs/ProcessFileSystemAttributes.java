@@ -3,7 +3,7 @@ package org.sirix.fs;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;

@@ -34,7 +34,7 @@ import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.NameNode;
 import net.openhft.chronicle.bytes.Bytes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;

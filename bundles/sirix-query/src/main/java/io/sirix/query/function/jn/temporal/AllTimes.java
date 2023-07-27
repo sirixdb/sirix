@@ -1,13 +1,13 @@
 package io.sirix.query.function.jn.temporal;
 
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.function.json.JSONFun;
-import org.brackit.xquery.jdm.*;
-import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.sequence.BaseIter;
-import org.brackit.xquery.sequence.LazySequence;
+import io.brackit.query.QueryContext;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.function.json.JSONFun;
+import io.brackit.query.jdm.*;
+import io.brackit.query.module.StaticContext;
+import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.LazySequence;
 import io.sirix.query.json.TemporalJsonDBItem;
 
 /**

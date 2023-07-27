@@ -22,11 +22,11 @@
 package io.sirix.query.function;
 
 import io.sirix.query.function.sdb.SDBFun;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.jdm.Sequence;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Bool;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.jdm.Sequence;
 
 import java.util.Arrays;
 

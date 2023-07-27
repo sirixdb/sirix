@@ -4,10 +4,10 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBObject;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.util.io.IOUtils;
-import org.brackit.xquery.util.serialize.StringSerializer;
+import io.brackit.query.Query;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.util.io.IOUtils;
+import io.brackit.query.util.serialize.StringSerializer;
 import org.junit.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,10 +70,10 @@ public final class SimpleQueryIntegrationTest {
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final var storeQuery = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      new Query(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('json-path1','mydoc.jn')[[0]]";
-      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
@@ -91,10 +91,10 @@ public final class SimpleQueryIntegrationTest {
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var storeQuery = "jn:store('json-path1','mydoc.jn','" + json + "')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      new Query(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('json-path1','mydoc.jn').sirix";
-      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
@@ -114,10 +114,10 @@ public final class SimpleQueryIntegrationTest {
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final var storeQuery = "jn:store('json-path1','mydoc.jn','" + simpleJson + "')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      new Query(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('json-path1','mydoc.jn').sirix.revisionNumber";
-      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
@@ -136,10 +136,10 @@ public final class SimpleQueryIntegrationTest {
          final var ctx = SirixQueryContext.createWithJsonStore(store);
          final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var storeQuery = "jn:store('json-path1','mydoc.jn','" + json + "')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      new Query(chain, storeQuery).evaluate(ctx);
 
       final var openQuery = "jn:doc('json-path1','mydoc.jn').sirix[[0]].revisionNumber";
-      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
@@ -159,10 +159,10 @@ public final class SimpleQueryIntegrationTest {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"foo\",[[\"bar\"]]]')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      new Query(chain, storeQuery).evaluate(ctx);
 
       final String openQuery = "jn:doc('json-path1','mydoc.jn')[[1]][[0]][[0]]";
-      final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final Sequence seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
@@ -173,11 +173,11 @@ public final class SimpleQueryIntegrationTest {
 
       assertEquals("\"bar\"", buf.toString());
 
-      // // Use XQuery to load a JSON database/resource.
+      // // Use Query to load a JSON database/resource.
       // System.out.println("Opening document again:");
       // final String query = "jn:doc('json-path1','mydoc.jn')[[0:1]]";
       // System.out.println(openQuery);
-      // final Sequence seqSlice = new XQuery(chain, query).evaluate(ctx);
+      // final Sequence seqSlice = new Query(chain, query).evaluate(ctx);
       //
       // assertNotNull(seqSlice);
       //
@@ -196,7 +196,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:all-times(jn:doc('json-path1','mydoc.jn'))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -216,7 +216,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:first(jn:doc('json-path1','mydoc.jn'))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -236,7 +236,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:last(jn:doc('json-path1','mydoc.jn'))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -256,7 +256,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:next(jn:doc('json-path1','mydoc.jn',1))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -276,7 +276,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:previous(jn:doc('json-path1','mydoc.jn',2))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -296,7 +296,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:future(jn:doc('json-path1','mydoc.jn',1))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -316,7 +316,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:future(jn:doc('json-path1','mydoc.jn',1),true())";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -336,7 +336,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:past(jn:doc('json-path1','mydoc.jn',3))";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -356,7 +356,7 @@ public final class SimpleQueryIntegrationTest {
       setupRevisions(ctx, chain);
 
       final var allTimesQuery = "jn:past(jn:doc('json-path1','mydoc.jn',3),true())";
-      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
 
       final var buf = IOUtils.createBuffer();
       try (final var serializer = new StringSerializer(buf)) {
@@ -369,10 +369,10 @@ public final class SimpleQueryIntegrationTest {
 
   private void setupRevisions(final SirixQueryContext ctx, final SirixCompileChain chain) throws IOException {
     final var storeQuery = "jn:store('json-path1','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
-    new XQuery(chain, storeQuery).evaluate(ctx);
+    new Query(chain, storeQuery).evaluate(ctx);
 
     final var openDocQuery = "jn:doc('json-path1','mydoc.jn')";
-    final var object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
+    final var object = (JsonDBObject) new Query(chain, openDocQuery).evaluate(ctx);
 
     try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
       wtx.moveTo(3);
@@ -396,7 +396,7 @@ public final class SimpleQueryIntegrationTest {
   // final var chain = SirixCompileChain.createWithJsonStore(store)) {
   // final var twitterFilePath = JSON.resolve("twitter.json").toString();
   // final var storeQuery = "jn:load('json-path1','mydoc.jn','" + twitterFilePath + "').statuses";
-  // final var sequence = (JsonDBArray) new XQuery(chain, storeQuery).execute(ctx);
+  // final var sequence = (JsonDBArray) new Query(chain, storeQuery).execute(ctx);
   //
   // TimeUnit.SECONDS.sleep(5);
   //
@@ -428,7 +428,7 @@ public final class SimpleQueryIntegrationTest {
   //
   // final var buf = IOUtils.createBuffer();
   // final var serializer = new StringSerializer(buf);
-  // new XQuery(chain, retrieveQuery).serialize(ctx, serializer);
+  // new Query(chain, retrieveQuery).serialize(ctx, serializer);
   //
   // assertEquals("2018-02-25T19:31:07 2018-02-26T06:42:50 2018-08-16T21:10:50:557000",
   // buf.toString());
@@ -442,7 +442,7 @@ public final class SimpleQueryIntegrationTest {
   // final var chain = SirixCompileChain.createWithJsonStore(store)) {
   // final var twitterFilePath = JSON.resolve("twitter.json").toString();
   // final var storeQuery = "jn:load('json-path1','mydoc.jn','" + twitterFilePath + "').statuses";
-  // final var sequence = (JsonDBArray) new XQuery(chain, storeQuery).execute(ctx);
+  // final var sequence = (JsonDBArray) new Query(chain, storeQuery).execute(ctx);
   //
   // TimeUnit.SECONDS.sleep(5);
   //
@@ -473,7 +473,7 @@ public final class SimpleQueryIntegrationTest {
   //
   // final var buf = IOUtils.createBuffer();
   // final var serializer = new StringSerializer(buf);
-  // new XQuery(chain, retrieveQuery).serialize(ctx, serializer);
+  // new Query(chain, retrieveQuery).serialize(ctx, serializer);
   //
   // System.out.println(buf.toString());
   // // assertEquals("2018-02-25T19:31:07 2018-02-26T06:42:50 2018-08-16T21:10:50:557000",
@@ -492,7 +492,7 @@ public final class SimpleQueryIntegrationTest {
 //
 //   final var buf = IOUtils.createBuffer();
 //   final var serializer = new StringSerializer(buf);
-//   new XQuery(chain, storeQuery).serialize(ctx, serializer);
+//   new Query(chain, storeQuery).serialize(ctx, serializer);
 //
 //   assertEquals("2018-08-16T21:10:50:557000", buf.toString());
 //   }

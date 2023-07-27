@@ -33,7 +33,7 @@ import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
 
 import javax.xml.namespace.QName;

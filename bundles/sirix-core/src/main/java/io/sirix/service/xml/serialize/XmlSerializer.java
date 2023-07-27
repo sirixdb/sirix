@@ -56,7 +56,7 @@ import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.brackit.xquery.util.serialize.Serializer;
+import io.brackit.query.util.serialize.Serializer;
 import org.slf4j.LoggerFactory;
 
 /**

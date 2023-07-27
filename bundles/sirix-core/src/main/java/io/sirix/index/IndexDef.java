@@ -1,16 +1,16 @@
 package io.sirix.index;
 
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Una;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.Type;
-import org.brackit.xquery.jdm.node.Node;
-import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.node.parser.FragmentHelper;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathParser;
-import org.brackit.xquery.util.serialize.SubtreePrinter;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Una;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.node.Node;
+import io.brackit.query.module.Namespaces;
+import io.brackit.query.node.parser.FragmentHelper;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathParser;
+import io.brackit.query.util.serialize.SubtreePrinter;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.ByteArrayOutputStream;

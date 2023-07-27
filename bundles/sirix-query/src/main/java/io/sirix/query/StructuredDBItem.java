@@ -1,6 +1,6 @@
 package io.sirix.query;
 
-import org.brackit.xquery.jdm.StructuredItem;
+import io.brackit.query.jdm.StructuredItem;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 

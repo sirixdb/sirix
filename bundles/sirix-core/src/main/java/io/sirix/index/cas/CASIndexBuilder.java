@@ -17,11 +17,11 @@ import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.utils.LogWrapper;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.jdm.Type;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import org.slf4j.LoggerFactory;
 

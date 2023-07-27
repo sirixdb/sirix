@@ -8,16 +8,16 @@ import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.runBlocking
-import org.brackit.xquery.ErrorCode
-import org.brackit.xquery.QueryContext
-import org.brackit.xquery.QueryException
-import org.brackit.xquery.compiler.CompileChain
-import org.brackit.xquery.jdm.Item
-import org.brackit.xquery.jdm.Sequence
-import org.brackit.xquery.module.Module
-import org.brackit.xquery.operator.TupleImpl
-import org.brackit.xquery.util.serialize.Serializer
-import org.brackit.xquery.util.serialize.StringSerializer
+import io.brackit.query.ErrorCode
+import io.brackit.query.QueryContext
+import io.brackit.query.QueryException
+import io.brackit.query.compiler.CompileChain
+import io.brackit.query.jdm.Item
+import io.brackit.query.jdm.Sequence
+import io.brackit.query.module.Module
+import io.brackit.query.operator.TupleImpl
+import io.brackit.query.util.serialize.Serializer
+import io.brackit.query.util.serialize.StringSerializer
 import java.io.PrintStream
 import java.io.PrintWriter
 
@@ -25,7 +25,7 @@ import java.io.PrintWriter
  * @author Johannes Lichtenberger
  */
 @Suppress("unused")
-class PermissionCheckingXQuery {
+class PermissionCheckingQuery {
     private val module: Module
     private var isPrettyPrint: Boolean = false
     val keycloak: OAuth2Auth
@@ -114,7 +114,7 @@ class PermissionCheckingXQuery {
         }
     }
 
-    fun prettyPrint(): PermissionCheckingXQuery {
+    fun prettyPrint(): PermissionCheckingQuery {
         this.isPrettyPrint = true
         return this
     }

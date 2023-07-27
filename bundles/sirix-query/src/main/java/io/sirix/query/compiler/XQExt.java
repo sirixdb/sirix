@@ -1,6 +1,6 @@
 package io.sirix.query.compiler;
 
-import org.brackit.xquery.compiler.XQ;
+import io.brackit.query.compiler.XQ;
 
 /**
  * @author Sebastian Baechle

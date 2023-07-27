@@ -27,7 +27,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.settings.Fixed;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.xml.TextNode;
 
 /**

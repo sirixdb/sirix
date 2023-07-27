@@ -1,9 +1,9 @@
 package io.sirix.query.node;
 
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Scope;
-import org.brackit.xquery.jdm.Stream;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Scope;
+import io.brackit.query.jdm.Stream;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;

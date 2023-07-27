@@ -1,7 +1,7 @@
 package io.sirix.index;
 
-import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.jdm.Type;
+import io.brackit.query.atomic.Bool;
+import io.brackit.query.jdm.Type;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

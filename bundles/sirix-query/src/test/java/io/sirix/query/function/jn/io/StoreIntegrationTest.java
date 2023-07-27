@@ -5,7 +5,7 @@ import java.nio.file.Path;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
@@ -32,9 +32,9 @@ public final class StoreIntegrationTest extends TestCase {
          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
          final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use XQuery to store a JSON string into the store.
+      // Use Query to store a JSON string into the store.
       final String query = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
-      new XQuery(chain, query).evaluate(ctx);
+      new Query(chain, query).evaluate(ctx);
     }
   }
 
@@ -45,17 +45,17 @@ public final class StoreIntegrationTest extends TestCase {
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use XQuery to store multiple JSON strings into the store.
+      // Use Query to store multiple JSON strings into the store.
       final String query = "jn:store('json-path1',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'))";
-      new XQuery(chain, query).evaluate(ctx);
+      new Query(chain, query).evaluate(ctx);
 
-      // Use XQuery to add a JSON string to the collection.
+      // Use Query to add a JSON string to the collection.
       final String queryAdd = "jn:store('json-path1',(),'[\"bla\", \"blubb\"]',false())";
-      new XQuery(chain, queryAdd).evaluate(ctx);
+      new Query(chain, queryAdd).evaluate(ctx);
 
-      // Use XQuery to add a JSON string to the collection.
+      // Use Query to add a JSON string to the collection.
       final String queryAddStrings = "jn:store('json-path1',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'),false())";
-      new XQuery(chain, queryAddStrings).evaluate(ctx);
+      new Query(chain, queryAddStrings).evaluate(ctx);
     }
   }
 }

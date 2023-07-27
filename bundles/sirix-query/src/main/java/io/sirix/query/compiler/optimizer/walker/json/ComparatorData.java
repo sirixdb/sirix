@@ -1,6 +1,6 @@
 package io.sirix.query.compiler.optimizer.walker.json;
 
-import org.brackit.xquery.atomic.Atomic;
+import io.brackit.query.atomic.Atomic;
 
 final class ComparatorData {
   private String comparator;

@@ -1,14 +1,14 @@
 package io.sirix.query.node;
 
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.node.AbstractTemporalNode;
-import org.brackit.xquery.jdm.node.TemporalNodeCollection;
-import org.brackit.xquery.node.AbstractNodeCollection;
-import org.brackit.xquery.node.parser.CollectionParser;
-import org.brackit.xquery.node.parser.NodeSubtreeHandler;
-import org.brackit.xquery.node.parser.NodeSubtreeParser;
-import org.brackit.xquery.node.stream.ArrayStream;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.node.AbstractTemporalNode;
+import io.brackit.query.jdm.node.TemporalNodeCollection;
+import io.brackit.query.node.AbstractNodeCollection;
+import io.brackit.query.node.parser.CollectionParser;
+import io.brackit.query.node.parser.NodeSubtreeHandler;
+import io.brackit.query.node.parser.NodeSubtreeParser;
+import io.brackit.query.node.stream.ArrayStream;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.Databases;

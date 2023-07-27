@@ -14,7 +14,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.service.xml.xpath.AtomicValue;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 

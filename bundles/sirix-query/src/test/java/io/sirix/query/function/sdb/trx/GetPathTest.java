@@ -5,7 +5,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.brackit.xquery.XQuery;
+import io.brackit.query.Query;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,28 +46,28 @@ public class GetPathTest {
       final String firstPathQuery = "sdb:path(sdb:select-item(jn:doc('json-path1','shredded'), 25))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, firstPathQuery).serialize(ctx, printWriter);
+        new Query(chain, firstPathQuery).serialize(ctx, printWriter);
         assertEquals("/tada/[0]/[4]", out.toString());
       }
 
       final String secondPathQuery = "sdb:path(sdb:select-item(jn:doc('json-path1','shredded'), 11))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, secondPathQuery).serialize(ctx, printWriter);
+        new Query(chain, secondPathQuery).serialize(ctx, printWriter);
         assertEquals("/bar/helloo", out.toString());
       }
 
       final String thirdPathQuery = "sdb:path(sdb:select-item(jn:doc('json-path1','shredded'), 21))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, thirdPathQuery).serialize(ctx, printWriter);
+        new Query(chain, thirdPathQuery).serialize(ctx, printWriter);
         assertEquals("/tada/[1]/baz", out.toString());
       }
 
       final String fourthPathQuery = "sdb:path(sdb:select-item(jn:doc('json-path1','shredded'), 28))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new XQuery(chain, fourthPathQuery).serialize(ctx, printWriter);
+        new Query(chain, fourthPathQuery).serialize(ctx, printWriter);
         assertEquals("/foo/[3]/foo/[0]", out.toString());
       }
     }

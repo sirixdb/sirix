@@ -52,7 +52,7 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
 import net.openhft.chronicle.bytes.Bytes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;

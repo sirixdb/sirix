@@ -1,12 +1,12 @@
 package io.sirix.query.function.sdb.trx;
 
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.Signature;
-import org.brackit.xquery.module.StaticContext;
+import io.brackit.query.QueryContext;
+import io.brackit.query.atomic.Bool;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Signature;
+import io.brackit.query.module.StaticContext;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.index.IndexType;

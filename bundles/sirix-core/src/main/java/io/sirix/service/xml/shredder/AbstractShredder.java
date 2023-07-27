@@ -7,7 +7,7 @@ import io.sirix.service.InsertPosition;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongStack;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 
 import static java.util.Objects.requireNonNull;
 

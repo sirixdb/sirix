@@ -37,7 +37,7 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.SirixFiles;
-import org.brackit.xquery.util.serialize.Serializer;
+import io.brackit.query.util.serialize.Serializer;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.slf4j.LoggerFactory;

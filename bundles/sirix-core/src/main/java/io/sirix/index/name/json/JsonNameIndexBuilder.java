@@ -2,7 +2,7 @@ package io.sirix.index.name.json;
 
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.json.AbstractJsonNodeVisitor;
 import io.sirix.index.name.NameIndexBuilder;
 

@@ -35,7 +35,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.NameNode;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.chronicle.bytes.Bytes;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.jetbrains.annotations.NotNull;

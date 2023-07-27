@@ -7,7 +7,7 @@ import io.sirix.node.xml.ElementNode;
 import io.sirix.node.xml.PINode;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
 import io.sirix.node.xml.NamespaceNode;

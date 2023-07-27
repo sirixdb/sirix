@@ -21,20 +21,20 @@
  */
 package io.sirix.query.function.xml.io;
 
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.function.AbstractFunction;
-import org.brackit.xquery.jdm.Sequence;
-import org.brackit.xquery.jdm.Signature;
-import org.brackit.xquery.jdm.type.AtomicType;
-import org.brackit.xquery.jdm.type.Cardinality;
-import org.brackit.xquery.jdm.type.SequenceType;
-import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.util.io.IOUtils;
-import org.brackit.xquery.util.serialize.StringSerializer;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Signature;
+import io.brackit.query.jdm.type.AtomicType;
+import io.brackit.query.jdm.type.Cardinality;
+import io.brackit.query.jdm.type.SequenceType;
+import io.brackit.query.module.StaticContext;
+import io.brackit.query.util.io.IOUtils;
+import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.sdb.SDBFun;
 import io.sirix.query.function.xml.XMLFun;

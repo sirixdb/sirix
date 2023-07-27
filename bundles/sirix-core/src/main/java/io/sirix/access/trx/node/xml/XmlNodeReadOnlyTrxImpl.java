@@ -46,7 +46,7 @@ import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 

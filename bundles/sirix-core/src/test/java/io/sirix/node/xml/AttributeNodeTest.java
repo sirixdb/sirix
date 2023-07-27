@@ -26,7 +26,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

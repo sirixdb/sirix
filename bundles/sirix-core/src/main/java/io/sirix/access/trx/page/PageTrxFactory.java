@@ -34,7 +34,7 @@ import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.*;
 import io.sirix.cache.BufferManager;
-import org.brackit.xquery.jdm.DocumentException;
+import io.brackit.query.jdm.DocumentException;
 import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import io.sirix.api.NodeReadOnlyTrx;

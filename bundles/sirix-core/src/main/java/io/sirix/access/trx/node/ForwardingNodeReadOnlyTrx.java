@@ -1,6 +1,6 @@
 package io.sirix.access.trx.node;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.User;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;

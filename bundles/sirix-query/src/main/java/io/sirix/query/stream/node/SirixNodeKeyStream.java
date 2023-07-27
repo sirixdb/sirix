@@ -1,6 +1,6 @@
 package io.sirix.query.stream.node;
 
-import org.brackit.xquery.jdm.Stream;
+import io.brackit.query.jdm.Stream;
 import org.roaringbitmap.longlong.PeekableLongIterator;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;

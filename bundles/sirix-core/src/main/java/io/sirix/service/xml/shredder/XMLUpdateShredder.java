@@ -57,7 +57,7 @@ import io.sirix.service.ShredderCommit;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.TypedValue;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
 
 /**

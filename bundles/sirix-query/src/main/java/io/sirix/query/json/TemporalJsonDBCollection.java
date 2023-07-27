@@ -1,6 +1,6 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.jdm.json.TemporalJsonCollection;
+import io.brackit.query.jdm.json.TemporalJsonCollection;
 
 public interface TemporalJsonDBCollection extends TemporalJsonCollection<JsonDBItem> {
 

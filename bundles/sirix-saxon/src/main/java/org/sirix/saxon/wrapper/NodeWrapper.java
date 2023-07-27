@@ -54,7 +54,7 @@ import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.UntypedAtomicValue;
 import net.sf.saxon.value.Value;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;

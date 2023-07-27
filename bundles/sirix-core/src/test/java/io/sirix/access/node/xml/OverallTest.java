@@ -22,7 +22,7 @@
 package io.sirix.access.node.xml;
 
 import io.sirix.node.NodeKind;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

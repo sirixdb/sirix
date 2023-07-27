@@ -6,7 +6,7 @@ import io.sirix.index.redblacktree.interfaces.MutableRBNodeKey;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import io.sirix.index.redblacktree.keyvalue.CASValue;

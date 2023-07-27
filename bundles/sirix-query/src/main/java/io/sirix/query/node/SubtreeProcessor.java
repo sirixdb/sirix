@@ -1,8 +1,8 @@
 package io.sirix.query.node;
 
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.node.Node;
-import org.brackit.xquery.node.parser.NodeSubtreeListener;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.node.Node;
+import io.brackit.query.node.parser.NodeSubtreeListener;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 

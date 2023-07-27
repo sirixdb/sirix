@@ -2,9 +2,9 @@ package io.sirix.index.path;
 
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.index.SearchMode;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.redblacktree.RBTreeReader.MoveCursor;

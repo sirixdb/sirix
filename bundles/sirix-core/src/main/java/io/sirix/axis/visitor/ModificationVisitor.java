@@ -7,7 +7,7 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.utils.LogWrapper;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import io.sirix.exception.SirixException;
 import io.sirix.node.immutable.xml.ImmutableElement;

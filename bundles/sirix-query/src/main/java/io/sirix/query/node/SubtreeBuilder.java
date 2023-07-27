@@ -1,11 +1,11 @@
 package io.sirix.query.node;
 
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.node.AbstractTemporalNode;
-import org.brackit.xquery.node.parser.NodeSubtreeHandler;
-import org.brackit.xquery.node.parser.NodeSubtreeListener;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.node.AbstractTemporalNode;
+import io.brackit.query.node.parser.NodeSubtreeHandler;
+import io.brackit.query.node.parser.NodeSubtreeListener;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.service.InsertPosition;

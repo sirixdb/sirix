@@ -1,10 +1,10 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.atomic.AbstractNumeric;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.IntNumeric;
-import org.brackit.xquery.atomic.Numeric;
-import org.brackit.xquery.jdm.Type;
+import io.brackit.query.atomic.AbstractNumeric;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.Numeric;
+import io.brackit.query.jdm.Type;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.StructuredDBItem;

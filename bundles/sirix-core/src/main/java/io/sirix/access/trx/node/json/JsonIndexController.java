@@ -13,10 +13,10 @@ import io.sirix.index.name.json.JsonNameIndexImpl;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.path.json.JsonPathIndexImpl;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
-import org.brackit.xquery.util.path.PathParser;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathException;
+import io.brackit.query.util.path.PathParser;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.util.HashSet;

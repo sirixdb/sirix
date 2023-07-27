@@ -38,7 +38,7 @@ import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.utils.SirixFiles;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 

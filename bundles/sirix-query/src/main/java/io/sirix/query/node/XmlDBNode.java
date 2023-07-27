@@ -7,20 +7,20 @@ import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Una;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Kind;
-import org.brackit.xquery.jdm.Scope;
-import org.brackit.xquery.jdm.Stream;
-import org.brackit.xquery.jdm.node.AbstractTemporalNode;
-import org.brackit.xquery.jdm.node.Node;
-import org.brackit.xquery.jdm.node.TemporalNode;
-import org.brackit.xquery.jdm.type.NodeType;
-import org.brackit.xquery.node.parser.NavigationalSubtreeParser;
-import org.brackit.xquery.node.parser.NodeSubtreeHandler;
-import org.brackit.xquery.node.parser.NodeSubtreeParser;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Una;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Kind;
+import io.brackit.query.jdm.Scope;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.node.AbstractTemporalNode;
+import io.brackit.query.jdm.node.Node;
+import io.brackit.query.jdm.node.TemporalNode;
+import io.brackit.query.jdm.type.NodeType;
+import io.brackit.query.node.parser.NavigationalSubtreeParser;
+import io.brackit.query.node.parser.NodeSubtreeHandler;
+import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.api.Axis;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -1624,7 +1624,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Stream<? extends Node<?>> performStep(final org.brackit.xquery.jdm.Axis axis, final NodeType test) {
+  public Stream<? extends Node<?>> performStep(final io.brackit.query.jdm.Axis axis, final NodeType test) {
     return null;
   }
 

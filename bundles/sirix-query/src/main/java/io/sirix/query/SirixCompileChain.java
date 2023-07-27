@@ -11,12 +11,12 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBStore;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.compiler.CompileChain;
-import org.brackit.xquery.compiler.optimizer.Optimizer;
-import org.brackit.xquery.compiler.translator.Translator;
-import org.brackit.xquery.util.Cfg;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.compiler.CompileChain;
+import io.brackit.query.compiler.optimizer.Optimizer;
+import io.brackit.query.compiler.translator.Translator;
+import io.brackit.query.util.Cfg;
 
 /**
  * Compile chain.

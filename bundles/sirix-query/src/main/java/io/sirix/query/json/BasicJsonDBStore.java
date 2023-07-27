@@ -1,9 +1,9 @@
 package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
-import org.brackit.xquery.atomic.Str;
-import org.brackit.xquery.jdm.DocumentException;
-import org.brackit.xquery.jdm.Stream;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Stream;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.DatabaseConfiguration;

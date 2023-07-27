@@ -15,7 +15,7 @@ import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.settings.Fixed;
-import org.brackit.xquery.atomic.Atomic;
+import io.brackit.query.atomic.Atomic;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.util.*;

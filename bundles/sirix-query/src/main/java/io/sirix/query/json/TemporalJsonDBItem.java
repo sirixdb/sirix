@@ -1,6 +1,6 @@
 package io.sirix.query.json;
 
-import org.brackit.xquery.jdm.json.TemporalJsonItem;
+import io.brackit.query.jdm.json.TemporalJsonItem;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.query.StructuredDBItem;
 

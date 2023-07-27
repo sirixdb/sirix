@@ -23,7 +23,7 @@ package io.sirix.access.node.xml;
 
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
