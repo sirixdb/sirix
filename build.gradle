@@ -86,20 +86,20 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_19
-        targetCompatibility = JavaVersion.VERSION_19
+        sourceCompatibility = JavaVersion.VERSION_20
+        targetCompatibility = JavaVersion.VERSION_20
         withSourcesJar()
         withJavadocJar()
 
         if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException( JavaVersion.current().toString()+ targetCompatibility.toString())
+            throw new GradleException(JavaVersion.current().toString()+ targetCompatibility.toString())
         }
     }
 
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '19')
+            addStringOption('-release', '20')
             addBooleanOption('-enable-preview', true)
         }
     }

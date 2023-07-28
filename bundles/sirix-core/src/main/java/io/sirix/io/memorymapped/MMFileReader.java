@@ -37,6 +37,7 @@ import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.time.Instant;
@@ -60,6 +61,8 @@ public final class MMFileReader extends AbstractReader {
 
   private final Cache<Integer, RevisionFileData> cache;
 
+  private final Arena arena;
+
   /**
    * Constructor.
    *
@@ -67,11 +70,12 @@ public final class MMFileReader extends AbstractReader {
    */
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
-      final Cache<Integer, RevisionFileData> cache) {
+      final Cache<Integer, RevisionFileData> cache, final Arena arena) {
     super(byteHandler, pagePersistenter, type);
     this.dataFileSegment = requireNonNull(dataFileSegment);
     this.revisionsOffsetFileSegment = requireNonNull(revisionFileSegment);
     this.cache = requireNonNull(cache);
+    this.arena = requireNonNull(arena);
   }
 
   @Override
@@ -125,6 +129,6 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public void close() {
-    dataFileSegment.session().close();
+    arena.close();
   }
 }

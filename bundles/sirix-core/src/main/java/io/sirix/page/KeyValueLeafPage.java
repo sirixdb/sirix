@@ -111,7 +111,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final ResourceConfiguration resourceConfig;
 
-  private volatile BytesOut<?> bytes;
+  private volatile byte[] bytes;
 
   private volatile byte[] hashCode;
 
@@ -221,7 +221,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    *
    * @return bytes
    */
-  public BytesOut<?> getBytes() {
+  public byte[] getBytes() {
     return bytes;
   }
 
@@ -230,7 +230,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    *
    * @param bytes bytes
    */
-  public void setBytes(BytesOut<?> bytes) {
+  public void setBytes(byte[] bytes) {
     this.bytes = bytes;
   }
 
@@ -439,7 +439,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public KeyValuePage<DataRecord> clearPage() {
     if (bytes != null) {
-      bytes.clear();
+      //bytes.clear();
       bytes = null;
     }
     hashCode = null;

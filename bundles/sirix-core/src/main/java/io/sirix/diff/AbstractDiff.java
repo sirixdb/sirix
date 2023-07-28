@@ -360,7 +360,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
             moved = moveToNext(rtx, revision);
           }
         }
-        case MOVEDFROM, MOVEDTO, REPLACEDNEW, REPLACEDOLD, default -> {
+        case MOVEDFROM, MOVEDTO, REPLACEDNEW, REPLACEDOLD -> {
         }
       }
     }
