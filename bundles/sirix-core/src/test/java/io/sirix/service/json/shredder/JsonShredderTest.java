@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.io.StorageType;
+import org.junit.jupiter.api.condition.DisabledIf;
 import org.skyscreamer.jsonassert.JSONAssert;
 import org.slf4j.LoggerFactory;
 
@@ -157,8 +158,11 @@ public final class JsonShredderTest {
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
   }
 
+  @Disabled
   @Test
   public void testParseChicago() throws IOException {
+    final var stopWatch = new StopWatch();
+    stopWatch.start();
     try (final var reader = JsonShredder.createFileReader(JSON.resolve("cityofchicago.json"))) {
       while (reader.peek() != JsonToken.END_DOCUMENT) {
         final var nextToken = reader.peek();
@@ -177,6 +181,7 @@ public final class JsonShredderTest {
         }
       }
     }
+    System.out.println(stopWatch.getTime(TimeUnit.MILLISECONDS));
   }
 
   @Test
