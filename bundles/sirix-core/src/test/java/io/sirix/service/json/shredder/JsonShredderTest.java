@@ -1,5 +1,6 @@
 package io.sirix.service.json.shredder;
 
+import com.google.gson.stream.JsonToken;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -48,7 +49,7 @@ public final class JsonShredderTest {
 
   @BeforeEach
   public void setUp() {
-//    JsonTestHelper.deleteEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -154,6 +155,28 @@ public final class JsonShredderTest {
     }
 
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+  }
+
+  @Test
+  public void testParseChicago() throws IOException {
+    try (final var reader = JsonShredder.createFileReader(JSON.resolve("cityofchicago.json"))) {
+      while (reader.peek() != JsonToken.END_DOCUMENT) {
+        final var nextToken = reader.peek();
+
+        switch (nextToken) {
+          case BEGIN_OBJECT -> reader.beginObject();
+          case NAME -> reader.nextName();
+          case END_OBJECT -> reader.endObject();
+          case BEGIN_ARRAY -> reader.beginArray();
+          case END_ARRAY -> reader.endArray();
+          case STRING, NUMBER -> reader.nextString();
+          case BOOLEAN -> reader.nextBoolean();
+          case NULL -> reader.nextNull();
+          // Node kind not known.
+          default -> throw new AssertionError("Unexpected token: " + nextToken);
+        }
+      }
+    }
   }
 
   @Test
