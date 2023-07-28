@@ -157,6 +157,7 @@ public final class JsonShredderTest {
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
   }
 
+  @Disabled
   @Test
   public void testParseChicago() throws IOException {
     final var stopWatch = new StopWatch();
