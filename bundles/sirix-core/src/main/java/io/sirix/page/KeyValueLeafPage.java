@@ -53,6 +53,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
  * </p>
  */
+@SuppressWarnings("unchecked")
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
@@ -178,7 +179,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
       final RecordSerializer recordPersister, final byte[][] slots, final byte[][] deweyIds,
       final Map<Long, PageReference> references) {
-
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
@@ -189,7 +189,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIds = deweyIds;
     this.references = references;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
-
   }
 
   @Override
@@ -372,18 +371,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       final var recordID = record.getNodeKey();
       final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
-      if (slots[offset] == null) {
-        // Must be either a normal record or one which requires an overflow page.
-        recordPersister.serialize(out, record, pageReadOnlyTrx);
-        final var data = out.toByteArray();
-        out.clear();
-        if (data.length > PageConstants.MAX_RECORD_SIZE) {
-          final var reference = new PageReference();
-          reference.setPage(new OverflowPage(data));
-          references.put(recordID, reference);
-        } else {
-          slots[offset] = data;
-        }
+
+      // Must be either a normal record or one which requires an overflow page.
+      recordPersister.serialize(out, record, pageReadOnlyTrx);
+      final var data = out.toByteArray();
+      out.clear();
+      if (data.length > PageConstants.MAX_RECORD_SIZE) {
+        final var reference = new PageReference();
+        reference.setPage(new OverflowPage(data));
+        references.put(recordID, reference);
+      } else {
+        slots[offset] = data;
       }
     }
   }
