@@ -1,6 +1,8 @@
 package io.sirix.service.json.shredder;
 
 import com.google.gson.stream.JsonToken;
+import io.sirix.JsonTestHelper;
+import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -10,6 +12,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.PostOrderAxis;
+import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.service.InsertPosition;
@@ -21,10 +24,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import io.sirix.JsonTestHelper;
-import io.sirix.JsonTestHelper.PATHS;
-import io.sirix.io.StorageType;
-import org.junit.jupiter.api.condition.DisabledIf;
 import org.skyscreamer.jsonassert.JSONAssert;
 import org.slf4j.LoggerFactory;
 
@@ -158,7 +157,6 @@ public final class JsonShredderTest {
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
   }
 
-  @Disabled
   @Test
   public void testParseChicago() throws IOException {
     final var stopWatch = new StopWatch();
@@ -181,7 +179,7 @@ public final class JsonShredderTest {
         }
       }
     }
-    System.out.println(stopWatch.getTime(TimeUnit.MILLISECONDS));
+    System.out.println("Done in " + stopWatch.getTime(TimeUnit.MILLISECONDS) + "ms");
   }
 
   @Test
