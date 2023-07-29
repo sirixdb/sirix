@@ -272,8 +272,6 @@ public enum PageKind {
       }
 
       keyValueLeafPage.setBytes(serializedPage);
-
-      sink.clear();
     }
 
     @Override

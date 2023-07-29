@@ -439,7 +439,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public KeyValuePage<DataRecord> clearPage() {
     if (bytes != null) {
-      //bytes.clear();
       bytes = null;
     }
     hashCode = null;

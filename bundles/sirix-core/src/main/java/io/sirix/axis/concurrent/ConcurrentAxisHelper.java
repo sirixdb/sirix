@@ -72,7 +72,7 @@ public class ConcurrentAxisHelper implements Runnable {
   public void run() {
     // Compute all results of the given axis and store the results in the queue.
     while (axis.hasNext()) {
-      final long nodeKey = axis.next();
+      final long nodeKey = axis.nextLong();
       try {
         // Store result in queue as soon as there is space left.
         results.put(nodeKey);
