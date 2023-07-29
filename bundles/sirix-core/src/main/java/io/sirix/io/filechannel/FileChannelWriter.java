@@ -97,7 +97,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx,final int revision) {
+  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -158,12 +158,16 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       final byte[] serializedPage;
 
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-        try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
-          dataOutput.write(byteArray);
-          dataOutput.flush();
+      if (page instanceof KeyValueLeafPage) {
+        serializedPage = byteArray;
+      } else {
+        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
+          try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+            dataOutput.write(byteArray);
+            dataOutput.flush();
+          }
+          serializedPage = output.toByteArray();
         }
-        serializedPage = output.toByteArray();
       }
 
       byteBufferBytes.clear();

@@ -1,5 +1,8 @@
 package io.sirix.service.json.shredder;
 
+import com.google.gson.stream.JsonToken;
+import io.sirix.JsonTestHelper;
+import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -9,6 +12,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.PostOrderAxis;
+import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.service.InsertPosition;
@@ -20,9 +24,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import io.sirix.JsonTestHelper;
-import io.sirix.JsonTestHelper.PATHS;
-import io.sirix.io.StorageType;
 import org.skyscreamer.jsonassert.JSONAssert;
 import org.slf4j.LoggerFactory;
 
@@ -154,6 +155,32 @@ public final class JsonShredderTest {
     }
 
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+  }
+
+  @Disabled
+  @Test
+  public void testParseChicago() throws IOException {
+    final var stopWatch = new StopWatch();
+    stopWatch.start();
+    try (final var reader = JsonShredder.createFileReader(JSON.resolve("cityofchicago.json"))) {
+      while (reader.peek() != JsonToken.END_DOCUMENT) {
+        final var nextToken = reader.peek();
+
+        switch (nextToken) {
+          case BEGIN_OBJECT -> reader.beginObject();
+          case NAME -> reader.nextName();
+          case END_OBJECT -> reader.endObject();
+          case BEGIN_ARRAY -> reader.beginArray();
+          case END_ARRAY -> reader.endArray();
+          case STRING, NUMBER -> reader.nextString();
+          case BOOLEAN -> reader.nextBoolean();
+          case NULL -> reader.nextNull();
+          // Node kind not known.
+          default -> throw new AssertionError("Unexpected token: " + nextToken);
+        }
+      }
+    }
+    System.out.println("Done in " + stopWatch.getTime(TimeUnit.MILLISECONDS) + "ms");
   }
 
   @Test

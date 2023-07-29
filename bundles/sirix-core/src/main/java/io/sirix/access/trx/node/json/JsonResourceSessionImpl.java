@@ -104,8 +104,6 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
 
   @Override
   public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount,
-      // TODO delete me
-      // TODO delete me
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
