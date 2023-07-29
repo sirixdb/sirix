@@ -50,6 +50,10 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
@@ -249,7 +253,22 @@ public enum PageKind {
       }
 
       keyValueLeafPage.setHashCode(pageReadOnlyTrx.getReader().hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());
-      keyValueLeafPage.setBytes(sink);
+
+      final var byteArray = sink.bytesForRead().toByteArray();
+
+      final byte[] serializedPage;
+
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
+        try (final DataOutputStream dataOutput = new DataOutputStream(pageReadOnlyTrx.getResourceSession().getResourceConfig().byteHandlePipeline.serialize(output))) {
+          dataOutput.write(byteArray);
+          dataOutput.flush();
+        }
+        serializedPage = output.toByteArray();
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+
+      keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
     }
 
     @Override

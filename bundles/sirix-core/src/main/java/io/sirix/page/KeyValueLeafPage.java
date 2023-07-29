@@ -45,8 +45,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-
-
 /**
  * <p>
  * An UnorderedKeyValuePage stores a set of records, commonly nodes in an unordered data structure.
@@ -55,6 +53,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
  * </p>
  */
+@SuppressWarnings("unchecked")
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
@@ -77,7 +76,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final Map<Long, PageReference> references;
 
-
   /**
    * Key of record page. This is the base key of all contained nodes.
    */
@@ -92,7 +90,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Slots which have to be serialized.
    */
   private final byte[][] slots;
-
 
   /**
    * DeweyIDs.
@@ -114,12 +111,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final ResourceConfiguration resourceConfig;
 
-
   private volatile BytesOut<?> bytes;
 
-
   private volatile byte[] hashCode;
-
 
   private int hash;
 
@@ -170,33 +164,31 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage.
-   * @param recordPageKey This is the base key of all contained nodes.
-   * @param revision The current revision.
-   * @param indexType The index type.
-   * @param resourceConfig The resource configuration.
-   * @param areDeweyIDsStored Determines if DeweyIDs are stored or not.
-   * @param recordPersister Persistenter.
-   * @param slots Slots which were serialized.
-   * @param deweyIds DeweyIDs.
-   * @param references References to overflow pages.
    *
+   * @param recordPageKey     This is the base key of all contained nodes.
+   * @param revision          The current revision.
+   * @param indexType         The index type.
+   * @param resourceConfig    The resource configuration.
+   * @param areDeweyIDsStored Determines if DeweyIDs are stored or not.
+   * @param recordPersister   Persistenter.
+   * @param slots             Slots which were serialized.
+   * @param deweyIds          DeweyIDs.
+   * @param references        References to overflow pages.
    */
-  KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType, final ResourceConfiguration resourceConfig,
-                   final boolean areDeweyIDsStored, final RecordSerializer recordPersister,
-                   final byte[][] slots, final byte[][] deweyIds,
-                   final Map<Long, PageReference> references){
-
+  KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
+      final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
+      final RecordSerializer recordPersister, final byte[][] slots, final byte[][] deweyIds,
+      final Map<Long, PageReference> references) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
     this.resourceConfig = resourceConfig;
     this.areDeweyIDsStored = areDeweyIDsStored;
-    this.recordPersister =recordPersister;
+    this.recordPersister = recordPersister;
     this.slots = slots;
     this.deweyIds = deweyIds;
     this.references = references;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
-
   }
 
   @Override
@@ -226,13 +218,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Get bytes to serialize
+   *
    * @return bytes
    */
   public BytesOut<?> getBytes() {
     return bytes;
   }
+
   /**
    * Set bytes after serialized
+   *
    * @param bytes bytes
    */
   public void setBytes(BytesOut<?> bytes) {
@@ -333,7 +328,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     throw new UnsupportedOperationException();
   }
 
-  public Map<Long, PageReference> getReferencesMap(){
+  public Map<Long, PageReference> getReferencesMap() {
     return references;
   }
 
@@ -376,7 +371,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       final var recordID = record.getNodeKey();
       final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
-      //if (slots[offset] == null) {
+
       // Must be either a normal record or one which requires an overflow page.
       recordPersister.serialize(out, record, pageReadOnlyTrx);
       final var data = out.toByteArray();
@@ -388,7 +383,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       } else {
         slots[offset] = data;
       }
-      //}
     }
   }
 
