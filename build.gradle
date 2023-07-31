@@ -92,7 +92,7 @@ subprojects {
         withJavadocJar()
 
         if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException( JavaVersion.current().toString()+ targetCompatibility.toString())
+            throw new GradleException(JavaVersion.current().toString() + targetCompatibility.toString())
         }
     }
 
@@ -252,37 +252,16 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-                // "-XX:+UseZGC",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
                  "-XX:+UseLargePages",
                  "-XX:+DisableExplicitGC",
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
-               //  "-XX:+PrintInlining",
                  "-XX:EliminateAllocationArraySizeLimit=1024"
-                /* "-XX:MaxInlineSize=500" */])
+        ])
 
         minHeapSize = '5g'
         maxHeapSize = '8g'
     }
 }
-
-//task jacocoRootReport(type: JacocoReport) {
-//    description = 'Generates an aggregate report from all subprojects'
-//    dependsOn = subprojects.test
-//    sourceDirectories.setFrom files(subprojects.sourceSets.main.allSource.srcDirs)
-//    classDirectories.setFrom files(subprojects.sourceSets.main.output)
-//    executionData.setFrom files(subprojects.jacocoTestReport.executionData).filter {
-//        file -> file.exists()
-//    }.asList()
-//    reports {
-//        html.enabled = true
-//        xml.enabled = true
-//    }
-//}
-//
-//coveralls {
-//    sourceDirs = subprojects.sourceSets.main.allSource.srcDirs.flatten()
-//    jacocoReportPath = "${buildDir}/reports/jacoco/jacocoRootReport/jacocoRootReport.xml"
-//}
