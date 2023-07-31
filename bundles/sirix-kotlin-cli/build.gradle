@@ -10,14 +10,14 @@ test {
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
     kotlinOptions {
         // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-        jvmTarget = "16"
+        jvmTarget = "19"
         freeCompilerArgs += ["-Xopt-in=kotlin.RequiresOptIn"]
     }
 }
 
 dependencies {
     implementation project(':sirix-core')
-    implementation project(':sirix-xquery')
+    implementation project(':sirix-query')
 
     implementation implLibraries.kotlinStdlib
     implementation implLibraries.kotlinStdlibJdk8

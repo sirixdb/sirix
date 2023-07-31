@@ -31,7 +31,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.xml.stream.events.Attribute;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.GUI;
 import org.sirix.gui.view.EHover;

@@ -1,9 +1,9 @@
 package io.sirix.tutorial.json;
 
 import io.sirix.tutorial.Constants;
-import org.sirix.access.Databases;
-import org.sirix.api.json.JsonResourceSession;
-import org.sirix.service.json.serialize.JsonSerializer;
+import io.sirix.access.Databases;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.service.json.serialize.JsonSerializer;
 
 import java.io.StringWriter;
 

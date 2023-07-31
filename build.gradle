@@ -10,13 +10,13 @@ buildscript {
         classpath 'net.researchgate:gradle-release:3.0.2'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.47.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.19.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.20.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
 plugins {
-    id "org.sonarqube" version "4.2.1.3168"
+    id "org.sonarqube" version "4.3.0.3225"
 }
 
 sonarqube {
@@ -264,7 +264,7 @@ subprojects {
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
-        maxHeapSize = '5g'
+        maxHeapSize = '8g'
     }
 }
 
