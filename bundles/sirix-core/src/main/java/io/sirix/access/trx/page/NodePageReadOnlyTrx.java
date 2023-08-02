@@ -137,7 +137,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private RecordPage pathSummaryRecordPage;
 
-//  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
+  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
 
   /**
    * Standard constructor.
@@ -302,7 +302,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   private DataRecord getDataRecord(long key, int offset, byte[] data, KeyValueLeafPage page) {
-    final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
+    byteBufferForRecords.clear();
     BytesUtils.doWrite(byteBufferForRecords, data);
     var record = resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), this);
     byteBufferForRecords.clear();
