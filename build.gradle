@@ -252,7 +252,7 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-                // "-XX:+UseZGC",
+                 //"-XX:+UseShenandoahGC",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
                  "-XX:+UseLargePages",
@@ -260,7 +260,8 @@ subprojects {
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
-                 "-XX:EliminateAllocationArraySizeLimit=1024"
+                 "-XX:EliminateAllocationArraySizeLimit=1024",
+                 "-Ddisable.thread.safety=true"
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'

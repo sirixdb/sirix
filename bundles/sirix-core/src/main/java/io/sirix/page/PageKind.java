@@ -165,7 +165,7 @@ public enum PageKind {
       final var bytes = keyValueLeafPage.getBytes();
 
       if (bytes != null) {
-        sink.write(bytes);
+        sink.write(bytes.bytesForWrite());
         return;
       }
 
@@ -271,7 +271,7 @@ public enum PageKind {
         throw new UncheckedIOException(e);
       }
 
-      keyValueLeafPage.setBytes(serializedPage);
+      keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
     }
 
     @Override
