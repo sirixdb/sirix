@@ -252,7 +252,7 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-                 //"-XX:+UseShenandoahGC",
+                // "-XX:+UseZGC",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
                  "-XX:+UseLargePages",
