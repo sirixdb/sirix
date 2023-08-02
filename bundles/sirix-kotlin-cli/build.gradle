@@ -9,8 +9,7 @@ test {
 
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
     kotlinOptions {
-        // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-        jvmTarget = "19"
+        jvmTarget = "20"
         freeCompilerArgs += ["-Xopt-in=kotlin.RequiresOptIn"]
     }
 }
