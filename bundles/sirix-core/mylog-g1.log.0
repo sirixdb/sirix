@@ -1,0 +1,105 @@
+[0.003s][info][gc] Using G1
+[0,980s][info][gc] GC(0) Pause Young (Concurrent Start) (Metadata GC Threshold) 121M->17M(5128M) 3,254ms
+[0,980s][info][gc] GC(1) Concurrent Mark Cycle
+[0,984s][info][gc] GC(1) Pause Remark 21M->21M(5120M) 1,056ms
+[0,984s][info][gc] GC(1) Pause Cleanup 21M->21M(5120M) 0,005ms
+[0,986s][info][gc] GC(1) Concurrent Mark Cycle 6,080ms
+[1,362s][info][gc] GC(2) Pause Young (Normal) (G1 Evacuation Pause) 257M->71M(5120M) 9,946ms
+[1,537s][info][gc] GC(3) Pause Young (Normal) (G1 Evacuation Pause) 295M->128M(5120M) 10,436ms
+[1,711s][info][gc] GC(4) Pause Young (Normal) (G1 Evacuation Pause) 352M->189M(5120M) 9,897ms
+[1,885s][info][gc] GC(5) Pause Young (Normal) (G1 Evacuation Pause) 413M->248M(5120M) 9,162ms
+[2,056s][info][gc] GC(6) Pause Young (Normal) (G1 Evacuation Pause) 472M->307M(5120M) 9,087ms
+[2,225s][info][gc] GC(7) Pause Young (Normal) (G1 Evacuation Pause) 531M->366M(5120M) 9,266ms
+[2,397s][info][gc] GC(8) Pause Young (Normal) (G1 Evacuation Pause) 594M->427M(5120M) 10,830ms
+[2,692s][info][gc] GC(9) Pause Young (Normal) (G1 Evacuation Pause) 695M->483M(5120M) 7,991ms
+[2,828s][info][gc] GC(10) Pause Young (Normal) (G1 Evacuation Pause) 731M->532M(5120M) 6,947ms
+[3,078s][info][gc] GC(11) Pause Young (Normal) (G1 Evacuation Pause) 752M->577M(5120M) 7,818ms
+[3,494s][info][gc] GC(12) Pause Young (Normal) (GCLocker Initiated GC) 1209M->973M(5120M) 36,638ms
+[3,632s][info][gc] GC(13) Pause Young (Normal) (G1 Evacuation Pause) 1321M->1051M(5120M) 11,872ms
+[3,778s][info][gc] GC(14) Pause Young (Normal) (G1 Evacuation Pause) 1251M->1107M(5120M) 11,161ms
+[4,079s][info][gc] GC(15) Pause Young (Normal) (GCLocker Initiated GC) 1741M->1499M(5120M) 34,050ms
+[4,151s][info][gc] GC(16) Pause Young (Normal) (G1 Evacuation Pause) 1903M->1461M(5120M) 3,824ms
+[4,545s][info][gc] GC(17) Pause Young (Normal) (G1 Evacuation Pause) 2321M->1951M(5120M) 41,680ms
+[4,911s][info][gc] GC(18) Pause Young (Normal) (G1 Evacuation Pause) 2651M->2189M(5292M) 42,354ms
+[5,139s][info][gc] GC(19) Pause Young (Normal) (G1 Evacuation Pause) 2997M->2203M(5292M) 9,242ms
+[5,711s][info][gc] GC(20) Pause Young (Normal) (G1 Evacuation Pause) 3551M->2358M(5292M) 20,688ms
+[6,434s][info][gc] GC(21) Pause Young (Normal) (G1 Evacuation Pause) 4374M->2263M(5292M) 8,720ms
+[7,231s][info][gc] GC(22) Pause Young (Normal) (GCLocker Initiated GC) 4409M->2775M(5292M) 44,969ms
+[7,813s][info][gc] GC(23) Pause Young (Concurrent Start) (G1 Evacuation Pause) 4279M->2737M(5292M) 17,837ms
+[7,813s][info][gc] GC(24) Concurrent Mark Cycle
+[7,832s][info][gc] GC(24) Pause Remark 2763M->883M(5120M) 3,148ms
+[7,839s][info][gc] GC(24) Pause Cleanup 895M->895M(5120M) 0,235ms
+[7,842s][info][gc] GC(24) Concurrent Mark Cycle 28,924ms
+[8,478s][info][gc] GC(25) Pause Young (Prepare Mixed) (GCLocker Initiated GC) 2501M->1167M(5120M) 40,351ms
+[9,445s][info][gc] GC(26) Pause Young (Mixed) (G1 Evacuation Pause) 4011M->781M(5120M) 11,172ms
+[10,516s][info][gc] GC(27) Pause Young (Normal) (GCLocker Initiated GC) 3755M->1167M(5120M) 42,982ms
+[11,367s][info][gc] GC(28) Pause Young (Normal) (G1 Evacuation Pause) 3855M->863M(5120M) 6,283ms
+[12,462s][info][gc] GC(29) Pause Young (Normal) (GCLocker Initiated GC) 3903M->1315M(5120M) 40,311ms
+[13,282s][info][gc] GC(30) Pause Young (Normal) (G1 Evacuation Pause) 4003M->1142M(5120M) 15,003ms
+[14,402s][info][gc] GC(31) Pause Young (Normal) (GCLocker Initiated GC) 4049M->1424M(5120M) 41,415ms
+[15,224s][info][gc] GC(32) Pause Young (Normal) (GCLocker Initiated GC) 4096M->1606M(5120M) 45,978ms
+[16,039s][info][gc] GC(33) Pause Young (Normal) (GCLocker Initiated GC) 3930M->1799M(5120M) 48,008ms
+[16,829s][info][gc] GC(34) Pause Young (Normal) (GCLocker Initiated GC) 3839M->1983M(5120M) 43,373ms
+[17,512s][info][gc] GC(35) Pause Young (Normal) (G1 Evacuation Pause) 3823M->2021M(5120M) 29,316ms
+[18,060s][info][gc] GC(36) Pause Young (Normal) (GCLocker Initiated GC) 3865M->2349M(5120M) 50,831ms
+[18,670s][info][gc] GC(37) Pause Young (Normal) (G1 Evacuation Pause) 3761M->2343M(5120M) 22,463ms
+[19,279s][info][gc] GC(38) Pause Young (Normal) (GCLocker Initiated GC) 3915M->2615M(5120M) 38,648ms
+[19,726s][info][gc] GC(39) Pause Young (Concurrent Start) (GCLocker Initiated GC) 3867M->2909M(5120M) 51,186ms
+[19,727s][info][gc] GC(40) Concurrent Mark Cycle
+[19,773s][info][gc] GC(40) Pause Remark 3237M->1361M(5120M) 3,444ms
+[19,846s][info][gc] GC(40) Pause Cleanup 1453M->1453M(5120M) 0,223ms
+[19,850s][info][gc] GC(40) Concurrent Mark Cycle 122,961ms
+[20,157s][info][gc] GC(41) Pause Young (Prepare Mixed) (G1 Evacuation Pause) 2009M->1331M(5120M) 40,130ms
+[20,969s][info][gc] GC(42) Pause Young (Mixed) (GCLocker Initiated GC) 3807M->1477M(5120M) 43,622ms
+[21,771s][info][gc] GC(43) Pause Young (Normal) (GCLocker Initiated GC) 3804M->1703M(5120M) 48,887ms
+[22,566s][info][gc] GC(44) Pause Young (Normal) (GCLocker Initiated GC) 3810M->1871M(5120M) 42,168ms
+[23,200s][info][gc] GC(45) Pause Young (Normal) (G1 Evacuation Pause) 3831M->1877M(5120M) 24,469ms
+[23,877s][info][gc] GC(46) Pause Young (Normal) (G1 Evacuation Pause) 3913M->1690M(5120M) 5,003ms
+[24,715s][info][gc] GC(47) Pause Young (Normal) (G1 Evacuation Pause) 4118M->1792M(5120M) 14,668ms
+[25,562s][info][gc] GC(48) Pause Young (Normal) (G1 Evacuation Pause) 4240M->1910M(5120M) 25,489ms
+[26,368s][info][gc] GC(49) Pause Young (Normal) (G1 Evacuation Pause) 4258M->1946M(5120M) 27,244ms
+[27,159s][info][gc] GC(50) Pause Young (Normal) (G1 Evacuation Pause) 4258M->1952M(5120M) 27,876ms
+[27,948s][info][gc] GC(51) Pause Young (Normal) (G1 Evacuation Pause) 4260M->1962M(5120M) 29,171ms
+[28,732s][info][gc] GC(52) Pause Young (Normal) (G1 Evacuation Pause) 4262M->1965M(5120M) 29,034ms
+[29,529s][info][gc] GC(53) Pause Young (Normal) (G1 Evacuation Pause) 4273M->2016M(5120M) 34,784ms
+[30,284s][info][gc] GC(54) Pause Young (Normal) (G1 Evacuation Pause) 4268M->2057M(5120M) 29,615ms
+[31,045s][info][gc] GC(55) Pause Young (Normal) (G1 Evacuation Pause) 4289M->2018M(5120M) 22,963ms
+[31,836s][info][gc] GC(56) Pause Young (Normal) (G1 Evacuation Pause) 4330M->2024M(5120M) 23,730ms
+[32,629s][info][gc] GC(57) Pause Young (Normal) (G1 Evacuation Pause) 4368M->2065M(5120M) 26,511ms
+[33,418s][info][gc] GC(58) Pause Young (Normal) (G1 Evacuation Pause) 4381M->2081M(5120M) 27,315ms
+[34,194s][info][gc] GC(59) Pause Young (Normal) (G1 Evacuation Pause) 4381M->2081M(5120M) 27,416ms
+[34,977s][info][gc] GC(60) Pause Young (Normal) (G1 Evacuation Pause) 4381M->2087M(5120M) 27,299ms
+[35,759s][info][gc] GC(61) Pause Young (Normal) (G1 Evacuation Pause) 4383M->2081M(5120M) 28,294ms
+[36,566s][info][gc] GC(62) Pause Young (Normal) (G1 Evacuation Pause) 4393M->2093M(5120M) 30,341ms
+[37,333s][info][gc] GC(63) Pause Young (Normal) (G1 Evacuation Pause) 4389M->2089M(5120M) 28,163ms
+[38,116s][info][gc] GC(64) Pause Young (Normal) (G1 Evacuation Pause) 4389M->2091M(5120M) 30,188ms
+[38,877s][info][gc] GC(65) Pause Young (Normal) (G1 Evacuation Pause) 4387M->2089M(5120M) 28,268ms
+[39,645s][info][gc] GC(66) Pause Young (Normal) (G1 Evacuation Pause) 4393M->2091M(5120M) 29,065ms
+[40,405s][info][gc] GC(67) Pause Young (Normal) (G1 Evacuation Pause) 4391M->2093M(5120M) 30,542ms
+[41,191s][info][gc] GC(68) Pause Young (Normal) (G1 Evacuation Pause) 4393M->2135M(5120M) 30,693ms
+[41,943s][info][gc] GC(69) Pause Young (Normal) (G1 Evacuation Pause) 4379M->2161M(5120M) 29,520ms
+[42,676s][info][gc] GC(70) Pause Young (Normal) (G1 Evacuation Pause) 4389M->2127M(5120M) 21,362ms
+[43,450s][info][gc] GC(71) Pause Young (Normal) (G1 Evacuation Pause) 4411M->2113M(5120M) 20,055ms
+[44,244s][info][gc] GC(72) Pause Young (Normal) (G1 Evacuation Pause) 4453M->2146M(5120M) 22,461ms
+[45,045s][info][gc] GC(73) Pause Young (Normal) (G1 Evacuation Pause) 4470M->2162M(5120M) 25,420ms
+[45,836s][info][gc] GC(74) Pause Young (Normal) (G1 Evacuation Pause) 4470M->2174M(5120M) 25,311ms
+[46,612s][info][gc] GC(75) Pause Young (Normal) (G1 Evacuation Pause) 4466M->2170M(5120M) 25,172ms
+[47,392s][info][gc] GC(76) Pause Young (Normal) (G1 Evacuation Pause) 4470M->2176M(5120M) 25,985ms
+[48,180s][info][gc] GC(77) Pause Young (Normal) (G1 Evacuation Pause) 4472M->2174M(5120M) 25,974ms
+[48,959s][info][gc] GC(78) Pause Young (Normal) (G1 Evacuation Pause) 4470M->2170M(5120M) 25,453ms
+[49,727s][info][gc] GC(79) Pause Young (Normal) (G1 Evacuation Pause) 4474M->2182M(5120M) 26,077ms
+[50,519s][info][gc] GC(80) Pause Young (Normal) (G1 Evacuation Pause) 4466M->2172M(5120M) 26,477ms
+[51,297s][info][gc] GC(81) Pause Young (Normal) (G1 Evacuation Pause) 4472M->2172M(5120M) 24,930ms
+[52,067s][info][gc] GC(82) Pause Young (Normal) (G1 Evacuation Pause) 4476M->2178M(5120M) 25,553ms
+[52,828s][info][gc] GC(83) Pause Young (Normal) (G1 Evacuation Pause) 4474M->2180M(5120M) 31,466ms
+[53,619s][info][gc] GC(84) Pause Young (Normal) (G1 Evacuation Pause) 4476M->2178M(5120M) 32,882ms
+[54,441s][info][gc] GC(85) Pause Young (Normal) (G1 Evacuation Pause) 4474M->2176M(5120M) 30,771ms
+[55,231s][info][gc] GC(86) Pause Young (Normal) (G1 Evacuation Pause) 4480M->2176M(5120M) 27,639ms
+[56,039s][info][gc] GC(87) Pause Young (Normal) (G1 Evacuation Pause) 4480M->2178M(5120M) 32,953ms
+[56,839s][info][gc] GC(88) Pause Young (Normal) (G1 Evacuation Pause) 4478M->2174M(5120M) 25,874ms
+[57,648s][info][gc] GC(89) Pause Young (Normal) (G1 Evacuation Pause) 4482M->2184M(5120M) 33,768ms
+[58,426s][info][gc] GC(90) Pause Young (Normal) (G1 Evacuation Pause) 4480M->2174M(5120M) 25,911ms
+[59,235s][info][gc] GC(91) Pause Young (Normal) (G1 Evacuation Pause) 4482M->2178M(5120M) 25,922ms
+[60,021s][info][gc] GC(92) Pause Young (Normal) (G1 Evacuation Pause) 4478M->2180M(5120M) 32,688ms
+[60,827s][info][gc] GC(93) Pause Young (Normal) (G1 Evacuation Pause) 4480M->2174M(5120M) 30,890ms
+[61,605s][info][gc] GC(94) Pause Young (Normal) (G1 Evacuation Pause) 4478M->2170M(5120M) 26,621ms
