@@ -331,7 +331,7 @@ public final class JsonDBObject extends AbstractItem
         case Flt flt -> trx.replaceObjectRecordValue(new NumberValue(flt.floatValue()));
         case Dbl dbl -> trx.replaceObjectRecordValue(new NumberValue(dbl.doubleValue()));
         case Dec dec -> trx.replaceObjectRecordValue(new NumberValue(dec.decimalValue()));
-        case default -> {
+        default -> {
         }
       }
     }
@@ -410,13 +410,11 @@ public final class JsonDBObject extends AbstractItem
             case Flt flt -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(flt.floatValue()));
             case Dbl dbl -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(dbl.doubleValue()));
             case Dec dec -> trx.insertObjectRecordAsLastChild(fieldName, new NumberValue(dec.decimalValue()));
-            case default -> {
-            }
+            default -> throw new IllegalStateException("Unexpected value: " + value);
           }
         }
         case Bool ignored2 -> trx.insertObjectRecordAsLastChild(fieldName, new BooleanValue(value.booleanValue()));
-        case default -> {
-        }
+        default -> throw new IllegalStateException("Unexpected value: " + value);
       }
     } else {
       final Item item = ExprUtil.asItem(value);

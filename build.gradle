@@ -86,20 +86,20 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_19
-        targetCompatibility = JavaVersion.VERSION_19
+        sourceCompatibility = JavaVersion.VERSION_20
+        targetCompatibility = JavaVersion.VERSION_20
         withSourcesJar()
         withJavadocJar()
 
         if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException( JavaVersion.current().toString()+ targetCompatibility.toString())
+            throw new GradleException(JavaVersion.current().toString()+ targetCompatibility.toString())
         }
     }
 
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '19')
+            addStringOption('-release', '20')
             addBooleanOption('-enable-preview', true)
         }
     }
@@ -260,7 +260,8 @@ subprojects {
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
-                 "-XX:EliminateAllocationArraySizeLimit=1024"
+                 "-XX:EliminateAllocationArraySizeLimit=1024",
+                 "-Ddisable.thread.safety=true"
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
