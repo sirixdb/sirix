@@ -441,7 +441,7 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 19, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 20, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
 
 ### Maven artifacts
 At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
@@ -530,7 +530,7 @@ You have to add the following JVM parameters currently:
 --add-opens=java.base/java.util=ALL-UNNAMED
 ```
 
-Plus we recommend using the Shenandoah GC:
+Plus we recommend using the Shenandoah GC or ZGC (if possible in the future the generational versions):
 
 ```
 -XX:+UseShenandoahGC
@@ -540,6 +540,8 @@ Plus we recommend using the Shenandoah GC:
 -XX:-UseBiasedLocking
 -XX:+DisableExplicitGC
 ```
+
+We've also had tremendously good results using GraalVM, possibly due to its JIT compiler and the improved escape analysis. 
 
 ### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 
