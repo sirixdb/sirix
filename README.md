@@ -441,7 +441,7 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 19, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 20, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
 
 ### Maven artifacts
 At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
@@ -491,12 +491,12 @@ Brackit binding:
 ```xml
 <dependency>
   <groupId>io.sirix</groupId>
-  <artifactId>sirix-xquery</artifactId>
+  <artifactId>sirix-query</artifactId>
   <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-xquery', version:'0.9.7-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-query', version:'0.9.7-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
@@ -530,7 +530,7 @@ You have to add the following JVM parameters currently:
 --add-opens=java.base/java.util=ALL-UNNAMED
 ```
 
-Plus we recommend using the Shenandoah GC:
+Plus we recommend using the Shenandoah GC or ZGC (if possible in the future the generational versions):
 
 ```
 -XX:+UseShenandoahGC
@@ -540,6 +540,8 @@ Plus we recommend using the Shenandoah GC:
 -XX:-UseBiasedLocking
 -XX:+DisableExplicitGC
 ```
+
+We've also had tremendously good results using GraalVM, possibly due to its JIT compiler and the improved escape analysis. 
 
 ### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 
@@ -604,7 +606,7 @@ For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test
 To created a fat-JAR. Download our ZIP-file for instance, then
 
 1. `cd bundles/sirix-rest-api`
-2. `gradle build -x test`
+2. `./gradlew build -x test`
 
 And a fat-JAR with all required dependencies should have been created in your target folder.
 
@@ -624,12 +626,12 @@ In order to run the integration tests under `bundles/sirix-rest-api/src/test/kot
 Note that the following VM parameters currently are needed: `-ea --add-modules=jdk.incubator.foreign --enable-preview`
 
 ### Command-line tool
-We ship a (very) simple command-line tool for the sirix-xquery bundle:
+We ship a (very) simple command-line tool for the sirix-query bundle:
 
-Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
+Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-query/) with dependencies.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Discord channel.
+We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/docs/) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Discord channel.
 Please also have a look at and play with our sirix-example bundle which is available via Maven or our new asynchronous RESTful API (shown next).
 
 ## Getting Help

@@ -37,7 +37,7 @@ import io.sirix.io.filechannel.FileChannelReader;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.foreign.MemorySession;
+import java.lang.foreign.Arena;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -116,7 +116,7 @@ public final class MMStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      final var dataFileSession = MemorySession.openShared();
+      final var arena = Arena.openShared();
       final var dataFileSegmentFileSize = Files.size(dataFilePath);
 
       final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
@@ -124,17 +124,18 @@ public final class MMStorage implements IOStorage {
       try (final var dataFileChannel = FileChannel.open(dataFilePath);
            final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
         final var dataFileSegment =
-            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, dataFileSession);
+            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, arena.scope());
         final var revisionsOffsetFileSegment = revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY,
                                                                               0,
                                                                               revisionsOffsetSegmentFileSize,
-                                                                              dataFileSession);
+                                                                              arena.scope());
         return new MMFileReader(dataFileSegment,
                                 revisionsOffsetFileSegment,
                                 new ByteHandlerPipeline(byteHandlerPipeline),
                                 SerializationType.DATA,
                                 new PagePersister(),
-                                cache.synchronous());
+                                cache.synchronous(),
+                                arena);
       }
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);

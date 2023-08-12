@@ -62,11 +62,11 @@ jar {
 }
 
 compileKotlin {
-    kotlinOptions.jvmTarget = '19'
+    kotlinOptions.jvmTarget = '20'
 }
 
 compileTestKotlin {
-    kotlinOptions.jvmTarget = '19'
+    kotlinOptions.jvmTarget = '20'
 }
 
 test {
