@@ -162,7 +162,7 @@ public enum PageKind {
         final SerializationType type) {
       KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
 
-      final BytesOut<?> bytes = keyValueLeafPage.getBytes();
+      final var bytes = keyValueLeafPage.getBytes();
 
       if (bytes != null) {
         sink.write(bytes.bytesForWrite());
@@ -252,14 +252,17 @@ public enum PageKind {
         sink.writeLong(entry.getValue().getKey());
       }
 
-      keyValueLeafPage.setHashCode(pageReadOnlyTrx.getReader().hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());
+      keyValueLeafPage.setHashCode(pageReadOnlyTrx.getReader().hashFunction.hashBytes(sink.bytesForRead().toByteArray())
+                                                                           .asBytes());
 
       final var byteArray = sink.bytesForRead().toByteArray();
 
       final byte[] serializedPage;
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-        try (final DataOutputStream dataOutput = new DataOutputStream(pageReadOnlyTrx.getResourceSession().getResourceConfig().byteHandlePipeline.serialize(output))) {
+        try (final DataOutputStream dataOutput = new DataOutputStream(pageReadOnlyTrx.getResourceSession()
+                                                                                     .getResourceConfig().byteHandlePipeline.serialize(
+                output))) {
           dataOutput.write(byteArray);
           dataOutput.flush();
         }
@@ -862,8 +865,8 @@ public enum PageKind {
    * @param sink            {@link Bytes<ByteBuffer>} instance
    * @param page            {@link Page} implementation
    */
-  public abstract void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink,
-      final Page page, final SerializationType type);
+  public abstract void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+      final SerializationType type);
 
   /**
    * Deserialize page.

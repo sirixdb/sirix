@@ -433,10 +433,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void close() {
-  }
-
-  @Override
   public KeyValuePage<DataRecord> clearPage() {
     if (bytes != null) {
       bytes.clear();
