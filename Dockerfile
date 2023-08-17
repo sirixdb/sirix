@@ -1,6 +1,6 @@
 # Stage-1
 # Build jar
-FROM gradle:8.3-jdk20 as builder
+FROM gradle:8.3-jdk20-graal as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
