@@ -1,7 +1,6 @@
 # Stage-1
 # Build jar
-# FIXME (jdk 20 is not available yet)
-FROM gradle:7.6.0-jdk19 as builder
+FROM gradle:8.3-jdk20 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
@@ -12,8 +11,7 @@ RUN gradle build --refresh-dependencies -x test
 # Stage-2
 # Copy jar and run the server
 
-# FIXME (jdk 20 is not available yet)
-FROM gradle:jdk19-alpine as server
+FROM gradle:jdk20-alpine as server
 RUN apk update && apk add --no-cache bash && apk add --no-cache gcompat
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles
