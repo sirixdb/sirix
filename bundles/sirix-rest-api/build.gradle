@@ -99,7 +99,7 @@ test.finalizedBy composeDownForced
 dockerCompose {
     useComposeFiles = ["${projectDir}/src/test/resources/docker-compose.yml"]
 
-    removeImages = "None" // Other accepted values are: "All" and "Local"
+    removeImages = removeImages.None // Other accepted values are: "All" and "Local"
 
     projectName = 'sirix-test'
 }
