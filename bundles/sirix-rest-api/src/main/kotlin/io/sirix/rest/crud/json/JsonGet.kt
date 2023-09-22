@@ -1,5 +1,7 @@
 package io.sirix.rest.crud.json
 
+import io.brackit.query.jdm.StructuredItemCollection
+import io.brackit.query.jdm.node.TemporalNodeCollection
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
@@ -12,7 +14,10 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.sirix.access.Databases
 import io.sirix.api.Database
+import io.sirix.api.json.JsonNodeReadOnlyTrx
+import io.sirix.api.json.JsonNodeTrx
 import io.sirix.api.json.JsonResourceSession
+import io.sirix.api.xml.XmlResourceSession
 import io.sirix.rest.crud.PermissionCheckingQuery
 import io.sirix.rest.crud.QuerySerializer
 import io.sirix.rest.crud.Revisions
@@ -21,223 +26,97 @@ import io.sirix.service.json.serialize.JsonRecordSerializer
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.query.JsonDBSerializer
 import io.sirix.query.SirixCompileChain
+import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.*
 import io.sirix.query.node.BasicXmlDBStore
+import io.sirix.query.node.XmlDBCollection
+import io.vertx.core.json.Json
 import java.io.StringWriter
 import java.nio.file.Path
 
-class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) {
-    suspend fun handle(ctx: RoutingContext): Route {
-        val context = ctx.vertx().orCreateContext
-        val databaseName = ctx.pathParam("database")
-        val resource = ctx.pathParam("resource")
-        val jsonBody = ctx.body().asJsonObject()
-        val query: String? = ctx.queryParam("query").getOrElse(0) {
-            jsonBody?.getString("query")
-        }
+class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider): AbstractGetHandler <JsonResourceSession, JsonDBCollection, JsonNodeReadOnlyTrx> (location, authz) {
+//    override suspend fun xquery(
+//        manager: JsonResourceSession?,
+//        dbCollection: JsonDBCollection?,
+//        nodeId: String?,
+//        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
+//        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
+//    ): String? {
+//        return vertxContext.executeBlocking { promise: Promise<String> ->
+//            // Initialize queryResource context and store.
+//            val jsonDBStore = JsonSessionDBStore(
+//                routingContext,
+//                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
+//                user,
+//                authz
+//            )
+//            val xmlDBStore =
+//                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
+//
+//            val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
+//                jsonBody?.getString("commitMessage")
+//            }
+//            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrElse(0) {
+//                jsonBody?.getString("commitTimestamp")
+//            }
+//            val commitTimestamp = if (commitTimestampAsString == null) {
+//                null
+//            } else {
+//                Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
+//            }
+//
+//            val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
+//                xmlDBStore,
+//                jsonDBStore,
+//                SirixQueryContext.CommitStrategy.AUTO,
+//                commitMessage,
+//                commitTimestamp
+//            )
+//
+//            var body: String? = null
+//
+//            queryCtx.use {
+//                if (manager != null && dbCollection != null && revisionNumber != null) {
+//                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
+//
+//                    rtx.use {
+//                        if (nodeId == null) {
+//                            rtx.moveToFirstChild()
+//                        } else {
+//                            rtx.moveTo(nodeId.toLong())
+//                        }
+//
+//                        handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
+//
+//                        body = query(
+//                            xmlDBStore,
+//                            jsonDBStore,
+//                            startResultSeqIndex,
+//                            query,
+//                            queryCtx,
+//                            endResultSeqIndex,
+//                            routingContext
+//                        )
+//                    }
+//                } else {
+//                    body = query(
+//                        xmlDBStore,
+//                        jsonDBStore,
+//                        startResultSeqIndex,
+//                        query,
+//                        queryCtx,
+//                        endResultSeqIndex,
+//                        routingContext
+//                    )
+//                }
+//            }
+//
+//            promise.complete(body)
+//        }.await()
+//    }
 
-        get(databaseName, ctx, resource, query, context, ctx.get("user") as User, jsonBody)
-
-        return ctx.currentRoute()
-    }
-
-    private suspend fun get(
-        databaseName: String, ctx: RoutingContext, resource: String?, query: String?,
-        vertxContext: Context, user: User, jsonBody: JsonObject?
-    ) {
-        val revision: String? = ctx.queryParam("revision").getOrNull(0)
-        val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
-        val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
-        val endRevision: String? = ctx.queryParam("end-revision").getOrNull(0)
-        val startRevisionTimestamp: String? = ctx.queryParam("start-revision-timestamp").getOrNull(0)
-        val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
-
-        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
-
-        var body: String?
-
-        val database = Databases.openJsonDatabase(location.resolve(databaseName))
-
-        database.use {
-            val manager = database.beginResourceSession(resource)
-
-            manager.use {
-                body = if (query.isNullOrEmpty()) {
-                    val revisions: IntArray =
-                        Revisions.getRevisionsToSerialize(
-                            startRevision, endRevision, startRevisionTimestamp,
-                            endRevisionTimestamp, manager, revision, revisionTimestamp
-                        )
-
-                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
-                } else {
-                    queryResource(
-                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                        vertxContext, user, jsonBody
-                    )
-                }
-            }
-        }
-
-        if (body != null) {
-            ctx.response().end(body)
-        } else {
-            ctx.response().end()
-        }
-    }
-
-    private suspend fun queryResource(
-        databaseName: String?, database: Database<JsonResourceSession>, revision: String?,
-        revisionTimestamp: String?, manager: JsonResourceSession, ctx: RoutingContext,
-        nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
-    ): String? {
-        val dbCollection = JsonDBCollection(databaseName, database)
-
-        dbCollection.use {
-            val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
-
-            val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
-            val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
-
-            return xquery(
-                manager,
-                dbCollection,
-                nodeId,
-                revisionNumber,
-                query,
-                ctx,
-                vertxContext,
-                user,
-                startResultSeqIndex?.toLong(),
-                endResultSeqIndex?.toLong(),
-                jsonBody
-            )
-        }
-    }
-
-    suspend fun xquery(
-        manager: JsonResourceSession?,
-        dbCollection: JsonDBCollection?,
-        nodeId: String?,
-        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
-        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
-    ): String? {
-        return vertxContext.executeBlocking { promise: Promise<String> ->
-            // Initialize queryResource context and store.
-            val jsonDBStore = JsonSessionDBStore(
-                routingContext,
-                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
-                user,
-                authz
-            )
-            val xmlDBStore =
-                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
-
-            val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
-                jsonBody?.getString("commitMessage")
-            }
-            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrElse(0) {
-                jsonBody?.getString("commitTimestamp")
-            }
-            val commitTimestamp = if (commitTimestampAsString == null) {
-                null
-            } else {
-                Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
-            }
-
-            val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
-                xmlDBStore,
-                jsonDBStore,
-                SirixQueryContext.CommitStrategy.AUTO,
-                commitMessage,
-                commitTimestamp
-            )
-
-            var body: String? = null
-
-            queryCtx.use {
-                if (manager != null && dbCollection != null && revisionNumber != null) {
-                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
-
-                    rtx.use {
-                        if (nodeId == null) {
-                            rtx.moveToFirstChild()
-                        } else {
-                            rtx.moveTo(nodeId.toLong())
-                        }
-
-                        val jsonItem = JsonItemFactory()
-                            .getSequence(rtx, dbCollection)
-
-                        if (jsonItem != null) {
-                            queryCtx.contextItem = jsonItem
-
-                            when (jsonItem) {
-                                is AbstractJsonDBArray<*> -> {
-                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                                }
-
-                                is JsonDBObject -> {
-                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                                }
-
-                                is AtomicBooleanJsonDBItem -> {
-                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                                }
-
-                                is AtomicStrJsonDBItem -> {
-                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                                }
-
-                                is AtomicNullJsonDBItem -> {
-                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                                }
-
-                                is NumericJsonDBItem -> {
-                                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                                }
-
-                                else -> {
-                                    throw IllegalStateException("Node type not known.")
-                                }
-                            }
-                        }
-
-                        body = query(
-                            xmlDBStore,
-                            jsonDBStore,
-                            startResultSeqIndex,
-                            query,
-                            queryCtx,
-                            endResultSeqIndex,
-                            routingContext
-                        )
-                    }
-                } else {
-                    body = query(
-                        xmlDBStore,
-                        jsonDBStore,
-                        startResultSeqIndex,
-                        query,
-                        queryCtx,
-                        endResultSeqIndex,
-                        routingContext
-                    )
-                }
-            }
-
-            promise.complete(body)
-        }.await()
-    }
-
-    private fun query(
+    override fun query(
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
         startResultSeqIndex: Long?,
@@ -303,7 +182,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         }
     }
 
-    private suspend fun serializeResource(
+    override suspend fun serializeResource(
         manager: JsonResourceSession, revisions: IntArray, nodeId: Long?,
         ctx: RoutingContext,
         vertxContext: Context
@@ -397,5 +276,58 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
 
         return serializedString!!
+    }
+
+    override suspend fun openDatabase(dbFile: Path): Database<JsonResourceSession> {
+        return Databases.openJsonDatabase(dbFile)
+    }
+
+    override suspend fun getDBCollection(databaseName: String?, database: Database<JsonResourceSession>): JsonDBCollection {
+        return JsonDBCollection(databaseName, database)
+    }
+
+    override fun  handleQueryExtra(rtx: JsonNodeReadOnlyTrx, dbCollection: JsonDBCollection, queryCtx: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
+        val jsonItem = JsonItemFactory()
+                .getSequence(rtx, dbCollection)
+
+        if (jsonItem != null) {
+            queryCtx.contextItem = jsonItem
+
+            when (jsonItem) {
+                is AbstractJsonDBArray<*> -> {
+                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                }
+
+                is JsonDBObject -> {
+                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                }
+
+                is AtomicBooleanJsonDBItem -> {
+                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                }
+
+                is AtomicStrJsonDBItem -> {
+                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                }
+
+                is AtomicNullJsonDBItem -> {
+                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                }
+
+                is NumericJsonDBItem -> {
+                    jsonItem.collection.setJsonDBStore(jsonDBStore)
+                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                }
+
+                else -> {
+                    throw IllegalStateException("Node type not known.")
+                }
+            }
+        }
     }
 }

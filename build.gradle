@@ -1,5 +1,5 @@
 buildscript {
-    ext.kotlin_version = '1.9.0'
+    ext.kotlin_version = '1.9.10'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -8,15 +8,15 @@ buildscript {
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
         classpath 'net.researchgate:gradle-release:3.0.2'
-        classpath "com.github.ben-manes:gradle-versions-plugin:0.47.0"
+        classpath "com.github.ben-manes:gradle-versions-plugin:0.48.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.20.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.21.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
 plugins {
-    id "org.sonarqube" version "4.3.0.3225"
+    id "org.sonarqube" version "4.3.1.3277"
 }
 
 sonarqube {
