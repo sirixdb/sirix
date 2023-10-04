@@ -377,9 +377,6 @@ final class JsonNodeTrxImpl extends
           commit();
         }
 
-        //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-        //        System.out.println(nodeReadOnlyTrx.getDeweyID());
-        //      }
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -552,9 +549,6 @@ final class JsonNodeTrxImpl extends
         commit();
       }
 
-      //      for (final long unused : new DescendantAxis(nodeReadOnlyTrx)) {
-      //        System.out.println(nodeReadOnlyTrx.getDeweyID());
-      //      }
     });
     return this;
   }

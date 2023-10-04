@@ -80,6 +80,11 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
+  private final String INSERT = "insert";
+  private final String UPDATE = "update";
+  private final String DELETE = "delete";
+  private final String REPLACE = "replace";
+
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
@@ -126,10 +131,10 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
       final var diffObject = diff.getAsJsonObject();
 
       final JsonObject diffTupleObject;
-      if (diffObject.has("insert")) {
-        diffTupleObject = diffObject.getAsJsonObject("insert");
-      } else if (diffObject.has("replace")) {
-        diffTupleObject = diffObject.getAsJsonObject("replace");
+      if (diffObject.has(INSERT)) {
+        diffTupleObject = diffObject.getAsJsonObject(INSERT);
+      } else if (diffObject.has(REPLACE)) {
+        diffTupleObject = diffObject.getAsJsonObject(REPLACE);
       } else {
         diffTupleObject = null;
       }
@@ -169,14 +174,14 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
   private Comparator<JsonObject> sortByDeweyID() {
     return Comparator.comparing(updateOperation -> {
-      if (updateOperation.has("insert")) {
-        return getDeweyID(updateOperation, "insert");
-      } else if (updateOperation.has("delete")) {
-        return getDeweyID(updateOperation, "delete");
-      } else if (updateOperation.has("update")) {
-        return getDeweyID(updateOperation, "update");
-      } else if (updateOperation.has("replace")) {
-        return getDeweyID(updateOperation, "replace");
+      if (updateOperation.has(INSERT)) {
+        return getDeweyID(updateOperation, INSERT);
+      } else if (updateOperation.has(DELETE)) {
+        return getDeweyID(updateOperation, DELETE);
+      } else if (updateOperation.has(UPDATE)) {
+        return getDeweyID(updateOperation, UPDATE);
+      } else if (updateOperation.has(REPLACE)) {
+        return getDeweyID(updateOperation, REPLACE);
       }
       throw new IllegalStateException(updateOperation + " not known.");
     });
@@ -184,14 +189,14 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadOnlyTrx<JsonN
 
   private Predicate<JsonObject> filterAncestorOperations(SirixDeweyID rootDeweyId, long maxDepth) {
     return updateOperation -> {
-      if (updateOperation.has("insert")) {
-        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "insert", maxDepth);
-      } else if (updateOperation.has("delete")) {
-        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "delete", maxDepth);
-      } else if (updateOperation.has("update")) {
-        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "update", maxDepth);
-      } else if (updateOperation.has("replace")) {
-        return isDescendatOrSelfOf(rootDeweyId, updateOperation, "replace", maxDepth);
+      if (updateOperation.has(INSERT)) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, INSERT, maxDepth);
+      } else if (updateOperation.has(DELETE)) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, DELETE, maxDepth);
+      } else if (updateOperation.has(UPDATE)) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, UPDATE, maxDepth);
+      } else if (updateOperation.has(REPLACE)) {
+        return isDescendatOrSelfOf(rootDeweyId, updateOperation, REPLACE, maxDepth);
       } else {
         throw new IllegalStateException(updateOperation + " not known.");
       }
