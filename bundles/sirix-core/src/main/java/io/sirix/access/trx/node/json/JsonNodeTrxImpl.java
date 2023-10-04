@@ -144,6 +144,9 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
    */
   private int beforeBulkInsertionRevisionNumber;
 
+  /**
+   * Exception message for insertions not allowed if parent node is not an array node
+   */
   private final String INSERTION_EXCEPTION_MESSAGE_PARENT_NOT_ARRAY = "Insert is not allowed if parent node is not an array node!";
 
   /**
