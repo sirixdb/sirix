@@ -28,7 +28,6 @@
 package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -43,7 +42,7 @@ import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.gicentre.utils.move.Ease;
 import org.sirix.access.Utils;
 import org.sirix.diff.DiffFactory.DiffType;

@@ -4,7 +4,7 @@ buildscript {
     }
 
     dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.20"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.10"
         classpath "com.avast.gradle:gradle-docker-compose-plugin:0.14.5"
         //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
@@ -20,7 +20,7 @@ apply plugin: 'docker-compose'
 
 dependencies {
     implementation project(':sirix-core')
-    implementation project(':sirix-xquery')
+    implementation project(':sirix-query')
     testImplementation project(':sirix-core').sourceSets.test.output
 
     implementation implLibraries.kotlinStdlib
@@ -38,12 +38,15 @@ dependencies {
     testImplementation testLibraries.junit
     testImplementation testLibraries.vertxJunit5
     testImplementation testLibraries.jsonassert
+
 }
+
+
 
 description = 'Non-blocking REST-API for SirixDB.'
 
 shadowJar {
-    classifier = 'fat'
+    archiveClassifier = 'fat'
     manifest {
         inheritFrom project.tasks.jar.manifest
     }
@@ -52,20 +55,18 @@ shadowJar {
 
 jar {
 	manifest {
-		attributes('Main-Verticle': 'org.sirix.rest.SirixVerticle',
+		attributes('Main-Verticle': 'io.sirix.rest.SirixVerticle',
 				   'Main-Class': 'io.vertx.core.Launcher')
 	}
     finalizedBy shadowJar
 }
 
 compileKotlin {
-    // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-    kotlinOptions.jvmTarget = '16'
+    kotlinOptions.jvmTarget = '20'
 }
 
 compileTestKotlin {
-    // TODO: Upgrade to Java 17 when Kotlin compatibility is available
-    kotlinOptions.jvmTarget = '16'
+    kotlinOptions.jvmTarget = '20'
 }
 
 test {
@@ -77,6 +78,7 @@ task copyCertificates(type: Copy) {
     include '*.pem'
     into file("$buildDir/sirix-data")
 }
+copyCertificates.dependsOn(processResources)
 
 /*
 task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {

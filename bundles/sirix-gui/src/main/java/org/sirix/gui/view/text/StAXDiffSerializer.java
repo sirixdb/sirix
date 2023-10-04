@@ -27,7 +27,6 @@
 
 package org.sirix.gui.view.text;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -40,7 +39,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
@@ -144,7 +143,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
    */
   public StAXDiffSerializer(final DiffAxis pItems, final boolean pCloseRtx) {
     mNextTag = false;
-    mAxis = checkNotNull(pItems);
+    mAxis = requireNonNull(pItems);
     mCloseRtx = pCloseRtx;
     mStack = new ArrayDeque<>();
     mUpdatedStack = new ArrayDeque<>();
@@ -536,7 +535,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
      * @param rtx reference implementing the {@link XmlNodeReadOnlyTrx} interface
      */
     public AttributeIterator(final XmlNodeReadOnlyTrx rtx) {
-      mRtx = checkNotNull(rtx);
+      mRtx = requireNonNull(rtx);
       mNodeKey = mRtx.getNodeKey();
       mIndex = 0;
 
@@ -603,7 +602,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
      * @param rtx reference implementing the {@link XmlNodeReadOnlyTrx} interface
      */
     public NamespaceIterator(final XmlNodeReadOnlyTrx rtx) {
-      mRtx = checkNotNull(rtx);
+      mRtx = requireNonNull(rtx);
       mNodeKey = mRtx.getNodeKey();
       mIndex = 0;
 

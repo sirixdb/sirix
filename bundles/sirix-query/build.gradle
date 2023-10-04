@@ -1,0 +1,51 @@
+plugins {
+    id "application"
+}
+
+dependencies {
+    implementation project(':sirix-core')
+    implementation implLibraries.vertxAuthOauth2
+    implementation implLibraries.fastUtil
+
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
+    testImplementation testLibraries.brackit
+}
+
+apply plugin: 'kotlin'
+apply plugin: 'application'
+
+ext {
+    javaMainClass = "io.sirix.query.Main"
+}
+
+application {
+    mainClassName = javaMainClass
+}
+
+run{
+    standardInput = System.in
+}
+
+description = 'Sirix/Brackit binding.'
+
+//shadowJar {
+//    archiveClassifier.set('jar-with-dependencies')
+//    manifest {
+//        inheritFrom project.tasks.jar.manifest
+//    }
+//    mergeServiceFiles()
+//}
+//
+//publishing.publications.maven.artifact(shadowJar)
+
+jar {
+    manifest {
+        attributes('Main-Class': 'io.sirix.query.Main')
+    }
+}
+
+test {
+    useJUnitPlatform()
+    systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
+    systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
+}

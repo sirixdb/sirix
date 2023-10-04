@@ -1,0 +1,39 @@
+package io.sirix.access.trx;
+
+import io.sirix.api.Transaction;
+import io.sirix.api.TransactionManager;
+
+import javax.inject.Inject;
+import java.util.HashSet;
+import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
+
+public final class TransactionManagerImpl implements TransactionManager {
+
+  private final Set<Transaction> transactions;
+
+  @Inject
+  public TransactionManagerImpl() {
+    transactions = new HashSet<>();
+  }
+
+  @Override
+  public Transaction beginTransaction() {
+    final Transaction trx = new TransactionImpl(this);
+    transactions.add(trx);
+    return trx;
+  }
+
+  @Override
+  public TransactionManager closeTransaction(final Transaction trx) {
+    transactions.remove(requireNonNull(trx));
+    return this;
+  }
+
+  @Override
+  public void close() {
+    transactions.forEach(Transaction::commit);
+  }
+
+}

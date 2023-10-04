@@ -16,7 +16,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: 'temurin'
-          java-version: '19'
+          java-version: '20'
       - name: Cache SonarCloud packages
         uses: actions/cache@v1
         with:
@@ -33,4 +33,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: ./gradlew build sonarqube --info
+        run: ./gradlew build sonarqube --info -Dorg.gradle.jvmargs=-XX:MaxMetaspaceSize=512m

@@ -2,10 +2,10 @@ package io.sirix.tutorial.xml;
 
 import java.util.Objects;
 
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.diff.DiffDepth;
-import org.sirix.diff.DiffFactory.DiffType;
-import org.sirix.diff.DiffObserver;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.diff.DiffDepth;
+import io.sirix.diff.DiffFactory.DiffType;
+import io.sirix.diff.DiffObserver;
 
 public class MyXmlDiffObserver implements DiffObserver {
 

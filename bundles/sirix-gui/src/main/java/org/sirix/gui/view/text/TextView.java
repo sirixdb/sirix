@@ -27,7 +27,7 @@
 
 package org.sirix.gui.view.text;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 import static org.sirix.gui.GUIConstants.ATTRIBUTE_COLOR;
 import static org.sirix.gui.GUIConstants.ELEMENT_COLOR;
 import static org.sirix.gui.GUIConstants.NAMESPACE_COLOR;
@@ -59,7 +59,7 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.brackit.xquery.atomic.QNm;
+import io.brackit.query.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.DiffType;
@@ -249,7 +249,7 @@ public final class TextView extends JScrollPane implements View {
 
 	@Override
 	public void refreshUpdate(final Optional<VisualItemAxis> pAxis) {
-		checkNotNull(pAxis);
+		requireNonNull(pAxis);
 		dispose();
 		mAxis = null;
 		final Dimension mainFrame = mGUI.getSize();
@@ -258,7 +258,7 @@ public final class TextView extends JScrollPane implements View {
 		if (pAxis.isPresent()) {
 			mAxis = pAxis.get();
 		}
-		mDb = checkNotNull(mGUI).getReadDB();
+		mDb = requireNonNull(mGUI).getReadDB();
 		try {
 			if (mRtx != null) {
 				mRtx.close();

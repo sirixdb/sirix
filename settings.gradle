@@ -4,14 +4,13 @@
 
 rootProject.name = 'sirix-parent'
 include(':sirix-core')
-include(':sirix-xquery')
+include(':sirix-query')
 include(':sirix-rest-api')
 include(':sirix-example')
-include(':sirix-benchmarks')
 include(':sirix-kotlin-api')
 include(':sirix-kotlin-cli')
 project(':sirix-core').projectDir = file('bundles/sirix-core')
-project(':sirix-xquery').projectDir = file('bundles/sirix-xquery')
+project(':sirix-query').projectDir = file('bundles/sirix-query')
 project(':sirix-rest-api').projectDir = file('bundles/sirix-rest-api')
 project(':sirix-example').projectDir = file('bundles/sirix-examples')
 project(':sirix-kotlin-api').projectDir = file('bundles/sirix-kotlin-api')

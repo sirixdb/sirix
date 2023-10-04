@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
+<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
 
 <h1 align="center">An Embeddable, Evolutionary, Append-Only Database System</h1>
 <p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner. It facilitates querying and reconstructing the entire history as well as easy audits.</p>
@@ -15,19 +15,19 @@
 
 [![Follow](https://img.shields.io/twitter/follow/sirixdb.svg?style=social)](https://twitter.com/sirixdb)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Discord](https://discord.gg/yC33wVpv7t) | [Community Forum](https://sirix.discourse.group/)
+**[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip)** | **[Join us on Discord](https://discord.gg/yC33wVpv7t)** | **[Community Forum](https://sirix.discourse.group/)** | **[Documentation](https://sirix.io/docs/index.html)** | **[Architecture & Concepts](https://sirix.io/docs/concepts.html)**
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
->"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
+>"Remember that you're lucky, even if you don't think you are because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-**We want to build the database system together with you. Help us and become a maintainer yourself. Why? Maybe you like the software and want to help us. Furthermore, you'll learn a lot. Maybe you want to fix a bug or add a feature? You want to add an awesome project to your portfolio? You want to grow your network?... All of this are valid reasons besides probably many more**: [Collaborating on Open Source Software](https://youtu.be/TQN8BIxUmRo)
+**We want to build the database system together with you. Help us and become a maintainer yourself. Why? You may like the software and want to help us. Furthermore, you'll learn a lot. You may want to fix a bug or add a feature. Do you want to add an awesome project to your portfolio? Do you want to grow your network?... All of this are valid reasons besides probably many more**: [Collaborating on Open Source Software](https://youtu.be/TQN8BIxUmRo)
 
-SirixDB appends data to an indexed log file without the need of a WAL. It can simply be embedded and used as a library from your favorite language on the JVM to store and query data locally or by using a simple CLI. An asynchronous HTTP-server, which adds the core and query modules as dependencies can alternatively be used to interact with SirixDB over the network using Keycloak for authentication/authorization. One file stores the data with all revisions and possibly secondary indexes. A second file stores offsets into the file to quickly search for a revision by a given timestamp using an in-memory binary search. Furthermore a few maintenance files exist, which store the configuration of a resource and the definitions of secondary indexes (if any are configured). Other JSON files keep track of changes in delta files if enabled.
+SirixDB appends data to an indexed log file without the need of a WAL. It can be embedded and used as a library from your favorite language on the JVM to store and query data locally or by using a simple CLI. An asynchronous HTTP server, which adds the core and query modules as dependencies, can interact with SirixDB over the network using Keycloak for authentication/authorization. One file stores the data with all revisions and possibly secondary indexes. A second file stores offsets into the file to quickly search for a revision by a given timestamp using an in-memory binary search. Furthermore, a few maintenance files exist, which store the configuration of a resource and the definitions of secondary indexes (if any are configured). Other JSON files keep track of changes in delta files if enabled.
 
-It currently supports the storage and (time travel) querying of both XML - and JSON-data in its binary encoding, tailored to support versioning. The index-structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement the storage and querying of other data formats as relational data.
+It currently supports the storage and (time travel) querying of XML and JSON data in its binary encoding, tailored to support versioning. The index structures and the whole storage engine has been written from scratch to support versioning natively. We might also implement storing and querying other data formats as relational data.
 
-SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page-fragments during a copy-on-write out-of-place operation instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page-fragments in parallel to reconstruct an in-memory page (thus, a fast, random access storage device as a PCIe SSD is best suited or even byte addressable storage as Intel DC optane memory in the near future -- as SirixDB stores fine granular cache-size (not page) aligned modifications in a single file.
+SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein the committed snapshots share unchanged pages and even common records in changed pages. The system only stores page fragments during a copy-on-write out-of-place operation instead of full pages during a commit to reduce write-amplification. During read operations, the system reads the page fragments in parallel to reconstruct an in-memory page (thus, a fast, random access storage device as a PCIe SSD is best suited or even byte-addressable storage as Intel DC optane memory shortly -- as SirixDB stores fine granular cache-size (not page) aligned modifications in a single file.
 
 <!--
 <p>&nbsp;</p>
@@ -39,7 +39,7 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
 
 **Please consider [sponsoring](https://opencollective.com/sirixdb/) our Open Source work if you like the project.**
 
-**Note: Let us know if you'd like to build a brand-new frontend with for instance [SolidJS](https://solidjs.com), [D3.js](https://d3js), and Typescript.**
+**Note: Let us know if you'd like to build a brand-new frontend with, for instance [Svelte](https://svelte.dev), [D3.js](https://d3js), and Typescript.**
 
 **Discuss it in the [Community Forum](https://sirix.discourse.group).**
 
@@ -62,13 +62,13 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
 -   [License](#license)
 
 ## Keeping All Versions of Your Data By Sharing Structure
-We could write quite a bunch of stuff, why it's often of great value to keep all states of your data in a storage system. Still, recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations. The [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
+We could write a lot about why keeping all states of your data in a storage system is of great value. Still, recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, and implementing efficient undo-/redo-operations. The [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/docs/index.html).
 
-Our firm belief is that a temporal storage system must address the issues, which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems that do not support the storage thereof natively results in many unwanted hurdles. They waste storage space, query performance to retrieve past states of your data is not mostideal, and usually, temporal operations are missing altogether.
+Our firm belief is that a temporal storage system must address the issues which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems that do not support the storage thereof natively results in many unwanted hurdles. They waste storage space, query performance to retrieve past states of your data is not most ideal, and usually, temporal operations are missing altogether.
 
-The DBS must store data in a way that storage space is used as effectively as possible while supporting the reconstruction of each revision, as the database saw it during the commits. All this should be handled in linear time, whether it's the first revision or the most recent revision. Ideally, query time of old/past revisions and the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
+The DBS must store data so that storage space is used as effectively as possible while supporting the reconstruction of each revision, as the database saw it during the commits. All this should be handled in linear time, whether it's the first revision or the most recent revision. Ideally, the query time of old/past revisions and the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
-SirixDB not only supports snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
+SirixDB not only supports snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions, and storing semi-structured data.
 
 Executing the following time-travel query on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of the possibilities:
 
@@ -81,12 +81,12 @@ let $foundStatus := for $status in $statuses
   return $status
 return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
-The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `.` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[[0]]` for instance specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor also supports Python-like array slices to simplify tasks.
+The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `.` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[[0]]` for instance, specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor, also supports Python-like array slices to simplify tasks.
 
 ## JSONiq examples
 
-In order to verify changes in a node or its subtree, first select the node in the revision and then
-query for changes using our stored merkle hash tree, which builds and updates hashes for each node and it's subtree and check the hashes with `sdb:hash($item)`. The function `jn:all-times` delivers the node in all revisions in which it exists. `jn:previous` delivers
+To verify changes in a node or its subtree, first, select the node in the revision and then
+query for changes using our stored Merkle hash tree, which builds and updates hashes for each node and its subtree and checks the hashes with `sdb:hash($item)`. The function `jn:all-times` delivers the node in all revisions in which it exists. `jn:previous` delivers
 the node in the previous revision or an empty sequence if there's none.
 
 ```xquery
@@ -128,12 +128,12 @@ let $array := jn:doc('mycol.jn','mydoc.jn')
 return insert json {"bla":true} into $array at position 0
 ```
 
-to insert a JSON object into a resource, whereas the root node is an array at the first position (0). The transaction is implicitly committed, thus a new revision is created and the specific revision can be queried using a single third argument, either a simple integer ID or a timestamp. The following query issues a query on the first revision (thus without the changes). 
+to insert a JSON object into a resource, whereas the root node is an array at the first position (0). The transaction is implicitly committed. Thus, a new revision is created, and the specific revision can be queried using a single third argument, either a simple integer ID or a timestamp. The following query issues a query on the first revision (thus without the changes). 
 ```xquery
 jn:doc('mycol.jn','mydoc.jn',1)
 ```
 
-Omitting the third argument simply opens the resource in the most recent revision, but you could in this case also specify revision number 2. You can also use a timestamp as in:
+Omitting the third argument opens the resource in the most recent revision, but you could, in this case, also specify revision number 2. You can also use a timestamp as in:
 
 ```xquery
 jn:open('mycol.jn','mydoc.jn',xs:dateTime('2022-03-01T00:00:00Z'))
@@ -179,16 +179,16 @@ let $join :=
 return [$join]
 ```
 
-SirixDB through Brackit also supports array slices. Start index is 0, step is 1 and end index is 1 (exclusive) in the next query:
+SirixDB through Brackit also supports array slices. The start index is 0, the step is 1, and end index is 1 (exclusive) in the next query:
 
 ```xquery
-let $array := [{"foo": 0}, "bar", {"baz": true()}]
+let $array := [{"foo": 0}, "bar", {"baz": true}]
 return $array[[0:1:1]]
 ```
 
 The query returns the first object `{"foo":0}`. 
 
-With the function `sdb:nodekey` you can find out the internal unique node key of a node, which will never change. You for instance might be interested in which revision it has been removed. The following query uses the function `sdb:select-item` which as the first argument needs a context node and as the second argument the key of the item or node to select. `jn:last-existing` finds the most recent version and `sdb:revision` retrieves the revision number.
+With the function `sdb:nodekey` you can find out the internal unique node key of a node, which will never change. You for instance might be interested in which revision it has been removed. The following query uses the function `sdb:select-item` which, as the first argument needs a context node and, as the second argument the key of the item or node to select. `jn:last-existing` finds the most recent version and `sdb:revision` retrieves the revision number.
 
 ```xquery
 sdb:revision(jn:last-existing(sdb:select-item(jn:doc('mycol.jn','mydoc.jn',1), 26)))
@@ -200,9 +200,9 @@ SirixDB has three types of indexes along with a path summary tree, which is basi
 
 - name indexes, to index a set of object fields
 - path indexes, to index a set of paths (or all paths in a resource)
-- CAS indexes, so called content-and-structure indexes, which index paths and typed values (for instance all xs:integers). In this case on the paths specified only integer values are indexed on the path, but no other types
+- CAS indexes, so-called content-and-structure indexes, which index paths and typed values (for instance, all xs:integers). In this case, on the paths specified, only integer values are indexed on the path, but no other types
 
-We base the indexes on the following serialization of three revisions of a very small SirixDB ressource.
+We base the indexes on the following serialization of three revisions of a very small SirixDB resource.
 
 ```json
 {
@@ -356,45 +356,45 @@ let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
 return {"revision": sdb:commit($doc)}
 ```
 
-To query for a string values with a certain name (`bar`) on all paths (empty sequence `()`):
+To query for string values with a certain name (`bar`) on all paths (empty sequence `()`):
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
 let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
-for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', 0, ())
+for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', '==', ())
 order by sdb:revision($node), sdb:nodekey($node)
 return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
 ```
 
-The argument 0 means check for equality of the string. Other values which might make more sense for integers, decimals... are -2 for `<`, -1 for `<=`, 1 for `>=` and 2 for `>`.
+The argument `==` means check for equality of the string. Other values that make more sense for integers, and decimals... are `<`, `<=`, `>=` and `>`.
 
 ## SirixDB Features
-SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
+SirixDB is a log-structured, temporal JSON and XML database system, which stores evolutionary data. It never overwrites any data on disk. Thus, we're able to restore and query the full revision history of a resource in the database.
 
 ### Design Goals
 Some of the most important core principles and design goals are:
 
 <dl>
   <dt>Embeddable</dt>
-  <dd>Similar to SQLite and DucksDB SirixDB is embeddable at its core. Other APIs as the non-blocking REST-API are built on top.</dd>
+  <dd>Similar to SQLite and DucksDB, SirixDB is embeddable at its core. Other APIs as the non-blocking REST API are built on top.</dd>
   <dt>Minimize Storage Overhead</dt>
   <dd>SirixDB shares unchanged data pages as well as records between revisions, depending on a chosen versioning algorithm during the initial bootstrapping of a resource. SirixDB aims to balance read and writer performance in its default configuration.</dd>
   <dt>Concurrent</dt>
   <dd>SirixDB contains very few locks and aims to be as suitable for multithreaded systems as possible.</dd>
   <dt>Asynchronous</dt>
-  <dd>Operations can happen independently; each transaction is bound to a specific revision and only one read/write-transaction on a resource is permitted concurrently to N read-only-transactions.</dd>
+  <dd>Operations can happen independently; each transaction is bound to a specific revision and only one read/write transaction on a resource is permitted concurrently with N read-only transactions.</dd>
   <dt>Versioning/Revision history</dt>
-  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead. It uses a huge persistent, durable page-tree for indexing revisions and data.</dd>
+  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead. It uses a huge persistent, durable page tree for indexing revisions and data.</dd>
   <dt>Data integrity</dt>
-  <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future, we aim to partition and replicate databases in the future.</dd>
+  <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future; we aim to partition and replicate databases in the future.</dd>
   <dt>Copy-on-write semantics</dt>
   <dd>Similarly to the file systems Btrfs and ZFS, SirixDB uses CoW semantics, meaning that SirixDB never overwrites data. Instead, database-page fragments are copied/written to a new location. SirixDB does not simply copy whole pages. Instead, it only copies changed records plus records, which fall out of a sliding window.</dd>
   <dt>Per revision and page versioning</dt>
-  <dd>SirixDB does not only version on a per revision, but also on a per page-base. Thus, whenever we change a potentially small fraction
-of records in a data-page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning-type we specify is used by SirixDB to version data-pages.</dd>
+  <dd>SirixDB does not only version on a per revision but also on a per page base. Thus, whenever we change a potentially small fraction
+of records in a data page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning type we specify is used by SirixDB to version data pages.</dd>
   <dt>Guaranteed atomicity and consistency (without a WAL)</dt>
-  <dd>The system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log. (<a
-href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
+  <dd>The system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead log. 
+(<a href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
   <dt>Log-structured and SSD friendly</dt>
   <dd>SirixDB batches writes and syncs everything sequentially to a flash drive
 during commits. It never overwrites committed data.</dd>
@@ -402,7 +402,7 @@ during commits. It never overwrites committed data.</dd>
 
 ### Revision Histories
 **Keeping the revision history is one of the main features in
-SirixDB.** You can revert any revision into an earlier version or back up the system automatically without the overhead of copying. SirixDB only ever copies changed database-pages and, depending on the versioning algorithm you chose during the creation of a database/resource, only page-fragments, and ancestor index-pages to create a new revision.
+SirixDB.** You can revert any revision to an earlier version or back up the system automatically without the overhead of copying. SirixDB only ever copies changed database pages and, depending on the versioning algorithm you chose during the creation of a database/resource, only page fragments, and ancestor index pages to create a new revision.
 
 You can reconstruct every revision in <em>O(n)</em>, where <em>n</em>
 denotes the number of nodes in the revision. Binary search is used on
@@ -441,7 +441,7 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 19, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 20, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
 
 ### Maven artifacts
 At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
@@ -491,12 +491,12 @@ Brackit binding:
 ```xml
 <dependency>
   <groupId>io.sirix</groupId>
-  <artifactId>sirix-xquery</artifactId>
+  <artifactId>sirix-query</artifactId>
   <version>0.9.7-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-xquery', version:'0.9.7-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-query', version:'0.9.7-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
@@ -519,7 +519,6 @@ You have to add the following JVM parameters currently:
 ```
 -ea
 --enable-preview
---add-modules=jdk.incubator.foreign
 --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED
 --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
 --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED
@@ -531,7 +530,7 @@ You have to add the following JVM parameters currently:
 --add-opens=java.base/java.util=ALL-UNNAMED
 ```
 
-Plus we recommend using the Shenandoah GC:
+Plus we recommend using the Shenandoah GC or ZGC (if possible in the future the generational versions):
 
 ```
 -XX:+UseShenandoahGC
@@ -542,50 +541,76 @@ Plus we recommend using the Shenandoah GC:
 -XX:+DisableExplicitGC
 ```
 
+We've also had tremendously good results using GraalVM, possibly due to its JIT compiler and the improved escape analysis. 
+
 ### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 
 The REST-API is asynchronous at its very core. We use Vert.x, which is a toolkit built on top of Netty. It is heavily inspired by Node.js but for the JVM. As such, it uses event loop(s), which is thread(s), which never should by blocked by long-running CPU tasks or disk-bound I/O. We are using Kotlin with coroutines to keep the code simple. SirixDB uses OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance.
 
+### Keycloak setup (Standalone Setup / Docker Hub Image)
+
+You can set up Keycloak as described in this excellent [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. You can skip steps 3 - 7 and 10, 11, and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests, the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image.
+
+1. Open your browser. URL: http://localhost:8080
+2. Login with username "admin" and password "admin"
+3. Create a new **realm** with the name **"sirixdb"**
+4. Go to `Clients` => `account`
+5. Change client-id to "sirix"
+6. Make sure `access-type` is set to `confidential`
+7. Go to the `Credentials` tab
+8. Put the `client secret` into the SirixDB HTTP-Server [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). Change the value of "client.secret" to whatever Keycloak set up.
+9. If "oAuthFlowType" is specified in the same configuration file change the value to "PASSWORD" (if not default is "PASSWORD").
+10. Regarding Keycloak the `direct access` grant on the settings tab must be `enabled`.
+11. Our (user-/group-)roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. You can also assign `${databaseName}-` prefixed roles.
+ 
 ### Start Docker Keycloak-Container using docker-compose
 For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test realm:
 
 1. `git clone https://github.com/sirixdb/sirix.git`
 2. `sudo docker-compose up keycloak`
 
-### Keycloak setup
-
-You can set up Keycloak as described in this excellent [tutorial](
-https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/). Our [docker-compose](https://raw.githubusercontent.com/sirixdb/sirix/master/docker-compose.yml) file imports a sirix realm with a default admin user with all available roles assigned. You can skip steps 3 - 7 and 10, 11, and simply recreate a `client-secret` and change `oAuthFlowType` to "PASSWORD". If you want to run or modify the integration tests, the client secret must not be changed. Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image.
-
-1. Open your browser. URL: http://localhost:8080
-2. Login with username "admin", password "admin"
-3. Create a new **realm** with the name **"sirixdb"**
-4. Go to `Clients` => `account`
-5. Change client-id to "sirix"
-6. Make sure `access-type` is set to `confidential`
-7. Go to `Credentials` tab
-8. Put the `client secret` into the SirixDB HTTP-Server [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). Change the value of "client.secret" to whatever Keycloak set up.
-9. If "oAuthFlowType" is specified in the same configuration file change the value to "PASSWORD" (if not default is "PASSWORD").
-10. Regarding Keycloak the `direct access` grant on the settings tab must be `enabled`.
-11. Our (user-/group-)roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. You can also assign `${databaseName}-` prefixed roles.
- 
 ### Start the SirixDB HTTP-Server and the Keycloak-Container using docker-compose
-Make sure to delete the line "build: ." in the `docker-compse.yml` file for the server image if you want to use the Docker Hub image. For setting up both with docker compose:
 
-1. Make sure the folder /opt/var/sirix/sixix-data exists and is read and writable for the container.
-2. Change the keycloak URL in the configuration file ([configuration file 1](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) from "http://localhost:8080/auth/realms/sirixdb" to "http://sirix_keycloak_1:8080/auth/realms/sirixdb".
-3. `sudo docker-compose up`
+_This section describes setting up the Keycloak using `docker compose`. If you are looking for configuring keycloak from scratch, instructions for that is described in the previous section_
+
+For setting up the SirixDB HTTP-Server and a basic Keycloak-instance with a test `sirixdb` realm:
+
+1. At first clone this repository with the following command (Or download .zip)
+    
+       git clone https://github.com/sirixdb/sirix.git
+
+2. `cd` into the sirix folder that was just cloned.
+    
+       cd sirix/
+
+3. Run the Keycloak container using `docker compose`
+
+       sudo docker compose up keycloak
+
+4. Visit `http://localhost:8080` and login to the admin console using username: `admin` and password: `admin`
+5. From the navigation panel on the left, select `Realm Settings` and verify that the `Name` field is set to `sirixdb`
+6. Select the client with Client ID `sirix`
+   1. Verify direct access grant is enabled.
+   2. Verify that `Access Type` is set to `confidential`
+   3. In the `credentials` tab
+      1. Verify that the Client Authentication is set to `Client Id and Secret`
+      2. Click on Regenerate Secret to generate a new secret. Set the value of the field named `client.secret` of the [configuration file](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json) to this secret.
+      
+7. Finally run the SirixDB-HTTP Server and Keycloak container with docker compose
+
+        docker compose up
 
 ### SirixDB HTTP-Server Setup Without Docker/docker-compose
 
 To created a fat-JAR. Download our ZIP-file for instance, then
 
 1. `cd bundles/sirix-rest-api`
-2. `gradle build -x test`
+2. `./gradlew build -x test`
 
 And a fat-JAR with all required dependencies should have been created in your target folder.
 
-Furthermore, a `key.pem` and a `cert.pem` file are needed. These two files have to be in your user home directory in a directory called "sirix-data", where Sirix stores the databases. For demo purposes they can be copied from our [resources directory](https://github.com/sirixdb/sirix/tree/master/bundles/sirix-rest-api/src/main/resources).
+Furthermore, a `key.pem` and a `cert.pem` file are needed. These two files have to be in your user home directory in a directory called "sirix-data", where Sirix stores the databases. For demo purposes, they can be copied from our [resources directory](https://github.com/sirixdb/sirix/tree/master/bundles/sirix-rest-api/src/main/resources).
 
 Once also Keycloak is set up we can start the server via:
 
@@ -596,23 +621,23 @@ If you like to change your user home directory to `/opt/sirix` for instance.
 The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.9.0-SNAPSHOT/).
 
 ### Run the Integration Tests
-In order to run the integration tests under `bundles/sirix-rest-api/src/test/kotlin` make sure that you assign your admin user all the user-roles you have created in the Keycloak setup (last step). Make sure that Keycloak is running first and execute the tests in your favorite IDE for instance.
+In order to run the integration tests under `bundles/sirix-rest-api/src/test/kotlin` make sure that you assign your admin user all the user roles you have created in the Keycloak setup (last step). Make sure that Keycloak is running first and execute the tests in your favorite IDE for instance.
 
-Note that the following VM-parameters currently are needed: `-ea --add-modules=jdk.incubator.foreign --enable-preview`
+Note that the following VM parameters currently are needed: `-ea --add-modules=jdk.incubator.foreign --enable-preview`
 
 ### Command-line tool
-We ship a (very) simple command-line tool for the sirix-xquery bundle:
+We ship a (very) simple command-line tool for the sirix-query bundle:
 
-Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
+Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-query/) with dependencies.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Discord channel.
-Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
+We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/docs/) and in this README. Furthermore, you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Discord channel.
+Please also have a look at and play with our sirix-example bundle which is available via Maven or our new asynchronous RESTful API (shown next).
 
 ## Getting Help
 
 ### Community Forum
-If you have any questions or are considering to contribute or use Sirix, please use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be an API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+If you have any questions or are considering contributing or using Sirix, please use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be an API question or enhancement proposal, questions regarding use cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also, API-related suggestions and critics are of utmost importance.
 
 ### Join us on Discord
 You may find us on [Discord](https://discord.gg/yC33wVpv7t) for quick questions.
@@ -625,9 +650,9 @@ SirixDB is maintained by
 
 And the Open Source Community.
 
-As the project was forked from a university project called Treetank, my deepest gratitude to Marc Kramis, who came up with the idea of building a versioned, secure and energy-efficient data store, which retains the history of resources of his Ph.D. Furthermore, Sebastian Graf came up with a lot of ideas and greatly improved the implementation for his Ph.D. Besides, a lot of students worked and improved the project considerably.
+As the project was forked from a university project called Treetank, my deepest gratitude to Marc Kramis, who came up with the idea of building a versioned, secure, and energy-efficient data store, which retains the history of resources of his Ph.D. Furthermore, Sebastian Graf came up with a lot of ideas and greatly improved the implementation of his Ph.D. Besides, a lot of students worked and improved the project considerably.
 
-Thanks goes to these wonderful people, who greatly improved SirixDB lately. SirixDB couldn't exist without the help of the Open Source community:
+Thanks go to these wonderful people, who greatly improved SirixDB lately. SirixDB couldn't exist without the help of the Open Source community:
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->

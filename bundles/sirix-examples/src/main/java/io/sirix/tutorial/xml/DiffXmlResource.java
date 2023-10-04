@@ -1,10 +1,10 @@
 package io.sirix.tutorial.xml;
 
 import io.sirix.tutorial.Constants;
-import org.sirix.access.Databases;
-import org.sirix.access.trx.node.HashType;
-import org.sirix.diff.DiffFactory;
-import org.sirix.diff.DiffFactory.DiffOptimized;
+import io.sirix.access.Databases;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.diff.DiffFactory;
+import io.sirix.diff.DiffFactory.DiffOptimized;
 
 import java.util.Set;
 

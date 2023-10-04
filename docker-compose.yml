@@ -19,6 +19,11 @@ services:
       - "-bmanagement 0.0.0.0"
     networks:
       - auth-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
   server:
     build: .
     image: sirixdb/sirix
@@ -29,10 +34,11 @@ services:
       - /opt/sirix/sirix-data:/opt/sirix/sirix-data
       - ./bundles/sirix-rest-api/src/main/resources/cert.pem:/opt/sirix/sirix-data/cert.pem
       - ./bundles/sirix-rest-api/src/main/resources/key.pem:/opt/sirix/sirix-data/key.pem
-      - ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json:/opt/sirix/sirix-conf.json
+      - ./bundles/sirix-rest-api/src/main/resources/sirix-docker-conf.json:/opt/sirix/sirix-docker-conf.json
       - ./bundles/sirix-rest-api/src/test/resources/logback-test.xml:/opt/sirix/logback-test.xml
     depends_on:
-      - keycloak
+      keycloak:
+        condition: service_healthy
     networks:
       - auth-network
     links:
