@@ -78,8 +78,7 @@ public final class XmlMaxLevelVisitor implements XmlNodeVisitor {
   @Override
   public VisitResult visit(ImmutableElement node) {
     adaptLevel(node);
-    final var visitResult = getVisitResultType();
-    return visitResult;
+    return getVisitResultType();
   }
 
   @Override

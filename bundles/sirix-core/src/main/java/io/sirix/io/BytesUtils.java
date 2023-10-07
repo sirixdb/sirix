@@ -23,8 +23,7 @@ public final class BytesUtils {
   public static ByteBuffer doRead(Bytes bytes) {
     // No garbage when getting the underlying ByteBuffer.
     assert bytes.underlyingObject() instanceof ByteBuffer;
-    final var byteBuffer = (ByteBuffer) bytes.underlyingObject();
-    return byteBuffer;
+    return bytes.underlyingObject();
   }
 
   /**

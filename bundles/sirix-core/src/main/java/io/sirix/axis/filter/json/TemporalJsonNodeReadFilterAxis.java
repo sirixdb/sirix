@@ -1,6 +1,7 @@
 package io.sirix.axis.filter.json;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import io.sirix.api.Filter;
@@ -42,9 +43,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
     mAxisFilter.add(firstAxisTest);
 
     if (axisTest != null) {
-      for (int i = 0, length = axisTest.length; i < length; i++) {
-        mAxisFilter.add(axisTest[i]);
-      }
+      Collections.addAll(mAxisFilter, axisTest);
     }
   }
 

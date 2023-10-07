@@ -129,10 +129,7 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
 
   @Override
   public boolean hasNext() {
-    if (mIndex < mChanges.size() - 1) {
-      return true;
-    }
-    return false;
+    return mIndex < mChanges.size() - 1;
   }
 
   @Override

@@ -1,6 +1,7 @@
 package io.sirix.axis.filter.xml;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import io.sirix.api.Filter;
@@ -42,9 +43,7 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
     axisFilter.add(firstAxisTest);
 
     if (axisTest != null) {
-      for (int i = 0, length = axisTest.length; i < length; i++) {
-        axisFilter.add(axisTest[i]);
-      }
+      Collections.addAll(axisFilter, axisTest);
     }
   }
 

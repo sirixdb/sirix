@@ -51,11 +51,10 @@ public final class TypedValue {
    */
   public static int parseInt(final byte[] mBytes) {
     try {
-      int value = (((mBytes[0] & 0xFF) << 24)
+      return (((mBytes[0] & 0xFF) << 24)
                   | ((mBytes[1] & 0xFF) << 16)
                   | ((mBytes[2] & 0xFF)  << 8)
                   | (mBytes[3] & 0xFF));
-      return value;
     } catch(final Exception e) {
       throw new SirixRuntimeException(e.getLocalizedMessage());
     }
@@ -69,7 +68,7 @@ public final class TypedValue {
    */
   public static long parseLong(final byte[] mBytes) {
     try {
-      long value = ((((long) mBytes[0] & 0xFF) << 56)
+      return ((((long) mBytes[0] & 0xFF) << 56)
                     | (((long) mBytes[1] & 0xFF) << 48)
                     | (((long) mBytes[2] & 0xFF) << 40)
                     | (((long) mBytes[3] & 0xFF) << 32)
@@ -77,7 +76,6 @@ public final class TypedValue {
                     | (((long) mBytes[5] & 0xFF) << 16)
                     | (((long) mBytes[6] & 0xFF) << 8)
                     | (((long) mBytes[7] & 0xFF)));
-      return value;
     } catch (final Exception e) {
       throw new SirixRuntimeException(e.getLocalizedMessage());
     }
