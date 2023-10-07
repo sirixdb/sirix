@@ -95,7 +95,7 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    */
   private void addLeafLabel() {
     final NodeKind nodeKind = rtx.getKind();
-    leafLabels.computeIfAbsent(nodeKind, () -> leafLabels.put(nodeKind, new ArrayList<>()));
+    leafLabels.computeIfAbsent(nodeKind, nk -> leafLabels.put(nk, new ArrayList<>()));
     leafLabels.get(nodeKind).add(rtx.getNodeKey());
   }
 

@@ -63,7 +63,7 @@ public final class ConnectionMap<T> {
    */
   public void set(final T origin, final T destination, final boolean bool) {
     requireNonNull(destination);
-    map.computeIfAbsent(requireNonNull(origin), () -> map.put(origin, new HashMap<>()));
+    map.computeIfAbsent(requireNonNull(origin), o -> map.put(o, new HashMap<>()));
     map.get(origin).put(destination, bool);
   }
 
