@@ -220,7 +220,7 @@ public final class XmlNodeReadOnlyTrxImpl
       for (int i = 0; i < element.getAttributeCount(); i++) {
         long attributeKey = element.getAttributeKey(i);
         if(moveTo(attributeKey)){
-          String attName = getName();
+          QNm attName = getName();
           if(attName != null && attName.equals(name)){
             attKey = attributeKey;
             break;
