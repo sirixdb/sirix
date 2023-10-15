@@ -716,7 +716,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     NodePageReadOnlyTrx pageReadTrx = null;
-    try{
+    try {
       pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
               this,
               lastCommittedUberPage.get(),
