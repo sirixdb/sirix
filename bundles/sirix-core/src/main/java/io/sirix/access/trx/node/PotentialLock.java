@@ -53,7 +53,6 @@ public final class PotentialLock implements Lock, AutoCloseable {
     }
   }
 
-  @NotNull
   @Override
   public Condition newCondition() {
     if (lock != null) {
