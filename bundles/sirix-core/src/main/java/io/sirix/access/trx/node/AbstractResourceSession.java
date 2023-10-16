@@ -715,23 +715,27 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
-                                                                    this,
-                                                                    lastCommittedUberPage.get(),
-                                                                    revision,
-                                                                    storage.createReader(),
-                                                                    bufferManager,
-                                                                    new RevisionRootPageReader(),
-                                                                    null);
-
-    // Remember page transaction for debugging and safe close.
-    if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
-      throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+    NodePageReadOnlyTrx pageReadTrx = null;
+    try {
+      pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
+              this,
+              lastCommittedUberPage.get(),
+              revision,
+              storage.createReader(),
+              bufferManager,
+              new RevisionRootPageReader(),
+              null);
+      // Remember page transaction for debugging and safe close.
+      if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
+        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+      }
+    } catch (Exception e) {
+      // Handle exception if any
+      throw e;
+    } finally {
+      return pageReadTrx;
     }
-
-    return pageReadTrx;
   }
-
   @Override
   public synchronized PageTrx beginPageTrx(final @NonNegative int revision) {
     assertAccess(revision);

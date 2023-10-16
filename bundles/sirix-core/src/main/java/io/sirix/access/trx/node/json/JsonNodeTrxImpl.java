@@ -145,6 +145,11 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   private int beforeBulkInsertionRevisionNumber;
 
   /**
+   * Insert not allowed exception because of absance of parent in array.
+   */
+  private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE = "Insert is not allowed if parent node is not an array node!";
+
+  /**
    * Constructor.
    *
    * @param databaseName         The database name where the transaction operates.
@@ -659,7 +664,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       if (!nodeHashing.isBulkInsert()) {
         if (getParentKind() != NodeKind.ARRAY) {
-          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+          throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
       }
 
@@ -702,7 +707,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
       if (!nodeHashing.isBulkInsert()) {
         if (getParentKind() != NodeKind.ARRAY) {
-          throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+          throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
       }
 
@@ -1644,7 +1649,7 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
 
   private void checkPrecondition() {
     if (!nodeHashing.isBulkInsert() && getParentKind() != NodeKind.ARRAY) {
-      throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+      throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
     }
   }
 
