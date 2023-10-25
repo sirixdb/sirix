@@ -41,7 +41,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.jcp.xml.dsig.internal.dom.Utils;
+
 
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
