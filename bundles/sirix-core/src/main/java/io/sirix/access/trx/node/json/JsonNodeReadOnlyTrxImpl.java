@@ -57,10 +57,10 @@ public final class JsonNodeReadOnlyTrxImpl
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
-  private final String INSERT = "insert";
-  private final String UPDATE = "update";
-  private final String DELETE = "delete";
-  private final String REPLACE = "replace";
+  private static final String INSERT = "insert";
+  private static final String UPDATE = "update";
+  private static final String DELETE = "delete";
+  private static final String REPLACE = "replace";
 
   @Override
   public boolean hasLastChild() {

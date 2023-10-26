@@ -68,7 +68,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    * @param casIndex  the CAS index manager
    * @param nameIndex the name index manager
    */
-  public AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
+  protected AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
       final PathIndex<?, ?> pathIndex, final CASIndex<?, ?, R> casIndex, final NameIndex<?, ?> nameIndex) {
     this.indexes = indexes;
     this.listeners = listeners;

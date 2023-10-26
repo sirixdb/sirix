@@ -169,9 +169,14 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE =
-      OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
-
+  private static final StorageType STORAGE;
+    if (OS.isWindows()) {
+        STORAGE = StorageType.FILE_CHANNEL;
+    } else if (OS.is64Bit()) {
+        STORAGE = StorageType.MEMORY_MAPPED;
+    } else {
+    STORAGE = StorageType.FILE_CHANNEL;
+    }
   /**
    * Standard versioning approach.
    */

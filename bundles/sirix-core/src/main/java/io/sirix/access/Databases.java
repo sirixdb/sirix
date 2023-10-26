@@ -290,6 +290,6 @@ public final class Databases {
   }
 
   public static ConcurrentMap<Path, BufferManager> getBufferManager(Path databaseFile) {
-    return BUFFER_MANAGERS.computeIfAbsent(databaseFile, (unused) -> new ConcurrentHashMap<>());
+    return BUFFER_MANAGERS.computeIfAbsent(databaseFile, unused -> new ConcurrentHashMap<>());
   }
 }
