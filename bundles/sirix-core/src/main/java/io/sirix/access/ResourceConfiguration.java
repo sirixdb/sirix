@@ -228,7 +228,7 @@ public final class ResourceConfiguration {
   /**
    * Path for the resource to be associated.
    */
-  public Path resourcePath;
+  final static Path resourcePath;
 
   /**
    * DatabaseConfiguration for this {@link ResourceConfiguration}.
@@ -723,7 +723,7 @@ public final class ResourceConfiguration {
       this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlerPipeline(new LZ4Compressor()); // new Encryptor(path));
+      byteHandler = new ByteHandlerPipeline(new LZ4Compressor()););
     }
 
     /**

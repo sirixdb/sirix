@@ -79,8 +79,6 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       switch (hashType) {
         case ROLLING -> rollingAdd();
         case POSTORDER -> postorderAdd();
-        case NONE -> {
-        }
       }
     }
   }
@@ -95,8 +93,6 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       switch (hashType) {
         case ROLLING -> rollingRemove();
         case POSTORDER -> postorderRemove();
-        case NONE -> {
-        }
       }
     }
   }

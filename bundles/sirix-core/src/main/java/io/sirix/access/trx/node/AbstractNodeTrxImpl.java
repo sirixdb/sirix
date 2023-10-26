@@ -261,7 +261,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
     try {
       runnable.run();
-    } finally {
     }
     if (lock != null) {
       lock.unlock();
