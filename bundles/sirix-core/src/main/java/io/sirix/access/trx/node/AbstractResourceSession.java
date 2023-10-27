@@ -139,7 +139,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * ID Generation exception message for duplicate ID.
    */
-  private final String ID_GENERATION_EXCEPTION = "ID generation is bogus because of duplicate ID.";
+  private static final String ID_GENERATION_EXCEPTION = "ID generation is bogus because of duplicate ID.";
 
   /**
    * Creates a new instance of this class.
@@ -678,16 +678,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     PageReadOnlyTrx pageReadOnlyTrx;
 
-    var pool = this.pool.get();
+    var pooling = this.pool.get();
 
-    if (pool != null) {
+    if (pooling != null) {
       Poolable<PageReadOnlyTrx> poolable = null;
       boolean invalidObject = true;
       while (invalidObject) {
         try {
-          poolable = pool.borrowObject(false);
+          poolable = pooling.borrowObject(false);
           invalidObject = false;
-        } catch (PoolInvalidObjectException ignored) {
         } catch (PoolExhaustedException exception) {
           invalidObject = false;
         }

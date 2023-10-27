@@ -143,6 +143,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     deweyIDManager = new XmlDeweyIDManager(this);
 
   }
+  private static final constStr = "Insert is not allowed if current node is not an ElementNode!";
 
   @Override
   public XmlNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
@@ -505,7 +506,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
         return this;
       } else {
-        throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
+        throw new SirixUsageException(constStr);
       }
     } finally {
       if (lock != null) {
@@ -1166,7 +1167,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         }
         return this;
       } else {
-        throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
+        throw new SirixUsageException(constStr);
       }
     } finally {
       if (lock != null) {
@@ -1218,7 +1219,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         }
         return this;
       } else {
-        throw new SirixUsageException("Insert is not allowed if current node is not an ElementNode!");
+        throw new SirixUsageException(constStr);
       }
     } finally {
       if (lock != null) {

@@ -726,12 +726,6 @@ public final class ResourceConfiguration {
       byteHandler = new ByteHandlerPipeline(new LZ4Compressor()); // new Encryptor(path));
     }
 
-    /**
-     * Set the storage type.
-     *
-     * @param type storage type to use
-     * @return reference to the builder object
-     */
     public Builder storageType(final StorageType type) {
       this.type = requireNonNull(type);
       return this;

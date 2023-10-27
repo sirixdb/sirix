@@ -61,7 +61,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
           if (attributeNr == 0) {
             deweyID = nodeTrx.getParentDeweyID().getNewAttributeID();
           } else {
-            nodeTrx.moveTo(attributeNr - 1);
+            nodeTrx.moveTo((long)attributeNr - 1);
             deweyID = SirixDeweyID.newBetween(nodeTrx.getDeweyID(), null);
           }
           nodeTrx.moveTo(attNodeKey);

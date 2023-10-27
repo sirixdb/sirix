@@ -97,7 +97,7 @@ public abstract class AbstractJsonNodeVisitor implements JsonNodeVisitor {
   @Override
   public VisitResult visit(ImmutableNumberNode node) {
     return VisitResultType.CONTINUE;
-  };
+  }
 
   @Override
   public VisitResult visit(ImmutableObjectNode node) {

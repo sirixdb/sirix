@@ -333,8 +333,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   public final StructNode getStructuralNode() {
     final var node = getCurrentNode();
-    if (node instanceof StructNode) {
-      return (StructNode) node;
+    if (node instanceof StructNode StructNode) {
+      return node;
     } else {
       return new NullNode(node);
     }

@@ -60,7 +60,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
    */
   Set<XmlNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
     // Index builders for all index definitions.
-    final var indexBuilders = new HashSet<XmlNodeVisitor>(indexDefs.size());
+    final var indexBuilders = HashSet.newHashSet<XmlNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
       indexes.add(indexDef);
       switch (indexDef.getType()) {
@@ -85,7 +85,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
 
   @Override
   public PathFilter createPathFilter(final Set<String> stringPaths, final XmlNodeReadOnlyTrx rtx) {
-    final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
+    final Set<Path<QNm>> paths = HashSet.newHashSet<>(stringPaths.size());
     for (final String path : stringPaths) {
       paths.add(Path.parse(path, PathParser.Type.XML));
     }
