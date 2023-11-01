@@ -54,7 +54,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @param nodeReadOnlyTrx the internal read-only node trx
    * @param pageTrx         the page trx
    */
-  public AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
+  protected AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
       final PageTrx pageTrx) {
     this.hashType = resourceConfig.hashType;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;

@@ -147,13 +147,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * The transaction states.
    */
   private enum State {
-    Running,
+    RUNNING,
 
-    Committing,
+    COMMITTING,
 
-    Committed,
+    COMMITTED,
 
-    Closed
+    CLOSED
   }
 
   protected AbstractNodeTrxImpl(final ThreadFactory threadFactory, final HashType hashType, final IN nodeReadOnlyTrx,
@@ -188,7 +188,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.maxNodeCount = maxNodeCount;
     this.modificationCount = 0L;
 
-    this.state = State.Running;
+    this.state = State.RUNNING;
 
     if (!afterCommitDelay.isZero()) {
       commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null),
@@ -201,7 +201,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected abstract W self();
 
   protected void assertRunning() {
-    if (state != State.Running) {
+    if (state != State.RUNNING) {
       throw new IllegalStateException("Transaction state is not running: " + state);
     }
   }
@@ -276,7 +276,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     runLocked(() -> {
-      state = State.Committing;
+      state = State.COMMITTING;
 
       // Execute pre-commit hooks.
       for (final PreCommitHook hook : preCommitHooks) {
@@ -300,9 +300,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Reinstantiate everything.
       if (afterCommitState == AfterCommitState.KEEP_OPEN) {
         reInstantiate(getId(), preCommitRevision);
-        state = State.Running;
+        state = State.RUNNING;
       } else {
-        state = State.Committed;
+        state = State.COMMITTED;
       }
     });
 

@@ -137,6 +137,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final PageTrxFactory pageTrxFactory;
 
   /**
+   * ID Generation exception message for duplicate ID.
+   */
+  private final String ID_GENERATION_EXCEPTION = "ID generation is bogus because of duplicate ID.";
+
+  /**
    * Creates a new instance of this class.
    *
    * @param resourceStore  the resource store with which this manager has been created
@@ -347,7 +352,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     // Remember reader for debugging and safe close.
     if (nodeTrxMap.put(reader.getId(), reader) != null) {
-      throw new SirixUsageException("ID generation is bogus because of duplicate ID.");
+      throw new SirixUsageException(ID_GENERATION_EXCEPTION);
     }
 
     return reader;
@@ -450,7 +455,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     // Remember node transaction for debugging and safe close.
     if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, pageWtx) != null) {
-      throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
+      throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 
     return wtx;
@@ -710,23 +715,27 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
-                                                                    this,
-                                                                    lastCommittedUberPage.get(),
-                                                                    revision,
-                                                                    storage.createReader(),
-                                                                    bufferManager,
-                                                                    new RevisionRootPageReader(),
-                                                                    null);
-
-    // Remember page transaction for debugging and safe close.
-    if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
-      throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
+    NodePageReadOnlyTrx pageReadTrx = null;
+    try {
+      pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
+              this,
+              lastCommittedUberPage.get(),
+              revision,
+              storage.createReader(),
+              bufferManager,
+              new RevisionRootPageReader(),
+              null);
+      // Remember page transaction for debugging and safe close.
+      if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
+        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+      }
+    } catch (Exception e) {
+      // Handle exception if any
+      throw e;
+    } finally {
+      return pageReadTrx;
     }
-
-    return pageReadTrx;
   }
-
   @Override
   public synchronized PageTrx beginPageTrx(final @NonNegative int revision) {
     assertAccess(revision);
@@ -748,7 +757,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {
-      throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
+      throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 
     return pageTrx;
