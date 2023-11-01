@@ -62,7 +62,7 @@ SirixDB uses a huge persistent (in the functional sense) tree of tries, wherein 
 -   [License](#license)
 
 ## Keeping All Versions of Your Data By Sharing Structure
-We could write a lot about why keeping all states of your data in a storage system is of great value. Still, recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, and implementing efficient undo-/redo-operations. The [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/docs/index.html).
+We could write a lot about why keeping all states of your data in a storage system is of great value. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, and implementing efficient undo-/redo-operations. The [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/docs/index.html).
 
 Our firm belief is that a temporal storage system must address the issues which arise from keeping past states way better than traditional approaches. Usually, storing time-varying, temporal data in database systems that do not support the storage thereof natively results in many unwanted hurdles. They waste storage space, query performance to retrieve past states of your data is not most ideal, and usually, temporal operations are missing altogether.
 
