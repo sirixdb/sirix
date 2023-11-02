@@ -33,8 +33,8 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
-import org.jetbrains.annotations.NotNull;
 import io.sirix.node.xml.AbstractStructForwardingNode;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -121,7 +121,7 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 }

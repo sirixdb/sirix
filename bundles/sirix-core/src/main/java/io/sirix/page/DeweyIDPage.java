@@ -28,7 +28,6 @@ import io.sirix.index.IndexType;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.map.ChronicleMap;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
@@ -36,6 +35,7 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.util.Map;
 
 public final class DeweyIDPage extends AbstractForwardingPage {
 
@@ -59,7 +59,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    */
   private int currentMaxLevelOfIndirectPages;
 
-  private ChronicleMap<SirixDeweyID, Long> deweyIDsToNodeKeys;
+  private Map<SirixDeweyID, Long> deweyIDsToNodeKeys;
 
   /**
    * Create dewey-ID page.
@@ -183,16 +183,16 @@ public final class DeweyIDPage extends AbstractForwardingPage {
 
   public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final PageReadOnlyTrx pageReadOnlyTrx) {
     if (deweyIDsToNodeKeys == null) {
-      deweyIDsToNodeKeys =
-          ChronicleMap.of(SirixDeweyID.class, Long.class).name("deweyIDsToNodeKeysMap").entries(maxNodeKey).create();
-      for (long i = 1, l = maxNodeKey; i < l; i += 2) {
-        final long nodeKeyOfNode = i;
-        final var deweyIDNode = pageReadOnlyTrx.getRecord(nodeKeyOfNode, IndexType.DEWEYID_TO_RECORDID, 0);
-
-        if (deweyIDNode != null && deweyIDNode.getKind() != NodeKind.DELETE) {
-          deweyIDsToNodeKeys.put(deweyIDNode.getDeweyID(), nodeKeyOfNode);
-        }
-      }
+//      deweyIDsToNodeKeys =
+//          ChronicleMap.of(SirixDeweyID.class, Long.class).name("deweyIDsToNodeKeysMap").entries(maxNodeKey).create();
+//      for (long i = 1, l = maxNodeKey; i < l; i += 2) {
+//        final long nodeKeyOfNode = i;
+//        final var deweyIDNode = pageReadOnlyTrx.getRecord(nodeKeyOfNode, IndexType.DEWEYID_TO_RECORDID, 0);
+//
+//        if (deweyIDNode != null && deweyIDNode.getKind() != NodeKind.DELETE) {
+//          deweyIDsToNodeKeys.put(deweyIDNode.getDeweyID(), nodeKeyOfNode);
+//        }
+//      }
     }
     return deweyIDsToNodeKeys.get(deweyId);
   }

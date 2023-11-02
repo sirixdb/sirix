@@ -49,7 +49,6 @@ import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -410,7 +409,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     return readUberPage();
   }
 
-  private void setCommitMessageAndTimestampIfRequired(@org.jetbrains.annotations.Nullable String commitMessage,
+  private void setCommitMessageAndTimestampIfRequired(@Nullable String commitMessage,
       @Nullable Instant commitTimestamp) {
     if (commitMessage != null) {
       newRevisionRootPage.setCommitMessage(commitMessage);
@@ -443,6 +442,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
        .forEach(page -> {
          final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
          PageKind.KEYVALUELEAFPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+         bytes.clear();
        });
   }
 
@@ -647,7 +647,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  protected @NotNull PageReadOnlyTrx delegate() {
+  protected @NonNull PageReadOnlyTrx delegate() {
     return pageRtx;
   }
 

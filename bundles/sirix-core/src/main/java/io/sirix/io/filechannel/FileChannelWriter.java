@@ -28,7 +28,7 @@ import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import net.openhft.chronicle.bytes.Bytes;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -144,7 +144,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return offset;
   }
 
-  @NotNull
+  @NonNull
   private FileChannelWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.

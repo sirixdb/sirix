@@ -42,8 +42,9 @@ import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.node.xml.AbstractStructForwardingNode;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;
 
@@ -161,7 +162,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("name", name)
                       .add("nameKey", nameKey)
@@ -183,7 +184,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 

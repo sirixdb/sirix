@@ -48,7 +48,6 @@ import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -485,7 +484,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Nullable
-  private Page getFromBufferManager(@NotNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
+  private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
     //if (trxIntentLog == null) {
       final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
 
@@ -498,7 +497,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return null;
   }
 
-  private void setMostRecentlyReadRecordPage(@NotNull IndexLogKey indexLogKey, Page recordPageFromBuffer) {
+  private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, Page recordPageFromBuffer) {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       pathSummaryRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                              indexLogKey.getIndexType(),
@@ -516,7 +515,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Nullable
-  private Page loadDataPageFromDurableStorageAndCombinePageFragments(@NotNull IndexLogKey indexLogKey,
+  private Page loadDataPageFromDurableStorageAndCombinePageFragments(@NonNull IndexLogKey indexLogKey,
       PageReference pageReferenceToRecordPage) {
     // Load list of page "fragments" from persistent storage.
     final List<KeyValuePage<DataRecord>> pages = getPageFragments(pageReferenceToRecordPage);
@@ -539,8 +538,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Nullable
-  private Page getInMemoryPageInstance(@NotNull IndexLogKey indexLogKey,
-      @NotNull PageReference pageReferenceToRecordPage) {
+  private Page getInMemoryPageInstance(@NonNull IndexLogKey indexLogKey,
+      @NonNull PageReference pageReferenceToRecordPage) {
     Page page = pageReferenceToRecordPage.getPage();
 
     if (page != null) {

@@ -34,7 +34,6 @@ import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 
 import java.nio.ByteBuffer;
@@ -134,12 +133,12 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return super.toString();
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 

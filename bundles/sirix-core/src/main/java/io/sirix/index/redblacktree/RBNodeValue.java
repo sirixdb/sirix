@@ -6,8 +6,9 @@ import io.sirix.index.redblacktree.interfaces.MutableRBNodeValue;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.settings.Fixed;
 
@@ -49,7 +50,7 @@ public final class RBNodeValue<V> extends AbstractForwardingNode
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 
@@ -94,7 +95,7 @@ public final class RBNodeValue<V> extends AbstractForwardingNode
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", nodeDelegate)
                       .add("value", value)

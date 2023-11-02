@@ -8,7 +8,7 @@ import io.sirix.axis.IncludeSelf;
 import io.sirix.node.NodeKind;
 import io.sirix.node.immutable.json.*;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -312,7 +312,7 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
     return VisitResultType.CONTINUE;
   }
 
-  @NotNull
+  @NonNull
   private VisitResultType adaptCurrentChildNodesAndLevelAndReturnSkipSiblingsResultType(ImmutableStructNode node) {
     final var nodeKey = rtx.getNodeKey();
     if (!(rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.moveToParent() && rtx.hasRightSibling())) {

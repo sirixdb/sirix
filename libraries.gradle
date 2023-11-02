@@ -5,7 +5,6 @@ ext {
 }
 
 implLibraries = [
-        chronicleMap                : 'net.openhft:chronicle-map:3.22ea6',
         jcommander                  : 'com.beust:jcommander:1.69',
         aspectjrt                   : 'org.aspectj:aspectjrt:1.8.10',
         slf4jApi                    : 'org.slf4j:slf4j-api:1.7.25',
@@ -23,8 +22,8 @@ implLibraries = [
         lz4                         : 'org.lz4:lz4-java:1.8.0',
         browniesCollections         : 'org.magicwerk:brownies-collections:0.9.14',
         tink                        : 'com.google.crypto.tink:tink:1.2.1',
-        kotlinStdlib                : 'org.jetbrains.kotlin:kotlin-stdlib:1.7.22',
-        kotlinxCoroutinesCore       : 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4',
+        kotlinStdlib                : 'org.jetbrains.kotlin:kotlin-stdlib:1.9.20',
+        kotlinxCoroutinesCore       : 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3',
         vertxCore                   : "io.vertx:vertx-core:$vertxVersion",
         vertxWeb                    : "io.vertx:vertx-web:$vertxVersion",
         vertxLangKotlin             : "io.vertx:vertx-lang-kotlin:$vertxVersion",
@@ -38,7 +37,7 @@ implLibraries = [
         integercompression          : 'me.lemire.integercompression:JavaFastPFOR:0.1.12',
         dagger                      : 'com.google.dagger:dagger:2.32',
         daggerCompiler              : 'com.google.dagger:dagger-compiler:2.32',
-        chronicleBytes              : 'net.openhft:chronicle-bytes:2.24ea16',
+        chronicleBytes              : 'net.openhft:chronicle-bytes:2.24ea20-SNAPSHOT',
         fastUtil                    : 'it.unimi.dsi:fastutil:8.5.12',
         amazonCorettoCryptoProvider : 'software.amazon.cryptools:AmazonCorrettoCryptoProvider:1.6.1:linux-x86_64',
         iouring                     : 'one.jasyncfio:jasyncfio:0.0.7:linux-amd64',
@@ -55,8 +54,8 @@ testLibraries = [
         junitVintageEngine       : 'org.junit.vintage:junit-vintage-engine:5.8.1',
         junitPlatformLauncher    : 'org.junit.platform:junit-platform-launcher:1.8.1',
         junitPlatformRunner      : 'org.junit.platform:junit-platform-runner:1.8.1',
-        mockitoCore              : 'org.mockito:mockito-core:5.4.0',
-        byteBuddy                : 'net.bytebuddy:byte-buddy:1.14.5',
+        mockitoCore              : 'org.mockito:mockito-core:5.5.0',
+        byteBuddy                : 'net.bytebuddy:byte-buddy:1.14.8',
         brackit                  : 'io.sirix:brackit:0.3-SNAPSHOT:tests',
         kotlinTestJunit          : 'org.jetbrains.kotlin:kotlin-test-junit:1.5.31',
         junit                    : 'junit:junit:4.13.2',

@@ -1,5 +1,5 @@
 buildscript {
-    ext.kotlin_version = '1.9.0'
+    ext.kotlin_version = '1.9.20'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -35,6 +35,10 @@ release {
     failOnSnapshotDependencies = false
     tagTemplate = 'sirix-$version'
     buildTasks = ['releaseBuild']
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile).configureEach {
+    jvmTargetValidationMode.set(org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode.WARNING)
 }
 
 task releaseBuild {
@@ -86,20 +90,20 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_20
-        targetCompatibility = JavaVersion.VERSION_20
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
         withSourcesJar()
         withJavadocJar()
 
         if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException(JavaVersion.current().toString()+ targetCompatibility.toString())
+            throw new GradleException(JavaVersion.current().toString() + targetCompatibility.toString())
         }
     }
 
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '20')
+            addStringOption('-release', '21')
             addBooleanOption('-enable-preview', true)
         }
     }
@@ -252,7 +256,10 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-                // "-XX:+UseZGC",
+                 "-XX:+UseZGC",
+                 //"-XX:+ZGenerational",
+                 "-Xlog:gc:zgc-generational-insert.log",
+                 "-verbose:gc",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
                  "-XX:+UseLargePages",

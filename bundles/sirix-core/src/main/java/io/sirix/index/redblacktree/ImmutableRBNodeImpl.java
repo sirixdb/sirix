@@ -3,8 +3,9 @@ package io.sirix.index.redblacktree;
 import io.sirix.index.redblacktree.interfaces.ImmutableRBNodeKey;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.node.delegates.NodeDelegate;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Immutable RBNode.
@@ -70,7 +71,7 @@ public final class ImmutableRBNodeImpl<K extends Comparable<? super K>> extends 
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return node.delegate();
   }
 }
