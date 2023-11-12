@@ -49,7 +49,7 @@ import io.sirix.exception.SirixException;
 public final class JsonDocumentCreator {
 
   public static final String JSON =
-      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"hello\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
   /**
    * Private Constructor, not used.
@@ -83,7 +83,7 @@ public final class JsonDocumentCreator {
     wtx.insertObjectRecordAsRightSibling("bar", new ObjectValue())
        .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
        .moveToParent();
-    wtx.insertObjectRecordAsRightSibling("hello", new BooleanValue(true))
+    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true))
        .moveToParent();
     wtx.moveToParent();
     wtx.moveToParent();
