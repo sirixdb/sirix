@@ -1,35 +1,22 @@
 package io.sirix.rest.crud.xml
 
-import io.brackit.query.jdm.StructuredItemCollection
-import io.brackit.query.jdm.node.TemporalNodeCollection
 import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
-import io.vertx.core.json.JsonObject
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.withContext
 import io.sirix.access.Databases
 import io.sirix.api.Database
-import io.sirix.api.json.JsonNodeReadOnlyTrx
 import io.sirix.api.xml.XmlNodeReadOnlyTrx
 import io.sirix.api.xml.XmlResourceSession
 import io.sirix.rest.crud.PermissionCheckingQuery
 import io.sirix.rest.crud.QuerySerializer
-import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.service.xml.serialize.XmlSerializer
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.XmlDBSerializer
-import io.sirix.query.json.*
 import io.sirix.rest.crud.AbstractGetHandler
-import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBNode
 import java.io.ByteArrayOutputStream
@@ -207,10 +194,10 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         return XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
     }
 
-    override fun  handleQueryExtra(rtx: XmlNodeReadOnlyTrx, dbCollection: XmlDBCollection, queryCtx: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
+    override fun  handleQueryExtra(rtx: XmlNodeReadOnlyTrx, dbCollection: XmlDBCollection, queryContext: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
         val dbNode = XmlDBNode(rtx, dbCollection)
 
-        queryCtx.contextItem = dbNode
+        queryContext.contextItem = dbNode
     }
 
 

@@ -12,9 +12,8 @@ public class SerializeVersionedJsonResource {
   public static void main(String[] args) {
     CreateVersionedJsonResource.createJsonDatabaseWithVersionedResource();
 
-    final var database = Databases.openJsonDatabase(Constants.SIRIX_DATA_LOCATION.resolve("json-database-versioned"));
-
-    try (final var session = database.beginResourceSession("resource")) {
+    try (final var database = Databases.openJsonDatabase(Constants.SIRIX_DATA_LOCATION.resolve("json-database-versioned"));
+         final var session = database.beginResourceSession("resource")) {
       serializeRevisionOneAndTwo(session);
 
       serializeMostRecentRevision(session);

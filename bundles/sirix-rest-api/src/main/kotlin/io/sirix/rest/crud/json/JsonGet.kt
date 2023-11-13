@@ -1,26 +1,18 @@
 package io.sirix.rest.crud.json
 
-import io.brackit.query.jdm.StructuredItemCollection
-import io.brackit.query.jdm.node.TemporalNodeCollection
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
-import io.vertx.core.json.JsonObject
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.json.JsonNodeReadOnlyTrx
-import io.sirix.api.json.JsonNodeTrx
 import io.sirix.api.json.JsonResourceSession
-import io.sirix.api.xml.XmlResourceSession
 import io.sirix.rest.crud.PermissionCheckingQuery
 import io.sirix.rest.crud.QuerySerializer
-import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.sirix.service.json.serialize.JsonRecordSerializer
 import io.sirix.service.json.serialize.JsonSerializer
@@ -29,9 +21,6 @@ import io.sirix.query.SirixCompileChain
 import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.*
-import io.sirix.query.node.BasicXmlDBStore
-import io.sirix.query.node.XmlDBCollection
-import io.vertx.core.json.Json
 import java.io.StringWriter
 import java.nio.file.Path
 
@@ -286,12 +275,12 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         return JsonDBCollection(databaseName, database)
     }
 
-    override fun  handleQueryExtra(rtx: JsonNodeReadOnlyTrx, dbCollection: JsonDBCollection, queryCtx: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
+    override fun  handleQueryExtra(rtx: JsonNodeReadOnlyTrx, dbCollection: JsonDBCollection, queryContext: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
         val jsonItem = JsonItemFactory()
                 .getSequence(rtx, dbCollection)
 
         if (jsonItem != null) {
-            queryCtx.contextItem = jsonItem
+            queryContext.contextItem = jsonItem
 
             when (jsonItem) {
                 is AbstractJsonDBArray<*> -> {
