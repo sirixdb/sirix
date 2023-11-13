@@ -61,14 +61,6 @@ jar {
     finalizedBy shadowJar
 }
 
-compileKotlin {
-    kotlinOptions.jvmTarget = '20'
-}
-
-compileTestKotlin {
-    kotlinOptions.jvmTarget = '20'
-}
-
 test {
     jvmArgs "-Duser.home=${buildDir}"
 }

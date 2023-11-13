@@ -30,7 +30,7 @@ import io.sirix.settings.Constants;
 import io.sirix.utils.Compression;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -145,7 +145,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this).add("value", new String(value)).toString();
   }
 
@@ -160,7 +160,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 

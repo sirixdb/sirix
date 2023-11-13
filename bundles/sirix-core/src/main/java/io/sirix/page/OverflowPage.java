@@ -1,8 +1,9 @@
 package io.sirix.page;
 
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.api.PageTrx;
 import io.sirix.page.interfaces.Page;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.List;
 
@@ -39,7 +40,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public void commit(@NotNull PageTrx pageWriteTrx) {
+  public void commit(@NonNull PageTrx pageWriteTrx) {
   }
 
   @Override

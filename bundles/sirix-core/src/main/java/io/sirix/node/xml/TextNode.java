@@ -44,8 +44,8 @@ import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 
 import java.nio.ByteBuffer;
 
@@ -211,7 +211,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", structNodeDelegate.getNodeDelegate())
                       .add("struct delegate", structNodeDelegate)
@@ -224,7 +224,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 

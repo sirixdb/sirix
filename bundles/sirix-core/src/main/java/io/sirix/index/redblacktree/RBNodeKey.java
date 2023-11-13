@@ -7,8 +7,9 @@ import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.brackit.query.atomic.QNm;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.settings.Fixed;
@@ -74,7 +75,7 @@ public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractFo
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 
@@ -173,7 +174,7 @@ public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractFo
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("node delegate", nodeDelegate)
                       .add("left child", left)

@@ -33,8 +33,9 @@ import com.google.common.base.Objects;
 import net.openhft.chronicle.bytes.Bytes;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
@@ -170,7 +171,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("structDel", structNodeDelegate)
                       .add("nameDel", nameNodeDelegate)
@@ -265,7 +266,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 

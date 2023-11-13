@@ -28,7 +28,7 @@ import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import net.openhft.chronicle.bytes.Bytes;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -130,7 +130,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     }
   }
 
-  @NotNull
+  @NonNull
   private FileWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
       long offset) {
     // Perform byte operations.

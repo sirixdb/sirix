@@ -33,7 +33,7 @@ import io.sirix.page.SerializationType;
 import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
@@ -103,8 +103,8 @@ public final class IOUringReader extends AbstractReader {
       return CompletableFuture.supplyAsync(() -> readPageFragment(reference, pageReadTrx), POOL);
   }
 
-  @NotNull
-  private Page readPageFragment(@NotNull PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
+  @NonNull
+  private Page readPageFragment(@NonNull PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());

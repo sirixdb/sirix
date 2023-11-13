@@ -29,14 +29,14 @@
 package io.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.jetbrains.annotations.NotNull;
 import io.sirix.api.PageTrx;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.List;
 
@@ -193,7 +193,7 @@ public final class UberPage implements Page {
   }
 
   @Override
-  public void commit(final @NotNull PageTrx pageWriteTrx) {
+  public void commit(final @NonNull PageTrx pageWriteTrx) {
     pageWriteTrx.commit(rootPageReference);
   }
 

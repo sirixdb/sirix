@@ -33,7 +33,7 @@ import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.StructNode;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Skeletal implementation of {@link StructNode} interface.
@@ -174,7 +174,7 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nodeDelegate", super.toString())
                       .add("structDelegate", structDelegate().toString())

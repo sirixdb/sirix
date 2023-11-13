@@ -30,23 +30,22 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import io.sirix.node.interfaces.NameNode;
-import it.unimi.dsi.fastutil.longs.LongList;
-import net.openhft.chronicle.bytes.Bytes;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.jetbrains.annotations.NotNull;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.NodeKind;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableElement;
+import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.longs.LongList;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -249,7 +248,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nameDelegate", nameNodeDelegate)
                       .add("nameSpaceKeys", namespaceKeys)
@@ -337,7 +336,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 

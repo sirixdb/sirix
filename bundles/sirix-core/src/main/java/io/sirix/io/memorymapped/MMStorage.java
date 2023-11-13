@@ -116,7 +116,7 @@ public final class MMStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      final var arena = Arena.openShared();
+      final var arena = Arena.ofShared();
       final var dataFileSegmentFileSize = Files.size(dataFilePath);
 
       final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
@@ -124,11 +124,11 @@ public final class MMStorage implements IOStorage {
       try (final var dataFileChannel = FileChannel.open(dataFilePath);
            final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
         final var dataFileSegment =
-            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, arena.scope());
+            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, arena);
         final var revisionsOffsetFileSegment = revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY,
                                                                               0,
                                                                               revisionsOffsetSegmentFileSize,
-                                                                              arena.scope());
+                                                                              arena);
         return new MMFileReader(dataFileSegment,
                                 revisionsOffsetFileSegment,
                                 new ByteHandlerPipeline(byteHandlerPipeline),

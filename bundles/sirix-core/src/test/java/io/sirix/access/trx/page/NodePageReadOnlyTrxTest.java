@@ -7,7 +7,8 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.UberPage;
-import org.jetbrains.annotations.NotNull;
+
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.junit.Assert;
 import org.junit.Test;
 import io.sirix.io.Reader;
@@ -45,7 +46,7 @@ public final class NodePageReadOnlyTrxTest {
     assertEquals(Constants.NDP_NODE_COUNT - 1, PageReadOnlyTrx.recordPageOffset(1023));
   }
 
-  @NotNull
+  @NonNull
   private InternalResourceSession<?,?> createResourceManagerMock() {
     final var resourceManagerMock = mock(InternalResourceSession.class);
     when(resourceManagerMock.getResourceConfig()).thenReturn(new ResourceConfiguration.Builder("foobar").build());
