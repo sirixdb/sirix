@@ -4,7 +4,6 @@ buildscript {
     repositories {
         mavenCentral()
     }
-
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.20"
     }
@@ -35,9 +34,6 @@ dependencies {
 
 description = 'Kotlin API for SirixDB.'
 
-compileKotlin {
-    kotlinOptions.jvmTarget = '20'
-}
-compileTestKotlin {
-    kotlinOptions.jvmTarget = '20'
+kotlin {
+    jvmToolchain(21)
 }

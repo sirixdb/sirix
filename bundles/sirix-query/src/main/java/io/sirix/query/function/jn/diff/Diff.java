@@ -39,12 +39,13 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.annotation.FunctionAnnotation;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.api.JsonDiff;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * <p>
@@ -113,7 +114,7 @@ public final class Diff extends AbstractFunction {
     return new Str(jsonDiff.generateDiff(doc.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel));
   }
 
-  @NotNull
+  @NonNull
   private Str readDiffFromFileAndCalculateViaDeweyIDs(String dbName, String expResName, int oldRevision,
       int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceMgr) {
     // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.

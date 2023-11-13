@@ -35,8 +35,8 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Constants;
 import net.openhft.chronicle.bytes.Bytes;
-import org.jetbrains.annotations.NotNull;
 import io.sirix.node.xml.AbstractStructForwardingNode;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;
 
@@ -117,7 +117,7 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 }

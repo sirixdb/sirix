@@ -19,7 +19,8 @@ import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import io.brackit.query.util.ExprUtil;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.jetbrains.annotations.NotNull;
+
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.jetbrains.annotations.Nullable;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -327,7 +328,7 @@ class DerefDescendantExpr implements Expr {
     return pathSegments;
   }
 
-  @NotNull
+  @NonNull
   private SirixJsonLazySequence getLazySequence(final SirixJsonStream stream) {
     return new SirixJsonLazySequence(stream);
   }

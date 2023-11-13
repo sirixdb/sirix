@@ -47,8 +47,8 @@ import io.sirix.settings.Constants;
 import net.openhft.chronicle.bytes.Bytes;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 
 import java.nio.ByteBuffer;
 
@@ -164,7 +164,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nameDel", nameNodeDelegate)
                       .add("valDel", valueNodeDelegate)
@@ -258,7 +258,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  protected @NotNull NodeDelegate delegate() {
+  protected @NonNull NodeDelegate delegate() {
     return nodeDelegate;
   }
 

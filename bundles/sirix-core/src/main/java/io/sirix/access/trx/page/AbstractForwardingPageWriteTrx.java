@@ -9,7 +9,6 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * Forwards all methods to the delegate.
@@ -67,5 +66,5 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   }
 
   @Override
-  protected abstract @NotNull PageTrx delegate();
+  protected abstract @NonNull PageTrx delegate();
 }

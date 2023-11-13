@@ -429,7 +429,7 @@ Articles published on Medium:
 ## Status
 SirixDB as of now has not been tested in production. It is recommended for experiments, testing, benchmarking, etc., but is not recommended for production usage. Let us know if you'd like to use SirixDB in production and get in touch. We'd like to test real-world datasets and fix issues we encounter along the way.
 
-Please also get in touch if you like our vision and you want to sponsor us or help with man-power or if you want to use SirixDB as a research system. We'd be glad to get input from the database and scientific community.
+Please also get in touch if you like our vision, and you want to sponsor us or help with man-power or if you want to use SirixDB as a research system. We'd be glad to get input from the database and scientific community.
 
 ## Getting started
 
@@ -441,7 +441,7 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven or Gradle project.
 
-**SirixDB uses Java 20, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse).**
+**SirixDB uses Java 21, thus you need an up-to-date Gradle (if you want to work on SirixDB) and an IDE (for instance IntelliJ or Eclipse). Also make sure to use the provided Gradle wrapper.**
 
 ### Maven artifacts
 At this stage of development, you should use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes.
@@ -533,7 +533,7 @@ You have to add the following JVM parameters currently:
 Plus we recommend using the Shenandoah GC or ZGC (if possible in the future the generational versions):
 
 ```
--XX:+UseShenandoahGC
+-XX:+UseZGC
 -Xlog:gc
 -XX:+AlwaysPreTouch
 -XX:+UseLargePages
@@ -541,7 +541,7 @@ Plus we recommend using the Shenandoah GC or ZGC (if possible in the future the 
 -XX:+DisableExplicitGC
 ```
 
-We've also had tremendously good results using GraalVM, possibly due to its JIT compiler and the improved escape analysis. 
+We've also had perfect results using GraalVM, possibly due to its JIT compiler and the improved escape analysis. 
 
 ### Setup of the SirixDB HTTP-Server and Keycloak to use the REST-API
 

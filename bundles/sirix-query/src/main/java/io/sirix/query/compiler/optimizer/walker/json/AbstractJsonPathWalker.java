@@ -11,7 +11,7 @@ import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.Cfg;
 import io.brackit.query.util.path.Path;
-import org.jetbrains.annotations.NotNull;
+
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -19,6 +19,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.*;
 import java.util.function.Function;
@@ -132,7 +133,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return null;
   }
 
-  @NotNull
+  @NonNull
   private static AST replaceAstNodeWithEmptySequenceAstNode(AST astNode) {
     // no path node keys found: replace with empty sequence node
     final var parentASTNode = astNode.getParent();

@@ -30,7 +30,7 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.settings.Fixed;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.jetbrains.annotations.Nullable;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -204,7 +204,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
   @Nullable
   private long nextSiblingNodeKeyIfAvailable(VisitResult result, final NodeCursor cursor) {
-    if (rightSiblingKeyStack.size() > 0) {
+    if (!rightSiblingKeyStack.isEmpty()) {
       final var nextKey = rightSiblingKeyStack.pop();
       final var nextNodeKey = getNextNodeKey(nextKey, cursor.getNodeKey());
 

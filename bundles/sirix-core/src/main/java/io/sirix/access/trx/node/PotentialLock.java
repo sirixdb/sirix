@@ -1,6 +1,8 @@
 package io.sirix.access.trx.node;
 
-import org.jetbrains.annotations.NotNull;
+
+
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
@@ -39,7 +41,7 @@ public final class PotentialLock implements Lock, AutoCloseable {
   }
 
   @Override
-  public boolean tryLock(long time, @NotNull TimeUnit unit) throws InterruptedException {
+  public boolean tryLock(long time, @NonNull TimeUnit unit) throws InterruptedException {
     if (lock != null) {
       return lock.tryLock(time, unit);
     }
@@ -53,6 +55,7 @@ public final class PotentialLock implements Lock, AutoCloseable {
     }
   }
 
+  @NonNull
   @Override
   public Condition newCondition() {
     if (lock != null) {

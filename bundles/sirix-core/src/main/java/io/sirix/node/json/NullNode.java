@@ -34,7 +34,7 @@ import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.json.ImmutableNullNode;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -61,7 +61,7 @@ public final class NullNode extends AbstractNullNode {
   }
 
   @Override
-  public @NotNull String toString() {
+  public @NonNull String toString() {
     return MoreObjects.toStringHelper(this).toString();
   }
 

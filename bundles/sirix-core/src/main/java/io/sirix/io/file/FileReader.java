@@ -35,7 +35,6 @@ import io.sirix.page.interfaces.Page;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -123,7 +122,7 @@ public final class FileReader implements Reader {
     }
   }
 
-  @NotNull
+  @NonNull
   private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     final Bytes<?> input = Bytes.wrapForRead(inputStream.readAllBytes());

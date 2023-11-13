@@ -178,12 +178,16 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
       final byte[] serializedPage;
 
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-        try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
-          dataOutput.write(byteArray);
-          dataOutput.flush();
+      if (page instanceof KeyValueLeafPage) {
+        serializedPage = byteArray;
+      } else {
+        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
+          try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+            dataOutput.write(byteArray);
+            dataOutput.flush();
+          }
+          serializedPage = output.toByteArray();
         }
-        serializedPage = output.toByteArray();
       }
 
       byteBufferBytes.clear();
@@ -248,7 +252,6 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
             revisionsFileOffset = revisionsFile.size().join();
           }
           revisionsFile.write(buffer, revisionsFileOffset).join();
-          buffer = null;
           final long currOffset = offset;
           cache.put(revisionRootPage.getRevision(),
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
