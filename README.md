@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
 
-<h1 align="center">An Embeddable, Evolutionary, Append-Only Database System</h1>
+<h1 align="center">An Embeddable, Bitemporal, Append-Only Database System and Event Store</h1>
 <p align="center">Stores small-sized, immutable snapshots of your data in an append-only manner. It facilitates querying and reconstructing the entire history as well as easy audits.</p>
 
 <p align="center">
