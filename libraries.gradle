@@ -56,7 +56,7 @@ testLibraries = [
         junitPlatformRunner      : 'org.junit.platform:junit-platform-runner:1.8.1',
         mockitoCore              : 'org.mockito:mockito-core:5.5.0',
         byteBuddy                : 'net.bytebuddy:byte-buddy:1.14.8',
-        brackit                  : 'io.sirix:brackit:0.5:tests',
+        brackit                  : 'io.sirix:brackit:0.4:tests',
         kotlinTestJunit          : 'org.jetbrains.kotlin:kotlin-test-junit:1.5.31',
         junit                    : 'junit:junit:4.13.2',
         vertxJunit5              : "io.vertx:vertx-junit5:$vertxVersion",
