@@ -199,12 +199,6 @@ subprojects {
 
     ext.isReleaseVersion = !rootProject.getProperties().version.endsWith('SNAPSHOT')
 
-    tasks.withType(Sign).tap {
-        configureEach {
-            onlyIf { isReleaseVersion }
-        }
-    }
-
     signing {
         def signingKey = System.getenv("OSSRH_GPG_SECRET_KEY")
         def signingPassword = System.getenv("OSSRH_GPG_SECRET_KEY_PASSWORD")
