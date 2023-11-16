@@ -187,8 +187,8 @@ subprojects {
         repositories {
             maven {
                 credentials {
-                    username System.getenv("SONATYPE_NEXUS_USERNAME")
-                    password System.getenv("SONATYPE_NEXUS_PASSWORD")
+                    username System.hasProperty("SONATYPE_NEXUS_USERNAME") ? System.getProperty("SONATYPE_NEXUS_USERNAME") : System.getenv("SONATYPE_NEXUS_USERNAME")
+                    password System.hasProperty("SONATYPE_NEXUS_PASSWORD") ? System.getProperty("SONATYPE_NEXUS_PASSWORD") : System.getenv("SONATYPE_NEXUS_PASSWORD")
                 }
                 def releasesRepoUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                 def snapshotsRepoUrl = "https://oss.sonatype.org/content/repositories/snapshots/"
