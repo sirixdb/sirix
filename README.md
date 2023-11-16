@@ -471,7 +471,7 @@ repository {
 }
 ```
 
-<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.7-SNAPSHOT.</strong>
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.10.1-SNAPSHOT.</strong>
 
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently, the following artifacts are available:
 
@@ -480,11 +480,11 @@ Core project:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.9.7-SNAPSHOT</version>
+  <version>0.10.1-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-core', version:'0.9.7-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-core', version:'0.10.1-SNAPSHOT'
 ```
 
 Brackit binding:
@@ -492,11 +492,11 @@ Brackit binding:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-query</artifactId>
-  <version>0.9.7-SNAPSHOT</version>
+  <version>0.10.1-SNAPSHOT</version>
 </dependency>
 ```
 ```groovy
-compile group:'io.sirix', name:'sirix-query', version:'0.9.7-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-query', version:'0.10.1-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
@@ -504,12 +504,12 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
-  <version>0.9.7-SNAPSHOT</version>
+  <version>0.10.1-SNAPSHOT</version>
 </dependency>
 ```
 
 ```groovy
-compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.7-SNAPSHOT'
+compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.10.1-SNAPSHOT'
 ```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
