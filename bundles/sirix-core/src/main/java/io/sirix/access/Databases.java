@@ -1,6 +1,5 @@
 package io.sirix.access;
 
-import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
 import io.sirix.api.*;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
@@ -11,13 +10,10 @@ import io.sirix.utils.LogWrapper;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
-import javax.crypto.Cipher;
-import javax.crypto.NoSuchPaddingException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -40,10 +36,6 @@ public final class Databases {
   }
 
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(Databases.class));
-
-  static {
-    com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider.install();
-  }
 
   /**
    * Buffer managers / page cache for each resource.
@@ -90,17 +82,6 @@ public final class Databases {
   }
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
-    try {
-      if (Cipher.getInstance("AES/GCM/NoPadding")
-                .getProvider()
-                .getName()
-                .equals(AmazonCorrettoCryptoProvider.PROVIDER_NAME)) {
-        // Successfully installed
-        logger.debug("Successfully installed Amazon Corretto Crypto Provider.");
-      }
-    } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
-      throw new IllegalStateException(e);
-    }
     boolean returnVal = true;
     // if file is existing, skipping
     final var databaseFile = dbConfig.getDatabaseFile();
