@@ -47,3 +47,4 @@ bundles/sirix-rest-api/.idea/compiler.xml
 /bundles/sirix-kotlin-cli/zgc-generational-insert.log
 /bundles/sirix-kotlin-api/zgc-generational-insert.log
 /bundles/sirix-rest-api/zgc-generational-insert.log
+/bundles/sirix-core/zgc-generational-insert.log
