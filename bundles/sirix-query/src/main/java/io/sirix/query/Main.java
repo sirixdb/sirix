@@ -205,7 +205,7 @@ public final class Main {
         break;
 
       if (i != 0) {
-        strbuf.append(System.getenv("line.separator"));
+        strbuf.append(System.lineSeparator());
       }
       strbuf.append(line);
     }
