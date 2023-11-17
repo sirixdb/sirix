@@ -198,12 +198,15 @@ public final class Main {
     final Scanner scanner = new Scanner(System.in);
     final StringBuilder strbuf = new StringBuilder();
 
-    while (scanner.hasNextLine()) {
+    for (int i = 0; scanner.hasNextLine(); i++) {
       final String line = scanner.nextLine();
 
       if (line.isEmpty())
         break;
 
+      if (i != 0) {
+        strbuf.append(System.getenv("line.separator"));
+      }
       strbuf.append(line);
     }
 
