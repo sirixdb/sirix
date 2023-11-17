@@ -15,7 +15,6 @@ dependencies {
     api implLibraries.tink
     api implLibraries.dagger
     api implLibraries.fastUtil
-    api implLibraries.amazonCorettoCryptoProvider
     api implLibraries.iouring
     api implLibraries.lz4
     api implLibraries.roaringbitmap
