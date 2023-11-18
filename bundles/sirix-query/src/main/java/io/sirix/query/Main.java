@@ -223,7 +223,7 @@ public final class Main {
     final StringBuilder strbuf = new StringBuilder();
 
     for (int i = 0; ; i++) {
-      final String line = lineReader.readLine();
+      final String line = lineReader.readLine("sirix > ");
 
       if (line == null)
         break;
