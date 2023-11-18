@@ -5,6 +5,7 @@ ext {
 }
 
 implLibraries = [
+        jline                       : 'org.jline:jline:3.24.1',
         jcommander                  : 'com.beust:jcommander:1.69',
         aspectjrt                   : 'org.aspectj:aspectjrt:1.8.10',
         slf4jApi                    : 'org.slf4j:slf4j-api:1.7.25',

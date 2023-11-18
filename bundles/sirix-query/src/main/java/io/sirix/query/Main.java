@@ -49,13 +49,29 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
+
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
 
 /**
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
  */
 public final class Main {
+
+  /**
+   * User home directory.
+   */
+  private static final String USER_HOME = System.getProperty("user.home");
+
+  /**
+   * Storage for databases: Sirix data in home directory.
+   */
+  private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
   private static class Config {
     final Map<String, String> options = new HashMap<>();
@@ -140,9 +156,18 @@ public final class Main {
           query = config.getValue("-q");
           executeQuery(config, compileChain, ctx, query);
         } else if (config.isSet("-iq")) {
+          final Terminal terminal = TerminalBuilder.builder().system(true).build();
+          final LineReader lineReader = LineReaderBuilder.builder()
+                                                         .terminal(terminal)
+                                                         .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%M%P > ")
+                                                         .variable(LineReader.INDENTATION, 2)
+                                                         .variable(LineReader.LIST_MAX, 100)
+                                                         .variable(LineReader.HISTORY_FILE, LOCATION.resolve("history"))
+                                                         .build();
+
           while (true) {
             System.out.println("Enter query string (terminate with Control-D):");
-            query = readStringFromScannerWithEndMark();
+            query = readStringFromScannerWithEndMark(lineReader);
             if (query == null) {
               break;
             }
@@ -160,7 +185,7 @@ public final class Main {
               break;
             }
             try {
-             executeQuery(config, compileChain, ctx, query);
+              executeQuery(config, compileChain, ctx, query);
             } catch (final QueryException e) {
               System.err.println("Error: " + e.getMessage());
             }
@@ -194,12 +219,14 @@ public final class Main {
     System.out.println();
   }
 
-  private static String readStringFromScannerWithEndMark() {
-    final Scanner scanner = new Scanner(System.in);
+  private static String readStringFromScannerWithEndMark(final LineReader lineReader) {
     final StringBuilder strbuf = new StringBuilder();
 
-    for (int i = 0; scanner.hasNextLine(); i++) {
-      final String line = scanner.nextLine();
+    for (int i = 0; ; i++) {
+      final String line = lineReader.readLine();
+
+      if (line == null)
+        break;
 
       if (line.isEmpty())
         break;
@@ -212,6 +239,25 @@ public final class Main {
 
     return strbuf.isEmpty() ? null : strbuf.toString();
   }
+
+  //  private static String readStringFromScannerWithEndMark() {
+  //    final Scanner scanner = new Scanner(System.in);
+  //    final StringBuilder strbuf = new StringBuilder();
+  //
+  //    for (int i = 0; scanner.hasNextLine(); i++) {
+  //      final String line = scanner.nextLine();
+  //
+  //      if (line.isEmpty())
+  //        break;
+  //
+  //      if (i != 0) {
+  //        strbuf.append(System.lineSeparator());
+  //      }
+  //      strbuf.append(line);
+  //    }
+  //
+  //    return strbuf.isEmpty() ? null : strbuf.toString();
+  //  }
 
   private static String readString() throws IOException {
     int r;
