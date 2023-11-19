@@ -67,6 +67,9 @@ public final class JsonShredderTest {
   @Disabled
   @Test
   public void testChicagoDescendantAxis() {
+    if (Files.notExists(PATHS.PATH1.getFile())) {
+      testChicago();
+    }
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
