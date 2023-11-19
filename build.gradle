@@ -271,7 +271,7 @@ subprojects {
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
                  "-XX:EliminateAllocationArraySizeLimit=1024",
-                 "-Ddisable.thread.safety=true"
+                 "-Ddisable.single.threaded.check=true"
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
