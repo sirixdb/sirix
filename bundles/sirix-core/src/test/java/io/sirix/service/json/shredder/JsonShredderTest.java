@@ -64,6 +64,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());

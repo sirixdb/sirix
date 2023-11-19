@@ -261,7 +261,7 @@ subprojects {
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
                  "-XX:+UseZGC",
                  //"-XX:+ZGenerational",
-                 "-Xlog:gc:zgc-generational-insert.log",
+                 //"-Xlog:gc:zgc-generational-insert.log",
                  "-verbose:gc",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
