@@ -55,7 +55,7 @@ public interface Reader extends AutoCloseable {
   HashFunction hashFunction = Hashing.sha256();
 
   /** Executor Service used for the async read. */
-  ExecutorService POOL = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()); //Executors.newVirtualThreadPerTaskExecutor();
+  ExecutorService POOL = Executors.newVirtualThreadPerTaskExecutor();
 
   /**
    * Getting the first reference of the {@code Uberpage}.
