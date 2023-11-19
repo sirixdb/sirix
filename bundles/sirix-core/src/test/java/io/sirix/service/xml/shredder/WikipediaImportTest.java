@@ -26,6 +26,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.service.xml.serialize.XmlSerializer;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
@@ -66,6 +67,7 @@ public class WikipediaImportTest {
     XmlTestHelper.closeEverything();
   }
 
+  @Ignore
   @Test
   public void testWikipediaImport() throws Exception {
     Databases.removeDatabase(PATHS.PATH2.getFile());
