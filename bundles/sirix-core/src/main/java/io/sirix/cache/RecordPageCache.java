@@ -3,6 +3,7 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.page.interfaces.Page;
@@ -10,13 +11,13 @@ import io.sirix.page.interfaces.Page;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public final class RecordPageCache implements Cache<PageReference, Page> {
+public final class RecordPageCache implements Cache<PageReference, KeyValueLeafPage> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, KeyValueLeafPage> pageCache;
 
   public RecordPageCache(final int maxSize) {
-    final RemovalListener<PageReference, Page> removalListener =
-        (PageReference key, Page value, RemovalCause cause) -> {
+    final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
+        (PageReference key, KeyValueLeafPage value, RemovalCause cause) -> {
           key.setPage(null);
           //      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
           //        keyValueLeafPage.clearPage();
@@ -37,17 +38,23 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public Page get(PageReference key) {
-    return pageCache.getIfPresent(key);
+  public KeyValueLeafPage get(PageReference key) {
+    var keyValueLeafPage = pageCache.getIfPresent(key);
+
+//    if (keyValueLeafPage != null) {
+//      keyValueLeafPage = new KeyValueLeafPage(keyValueLeafPage);
+//    }
+
+    return keyValueLeafPage;
   }
 
   @Override
-  public void put(PageReference key, @NonNull Page value) {
+  public void put(PageReference key, @NonNull KeyValueLeafPage value) {
     pageCache.put(key, value);
   }
 
   @Override
-  public void putAll(Map<? extends PageReference, ? extends Page> map) {
+  public void putAll(Map<? extends PageReference, ? extends KeyValueLeafPage> map) {
     pageCache.putAll(map);
   }
 
@@ -57,7 +64,7 @@ public final class RecordPageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
+  public Map<PageReference, KeyValueLeafPage> getAll(Iterable<? extends PageReference> keys) {
     return pageCache.getAllPresent(keys);
   }
 

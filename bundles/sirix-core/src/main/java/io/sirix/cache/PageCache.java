@@ -3,6 +3,7 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import io.sirix.page.IndirectPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 
@@ -36,7 +37,13 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Page get(PageReference key) {
-    return pageCache.getIfPresent(key);
+    var page = pageCache.getIfPresent(key);
+
+    if (page instanceof IndirectPage indirectPage) {
+      page = new IndirectPage(indirectPage);
+    }
+
+    return page;
   }
 
   @Override

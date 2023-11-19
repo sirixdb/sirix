@@ -68,16 +68,16 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   private final int M_CAPACITY = 200;
 
   /** Has axis already been called? */
-  private boolean first;
+  private volatile boolean first;
 
   /** Runnable in which the producer is running. */
-  private Runnable task;
+  private volatile Runnable task;
 
   /** Is axis already finished and has no results left? */
-  private boolean finished;
+  private volatile boolean finished;
 
   /** Executor Service holding the execution plan for future tasks. */
-  public ExecutorService executorService;
+  public volatile ExecutorService executorService;
 
   /**
    * Constructor. Initializes the internal state.
@@ -120,7 +120,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   @Override
-  protected long nextKey() {
+  protected synchronized long nextKey() {
     // Start producer on first call.
     if (first) {
       first = false;
@@ -157,11 +157,12 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    * @return null node key to indicate that the travesal is done
    */
   @Override
-  protected long done() {
+  protected synchronized long done() {
     executorService.shutdown();
     try {
         executorService.awaitTermination(5, TimeUnit.SECONDS);
     } catch (InterruptedException e) {
+      LOGGER.warn(e.getMessage(), e);
     }
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }

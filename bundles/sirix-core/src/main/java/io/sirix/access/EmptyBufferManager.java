@@ -3,13 +3,14 @@ package io.sirix.access;
 import io.sirix.cache.*;
 import io.sirix.index.name.Names;
 import io.sirix.node.interfaces.Node;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 
 public final class EmptyBufferManager implements BufferManager {
 
-  private static final EmptyCache<PageReference, Page> RECORD_PAGE_CACHE = new EmptyCache<>();
+  private static final EmptyCache<PageReference, KeyValueLeafPage> RECORD_PAGE_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<PageReference, Page> PAGE_CACHE = new EmptyCache<>();
 
@@ -25,7 +26,7 @@ public final class EmptyBufferManager implements BufferManager {
   }
 
   @Override
-  public Cache<PageReference, Page> getRecordPageCache() {
+  public Cache<PageReference, KeyValueLeafPage> getRecordPageCache() {
     return RECORD_PAGE_CACHE;
   }
 

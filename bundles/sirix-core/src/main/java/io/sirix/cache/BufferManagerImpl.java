@@ -1,11 +1,14 @@
 package io.sirix.cache;
 
+import io.sirix.index.name.Names;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.interfaces.Page;
 
 public final class BufferManagerImpl implements BufferManager {
+
   private final PageCache pageCache;
 
   private final RecordPageCache recordPageCache;
@@ -34,7 +37,7 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<PageReference, Page> getRecordPageCache() {
+  public Cache<PageReference, KeyValueLeafPage> getRecordPageCache() {
     return recordPageCache;
   }
 

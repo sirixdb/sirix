@@ -9,7 +9,7 @@ import io.sirix.cli.parser.*
 
 
 fun main(args: Array<String>) {
-    val cliCommand: CliCommand? = io.sirix.cli.parseArgs(args)
+    val cliCommand: CliCommand? = parseArgs(args)
 
     if (cliCommand != null) {
         cliCommand.execute()
@@ -39,7 +39,7 @@ fun parseArgs(args: Array<String>): CliCommand? {
     argParser.subcommands(*subCommandList)
     argParser.parse(args)
 
-    val options = io.sirix.cli.CliOptions(location, verbose ?: false)
+    val options = CliOptions(location, verbose ?: false)
 
     subCommandList.forEach {
         val asc: AbstractArgSubCommand = it as AbstractArgSubCommand

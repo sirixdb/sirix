@@ -124,6 +124,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     } else {
       bufferManagers.put(resourceFile, new BufferManagerImpl(500, 1_000, 5_000, 50_000, 500, 20));
     }
+   // bufferManagers.put(resourceFile, new EmptyBufferManager());
   }
 
   @Override
