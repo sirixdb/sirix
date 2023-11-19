@@ -7,6 +7,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assertions;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.io.StorageType;
@@ -125,7 +126,7 @@ public final class JsonNodeTrxInsertTest {
                                                     "testInsert500SubtreesAsFirstChild",
                                                     "expected.json"));
 
-      assertEquals(expected, writer.toString());
+      Assertions.assertEquals(expected, writer.toString());
     }
   }
 
@@ -141,7 +142,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[[]]", writer.toString());
+      Assertions.assertEquals("[[]]", writer.toString());
     }
   }
 
@@ -157,7 +158,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[[]]", writer.toString());
+      Assertions.assertEquals("[[]]", writer.toString());
     }
   }
 
@@ -174,7 +175,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[[],[]]", writer.toString());
+      Assertions.assertEquals("[[],[]]", writer.toString());
     }
   }
 
@@ -191,7 +192,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[[],[]]", writer.toString());
+      Assertions.assertEquals("[[],[]]", writer.toString());
     }
   }
 
@@ -207,7 +208,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[{}]", writer.toString());
+      Assertions.assertEquals("[{}]", writer.toString());
     }
   }
 
@@ -223,7 +224,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[{}]", writer.toString());
+      Assertions.assertEquals("[{}]", writer.toString());
     }
   }
 
@@ -240,7 +241,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[{},{}]", writer.toString());
+      Assertions.assertEquals("[{},{}]", writer.toString());
     }
   }
 
@@ -257,7 +258,7 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
 
-      assertEquals("[{},{}]", writer.toString());
+      Assertions.assertEquals("[{},{}]", writer.toString());
     }
   }
 
@@ -274,12 +275,12 @@ public final class JsonNodeTrxInsertTest {
 
       wtx.moveTo(8);
 
-      assertEquals(3, wtx.getChildCount());
-      assertEquals(6, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("foo", wtx.getName().getLocalName());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("bar", wtx.getValue());
+      Assertions.assertEquals(3, wtx.getChildCount());
+      Assertions.assertEquals(6, wtx.getDescendantCount());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertEquals("foo", wtx.getName().getLocalName());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertEquals("bar", wtx.getValue());
     }
   }
 
@@ -296,11 +297,11 @@ public final class JsonNodeTrxInsertTest {
 
       wtx.moveTo(3);
 
-      assertEquals(4, wtx.getChildCount());
-      assertEquals(5, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("foo", wtx.getValue());
+      Assertions.assertEquals(4, wtx.getChildCount());
+      Assertions.assertEquals(5, wtx.getDescendantCount());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertEquals("foo", wtx.getValue());
     }
   }
 
@@ -317,13 +318,13 @@ public final class JsonNodeTrxInsertTest {
 
       wtx.moveTo(3);
 
-      assertEquals(4, wtx.getChildCount());
-      assertEquals(5, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild());
-      assertTrue(wtx.moveToRightSibling());
-      assertTrue(wtx.isArray());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("foo", wtx.getValue());
+      Assertions.assertEquals(4, wtx.getChildCount());
+      Assertions.assertEquals(5, wtx.getDescendantCount());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertTrue(wtx.moveToRightSibling());
+      Assertions.assertTrue(wtx.isArray());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertEquals("foo", wtx.getValue());
     }
   }
 
@@ -340,15 +341,15 @@ public final class JsonNodeTrxInsertTest {
 
       wtx.moveTo(3);
 
-      assertEquals(4, wtx.getChildCount());
-      assertEquals(6, wtx.getDescendantCount());
-      assertTrue(wtx.moveToFirstChild());
-      assertTrue(wtx.moveToRightSibling());
-      assertTrue(wtx.isObject());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("foo", wtx.getName().getLocalName());
-      assertTrue(wtx.moveToFirstChild());
-      assertEquals("bar", wtx.getValue());
+      Assertions.assertEquals(4, wtx.getChildCount());
+      Assertions.assertEquals(6, wtx.getDescendantCount());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertTrue(wtx.moveToRightSibling());
+      Assertions.assertTrue(wtx.isObject());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertEquals("foo", wtx.getName().getLocalName());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertEquals("bar", wtx.getValue());
     }
   }
 }

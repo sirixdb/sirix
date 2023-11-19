@@ -505,6 +505,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
     SirixFiles.recursiveRemove(target);
     Files.createDirectories(target.getParent());
     Files.createFile(target);
+    Files.deleteIfExists(target);
 
     final Path databaseFile = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);

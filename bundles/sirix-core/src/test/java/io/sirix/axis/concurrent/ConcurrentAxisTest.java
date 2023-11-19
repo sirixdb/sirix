@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -26,9 +26,6 @@ import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.NestedAxis;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
@@ -36,11 +33,15 @@ import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.XmlNameFilter;
 import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.service.xml.xpath.XPathAxis;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /** Test {@link ConcurrentAxis}. */
 public final class ConcurrentAxisTest {
@@ -58,7 +59,7 @@ public final class ConcurrentAxisTest {
    * initializes the required variables.
    *
    */
-  @Before
+  @BeforeEach
   public void setUp() {
     try {
       XmlTestHelper.deleteEverything();
@@ -73,7 +74,7 @@ public final class ConcurrentAxisTest {
    * Close all connections.
    *
    */
-  @After
+  @AfterEach
   public void tearDown() {
     try {
       holder.close();
@@ -130,8 +131,7 @@ public final class ConcurrentAxisTest {
    * Test concurrent.
    *
    */
-  // @Bench
-  @Test
+  @RepeatedTest(5)
   public void testConcurrent() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -164,7 +164,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @Test
+  @RepeatedTest(5)
   public void testPartConcurrentDescAxis1() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -190,7 +190,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @Test
+  @RepeatedTest(5)
   public void testPartConcurrentDescAxis2() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
