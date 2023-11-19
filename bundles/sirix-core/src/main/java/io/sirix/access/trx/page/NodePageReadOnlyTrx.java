@@ -529,7 +529,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
 
     if (trxIntentLog == null) {
-      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, completePage);
+      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, (KeyValueLeafPage) completePage);
     }
 
     pageReferenceToRecordPage.setPage(completePage);

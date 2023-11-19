@@ -131,7 +131,7 @@ public final class ConcurrentAxisTest {
    * Test concurrent.
    *
    */
-  @RepeatedTest(5)
+  @RepeatedTest(50)
   public void testConcurrent() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -164,7 +164,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @RepeatedTest(5)
+  @RepeatedTest(50)
   public void testPartConcurrentDescAxis1() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
@@ -190,7 +190,7 @@ public final class ConcurrentAxisTest {
    *
    */
   // @Bench
-  @RepeatedTest(5)
+  @RepeatedTest(50)
   public void testPartConcurrentDescAxis2() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;

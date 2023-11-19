@@ -1,19 +1,19 @@
 /**
  * Copyright (c) 2018, Sirix
- *
+ * <p>
  * All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the <organization> nor the
- *       names of its contributors may be used to endorse or promote products
- *       derived from this software without specific prior written permission.
- *
+ * * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ * * Neither the name of the <organization> nor the
+ * names of its contributors may be used to endorse or promote products
+ * derived from this software without specific prior written permission.
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -41,11 +41,8 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
 
   public RevisionRootPageCache(final int maxSize) {
-    pageCache = Caffeine.newBuilder()
-                        .maximumSize(maxSize)
-                        .expireAfterAccess(5, TimeUnit.MINUTES)
-                        .scheduler(scheduler)
-                        .build();
+    pageCache =
+        Caffeine.newBuilder().maximumSize(maxSize).expireAfterAccess(5, TimeUnit.MINUTES).scheduler(scheduler).build();
   }
 
   @Override
@@ -55,7 +52,13 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
 
   @Override
   public RevisionRootPage get(Integer key) {
-    return pageCache.getIfPresent(key);
+    var revisionRootPage = pageCache.getIfPresent(key);
+
+    if (revisionRootPage != null) {
+      revisionRootPage = new RevisionRootPage(revisionRootPage, revisionRootPage.getRevision());
+    }
+
+    return revisionRootPage;
   }
 
   @Override
