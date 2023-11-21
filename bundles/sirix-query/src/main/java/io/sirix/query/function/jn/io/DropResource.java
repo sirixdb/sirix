@@ -18,7 +18,7 @@ import io.sirix.query.json.JsonDBItem;
  * Function for removing a resource within a database. Supported signature is:
  * </p>
  * <ul>
- * <li><code>jn:doc($coll as xs:string, $res as xs:string)</code>
+ * <li><code>jn:drop-resource($coll as xs:string, $res as xs:string)</code>
  * </li>
  * </ul>
  *

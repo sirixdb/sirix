@@ -13,16 +13,13 @@ import io.sirix.query.json.JsonDBCollection;
 
 /**
  * <p>
- * Function for opening a document in a collection/database. If successful, this function returns
- * the document-node. Supported signatures are:
+ * Function for dropping a collection/database. Supported signatures is:
  * </p>
  * <ul>
- * <li><code>jn:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as json-item()</code>
+ * <li><code>jn:drop-database($coll as xs:string, $res as xs:string)</code>
  * </li>
- * <li><code>jn:doc($coll as xs:string, $res as xs:string) as json-item()</code></li>
  * </ul>
  *
- * @author Max Bechtold
  * @author Johannes Lichtenberger
  *
  */

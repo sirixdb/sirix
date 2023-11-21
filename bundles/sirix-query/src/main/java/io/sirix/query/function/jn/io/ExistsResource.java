@@ -18,7 +18,7 @@ import io.sirix.query.json.JsonDBItem;
  * Function for determining if a resource in a database exists or not. Supported signature is:
  * </p>
  * <ul>
- * <li><code>jn:exists-database($coll as xs:string, $resource as xs:string) as xs:boolean</code>
+ * <li><code>jn:exists-resource($coll as xs:string, $resource as xs:string) as xs:boolean</code>
  * </li>
  * </ul>
  *
