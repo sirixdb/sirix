@@ -146,11 +146,14 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
         final int revision = trx.getRevisionNumber();
 
-        trx.close();
         if (revision > 1) {
+          trx.close();
+
           trx = resource.beginNodeReadOnlyTrx(revision - 1);
-        } else {
-          return null;
+        } else if (revision == 0) {
+          trx.close();
+
+          trx = resource.beginNodeReadOnlyTrx(1);
         }
       }
 
@@ -163,7 +166,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       return createXmlDBNode(revision, resName);
     } else {
       return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
-                                                      (unused) -> createXmlDBNode(revision, resName));
+                                                      (_) -> createXmlDBNode(revision, resName));
     }
   }
 
