@@ -143,10 +143,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         trx.close();
 
         trx = resource.beginNodeReadOnlyTrx(revision - 1);
-      } else {
+      } else if (revision == 0) {
         trx.close();
 
-        return null;
+        trx = resource.beginNodeReadOnlyTrx(1);
       }
     }
 
