@@ -170,7 +170,9 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   @Override
   public void delete() {
     try {
-      Databases.removeDatabase(database.getDatabaseConfig().getDatabaseFile());
+      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
+      database.close();
+      Databases.removeDatabase(databaseFile);
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }

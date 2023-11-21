@@ -165,7 +165,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   @Override
   public void delete() {
     try {
-      Databases.removeDatabase(database.getDatabaseConfig().getDatabaseFile());
+      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
+      database.close();
+      jsonDbStore.removeDatabase(database);
+      Databases.removeDatabase(databaseFile);
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
