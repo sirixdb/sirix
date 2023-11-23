@@ -56,7 +56,7 @@ public final class FirstExisting extends AbstractFunction {
     }
 
     final var resourceManager = item.getTrx().getResourceSession();
-    for (int revisionNumber = 1; revisionNumber < resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
+    for (int revisionNumber = 1; revisionNumber <= resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
       final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
       if (rtx.moveTo(item.getNodeKey())) {
         return new JsonItemFactory().getSequence(rtx, item.getCollection());
