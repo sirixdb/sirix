@@ -35,7 +35,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   /**
    * Logger.
    */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
+  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBCollection.class));
 
   /**
    * ID sequence.
@@ -239,7 +239,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       rtx.moveToDocumentRoot();
       return getItem(rtx);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
@@ -326,7 +326,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
       return getItem(rtx);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
