@@ -69,4 +69,24 @@ public final class FirstExistingTest {
       assertEquals(1L, Long.valueOf(buf.toString()));
     }
   }
+
+  @Test
+  public void test_whenExistsInMostRecentRevision_getRevision() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      SetupRevisions.setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "sdb:revision(jn:first-existing(sdb:select-item(jn:doc('json-path1','mydoc.jn'), 29)))";
+      final var allTimesSeq = new Query(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      try (final var serializer = new StringSerializer(buf)) {
+        serializer.setFormat(true).serialize(allTimesSeq);
+      }
+
+      assertEquals(5L, Long.valueOf(buf.toString()));
+    }
+  }
 }

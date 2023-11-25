@@ -42,7 +42,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   /**
    * Logger.
    */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
+  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
 
   /**
    * ID sequence.
@@ -232,7 +232,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     try {
       return createResource(parser, resourceName, null, null);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
@@ -242,7 +242,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     try {
       return createResource(parser, resourceName, commitMessage, commitTimestamp);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
@@ -253,7 +253,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       final String resourceName = "resource" + (database.listResources().size() + 1);
       return createResource(parser, resourceName, null, null);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
