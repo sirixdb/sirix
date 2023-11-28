@@ -90,15 +90,13 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
         withSourcesJar()
         withJavadocJar()
-
-        if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException(JavaVersion.current().toString() + targetCompatibility.toString())
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
         }
     }
+
 
     javadoc {
         failOnError = false
@@ -204,7 +202,7 @@ subprojects {
             onlyIf { isReleaseVersion }
         }
     }
-    
+
     signing {
         //def signingKey = System.getenv("OSSRH_GPG_SECRET_KEY")
         //def signingPassword = System.getenv("OSSRH_GPG_SECRET_KEY_PASSWORD")
