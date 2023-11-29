@@ -1,5 +1,5 @@
 buildscript {
-    ext.kotlin_version = '1.9.20'
+    ext.kotlin_version = '1.9.21'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -10,7 +10,7 @@ buildscript {
         classpath 'net.researchgate:gradle-release:3.0.2'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.50.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.22.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.23.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -90,15 +90,13 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
         withSourcesJar()
         withJavadocJar()
-
-        if (JavaVersion.current() != targetCompatibility) {
-            throw new GradleException(JavaVersion.current().toString() + targetCompatibility.toString())
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
         }
     }
+
 
     javadoc {
         failOnError = false
@@ -204,7 +202,7 @@ subprojects {
             onlyIf { isReleaseVersion }
         }
     }
-    
+
     signing {
         //def signingKey = System.getenv("OSSRH_GPG_SECRET_KEY")
         //def signingPassword = System.getenv("OSSRH_GPG_SECRET_KEY_PASSWORD")

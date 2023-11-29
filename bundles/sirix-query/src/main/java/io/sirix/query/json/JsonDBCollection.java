@@ -35,7 +35,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   /**
    * Logger.
    */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
+  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBCollection.class));
 
   /**
    * ID sequence.
@@ -143,10 +143,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         trx.close();
 
         trx = resource.beginNodeReadOnlyTrx(revision - 1);
-      } else {
+      } else if (revision == 0) {
         trx.close();
 
-        return null;
+        trx = resource.beginNodeReadOnlyTrx(1);
       }
     }
 
@@ -165,7 +165,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   @Override
   public void delete() {
     try {
-      Databases.removeDatabase(database.getDatabaseConfig().getDatabaseFile());
+      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
+      database.close();
+      jsonDbStore.removeDatabase(database);
+      Databases.removeDatabase(databaseFile);
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -236,7 +239,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       rtx.moveToDocumentRoot();
       return getItem(rtx);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
@@ -323,7 +326,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
       return getItem(rtx);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }

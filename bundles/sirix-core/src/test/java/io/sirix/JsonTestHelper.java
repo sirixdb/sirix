@@ -123,6 +123,13 @@ public final class JsonTestHelper {
     }
   }
 
+  public static void createDatabase(final Path file) {
+    final DatabaseConfiguration config = new DatabaseConfiguration(file);
+    if (!Files.exists(file)) {
+      Databases.createJsonDatabase(config);
+    }
+  }
+
   /**
    * Getting a database and create one if not existing. This includes the creation of a resource with
    * the settings in the builder as standard.
