@@ -42,7 +42,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   /**
    * Logger.
    */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
+  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
 
   /**
    * ID sequence.
@@ -146,11 +146,14 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
         final int revision = trx.getRevisionNumber();
 
-        trx.close();
         if (revision > 1) {
+          trx.close();
+
           trx = resource.beginNodeReadOnlyTrx(revision - 1);
-        } else {
-          return null;
+        } else if (revision == 0) {
+          trx.close();
+
+          trx = resource.beginNodeReadOnlyTrx(1);
         }
       }
 
@@ -163,14 +166,16 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       return createXmlDBNode(revision, resName);
     } else {
       return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
-                                                      (unused) -> createXmlDBNode(revision, resName));
+                                                      (_) -> createXmlDBNode(revision, resName));
     }
   }
 
   @Override
   public void delete() {
     try {
-      Databases.removeDatabase(database.getDatabaseConfig().getDatabaseFile());
+      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
+      database.close();
+      Databases.removeDatabase(databaseFile);
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -227,7 +232,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     try {
       return createResource(parser, resourceName, null, null);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
@@ -237,7 +242,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     try {
       return createResource(parser, resourceName, commitMessage, commitTimestamp);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
@@ -248,7 +253,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       final String resourceName = "resource" + (database.listResources().size() + 1);
       return createResource(parser, resourceName, null, null);
     } catch (final SirixException e) {
-      LOGGER.error(e.getMessage(), e);
+      LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }

@@ -23,6 +23,7 @@ import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.Functions;
 
+import static io.brackit.query.compiler.XQ.ItemType;
 import static io.sirix.query.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static io.sirix.query.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static io.sirix.query.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
@@ -247,5 +248,10 @@ public final class JNFun {
                                                SequenceType.INTEGER,
                                                SequenceType.INTEGER,
                                                SequenceType.INTEGER)));
+
+    Functions.predefine(new DropDatabase(DropDatabase.DROP_DATABASE, new Signature(SequenceType.EMPTY_SEQUENCE, SequenceType.STRING)));
+    Functions.predefine(new DropResource(DropResource.DROP_RESOURCE, new Signature(SequenceType.EMPTY_SEQUENCE, SequenceType.STRING, SequenceType.STRING)));
+    Functions.predefine(new ExistsDatabase(ExistsDatabase.EXISTS_DATABASE, new Signature(new SequenceType(AtomicType.BOOL, Cardinality.One), SequenceType.STRING)));
+    Functions.predefine(new ExistsResource(ExistsResource.EXISTS_RESOURCE, new Signature(new SequenceType(AtomicType.BOOL, Cardinality.One), SequenceType.STRING, SequenceType.STRING)));
   }
 }

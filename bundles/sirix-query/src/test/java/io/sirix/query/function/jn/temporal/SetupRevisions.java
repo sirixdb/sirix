@@ -29,6 +29,10 @@ public final class SetupRevisions {
         wtx.moveTo(11);
         wtx.remove();
         wtx.commit();
+
+        wtx.moveTo(25);
+        wtx.insertArrayAsRightSibling();
+        wtx.commit();
       }
     }
   }
