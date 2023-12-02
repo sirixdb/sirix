@@ -14,22 +14,22 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void testCreateAndRetrieveValueFromCASIndex() throws IOException {
     final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": ["a", {"blabla": "test blabla string"}, null, "b", "c"]}]')
+          jn:store('json-path1','mydoc.jn','[{"test": "test string"}, "b", {"test": ["a", {"blabla": "test blabla string"}, null, "b", "c"]}]')
         """;
     final String indexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
-        let $stats := jn:create-cas-index($doc, 'xs:string', '/[]/test/[]')
+        let $stats := jn:create-cas-index($doc, 'xs:string', '//[]')
         return {"revision": sdb:commit($doc)}
         """;
     final String openQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
-        let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//[]')
-        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'b', '==', ())
+        let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '/[]/test/[]')
+        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'b', '==', '/[]/test/[]')
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """;
     test(storeQuery, indexQuery, openQuery, """
-      {"nodeKey":13,"node":"b","path":"/[1]/test/[]"}
+      {"nodeKey":14,"node":"b","path":"/[2]/test/[]"}
       """.strip());
   }
 
