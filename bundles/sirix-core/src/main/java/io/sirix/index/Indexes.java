@@ -119,7 +119,7 @@ public final class Indexes implements Materializable {
     }
 
     for (final Path<QNm> indexedPath : index.getPaths()) {
-      if (indexedPath.matches(path) || path.matches(indexedPath)) {
+      if (indexedPath.matches(path)) {
         return true;
       }
     }
