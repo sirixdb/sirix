@@ -40,9 +40,6 @@ public final class JsonDescendantAxis extends AbstractAxis {
   /** Determines if it's the first call to hasNext(). */
   private boolean first;
 
-  /** The current depth, starts with zero. */
-  private int depth;
-
   /**
    * Constructor initializing internal state.
    *
@@ -51,6 +48,9 @@ public final class JsonDescendantAxis extends AbstractAxis {
   public JsonDescendantAxis(final NodeCursor cursor) {
     super(cursor);
   }
+
+  /** The current depth, starts with zero. */
+  private int depth;
 
   /**
    * Constructor initializing internal state.

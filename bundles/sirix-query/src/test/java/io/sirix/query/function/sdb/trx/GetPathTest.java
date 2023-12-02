@@ -47,7 +47,7 @@ public class GetPathTest {
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new Query(chain, firstPathQuery).serialize(ctx, printWriter);
-        assertEquals("/tada/[0]/[4]", out.toString());
+        assertEquals("/tada/[]/[4]", out.toString());
       }
 
       final String secondPathQuery = "sdb:path(sdb:select-item(jn:doc('json-path1','shredded'), 11))";
@@ -68,7 +68,7 @@ public class GetPathTest {
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new Query(chain, fourthPathQuery).serialize(ctx, printWriter);
-        assertEquals("/foo/[3]/foo/[0]", out.toString());
+        assertEquals("/foo/[3]/foo/[]", out.toString());
       }
     }
   }

@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.NodeTrx;
+import io.sirix.exception.SirixException;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   enum Commit {
@@ -23,6 +24,39 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
     NO
   }
+
+  /**
+   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the provided
+   * transaction) and insert as right sibling of the current node.
+   *
+   * @param rtx read transaction reference which implements the {@link JsonNodeReadOnlyTrx} interface
+   * @return the transaction instance
+   * @throws SirixException if anything in sirix fails
+   * @throws NullPointerException if {@code rtx} is {@code null}
+   */
+  JsonNodeTrx copySubtreeAsFirstChild(JsonNodeReadOnlyTrx rtx);
+
+  /**
+   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the provided
+   * transaction) and insert as left sibling of the current node.
+   *
+   * @param rtx read transaction reference which implements the {@link JsonNodeReadOnlyTrx} interface
+   * @return the transaction instance
+   * @throws SirixException if anything in sirix fails
+   * @throws NullPointerException if {@code rtx} is {@code null}
+   */
+  JsonNodeTrx copySubtreeAsLeftSibling(JsonNodeReadOnlyTrx rtx);
+
+  /**
+   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the provided
+   * transaction) and insert as right sibling of the current node.
+   *
+   * @param rtx read transaction reference which implements the {@link JsonNodeReadOnlyTrx} interface
+   * @return the transaction instance
+   * @throws SirixException if anything in sirix fails
+   * @throws NullPointerException if {@code rtx} is {@code null}
+   */
+  JsonNodeTrx copySubtreeAsRightSibling(JsonNodeReadOnlyTrx rtx);
 
   JsonNodeTrx insertObjectAsFirstChild();
 

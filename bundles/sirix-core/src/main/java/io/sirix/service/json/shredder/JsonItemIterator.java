@@ -35,13 +35,15 @@ public final class JsonItemIterator extends AbstractIterator<Item> {
     Item currItem = null;
 
     while (currItem == null && !iter.isEmpty()) {
-      final Iter iterator = iter.peek();
-      currItem = iterator.next();
+      try (final Iter iterator = iter.peek()) {
+        currItem = iterator.next();
+      }
     }
 
     if (currItem != null) {
       iter.push(currItem.iterate());
     }
+
     return currItem;
   }
 }
