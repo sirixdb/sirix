@@ -20,7 +20,6 @@ import static java.util.Objects.requireNonNull;
 /**
  * @author Karsten Schmidt
  * @author Sebastian Baechle
- *
  */
 public final class Indexes implements Materializable {
   public static final QNm INDEXES_TAG = new QNm("indexes");
@@ -104,16 +103,8 @@ public final class Indexes implements Materializable {
     requireNonNull(path);
     try {
       for (final IndexDef index : indexes) {
-        if (index.isPathIndex()) {
-          if (index.getPaths().isEmpty()) {
-            return Optional.of(index);
-          }
-
-          for (final Path<QNm> indexedPath : index.getPaths()) {
-            if (indexedPath.matches(path)) {
-              return Optional.of(index);
-            }
-          }
+        if (index.isPathIndex() && checkIfAPathMatches(path, index)) {
+          return Optional.of(index);
         }
       }
       return Optional.empty();
@@ -122,21 +113,25 @@ public final class Indexes implements Materializable {
     }
   }
 
-  public Optional<IndexDef> findCASIndex(final Path<QNm> path, final Type type)
-      throws DocumentException {
+  private boolean checkIfAPathMatches(Path<QNm> path, IndexDef index) {
+    if (index.getPaths().isEmpty()) {
+      return true;
+    }
+
+    for (final Path<QNm> indexedPath : index.getPaths()) {
+      if (indexedPath.matches(path) || path.matches(indexedPath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public Optional<IndexDef> findCASIndex(final Path<QNm> path, final Type type) throws DocumentException {
     requireNonNull(path);
     try {
       for (final IndexDef index : indexes) {
-        if (index.isCasIndex() && index.getContentType().equals(type)) {
-          if (index.getPaths().isEmpty()) {
-            return Optional.of(index);
-          }
-
-          for (final Path<QNm> indexedPath : index.getPaths()) {
-            if (indexedPath.matches(path)) {
-              return Optional.of(index);
-            }
-          }
+        if (index.isCasIndex() && index.getContentType().equals(type) && checkIfAPathMatches(path, index)) {
+          return Optional.of(index);
         }
       }
       return Optional.empty();
@@ -147,7 +142,8 @@ public final class Indexes implements Materializable {
 
   public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
     requireNonNull(names);
-    out: for (final IndexDef index : indexes) {
+    out:
+    for (final IndexDef index : indexes) {
       if (index.isNameIndex()) {
         final Set<QNm> incl = index.getIncluded();
         final Set<QNm> excl = index.getExcluded();

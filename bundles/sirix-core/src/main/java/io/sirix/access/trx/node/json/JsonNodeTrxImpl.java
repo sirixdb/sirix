@@ -23,6 +23,7 @@ package io.sirix.access.trx.node.json;
 
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import io.brackit.query.jdm.json.JsonItem;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.*;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
@@ -30,6 +31,8 @@ import io.sirix.api.PageTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffDepth;
 import io.sirix.diff.DiffFactory;
@@ -52,8 +55,11 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.*;
 import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
+import io.sirix.service.json.shredder.JsonItemIterator;
 import io.sirix.service.json.shredder.JsonItemShredder;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.xml.serialize.StAXSerializer;
+import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
@@ -94,7 +100,8 @@ import static java.util.Objects.requireNonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode, InternalJsonNodeReadOnlyTrx>
+final class JsonNodeTrxImpl extends
+    AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode, InternalJsonNodeReadOnlyTrx>
     implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
 
   private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
@@ -147,7 +154,8 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   /**
    * Insert not allowed exception because of absance of parent in array.
    */
-  private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE = "Insert is not allowed if parent node is not an array node!";
+  private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE =
+      "Insert is not allowed if parent node is not an array node!";
 
   /**
    * Constructor.
@@ -2574,6 +2582,129 @@ final class JsonNodeTrxImpl extends AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, Jso
   @Override
   protected JsonNodeFactory reInstantiateNodeFactory(PageTrx pageTrx) {
     return new JsonNodeFactoryImpl(hashFunction, pageTrx);
+  }
+
+  @Override
+  public JsonNodeTrx copySubtreeAsFirstChild(final JsonNodeReadOnlyTrx rtx) {
+    requireNonNull(rtx);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      checkAccessAndCommit();
+      final long nodeKey = getCurrentNode().getNodeKey();
+      copy(rtx, InsertPosition.AS_FIRST_CHILD);
+      moveTo(nodeKey);
+      moveToFirstChild();
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  @Override
+  public JsonNodeTrx copySubtreeAsLeftSibling(final JsonNodeReadOnlyTrx rtx) {
+    requireNonNull(rtx);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      checkAccessAndCommit();
+      final long nodeKey = getCurrentNode().getNodeKey();
+      copy(rtx, InsertPosition.AS_LEFT_SIBLING);
+      moveTo(nodeKey);
+      moveToFirstChild();
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  @Override
+  public JsonNodeTrx copySubtreeAsRightSibling(final JsonNodeReadOnlyTrx rtx) {
+    requireNonNull(rtx);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      checkAccessAndCommit();
+      final long nodeKey = getCurrentNode().getNodeKey();
+      copy(rtx, InsertPosition.AS_RIGHT_SIBLING);
+      moveTo(nodeKey);
+      moveToRightSibling();
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  /**
+   * Helper method for copy-operations.
+   *
+   * @param trx    the source {@link XmlNodeReadOnlyTrx}
+   * @param insert the insertion strategy
+   * @throws SirixException if anything fails in sirix
+   */
+  private void copy(final JsonNodeReadOnlyTrx trx, final InsertPosition insert) {
+    assert trx != null;
+    assert insert != null;
+    final JsonNodeReadOnlyTrx rtx = trx.getResourceSession().beginNodeReadOnlyTrx(trx.getRevisionNumber());
+    assert rtx.getRevisionNumber() == trx.getRevisionNumber();
+    rtx.moveTo(trx.getNodeKey());
+    assert rtx.getNodeKey() == trx.getNodeKey();
+    if (rtx.getKind() == NodeKind.JSON_DOCUMENT) {
+      rtx.moveToFirstChild();
+    }
+
+    final NodeKind kind = rtx.getKind();
+    switch (kind) {
+      case NULL_VALUE -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertNullValueAsFirstChild();
+          case AS_LEFT_SIBLING -> insertNullValueAsLeftSibling();
+          case AS_RIGHT_SIBLING -> insertNullValueAsRightSibling();
+          default -> throw new IllegalStateException();
+        }
+      }
+      case STRING_VALUE -> {
+        final String textValue = rtx.getValue();
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertStringValueAsFirstChild(textValue);
+          case AS_LEFT_SIBLING -> insertStringValueAsLeftSibling(textValue);
+          case AS_RIGHT_SIBLING -> insertStringValueAsRightSibling(textValue);
+          default -> throw new IllegalStateException();
+        }
+      }
+      case BOOLEAN_VALUE -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertBooleanValueAsFirstChild(rtx.getBooleanValue());
+          case AS_LEFT_SIBLING -> insertBooleanValueAsLeftSibling(rtx.getBooleanValue());
+          case AS_RIGHT_SIBLING -> insertBooleanValueAsRightSibling(rtx.getBooleanValue());
+          default -> throw new IllegalStateException();
+        }
+      }
+      case NUMBER_VALUE -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertNumberValueAsFirstChild(rtx.getNumberValue());
+          case AS_LEFT_SIBLING -> insertNumberValueAsLeftSibling(rtx.getNumberValue());
+          case AS_RIGHT_SIBLING -> insertNumberValueAsRightSibling(rtx.getNumberValue());
+          default -> throw new IllegalStateException();
+        }
+      }
+      // $CASES-OMITTED$
+      default -> //new JsonItemShredder.Builder(this, new JsonItemIterator(new JsonItemFactory().get), insert).build().call();
+        throw new IllegalStateException(); // FIXME
+    }
+    rtx.close();
   }
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {

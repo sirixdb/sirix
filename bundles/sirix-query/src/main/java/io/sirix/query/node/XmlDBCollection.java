@@ -166,7 +166,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       return createXmlDBNode(revision, resName);
     } else {
       return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
-                                                      (_) -> createXmlDBNode(revision, resName));
+                                                      (unused) -> createXmlDBNode(revision, resName));
     }
   }
 
