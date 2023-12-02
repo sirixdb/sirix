@@ -23,7 +23,8 @@ package io.sirix.access.trx.node.json;
 
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
-import io.brackit.query.jdm.json.JsonItem;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.*;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
@@ -31,8 +32,6 @@ import io.sirix.api.PageTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffDepth;
 import io.sirix.diff.DiffFactory;
@@ -55,17 +54,12 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.*;
 import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
-import io.sirix.service.json.shredder.JsonItemIterator;
 import io.sirix.service.json.shredder.JsonItemShredder;
 import io.sirix.service.json.shredder.JsonShredder;
-import io.sirix.service.xml.serialize.StAXSerializer;
-import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
-import io.brackit.query.atomic.QNm;
-import io.brackit.query.jdm.Item;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -100,6 +94,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
+@SuppressWarnings("resource")
 final class JsonNodeTrxImpl extends
     AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode, InternalJsonNodeReadOnlyTrx>
     implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
@@ -2650,7 +2645,7 @@ final class JsonNodeTrxImpl extends
   /**
    * Helper method for copy-operations.
    *
-   * @param trx    the source {@link XmlNodeReadOnlyTrx}
+   * @param trx    the source {@link JsonNodeReadOnlyTrx}
    * @param insert the insertion strategy
    * @throws SirixException if anything fails in sirix
    */
