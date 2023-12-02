@@ -85,7 +85,7 @@ import static java.util.Objects.requireNonNull;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@SuppressWarnings("StatementWithEmptyBody")
+@SuppressWarnings({ "StatementWithEmptyBody", "resource" })
 final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
     implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
@@ -964,7 +964,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         }
         builder.append(getValue());
 
-        if (!value.equals(builder.toString())) {
+        if (!value.contentEquals(builder)) {
           setValue(builder.toString());
           return this;
         }
@@ -974,7 +974,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
           if (getCurrentNode().getKind() == NodeKind.TEXT) {
             valueBuilder.append(getValue()).append(builder);
           }
-          if (!value.equals(valueBuilder.toString())) {
+          if (!value.contentEquals(valueBuilder)) {
             setValue(valueBuilder.toString());
             return this;
           }
@@ -1979,9 +1979,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     removeOldNode(currentNode, key);
   }
 
-  private void removeOldNode(final StructNode node, final @NonNegative long key) {
-    assert node != null;
-    assert key >= 0;
+  private void removeOldNode(final @NonNull StructNode node, final @NonNegative long key) {
     moveTo(node.getNodeKey());
     remove();
     moveTo(key);

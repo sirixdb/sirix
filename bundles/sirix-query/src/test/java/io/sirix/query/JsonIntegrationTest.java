@@ -12,6 +12,28 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   private static final Path JSON_RESOURCE_PATH = Path.of("src", "test", "resources", "json");
 
   @Test
+  public void testCreateAndRetrieveValueFromCASIndex() throws IOException {
+    final String storeQuery = """
+          jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": ["a", {"blabla": "test blabla string"}, null, "b", "c"]}]')
+        """;
+    final String indexQuery = """
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:string', '/[]/test/[]')
+        return {"revision": sdb:commit($doc)}
+        """;
+    final String openQuery = """
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//[]')
+        for $node in jn:scan-cas-index($doc, $casIndexNumber, 'b', '==', ())
+        order by sdb:revision($node), sdb:nodekey($node)
+        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+        """;
+    test(storeQuery, indexQuery, openQuery, """
+      {"nodeKey":13,"node":"b","path":"/[1]/test/[]"}
+      """.strip());
+  }
+
+  @Test
   public void testDescendantDerefExprWithOnePathMatchAndChildMatch() throws IOException {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"blabla": "test blabla string"}]}]')

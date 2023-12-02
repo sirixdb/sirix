@@ -157,99 +157,100 @@ public final class JsonItemShredder implements Callable<Long> {
     return revision;
   }
 
-  private void json(Sequence parent, Sequence s, String objectField,
+  private void json(Sequence parent, Sequence sequence, String objectField,
       boolean nextTokenIsParent) {
-    if (s instanceof Atomic) {
-      if (s instanceof Numeric) {
-        final var number = JsonNumber.stringToNumber(s.toString());
+    switch (sequence) {
+      case Atomic atomic -> {
+        if (sequence instanceof Numeric) {
+          final var number = JsonNumber.stringToNumber(sequence.toString());
 
-        if (objectField != null) {
-          final var value = new NumberValue(number);
-          addObjectRecord(objectField, value, nextTokenIsParent);
-        } else {
-          insertNumberValue(number, nextTokenIsParent);
-        }
-      } else if (((Atomic) s).type() == Type.BOOL) {
-        final var bool = s.booleanValue();
+          if (objectField != null) {
+            final var value = new NumberValue(number);
+            addObjectRecord(objectField, value, nextTokenIsParent);
+          } else {
+            insertNumberValue(number, nextTokenIsParent);
+          }
+        } else if (((Atomic) sequence).type() == Type.BOOL) {
+          final var bool = sequence.booleanValue();
 
-        if (objectField != null) {
-          final var value = new BooleanValue(bool);
-          addObjectRecord(objectField, value, nextTokenIsParent);
+          if (objectField != null) {
+            final var value = new BooleanValue(bool);
+            addObjectRecord(objectField, value, nextTokenIsParent);
+          } else {
+            insertBooleanValue(bool, nextTokenIsParent);
+          }
+        } else if (((Atomic) sequence).type() == Type.NULL) {
+          if (objectField != null) {
+            final var value = new NullValue();
+            addObjectRecord(objectField, value, nextTokenIsParent);
+          } else {
+            insertNullValue(nextTokenIsParent);
+          }
         } else {
-          insertBooleanValue(bool, nextTokenIsParent);
-        }
-      } else if (((Atomic) s).type() == Type.NULL) {
-        if (objectField != null) {
-          final var value = new NullValue();
-          addObjectRecord(objectField, value, nextTokenIsParent);
-        } else {
-          insertNullValue(nextTokenIsParent);
-        }
-      } else {
-        final var str = ((Atomic) s).asStr().stringValue();
+          final var str = ((Atomic) sequence).asStr().stringValue();
 
-        if (objectField != null) {
-          final var value = new StringValue(str);
-          addObjectRecord(objectField, value, nextTokenIsParent);
-        } else {
-          insertStringValue(str, nextTokenIsParent);
-        }
-      }
-    } else if (s instanceof Array a) {
-      level++;
-      if (!(level == 1 && skipRootJson)) {
-        if (objectField != null) {
-          final var value = new ArrayValue();
-          addObjectRecord(objectField, value, nextTokenIsParent);
-        } else {
-          insertArray();
+          if (objectField != null) {
+            final var value = new StringValue(str);
+            addObjectRecord(objectField, value, nextTokenIsParent);
+          } else {
+            insertStringValue(str, nextTokenIsParent);
+          }
         }
       }
-
-      for (int i = 0; i < a.len(); i++) {
-        final Sequence seq = a.at(i);
-        json(a, seq, null, false);
-      }
-
-      level--;
-
-      if (!(level == 0 && skipRootJson)) {
-        parents.popLong();
-        wtx.moveTo(parents.peekLong(0));
-
-        if (parent instanceof Object) {
+      case Array a -> {
+        level++;
+        if (!(level == 1 && skipRootJson)) {
+          if (objectField != null) {
+            final var value = new ArrayValue();
+            addObjectRecord(objectField, value, nextTokenIsParent);
+          } else {
+            insertArray();
+          }
+        }
+        for (int i = 0; i < a.len(); i++) {
+          final Sequence seq = a.at(i);
+          json(a, seq, null, false);
+        }
+        level--;
+        if (!(level == 0 && skipRootJson)) {
           parents.popLong();
           wtx.moveTo(parents.peekLong(0));
+
+          if (parent instanceof Object) {
+            parents.popLong();
+            wtx.moveTo(parents.peekLong(0));
+          }
         }
       }
-    } else if (s instanceof Object object) {
-      level++;
-      if (!(level == 1 && skipRootJson)) {
-        if (objectField != null) {
-          final var value = new ObjectValue();
-          addObjectRecord(objectField, value, nextTokenIsParent);
-        } else {
-          addObject();
+      case Object object -> {
+        level++;
+        if (!(level == 1 && skipRootJson)) {
+          if (objectField != null) {
+            final var value = new ObjectValue();
+            addObjectRecord(objectField, value, nextTokenIsParent);
+          } else {
+            addObject();
+          }
         }
-      }
-
-      for (int i = 0; i < object.len(); i++) {
-        final var value = object.value(i);
-        json(object, value, object.name(i).stringValue(),
-            i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Object));
-      }
-
-      level--;
-
-      if (!(level == 0 && skipRootJson)) {
-        parents.popLong();
-        wtx.moveTo(parents.peekLong(0));
-
-        if (parent instanceof Object) {
+        for (int i = 0; i < object.len(); i++) {
+          final var value = object.value(i);
+          json(object,
+               value,
+               object.name(i).stringValue(),
+               i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Object));
+        }
+        level--;
+        if (!(level == 0 && skipRootJson)) {
           parents.popLong();
           wtx.moveTo(parents.peekLong(0));
+
+          if (parent instanceof Object) {
+            parents.popLong();
+            wtx.moveTo(parents.peekLong(0));
+          }
         }
       }
+      default -> throw new IllegalStateException("Unexpected value: " + sequence);
     }
   }
 

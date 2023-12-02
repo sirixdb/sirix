@@ -11,6 +11,7 @@ import io.brackit.query.util.path.Path;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.NodeKind;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.function.sdb.SDBFun;
 
@@ -89,6 +90,8 @@ public final class GetPath extends AbstractFunction {
           stringPath = stringPath.replaceFirst("/\\[]", "/[" + pos + "]");
         }
 
+        stringPath = stringPath.replaceAll("/\\[-1]", "/[]");
+
         return new Str(stringPath);
       }
     }
@@ -97,6 +100,10 @@ public final class GetPath extends AbstractFunction {
   }
 
   private int addArrayPosition(JsonNodeReadOnlyTrx trx) {
+    if (trx.getParentKind() == NodeKind.OBJECT_KEY && trx.isArray()) {
+      return -1;
+    }
+
     int j = 0;
     while (trx.hasLeftSibling()) {
       trx.moveToLeftSibling();
