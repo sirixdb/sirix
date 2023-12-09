@@ -134,6 +134,11 @@ public final class JsonResourceCopy implements Callable<Void> {
       return this;
     }
 
+    /**
+     * Determines if changes between the revisions should be copied up to the most recent revision.
+     *
+     * @return this builder instance
+     */
     public JsonResourceCopy.Builder copyAllRevisionsUpToMostRecent() {
       copyAllRevisionsUpToMostRecent = true;
       return this;
