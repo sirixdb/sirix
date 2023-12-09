@@ -38,7 +38,6 @@ import io.sirix.service.ShredderCommit;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -71,6 +70,9 @@ public final class JsonResourceCopy implements Callable<Void> {
   private final ShredderCommit commit;
 
   private final JsonNodeReadOnlyTrx rtx;
+
+  /** Keeps track of visited keys. */
+  private final LongArrayList parents = new LongArrayList();
 
   private final long startNodeKey;
 
@@ -108,6 +110,7 @@ public final class JsonResourceCopy implements Callable<Void> {
      * Determines if after shredding the transaction should be immediately committed.
      */
     private ShredderCommit commit = ShredderCommit.NOCOMMIT;
+    
     private boolean copyAllRevisionsUpToMostRecent;
 
     /**
@@ -177,6 +180,7 @@ public final class JsonResourceCopy implements Callable<Void> {
     // Setup primitives.
     boolean moveToParent = false;
     boolean first = true;
+
     long previousKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
     insert(moveToParent, first, previousKey);
@@ -335,6 +339,7 @@ public final class JsonResourceCopy implements Callable<Void> {
     // Iterate over all nodes of the subtree including self.
     for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext(); ) {
       final long key = axis.nextLong();
+
       // Process all pending moves to parents.
       if (moveToParent) {
         while (!stack.isEmpty() && stack.peekLong(0) != rtx.getLeftSiblingKey()) {
@@ -394,6 +399,10 @@ public final class JsonResourceCopy implements Callable<Void> {
     while (!stack.isEmpty() && stack.peekLong(0) != Constants.NULL_ID_LONG) {
       rtx.moveTo(stack.popLong());
     }
+
+    commit.commit(wtx);
+
+    return null;
   }
 
   /**
