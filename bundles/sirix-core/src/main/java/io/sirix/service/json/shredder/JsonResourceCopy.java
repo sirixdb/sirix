@@ -71,9 +71,6 @@ public final class JsonResourceCopy implements Callable<Void> {
 
   private final JsonNodeReadOnlyTrx rtx;
 
-  /** Keeps track of visited keys. */
-  private final LongArrayList parents = new LongArrayList();
-
   private final long startNodeKey;
 
   /**
@@ -399,10 +396,6 @@ public final class JsonResourceCopy implements Callable<Void> {
     while (!stack.isEmpty() && stack.peekLong(0) != Constants.NULL_ID_LONG) {
       rtx.moveTo(stack.popLong());
     }
-
-    commit.commit(wtx);
-
-    return null;
   }
 
   /**
