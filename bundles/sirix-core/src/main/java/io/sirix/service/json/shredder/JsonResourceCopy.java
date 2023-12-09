@@ -46,9 +46,8 @@ import java.util.concurrent.Callable;
 import static java.util.Objects.requireNonNull;
 
 /**
- * <p>
- * Serializes a subtree into the JSON-format.
- * </p>
+ * Copy a resource or a subtree into another
+ * resoure. even copy all changes and revisions between a given revision/transaction.
  */
 public final class JsonResourceCopy implements Callable<Void> {
 
