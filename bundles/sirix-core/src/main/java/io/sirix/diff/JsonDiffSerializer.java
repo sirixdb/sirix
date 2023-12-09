@@ -36,7 +36,7 @@ public final class JsonDiffSerializer {
   public String serialize(boolean emitFromDiffAlgorithm) {
     final var resourceName = resourceManager.getResourceConfig().getName();
 
-    final var json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
+    final JsonObject json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
 
     if (diffs.size() == 1) {
       final var tuple = diffs.iterator().next();

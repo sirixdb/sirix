@@ -21,9 +21,15 @@
 
 package io.sirix.service.json.shredder;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.json.InsertOperations;
 import io.sirix.access.trx.node.json.objectvalue.*;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.node.NodeKind;
@@ -32,8 +38,9 @@ import io.sirix.service.ShredderCommit;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongStack;
-
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
@@ -44,6 +51,13 @@ import static java.util.Objects.requireNonNull;
  * </p>
  */
 public final class JsonResourceCopy implements Callable<Void> {
+
+  private final String INSERT = InsertOperations.INSERT.getName();
+  private final String UPDATE = InsertOperations.UPDATE.getName();
+  private final String DELETE = InsertOperations.DELETE.getName();
+  private final String REPLACE = InsertOperations.REPLACE.getName();
+
+  private final JsonResourceSession readResourceSession;
 
   /**
    * {@link JsonNodeTrx}.
@@ -57,15 +71,17 @@ public final class JsonResourceCopy implements Callable<Void> {
 
   private final JsonNodeReadOnlyTrx rtx;
 
-  /** Keeps track of visited keys. */
-  private final LongStack parents = new LongArrayList();
-
   private final long startNodeKey;
 
   /**
    * Insertion position.
    */
   private final InsertPosition insert;
+
+  /**
+   * Determines if diffs between revisions should be copied.
+   */
+  private final boolean copyAllRevisionsUpToMostRecent;
 
   /**
    * Builder to build an {@link JsonItemShredder} instance.
@@ -88,9 +104,11 @@ public final class JsonResourceCopy implements Callable<Void> {
     private final InsertPosition insert;
 
     /**
-     * Determines if after shredding the transaction should be immediately commited.
+     * Determines if after shredding the transaction should be immediately committed.
      */
     private ShredderCommit commit = ShredderCommit.NOCOMMIT;
+    
+    private boolean copyAllRevisionsUpToMostRecent;
 
     /**
      * Constructor.
@@ -117,6 +135,16 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
 
     /**
+     * Determines if changes between the revisions should be copied up to the most recent revision.
+     *
+     * @return this builder instance
+     */
+    public JsonResourceCopy.Builder copyAllRevisionsUpToMostRecent() {
+      copyAllRevisionsUpToMostRecent = true;
+      return this;
+    }
+
+    /**
      * Build an instance.
      *
      * @return {@link JsonItemShredder} instance
@@ -135,19 +163,17 @@ public final class JsonResourceCopy implements Callable<Void> {
    * Private constructor.
    *
    * @param wtx     the transaction used to write
-   * @param rtx     the trsnscation used to read
+   * @param rtx     the transaction used to read
    * @param builder builder of the JSON resource copy
    */
   private JsonResourceCopy(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx, final Builder builder) {
     this.wtx = wtx;
     this.rtx = rtx;
+    this.readResourceSession = rtx.getResourceSession();
     this.insert = builder.insert;
     this.commit = builder.commit;
     this.startNodeKey = rtx.getNodeKey();
-
-    if (insert == InsertPosition.AS_FIRST_CHILD) {
-      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
-    }
+    this.copyAllRevisionsUpToMostRecent = builder.copyAllRevisionsUpToMostRecent;
   }
 
   public Void call() {
@@ -156,12 +182,166 @@ public final class JsonResourceCopy implements Callable<Void> {
     // Setup primitives.
     boolean moveToParent = false;
     boolean first = true;
-    long key;
+
     long previousKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
+    insert(moveToParent, first, previousKey);
+
+    if (copyAllRevisionsUpToMostRecent) {
+      wtx.commit();
+
+      for (var revision = rtx.getRevisionNumber() + 1;
+           revision <= rtx.getResourceSession().getMostRecentRevisionNumber(); revision++) {
+        try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision)) {
+          final var updateOperationsFile = readResourceSession.getResourceConfig()
+                                                              .getResource()
+                                                              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                                              .resolve(
+                                                                  "diffFromRev" + (revision - 1) + "toRev" + revision
+                                                                      + ".json");
+
+          final JsonElement jsonElement;
+
+          try {
+            jsonElement = JsonParser.parseString(Files.readString(updateOperationsFile));
+          } catch (IOException e) {
+            throw new UncheckedIOException(e);
+          }
+
+          final var jsonObject = jsonElement.getAsJsonObject();
+          final var diffsArray = jsonObject.getAsJsonArray("diffs");
+
+          for (final var diffsElement : diffsArray) {
+            final var diffsObject = diffsElement.getAsJsonObject();
+            if (diffsObject.has(INSERT)) {
+              final JsonObject insertObject = diffsObject.getAsJsonObject(INSERT);
+              executeInsert(insertObject, rtxOnRevision);
+            } else if (diffsObject.has(REPLACE)) {
+              final JsonObject replaceObject = diffsObject.getAsJsonObject(REPLACE);
+              executeReplace(replaceObject, rtxOnRevision);
+            } else if (diffsObject.has(UPDATE)) {
+              final JsonObject updateObject = diffsObject.getAsJsonObject(UPDATE);
+              executeUpdate(updateObject, rtxOnRevision);
+            } else if (diffsObject.has(DELETE)) {
+              final long nodeKey = diffsObject.getAsJsonPrimitive(DELETE).getAsLong();
+              executeDelete(nodeKey);
+            }
+          }
+
+          wtx.commit();
+        }
+      }
+    } else {
+      commit.commit(wtx);
+    }
+
+    return null;
+  }
+
+  private void executeDelete(final long nodeKey) {
+    wtx.moveTo(nodeKey);
+    wtx.remove();
+  }
+
+  private void executeUpdate(JsonObject updateObject, JsonNodeReadOnlyTrx rtxOnRevision) {
+    final var key = updateObject.get("nodeKey").getAsLong();
+    final var type = updateObject.get("type").getAsString();
+
+    rtxOnRevision.moveTo(key);
+    wtx.moveTo(key);
+
+    switch (type) {
+      case "boolean" -> wtx.setBooleanValue(rtxOnRevision.getBooleanValue());
+      case "string" -> wtx.setStringValue(rtxOnRevision.getValue());
+      case "number" -> wtx.setNumberValue(rtxOnRevision.getNumberValue());
+    }
+  }
+
+  private void executeReplace(JsonObject replaceObject, JsonNodeReadOnlyTrx rtxOnRevision) {
+    final var oldNodeKey = replaceObject.get("oldNodeKey").getAsLong();
+    final var newNodeKey = replaceObject.get("newNodeKey").getAsLong();
+    final var type = replaceObject.get("type").getAsString();
+    wtx.moveTo(oldNodeKey);
+    rtxOnRevision.moveTo(newNodeKey);
+
+    final String insertPosition;
+    if (wtx.hasRightSibling()) {
+      insertPosition = "insertAsLeftSibling";
+    } else if (wtx.hasLeftSibling()) {
+      insertPosition = "insertAsRightSibling";
+    } else {
+      insertPosition = "insertAsFirstChild";
+    }
+
+    if (wtx.getParentKind() == NodeKind.OBJECT_KEY) {
+      wtx.moveToParent();
+
+      switch (rtxOnRevision.getKind()) {
+        case OBJECT -> wtx.replaceObjectRecordValue(new ObjectValue());
+        case ARRAY -> wtx.replaceObjectRecordValue(new ArrayValue());
+        case OBJECT_NUMBER_VALUE, NUMBER_VALUE ->
+            wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
+        case OBJECT_NULL_VALUE, NULL_VALUE -> wtx.replaceObjectRecordValue(new NullValue());
+        case OBJECT_STRING_VALUE, STRING_VALUE ->
+            wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
+        case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE ->
+            wtx.replaceObjectRecordValue(new BooleanValue(rtxOnRevision.getBooleanValue()));
+      }
+    } else {
+      wtx.remove();
+
+      insert(type, rtxOnRevision, insertPosition);
+    }
+  }
+
+  private void executeInsert(JsonObject insertObject, JsonNodeReadOnlyTrx rtxOnRevision) {
+    final var key = insertObject.get("nodeKey").getAsLong();
+    final var insertPosition = insertObject.get("insertPosition").getAsString();
+    final var insertPositionNodeKey = insertObject.get("insertPositionNodeKey").getAsLong();
+    final var type = insertObject.get("type").getAsString();
+    wtx.moveTo(insertPositionNodeKey);
+    rtxOnRevision.moveTo(key);
+
+    insert(type, rtxOnRevision, insertPosition);
+  }
+
+  private void insert(String type, JsonNodeReadOnlyTrx rtxOnRevision, String insertPosition) {
+    switch (type) {
+      case "jsonFragment" -> insertFragment(rtxOnRevision, insertPosition);
+      case "boolean" -> {
+        if (insertPosition.equals("asFirstChild")) {
+          wtx.insertBooleanValueAsFirstChild(rtxOnRevision.getBooleanValue());
+        } else {
+          wtx.insertBooleanValueAsRightSibling(rtxOnRevision.getBooleanValue());
+        }
+      }
+      case "null" -> {
+        if (insertPosition.equals("asFirstChild")) {
+          wtx.insertNullValueAsFirstChild();
+        } else {
+          wtx.insertNullValueAsRightSibling();
+        }
+      }
+      case "string" -> {
+        if (insertPosition.equals("asFirstChild")) {
+          wtx.insertStringValueAsFirstChild(rtxOnRevision.getValue());
+        } else {
+          wtx.insertStringValueAsRightSibling(rtxOnRevision.getValue());
+        }
+      }
+    }
+  }
+
+  private void insertFragment(JsonNodeReadOnlyTrx rtxOnRevision, String insertPosition) {
+    final var copyResource = new Builder(wtx, rtxOnRevision, InsertPosition.ofString(insertPosition)).build();
+    copyResource.call();
+  }
+
+  private void insert(boolean moveToParent, boolean isFirst, long previousKey) {
     // Iterate over all nodes of the subtree including self.
     for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext(); ) {
-      key = axis.nextLong();
+      final long key = axis.nextLong();
+
       // Process all pending moves to parents.
       if (moveToParent) {
         while (!stack.isEmpty() && stack.peekLong(0) != rtx.getLeftSiblingKey()) {
@@ -181,7 +361,7 @@ public final class JsonResourceCopy implements Callable<Void> {
 
       InsertPosition insertPosition;
 
-      if (first) {
+      if (isFirst) {
         insertPosition = insert;
       } else {
         if (moveToParent) {
@@ -195,12 +375,12 @@ public final class JsonResourceCopy implements Callable<Void> {
 
       moveToParent = false;
       // Values of object keys have already been inserted.
-      if (first || rtx.getParentKind() != NodeKind.OBJECT_KEY) {
+      if (isFirst || rtx.getParentKind() != NodeKind.OBJECT_KEY) {
         processNode(rtx, insertPosition);
       }
       rtx.moveTo(nodeKey);
 
-      first = false;
+      isFirst = false;
 
       // Push end element to stack if we are a start element with children.
       boolean withChildren = false;
@@ -221,10 +401,6 @@ public final class JsonResourceCopy implements Callable<Void> {
     while (!stack.isEmpty() && stack.peekLong(0) != Constants.NULL_ID_LONG) {
       rtx.moveTo(stack.popLong());
     }
-
-    commit.commit(wtx);
-
-    return null;
   }
 
   /**
@@ -280,9 +456,10 @@ public final class JsonResourceCopy implements Callable<Void> {
                 wtx.insertObjectRecordAsRightSibling(key, new BooleanValue(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsRightSibling(key, new NullValue());
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsRightSibling(key,
-                                                                           new io.sirix.access.trx.node.json.objectvalue.StringValue(
-                                                                               rtx.getValue()));
-            case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
+                                                                             new io.sirix.access.trx.node.json.objectvalue.StringValue(
+                                                                                 rtx.getValue()));
+            case OBJECT_NUMBER_VALUE ->
+                wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
         }
