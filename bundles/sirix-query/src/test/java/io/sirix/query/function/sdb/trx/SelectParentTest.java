@@ -41,7 +41,7 @@ public class SelectParentTest {
       new Query(chain, storeQuery).evaluate(ctx);
 
       // Use Query to load a JSON database/resource.
-      final String openQuery = "sdb:select-parent(jn:doc('json-path1','mydoc.jn')[[1]])";
+      final String openQuery = "sdb:select-parent(jn:doc('json-path1','mydoc.jn')[1])";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new Query(chain, openQuery).serialize(ctx, printWriter);

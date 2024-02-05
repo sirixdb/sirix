@@ -1,4 +1,5 @@
-let $auction := $$ return
+xquery version "1.0";
+let $auction := . return
 for $a in
   $auction/site/closed_auctions/closed_auction/annotation/description/parlist/
    listitem/

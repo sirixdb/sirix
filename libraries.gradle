@@ -17,7 +17,7 @@ implLibraries = [
         guava                       : 'com.google.guava:guava:31.0.1-jre',
         guavaTestlib                : 'com.google.guava:guava-testlib:31.0.1-jre',
         checkerFramework            : 'org.checkerframework:checker:3.21.2',
-        brackit                     : 'io.sirix:brackit:0.4',
+        brackit                     : 'io.sirix:brackit:0.5',
         caffeine                    : 'com.github.ben-manes.caffeine:caffeine:3.1.6',
         snappyJava                  : 'org.xerial.snappy:snappy-java:1.1.8.4',
         lz4                         : 'org.lz4:lz4-java:1.8.0',

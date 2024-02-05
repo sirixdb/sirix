@@ -94,14 +94,16 @@ public final class ExcelDiffTest1 {
           if (first) {
             first = false;
             try (final XmlNodeTrx wtx = resource.beginNodeTrx();
-                final FileInputStream fis = new FileInputStream(file.toFile())) {
-              final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
-                  InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+                 final FileInputStream fis = new FileInputStream(file.toFile())) {
+              final XmlShredder shredder = new XmlShredder.Builder(wtx,
+                                                                   XmlShredder.createFileReader(fis),
+                                                                   InsertPosition.AS_FIRST_CHILD).commitAfterwards()
+                                                                                                 .build();
               shredder.call();
             }
           } else {
-            FMSEImport.main(
-                new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
+            FMSEImport.main(new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(),
+                file.toAbsolutePath().toString() });
           }
 
           resource.close();
@@ -154,7 +156,6 @@ public final class ExcelDiffTest1 {
       }
     }
 
-
     // Initialize query context and store.
     final var database = PATHS.PATH1.getFile();
 
@@ -174,8 +175,8 @@ public final class ExcelDiffTest1 {
         out.reset();
 
         final var contentToApply =
-            "declare namespace x14ac = \"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\";" + "\n"
-                + content;
+            "xquery version \"1.0\";" + "\n" + "declare namespace x14ac = \"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\";"
+                + "\n" + content;
 
         System.out.println(contentToApply);
 
@@ -194,7 +195,7 @@ public final class ExcelDiffTest1 {
 
         out.reset();
 
-        final String xq4 = "xml:doc('" + dbName + "','" + resName + "',3)//*[local-name()='c' and not(previous::*)]";
+        final String xq4 = "xquery version \"1.0\";xml:doc('" + dbName + "','" + resName + "',3)//*[local-name()='c' and not(previous::*)]";
         final Sequence sequence = new Query(SirixCompileChain.createWithNodeStore(store), xq4).execute(ctx);
         final Iter iter = sequence.iterate();
 

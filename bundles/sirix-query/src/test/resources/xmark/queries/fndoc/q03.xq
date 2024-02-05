@@ -1,3 +1,4 @@
+xquery version "1.0";
 let $auction := doc("auction.xml") return
 for $b in $auction/site/open_auctions/open_auction
 where zero-or-one($b/bidder[1]/increase/text()) * 2 <= $b/bidder[last()]/increase/text()

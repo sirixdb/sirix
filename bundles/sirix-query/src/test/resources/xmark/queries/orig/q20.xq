@@ -1,4 +1,5 @@
-let $auction := $$ return
+xquery version "1.0";
+let $auction := . return
 <result>
   <preferred>
     {count($auction/site/people/person/profile[@income >= 100000])}

@@ -48,10 +48,11 @@ import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
 public final class XmlGetNodeKeyTest {
-  /** The {@link Holder} instance. */
+  /**
+   * The {@link Holder} instance.
+   */
   private Holder holder;
 
   @Before
@@ -81,7 +82,9 @@ public final class XmlGetNodeKeyTest {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xml:doc('" + dbName + "','" + resName + "')/p:a/b[1])";
+      final String xq1 =
+          "xquery version \"1.0\";declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xml:doc('" + dbName
+              + "','" + resName + "')/p:a/b[1])";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
       Assert.assertEquals(new Int64(5), query.execute(ctx));

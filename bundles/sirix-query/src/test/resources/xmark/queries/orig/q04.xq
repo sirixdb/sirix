@@ -1,4 +1,5 @@
-let $auction := $$ return
+xquery version "1.0";
+let $auction := . return
 for $b in $auction/site/open_auctions/open_auction
 where
   some $pr1 in $b/bidder/personref[@person = "person20"],

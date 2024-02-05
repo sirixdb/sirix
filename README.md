@@ -81,7 +81,7 @@ let $foundStatus := for $status in $statuses
   return $status
 return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
-The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `.` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[[0]]` for instance, specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor, also supports Python-like array slices to simplify tasks.
+The query opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searches for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `.` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown looping over the values or through specifying an index, starting with zero: `array[0]` for instance, specifies the first value of the array. [Brackit](https://github.com/sirixdb/brackit), our query processor, also supports Python-like array slices to simplify tasks.
 
 ## JSONiq examples
 
@@ -90,7 +90,7 @@ query for changes using our stored Merkle hash tree, which builds and updates ha
 the node in the previous revision or an empty sequence if there's none.
 
 ```xquery
-let $node := jn:doc('mycol.jn','mydoc.jn').fieldName[[1]]
+let $node := jn:doc('mycol.jn','mydoc.jn').fieldName[1]
 let $result := for $node-in-rev in jn:all-times($node)
                let $nodeInPreviousRevision := jn:previous($node-in-rev)
                return
@@ -183,7 +183,7 @@ SirixDB through Brackit also supports array slices. The start index is 0, the st
 
 ```xquery
 let $array := [{"foo": 0}, "bar", {"baz": true}]
-return $array[[0:1:1]]
+return $array[0:1:1]
 ```
 
 The query returns the first object `{"foo":0}`. 
@@ -312,7 +312,7 @@ return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:
 
 Second, whole paths are indexable.
 
-Thus, the following path index is applicable to both queries: `.sirix[].revision.tada[].foo` and `.sirix[].revision.tada[][[4]].foo`. Thus, essentially both foo nodes are indexed and the first child has to be fetched afterwards. For the second query also the array index 4 has to be checked if the indexed node is really on index 4.
+Thus, the following path index is applicable to both queries: `.sirix[].revision.tada[].foo` and `.sirix[].revision.tada[][4].foo`. Thus, essentially both foo nodes are indexed and the first child has to be fetched afterwards. For the second query also the array index 4 has to be checked if the indexed node is really on index 4.
 
 ```xquery
 let $doc := jn:doc('mycol.jn','mydoc.jn')
