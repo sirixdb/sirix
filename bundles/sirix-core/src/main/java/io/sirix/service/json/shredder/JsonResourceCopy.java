@@ -38,6 +38,7 @@ import io.sirix.service.ShredderCommit;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -106,7 +107,7 @@ public final class JsonResourceCopy implements Callable<Void> {
      * Determines if after shredding the transaction should be immediately committed.
      */
     private ShredderCommit commit = ShredderCommit.NOCOMMIT;
-    
+
     private boolean copyAllRevisionsUpToMostRecent;
 
     /**
@@ -416,6 +417,8 @@ public final class JsonResourceCopy implements Callable<Void> {
           wtx.insertObjectAsFirstChild();
         } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           wtx.insertObjectAsRightSibling();
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertObjectAsLeftSibling();
         } else {
           throw new IllegalStateException("Insert location not known!");
         }
@@ -425,6 +428,8 @@ public final class JsonResourceCopy implements Callable<Void> {
           wtx.insertArrayAsFirstChild();
         } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           wtx.insertArrayAsRightSibling();
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertArrayAsLeftSibling();
         } else {
           throw new IllegalStateException("Insert location not known!");
         }
@@ -445,7 +450,22 @@ public final class JsonResourceCopy implements Callable<Void> {
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
-        } else {
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          final var key = rtx.getName().getLocalName();
+          rtx.moveToFirstChild();
+          switch (rtx.getKind()) {
+            case OBJECT -> wtx.insertObjectRecordAsLeftSibling(key, new ObjectValue());
+            case ARRAY -> wtx.insertObjectRecordAsLeftSibling(key, new ArrayValue());
+            case OBJECT_BOOLEAN_VALUE ->
+                wtx.insertObjectRecordAsLeftSibling(key, new BooleanValue(rtx.getBooleanValue()));
+            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NullValue());
+            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsLeftSibling(key,
+                                                                            new io.sirix.access.trx.node.json.objectvalue.StringValue(
+                                                                                rtx.getValue()));
+            case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NumberValue(rtx.getNumberValue()));
+          }
+          rtx.moveToParent();
+        } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           final var key = rtx.getName().getLocalName();
           rtx.moveToFirstChild();
           switch (rtx.getKind()) {
@@ -461,6 +481,8 @@ public final class JsonResourceCopy implements Callable<Void> {
                 wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
+        } else {
+          throw new IllegalStateException("Insert location not known!");
         }
         break;
       case BOOLEAN_VALUE:
@@ -468,6 +490,8 @@ public final class JsonResourceCopy implements Callable<Void> {
           wtx.insertBooleanValueAsFirstChild(rtx.getBooleanValue());
         } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           wtx.insertBooleanValueAsRightSibling(rtx.getBooleanValue());
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertBooleanValueAsLeftSibling(rtx.getBooleanValue());
         } else {
           throw new IllegalStateException("Insert location not known!");
         }
@@ -477,6 +501,8 @@ public final class JsonResourceCopy implements Callable<Void> {
           wtx.insertNullValueAsFirstChild();
         } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           wtx.insertNullValueAsRightSibling();
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertNullValueAsLeftSibling();
         } else {
           throw new IllegalStateException("Insert location not known!");
         }
@@ -486,6 +512,8 @@ public final class JsonResourceCopy implements Callable<Void> {
           wtx.insertNumberValueAsFirstChild(rtx.getNumberValue());
         } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           wtx.insertNumberValueAsRightSibling(rtx.getNumberValue());
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertNumberValueAsLeftSibling(rtx.getNumberValue());
         } else {
           throw new IllegalStateException("Insert location not known!");
         }
@@ -495,6 +523,8 @@ public final class JsonResourceCopy implements Callable<Void> {
           wtx.insertStringValueAsFirstChild(rtx.getValue());
         } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
           wtx.insertStringValueAsRightSibling(rtx.getValue());
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertStringValueAsLeftSibling(rtx.getValue());
         } else {
           throw new IllegalStateException("Insert location not known!");
         }

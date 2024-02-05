@@ -63,11 +63,6 @@ public final class MMStorage implements IOStorage {
   private static final String REVISIONS_FILENAME = "sirix.revisions";
 
   /**
-   * Instance to storage.
-   */
-  private final Path file;
-
-  /**
    * Byte handler pipeline.
    */
   private final ByteHandlerPipeline byteHandlerPipeline;
@@ -95,7 +90,7 @@ public final class MMStorage implements IOStorage {
    */
   public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    file = resourceConfig.resourcePath;
+    final Path file = resourceConfig.resourcePath;
     revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
     dataFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;

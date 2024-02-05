@@ -4,6 +4,7 @@ import net.openhft.chronicle.core.OS;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 
 public final class DirectIOUtils {
@@ -18,7 +19,13 @@ public final class DirectIOUtils {
    */
   public static ByteBuffer allocate(int size) {
     int n = (size + BLOCK_SIZE - 1) / BLOCK_SIZE + 1;
-    return ByteBuffer.allocateDirect(n * BLOCK_SIZE).alignedSlice(BLOCK_SIZE);
+    return ByteBuffer.allocateDirect(n * BLOCK_SIZE).alignedSlice(BLOCK_SIZE).order(ByteOrder.nativeOrder());
+  }
+
+  public static long nearestMultipleOfBlockSize(long size) {
+    return (size + BLOCK_SIZE - 1) & -BLOCK_SIZE;
+//    long n = (size + BLOCK_SIZE - 1) / BLOCK_SIZE + 1;
+//    return n * BLOCK_SIZE;
   }
 
   /**
